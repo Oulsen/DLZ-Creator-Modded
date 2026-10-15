@@ -28,7 +28,12 @@ mount -t binfmt_misc binfmt_misc $R/proc/sys/fs/binfmt_misc || echo "WARNING: no
 mount -t tmpfs tmpfs $R/run && python3 -c "import socket,sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])" $R/run/fake.sock
 cleanup() { umount -R $R/dev 2>/dev/null; umount $R/proc/sys/fs/binfmt_misc $R/run 2>/dev/null; umount $R/tmp $R/proc $R/mnt/dlzdata 2>/dev/null; rmdir $R/mnt/dlzdata 2>/dev/null; umount $R $D; losetup -d $L; rm -rf $W; }
 trap cleanup EXIT
-run() { chroot $R /usr/bin/env DLZMOD_DATA=/mnt/dlzdata /usr/local/sbin/dlzmod-update > $W/run.out 2>&1; echo "rc=$?" >> $W/run.out; sed 's/^/    | /' $W/run.out; }
+# every run: no temp files of the updater left in the card's /tmp afterwards (its report, work and
+# restore folders)
+run() {
+  chroot $R /usr/bin/env DLZMOD_DATA=/mnt/dlzdata /usr/local/sbin/dlzmod-update > $W/run.out 2>&1; echo "rc=$?" >> $W/run.out; sed 's/^/    | /' $W/run.out
+  ls $R/tmp | grep -q '^dlzmod-' && { bad "temp files left in /tmp: $(ls $R/tmp | grep '^dlzmod-' | tr '\n' ' ')"; rm -rf $R/tmp/dlzmod-*; }
+}
 U=$D/dlzmod-update
 reports() { ls $D/dlzmod-logs/ 2>/dev/null | grep -c '^update-'; }
 last() { ls $D/dlzmod-logs/update-*.txt 2>/dev/null | sort -V | tail -1; }
@@ -467,6 +472,34 @@ refused dlzmod-vsetrw "puts something unexpected at /etc/udev/rules.d/99-dlzmod-
 echo "== 59: a setuid file: refused"
 put $(craft dlzmod-vsuid "$(with x-suid.sh)"); run
 refused dlzmod-vsuid "puts something unexpected at /usr/local/sbin/dlzmod-suid"
+
+echo "== 60: the progress marker cannot be written: not installed this time, then installed"
+P=$(craft dlzmod-vprogress "printf '\n// marker test\n' >> mod/app-mod/dlzmod.js")
+mkdir $ST/inprogress.new; put $P; run
+said "NOT INSTALLED this time" && said "progress marker not written" && ok "stopped before the steps" || bad "not stopped at the marker"
+[ -e $U/dlzmod-vprogress.tar ] && [ ! -e $ST/inprogress ] && [ "$(sha $R/srv/app.js)" = "$APP" ] \
+  && ok "package kept, no marker, app.js unchanged" || bad "package gone, marker set or app.js changed"
+rmdir $ST/inprogress.new; run
+said "INSTALLED: " && grep -q "marker test" $R/srv/app.js && ok "installed at the next start" || bad "not installed at the next start"
+APP=$(sha $R/srv/app.js)
+rm -f $U/dlzmod-vprogress.tar $U/dlzmod-vprogress.tar.sig   # left only when this case failed
+
+echo "== 61: a step that exits with 3 is a failed step, not a firmware that does not fit"
+put $(craft dlzmod-vexit3 "sed -i 's/^record_version() {/record_version() { exit 3/' mod/apply-mod.sh"); run
+refused dlzmod-vexit3 "a step failed (exit 3)"
+
+echo "== 62: a cut-off try whose snapshot cannot be unpacked: restore incomplete, no temp folder left"
+chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list'
+cp $ST/previous.tar $W/previous.tar.keep 2>/dev/null; echo "not a tar" > $ST/previous.tar
+echo "gone-package" > $ST/inprogress
+run
+said "RESTORE INCOMPLETE" && ok "restore incomplete reported" || bad "no RESTORE INCOMPLETE"
+rm -f $ST/inprogress; [ -e $W/previous.tar.keep ] && mv $W/previous.tar.keep $ST/previous.tar || rm -f $ST/previous.tar
+
+echo "== 63: stops before DLZDATA (not on an SD card): no report file left in /tmp"
+chroot $R /usr/local/sbin/dlzmod-update > $W/run.out 2>&1
+grep -q "not on an SD card" $W/run.out && ok "stopped: not on an SD card" || bad "did not stop at the SD check: $(cat $W/run.out)"
+ls $R/tmp | grep -q '^dlzmod-update-report' && bad "report file left in /tmp" || ok "no report file left"
 fi
 echo "== 14: guards still as installed after all this"
 for f in flash-gd32 upgradedaemon upgraderun; do

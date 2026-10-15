@@ -52,10 +52,12 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    list; the card's model in `MODELS`, `EVOLVE_NODE` and `REINSTALL=no`; not older than the card's version
    (`/var/lib/dlzmod-update/version`); and the package's **guards** byte for byte
    as the installed updater knows them (sha256 list `GUARDS` in `dlzmod-update`, checked against the
-   files by `mkpackage.sh`). A package that changes a guard needs a full install. One file of the
-   package runs as root here, after the signature check and every other check of this step: its
-   own `check-rootfs.sh` (does this card's firmware and GD32 marker pass the new package's check);
-   that is covered by the signature being the trust boundary (below).
+   files by `mkpackage.sh`). A package that changes a guard needs a full install. Then the one
+   piece of package code that runs as root outside the sandbox: its own `check-rootfs.sh` (does
+   this card's firmware and GD32 marker pass the new package's check), only after the signature
+   check and every other check of this step. It needs root to list `/root` (mode 700:
+   `.dlzlite` and the GD32 markers), which the sandbox's uid cannot read; the signature being the
+   trust boundary (below) covers it.
    The 8 guards: the drop-ins of `flash-gd32`, `flash-fpga`, `upgradedaemon` and `upgraderun`,
    `dlzmod-emmc-ro` with its unit and the udev rule `60-dlzmod-emmc-ro.rules`, and `dlzmod-cardcheck`.
 4. **Snapshot** of every file an update may change (once per package: a retry after a power cut
@@ -106,8 +108,8 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
 - **Stage**: a copy in `/tmp` of every file an update may change plus what the steps read (the patch
   originals); filling it is checked file by file. The package's steps (`apply-mod.sh`:
   `install_sd_system`, `apply_patches`, `set_mod_defaults`, `record_version`, the new updater copy;
-  `patch.py --check` first) only ever see the stage. (The package's `check-rootfs.sh` runs
-  earlier, as root: step 3.)
+  `patch.py --check` first) only ever see the stage. (The one exception: the package's
+  `check-rootfs.sh` runs earlier, as root and outside the sandbox: step 3.)
 - **Sandbox**: `unshare -m -p -n -f --kill-child --mount-proc` (own mount, pid and network namespaces:
   no network, and whatever they start dies with them). Before dropping root: a fresh empty `/run` and
   `/tmp` (the sockets of systemd, dbus, udev and the display live there; `/run/systemd/private` is
