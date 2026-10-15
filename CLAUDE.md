@@ -52,8 +52,10 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
 - Never commit to `main` or `develop` directly: every change on its own branch from `develop`, a PR
   into `develop` (`/pr`, squash-merged by the user); a release is a PR `develop` → `main`,
   fast-forwarded by the user with `git push origin <commit>:main` (never the merge button), so `main`
-  and `develop` stay one commit (`docs/DEVELOPMENT.md`, "Branches" and "Releases"). Before a PR opens, one
-  review agent reads the branch's diff, docs-only PRs too; findings fixed or named in the PR body
+  and `develop` stay one commit (`docs/DEVELOPMENT.md`, "Branches" and "Releases"). Right after `/pr`,
+  start `/cr` (or `/code-review`) on the opened PR, docs-only PRs too, so the whole diff is read,
+  including changes made after a device review; findings fixed as new commits on the PR or named in
+  the PR description, before the merge; fixes that add new logic get one more pass
   (`docs/DEVELOPMENT.md`, "Review").
 - With every version bump, write a `## vX.Y.Z` section in `CHANGELOG.md` (newest version first)
   from the milestone's issues: their titles as bullets, in the order DLZ FEATURE, DLZ BUG, MOD
