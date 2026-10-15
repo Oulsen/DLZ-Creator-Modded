@@ -279,9 +279,10 @@ issue's technical notes point to the note section instead of copying it.
 
   Work PRs into `develop` say `Refs #N`, never `Fixes #N` (that would close the issue before it is
   released). "Device test" is the list for the next session with the mixer; issues that the tests and
-  the sandbox fully cover (docs, a screen text) skip it. An issue closes only through the release PR,
-  whose description lists `Fixes #N: <title>` for every released issue (one keyword per issue;
-  GitHub reads the PR description, not the commits).
+  the sandbox fully cover (docs, a screen text) skip it. An issue closes only with the release: the
+  release PR's description lists `Fixes #N: <title>` for every released issue (one keyword per
+  issue; GitHub reads the PR description, not the commits), and what GitHub does not close when the
+  release is pushed is closed by hand ("Releases", step 4).
 - **Branches**: `develop` for work and tests, `main` for releases only. Nothing is committed to
   either directly: every change gets its own branch from `develop` (`fix/...`, `feature/...`,
   `docs/...`) and a PR into `develop`, **squash-merged** (one commit per change).
@@ -292,14 +293,22 @@ issue's technical notes point to the note section instead of copying it.
   docs and correctness; for code: bugs, failure paths, what the tests cannot see); findings are
   fixed, or named in the PR description as accepted. The release PR `develop` → `main` only carries
   reviewed changes: its check is the changelog section, the `Fixes #N` list and that the release
-  files are the tested ones. A change that runs on the mixer still gets its device review, once per
+  files are the tested ones; it is fast-forwarded, not merged with the button ("Releases"). A change that runs on the mixer still gets its device review, once per
   image (`.claude/skills/device-review`).
-- **Releases**: a PR `develop` → `main`, merged with **"Create a merge commit"**, so `main` holds
-  `develop`'s commits and the next release PR shows only what is new (no merge back into `develop`).
-  The squash and merge-commit messages are the PR's title and description. The release build is
-  made and tested from `develop`'s tip before the PR (its `package.env` names that commit; the merge
-  commit has the same `install/` and `VERSION`, so the release-build check is not run on `main`).
-  Then an annotated tag `vX.Y.Z` on that merge commit and a GitHub release with the `CHANGELOG.md` section as notes
+- **Releases**: a PR `develop` → `main`, **fast-forwarded**, not merged with GitHub's button: its
+  merge methods all add commits (a merge commit, or rewritten copies), which would leave `develop`
+  behind `main`. Nothing is merged into `develop` from the release build until the push, so the built
+  commit, `develop`'s tip and the PR's head are one commit. In order:
+  1. Make the release build from `develop`'s tip and test it (its `package.env` names that commit).
+  2. Open the release PR `develop` → `main` and review it.
+  3. The maintainer moves `main` to the PR's head commit:
+     `git fetch origin && git push origin <commit>:main` (no `--force`: git refuses anything that is
+     not a fast-forward). GitHub then shows the PR as merged, and `main` and `develop` are the same
+     commit. The ruleset on `main` needs the maintainer on its bypass list in mode "Always" (not "Pull
+     requests only") for this push; force pushes stay blocked.
+  4. Check that the milestone's issues closed (`gh issue list --milestone vX.Y.Z --state open`) and
+     close the ones the `Fixes #N` lines missed by hand.
+  5. An annotated tag `vX.Y.Z` on that commit. Then a GitHub release with the `CHANGELOG.md` section as notes
   (grouped under the section headings of "`CHANGELOG.md`" below, without the title prefixes),
   followed by the GPL source note from the README's "Legal" (U-Boot and busybox versions and their
   Debian source links, at the tag; update it when `vendor.sh` pins new ones), and the tested
