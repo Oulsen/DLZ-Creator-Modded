@@ -1,5 +1,5 @@
 # The checks that need no mixer, no dump and no Mackie files: the server mod's unit tests, the build
-# tools' key guards (tests/guards.sh), and a syntax check of every shell script and Python file. The
+# tools' key guards (tests/guards.sh), the updater checks (tests/update-checks.sh), and a syntax check of every shell script and Python file. The
 # rehearsals on card images run on a PC with the dump (tests/README.md).
 name: checks
 
@@ -27,6 +27,12 @@ jobs:
 
       - name: Key guards of the build tools
         run: bash tests/guards.sh
+
+      # every released updater must accept the new one (the checkout is shallow and has no tags)
+      - name: Updater checks
+        run: |
+          git fetch --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+          bash tests/update-checks.sh
 
       - name: Shell syntax (by shebang)
         run: |
