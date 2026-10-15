@@ -80,7 +80,7 @@ organised: "GitHub workflow" below and [CONTRIBUTING.md](../CONTRIBUTING.md).
 | `vendor/` | Third-party U-Boot, downloaded in Setup (git-ignored) |
 | `build/` | Generated images/scripts (git-ignored) |
 | `dumps/` | Data read from the device (git-ignored, never share) |
-| `.github/` | Issue templates (bug, feature, help with an install), the pull request template and the checks GitHub runs on every push and pull request (`workflows/checks.yml`: unit tests, key guards, script syntax) |
+| `.github/` | Issue templates (bug, feature, help with an install), the pull request template, `CODEOWNERS` (who reviews) and the checks GitHub runs on every push and pull request (`workflows/checks.yml`: unit tests, key guards, script syntax) |
 | `.claude/skills/` | Workflows for Claude Code: the device review, the UI sandbox, SSH to your mixer, the release build |
 
 ## Notes
@@ -285,10 +285,21 @@ issue's technical notes point to the note section instead of copying it.
 - **Branches**: `develop` for work and tests, `main` for releases only. Nothing is committed to
   either directly: every change gets its own branch from `develop` (`fix/...`, `feature/...`,
   `docs/...`) and a PR into `develop`, **squash-merged** (one commit per change).
+- **Review**: every PR into `develop` gets a review before it is merged, also a small one that only
+  changes docs. A contributor's PR: the maintainer reviews it (`.github/CODEOWNERS` requests that
+  once the repo is public; a ruleset makes it required). The maintainer's own PRs: one review pass
+  by an AI reviewer on the branch's diff before the PR opens (for docs: consistency with the other
+  docs and correctness; for code: bugs, failure paths, what the tests cannot see); findings are
+  fixed, or named in the PR description as accepted. The release PR `develop` → `main` only carries
+  reviewed changes: its check is the changelog section, the `Fixes #N` list and that the release
+  files are the tested ones. A change that runs on the mixer still gets its device review, once per
+  image (`.claude/skills/device-review`).
 - **Releases**: a PR `develop` → `main`, merged with **"Create a merge commit"**, so `main` holds
   `develop`'s commits and the next release PR shows only what is new (no merge back into `develop`).
-  The squash and merge-commit messages are the PR's title and description. Then an annotated tag
-  `vX.Y.Z` on that merge commit and a GitHub release with the `CHANGELOG.md` section as notes
+  The squash and merge-commit messages are the PR's title and description. The release build is
+  made and tested from `develop`'s tip before the PR (its `package.env` names that commit; the merge
+  commit has the same `install/` and `VERSION`, so the release-build check is not run on `main`).
+  Then an annotated tag `vX.Y.Z` on that merge commit and a GitHub release with the `CHANGELOG.md` section as notes
   (grouped under the section headings of "`CHANGELOG.md`" below, without the title prefixes),
   followed by the GPL source note from the README's "Legal" (U-Boot and busybox versions and their
   Debian source links, at the tag; update it when `vendor.sh` pins new ones), and the tested
