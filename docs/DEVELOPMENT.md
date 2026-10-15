@@ -338,14 +338,17 @@ issue's technical notes point to the note section instead of copying it.
   `docs/...`) and a PR into `develop`, **squash-merged** (one commit per change).
 - **Review**: every PR into `develop` gets a review before it is merged, also a small one that only
   changes docs. A contributor's PR: the maintainer reviews it (`.github/CODEOWNERS` requests that
-  once the repo is public; a ruleset makes it required). The maintainer's own PRs: one review pass
-  by an AI reviewer on the opened PR (`/cr` or `/code-review`), so everything that will be merged is
-  read, also what changed after the device review (for docs: consistency with the other docs and
-  correctness; for code: bugs, failure paths, what the tests cannot see); findings are fixed as new
-  commits on the PR, or named in the PR description as accepted, before the merge. The release PR `develop` → `main` only carries
-  reviewed changes: its check is the changelog section, the `Fixes #N` list and that the release
-  files are the tested ones; it is fast-forwarded, not merged with the button ("Releases"). A change that runs on the mixer still gets its device review, once per
-  image (`.claude/skills/device-review`).
+  once the repo is public; a ruleset makes it required). The maintainer's own PRs: right after the
+  PR opens, the maintainer runs one review pass by an AI reviewer on the opened PR (`/cr` or
+  `/code-review`, Claude Code review commands), so the whole diff that will be merged is read,
+  including changes made after a device review (for docs: consistency with the other docs and
+  correctness; for code: bugs, failure paths, what the tests cannot see). Findings are fixed as new
+  commits on the PR, or named in the PR description as accepted, before the merge; fixes that add
+  new logic or touch other code get one more pass on the PR, wording and fixes that only do what a
+  finding asked do not. The release PR `develop` → `main` only carries reviewed changes: its check
+  is the changelog section, the `Fixes #N` list and that the release files are the tested ones; it
+  is fast-forwarded, not merged with the button ("Releases"). A change that runs on the mixer still
+  gets its device review, once per image (`.claude/skills/device-review`).
 - **Releases**: a PR `develop` → `main`, **fast-forwarded**, not merged with GitHub's button: its
   merge methods all add commits (a merge commit, or rewritten copies), which would leave `develop`
   behind `main`. Nothing is merged into `develop` from the release build until the push, so the built

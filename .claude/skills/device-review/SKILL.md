@@ -22,7 +22,8 @@ visuals, U-Boot scripts, `uboot.env`, initramfs contents, the dumper and the ins
 any rebuilt card image whose inputs changed.
 
 Not part of it: notes, README/CHANGELOG, GitHub issues, tests, CI, the PC sandbox (`dev/`): those
-get a normal code review (`/cr`) when they need one.
+get no device review; their PR gets the normal `/cr` review like every PR (`docs/DEVELOPMENT.md`,
+"Review").
 
 **Once per image that goes onto the mixer, not per commit or fix.** Collect the changes since the
 last version that passed on the device, run the tests, then review that batch once, on the build
