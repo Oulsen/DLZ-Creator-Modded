@@ -339,9 +339,10 @@ issue's technical notes point to the note section instead of copying it.
 - **Review**: every PR into `develop` gets a review before it is merged, also a small one that only
   changes docs. A contributor's PR: the maintainer reviews it (`.github/CODEOWNERS` requests that
   once the repo is public; a ruleset makes it required). The maintainer's own PRs: one review pass
-  by an AI reviewer on the branch's diff before the PR opens (for docs: consistency with the other
-  docs and correctness; for code: bugs, failure paths, what the tests cannot see); findings are
-  fixed, or named in the PR description as accepted. The release PR `develop` → `main` only carries
+  by an AI reviewer on the opened PR (`/cr` or `/code-review`), so everything that will be merged is
+  read, also what changed after the device review (for docs: consistency with the other docs and
+  correctness; for code: bugs, failure paths, what the tests cannot see); findings are fixed as new
+  commits on the PR, or named in the PR description as accepted, before the merge. The release PR `develop` → `main` only carries
   reviewed changes: its check is the changelog section, the `Fixes #N` list and that the release
   files are the tested ones; it is fast-forwarded, not merged with the button ("Releases"). A change that runs on the mixer still gets its device review, once per
   image (`.claude/skills/device-review`).
