@@ -1,0 +1,17 @@
+name: Feature request
+description: Something the mod could add or do better
+title: "(FEATURE) "
+labels: [triage]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What it would add
+      description: What you want to do on the mixer, and why. Plain words are best.
+    validations:
+      required: true
+  - type: dropdown
+    id: mixer
+    attributes:
+      label: Mixer
+      options: [DLZ Creator XS, DLZ Creator (full-size), Both]

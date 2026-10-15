@@ -1,0 +1,70 @@
+#!/bin/sh
+# Copy the syslog of the last boots of the SD system to DLZDATA/dlzmod-logs/, so the card can be read
+# in any card reader instead of copying the ext4 rootfs (no SSH yet). Runs early, before server.js
+# mounts DLZDATA. A failed boot shows up at the next boot. Only boots of the SD system are copied
+# (their sections contain the dlzmod-grow-data unit, which runs at every boot), not the device's own
+# history from the dump. Not dlzmod-emmc-ro: it runs so early that its lines can land before the
+# kernel's "Booting Linux" line, i.e. in the previous (stock) boot's section.
+set -u
+
+log() { echo "dlzmod-bootlog: $*"; }
+# milliseconds since start, per step, to see what a slow boot spends here
+ms() { echo $(( $(date +%s%3N) - t0 )); }
+t0=$(date +%s%3N)
+BOOTS=3
+
+root_part=$(findmnt -no SOURCE /)
+disk=/dev/$(lsblk -no PKNAME "$root_part")
+part=${disk}p2
+if [ "$(blkid -o value -s LABEL "$part" 2>/dev/null)" != DLZDATA ]; then
+  log "$part is not DLZDATA, nothing to do"
+  exit 0
+fi
+
+tmp=$(mktemp)
+raw=$(mktemp)
+# syslog is not rotated on this system (logrotate.timer is off); syslog.1 only if that changes.
+# tail -c on a file seeks, so a large syslog costs nothing.
+{
+  [ -f /var/log/syslog.1 ] && tail -c 4000000 /var/log/syslog.1
+  tail -c 4000000 /var/log/syslog
+} > "$raw"
+# One pass for the line ranges of the last SD boots, then sed copies them: linear. (Collecting the
+# sections in awk strings was quadratic and took 7 s on the device, before server.js could start.)
+awk -v keep="$BOOTS" '
+  /Booting Linux on physical CPU/ { n++; first[n] = NR }
+  n && /dlzmod: grow DLZDATA|dlzmod-grow-data/ { sd[n] = 1 }
+  END {
+    first[n + 1] = NR + 1
+    c = 0
+    for (i = n; i >= 1 && c < keep; i--) if (sd[i]) pick[++c] = i
+    for (j = c; j >= 1; j--) print first[pick[j]], first[pick[j] + 1] - 1
+  }' "$raw" > "$raw.ranges"
+total=$(wc -l < "$raw.ranges")
+k=0
+while read -r from to; do
+  k=$((k + 1))
+  echo "===== boot $k of $total (oldest first) ====="
+  sed -n "${from},${to}p" "$raw"
+done < "$raw.ranges" > "$tmp"
+rm -f "$raw" "$raw.ranges"
+t_extract=$(ms)
+
+mnt=$(mktemp -d)
+if ! mount -t vfat -o rw,flush "$part" "$mnt"; then
+  log "cannot mount $part"
+  rm -f "$tmp"; rmdir "$mnt"
+  exit 1
+fi
+t_mount=$(ms)
+mkdir -p "$mnt/dlzmod-logs"
+[ -f "$mnt/dlzmod-logs/syslog-last-boots.txt" ] &&
+  mv -f "$mnt/dlzmod-logs/syslog-last-boots.txt" "$mnt/dlzmod-logs/syslog-last-boots.prev.txt"
+cp "$tmp" "$mnt/dlzmod-logs/syslog-last-boots.txt"
+t_copy=$(ms)
+# no global sync: it would flush every dirty page (on the first boot the fresh 52 GB FAT); umount
+# flushes this filesystem
+umount "$mnt"
+rmdir "$mnt"
+log "wrote $(grep -c '^===== boot' "$tmp") boot(s), $(wc -c < "$tmp") bytes to DLZDATA/dlzmod-logs (ms: extract $t_extract, mount $t_mount, copy $t_copy, umount $(ms))"
+rm -f "$tmp"

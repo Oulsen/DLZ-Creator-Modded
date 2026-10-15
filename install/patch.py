@@ -1,0 +1,281 @@
+#!/usr/bin/env python3
+"""Apply the DLZ Creator Modded patches to Mackie's /srv/app.js or /srv/server.js.
+
+Usage: patch.py app <app.js>
+       patch.py server <server.js>
+       patch.py --check app|server <file>   (only check the anchors and the mod file, write nothing;
+                                             the installer runs this on the read-only eMMC before
+                                             its accept screen)
+
+The first run keeps the original as <file>.orig; every run patches from that original, so it can
+be re-run after changing the patches. Each anchor must occur exactly once in the original,
+otherwise nothing is written (a different firmware build needs its anchors checked). Our own code
+is appended afterwards: app-mod/dlzmod.js (with the mod version stamped in) or
+server-mod/dlzmod-server.js.
+
+The patched server.js only ever runs from the SD card, where the only SD slot holds the boot card
+(FORMAT SD would wipe its bootloader and partition table) and Mackie updates must not be installed
+(they can bring new GD32 firmware and overwrite the mod; see notes/modding-guide.md, Brick risks).
+Recordings get free, unique names (server-mod/dlzmod-server.js).
+"""
+import os
+import sys
+from pathlib import Path
+
+from modversion import read_version
+
+HERE = Path(__file__).parent
+
+
+def write_atomic(path, data):
+    """Write next to the target, flush to disk, then rename over it: a power cut leaves the old file
+    or the new one, never an empty one (the drop-in update runs this on the running card)."""
+    tmp = path.with_name(path.name + ".dlzmod-new")
+    with open(tmp, "wb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+VERSION_PLACEHOLDER = "%%DLZMOD_VERSION%%"
+
+# (what, anchor in Mackie's code, replacement)
+APP_PATCHES = [
+    (
+        # app.setPage shows the header on every page switch (full-screen pages hide it again)
+        "header: follow the Hide header setting",
+        "t.topBar.show(),t.navBar.show(),t.panel.show(),e){case E_PAGE.EZASSISTANT:",
+        "t.topBar.setVisible(!DLZMOD_headerHidden()),t.navBar.show(),t.panel.show(),e){case E_PAGE.EZASSISTANT:",
+    ),
+    (
+        "settings: add Mod tab",
+        "let t=[lang.SYSTEM,lang.BLUETOOTH_SD,lang.ROUTING_RECORDING,lang.ABOUT];",
+        'let t=[lang.SYSTEM,lang.BLUETOOTH_SD,lang.ROUTING_RECORDING,lang.ABOUT,DLZMOD_tabLabel()];',
+    ),
+    (
+        "settings: Mod tab in mod yellow",
+        "text:t[e],opaque:!1,colors:[Color.subNavButtonBg,Color.main],",
+        "text:t[e],opaque:!1,colors:[Color.subNavButtonBg,4===e?DLZMOD_yellow():Color.main],",
+    ),
+    (
+        "settings: show Mod page",
+        "case 3:this.about.show(),this.about2.show()}",
+        "case 3:this.about.show(),this.about2.show();break;case 4:this.dlzmod.show()}",
+    ),
+    (
+        "settings: create Mod page",
+        "this.pages=[this.layout,this.bright,this.bt,this.sd,this.usb,this.rec2,this.rec,this.about,this.about2,this.stream]",
+        "this.dlzmod=DLZMOD_settingsPage(this,l),"
+        "this.pages=[this.layout,this.bright,this.bt,this.sd,this.usb,this.rec2,this.rec,this.about,this.about2,this.stream,this.dlzmod]",
+    ),
+    (
+        # Mackie's settings class: onResize (equal tab widths) + paint, directly followed by
+        # PageSamples, whose identical onResize/paint is followed by SampleInfo instead
+        "settings: fixed-width Mod tab, yellow tab underline on the Mod page",
+        "onResize(){if(this.banks){let t=this.banks.length,e=2,i=(this.w-e*(t-1))/t|0,s=this.w-(i*t+e*(t-1));"
+        "this.banks.forEach(((t,a)=>t.setGeometry((i+e)*a,null,i+(a===this.banks.length-1?s:0),null)))}}"
+        "paint(t){t.fRect(this.bgColor,0,0,this.w,this.h),t.fRect(Color.subNavButtonSeparator,0,0,this.w,40),"
+        "t.fRect(Color.main,0,40,this.w,2)}},PageSamples=class",
+        "onResize(){DLZMOD_layoutTabs(this)}"
+        "paint(t){t.fRect(this.bgColor,0,0,this.w,this.h),t.fRect(Color.subNavButtonSeparator,0,0,this.w,40),"
+        "t.fRect(4===this.page?DLZMOD_yellow():Color.main,0,40,this.w,2)}},PageSamples=class",
+    ),
+    (
+        # booted from SD, the only SD slot holds the boot card: FORMAT SD would wipe the running
+        # system (server.js refuses it too, see SERVER_PATCHES)
+        "settings: disable Format SD Card",
+        'getState:function(){this.enabled=Data.get("sd")!==E_SD_STATUS.REMOVED},'
+        'onPress:()=>{let t=Data.get("sd");t!==E_SD_STATUS.REMOVED&&new PopupConfirm',
+        'getState:function(){this.enabled=!1},'
+        'onPress:()=>{let t=Data.get("sd");!1&&t!==E_SD_STATUS.REMOVED&&new PopupConfirm',
+    ),
+    (
+        "settings: hide Format SD Card",
+        "text:lang.FORMAT_SD_CARD,size:[230,50]",
+        "text:lang.FORMAT_SD_CARD,visible:!1,size:[230,50]",
+    ),
+    (
+        "settings: note in the SD panel that the mod runs from this card",
+        'PAINT_WINDOW_BG.call(this,t),t.drawText(lang.SD_CARD,this.w/2|0,e,'
+        '{color:Color.white,font:s,align:"center",valign:"middle"});',
+        'PAINT_WINDOW_BG.call(this,t),t.drawText(lang.SD_CARD,this.w/2|0,e,'
+        '{color:Color.white,font:s,align:"center",valign:"middle"}),DLZMOD_paintSdNote(t,this);',
+    ),
+    (
+        # after the bar, before the peak line: yellow/red zones and dB notches (DLZMOD_vuPaint);
+        # e = full length, s = bar length in VUMeter.paint
+        "meters: yellow and red zones, dB notches",
+        "t.fillRect(0,this.h-s,this.w,s)}if(this.havePeak){",
+        "t.fillRect(0,this.h-s,this.w,s)}DLZMOD_vuPaint(this,t,s,e);if(this.havePeak){",
+    ),
+    (
+        # parseVuData: l = the strip's "gain" pickup, T = its index; i/o = post, t/a = pre (before
+        # the gain): DLZMOD_vuSet feeds both bars by the Mod page's meter mode
+        "meters: Mackie / both / before the fader (Mod page), left/mono meter",
+        "if(e.vu.setValue(i,t),",
+        "if(DLZMOD_vuSet(e.vu,l,T,i,t),",
+    ),
+    (
+        "meters: Mackie / both / before the fader (Mod page), right meter of stereo strips",
+        "if(e.vu2.setValue(o,a),",
+        "if(DLZMOD_vuSet(e.vu2,l,T+1,o,a),",
+    ),
+    (
+        # next to Mackie's firmware popups: the drop-in update's result (DLZMOD_UPDATE_NOTE, once,
+        # until its OK) and the status line for the Mod page (DLZMOD_UPDATE_STATUS), sent by the
+        # server mod when the screen has loaded
+        "update: popup after a drop-in update, status on the Mod page",
+        "$NET.addCallback(E_CMD.FIRMWARE_UPDATE_SUCCESS,(()=>showFirmwareUpdateSuccessPopup())),",
+        "$NET.addCallback(E_CMD.FIRMWARE_UPDATE_SUCCESS,(()=>showFirmwareUpdateSuccessPopup())),"
+        '$NET.addCallback("DLZMOD_UPDATE_NOTE",(t=>DLZMOD_showUpdateNote(t))),'
+        '$NET.addCallback("DLZMOD_UPDATE_STATUS",(t=>DLZMOD_setUpdateStatus(t))),'
+        # the card is not in the mixer it was made for (sd-system/dlzmod-cardcheck): every start
+        '$NET.addCallback("DLZMOD_CARD_NOTE",(t=>DLZMOD_showCardNote(t))),'
+        # Network panel on the Mod page: status, Wi-Fi scan list, outcome of a change
+        '$NET.addCallback("DLZMOD_NET_STATE",(t=>DLZMOD_setNetState(t))),'
+        '$NET.addCallback("DLZMOD_WIFI_LIST",(t=>DLZMOD_setWifiList(t))),'
+        '$NET.addCallback("DLZMOD_NET_RESULT",(t=>DLZMOD_netResult(t))),',
+    ),
+]
+
+SERVER_PATCHES = [
+    (
+        "media: refuse FORMAT_SD (the SD slot holds the boot card)",
+        'FORMAT_SD:async e=>!!await Se("sd")||void 0',
+        'FORMAT_SD:async e=>(console.error("dlzmod: FORMAT_SD refused, the SD slot holds the boot card"),void 0)',
+    ),
+    (
+        # ca() links a found .upd and announces FIRMWARE_FOUND; the original stays as dead code
+        "firmware: never offer an update file",
+        "async function ca(e,t){",
+        'async function ca(e,t){console.log("dlzmod: firmware updates are disabled on the SD card")}'
+        "async function dlzmod_ca_orig(e,t){",
+    ),
+    (
+        "firmware: refuse FIRMWARE_UPDATE",
+        "async FIRMWARE_UPDATE(){",
+        'async FIRMWARE_UPDATE(){return{rootResponse:{cmd:"FIRMWARE_UPDATE_FAILED",id:0,data:""}};',
+    ),
+    (
+        # A() (REC_START): t is the recordings folder, y the file handed to dspserver; ce() is a
+        # medium's mount point ("-" when empty), C()?w:x the XS / full-size folder name
+        "recording: free, unique names (DLZMOD_recName)",
+        'let a=await le(t,"REC_[0-9]{4}");y=t+"/REC_"+"0".repeat(4-a.toString().length)+a+".wav"',
+        'let a=await DLZMOD_recName(t,[ce("sd"),ce("usb")].map((m=>m+"/"+(C()?w:x))));if(!a)return;y=t+"/"+a+".wav"',
+    ),
+    (
+        # same round trip as Mackie's firmware popup: sent when a screen has loaded, OK comes back
+        "update: popup after a drop-in update (DLZMOD_updateNoteSend)",
+        "async GUI_LOADED(e,t,a,i){",
+        "async GUI_LOADED(e,t,a,i){DLZMOD_updateNoteSend(i);",
+    ),
+    (
+        # each connection's send function says whether it comes from the mixer itself (127.0.0.1:
+        # the device's screen); DLZMOD_net only takes changes from those (DLZMOD_isLocal)
+        "network: socket.io connections marked local or not",
+        '};Xt(),e.on("message",(async e=>await la(e,t)))}',
+        '};t.send.dlzmodLocal=DLZMOD_isLocal(e.handshake&&e.handshake.address);'
+        'Xt(),e.on("message",(async e=>await la(e,t)))}',
+    ),
+    (
+        "network: TCP connections (port 89) marked local or not",
+        'i=[];e.setEncoding("utf8")',
+        'i=[];a.send.dlzmodLocal=DLZMOD_isLocal(e.remoteAddress),e.setEncoding("utf8")',
+    ),
+    (
+        # #47: Mackie's file commands take paths and names from any client unchecked (notes/system.md,
+        # "Access and security"; notes/mod.md). Every command passes DLZMOD_cmdAllowed first: file
+        # commands only from the mixer's own screen, preset folders and names checked for everyone;
+        # a refused one answers false
+        "files: commands checked (DLZMOD_cmdAllowed)",
+        'let a=e.cmd;if("function"!=typeof pa[a])',
+        'let a=e.cmd;{let r=DLZMOD_cmdAllowed(pa,a,e.args,t.send,[ce("sd"),ce("usb")]);'
+        'if(r)return console.error("dlzmod: refused",a,r),void t.send({cmd:a,id:e.id,data:!1})}'
+        'if("function"!=typeof pa[a])',
+    ),
+    (
+        # plain key/value messages: no prototype keys; file paths dspserver opens only from the screen.
+        # A refused key is also taken out of the message: after this loop stock passes the whole
+        # message on to every socket.io client, dspserver included (entries() is a copy, so deleting
+        # while looping is safe)
+        "files: data keys checked (DLZMOD_keyAllowed)",
+        "for(const[a,i]of Object.entries(e))if(null!=a){",
+        "for(const[a,i]of Object.entries(e))if(null!=a&&(DLZMOD_keyAllowed(a,i,t.send)||(delete e[a],!1))){",
+    ),
+    (
+        # stock builds a shell line from file names on the card or stick: a name with ; would run
+        "files: wavfinalizer without a shell",
+        'try{await b("wavfinalizer "+t+"/"+e+" "+t+"/"+a)}',
+        'try{await DLZMOD_wavfinalize(t+"/"+e,t+"/"+a)}',
+    ),
+    (
+        # /srv is served as it is: the originals patch.py and apply-mod.sh keep there stay private
+        "files: kept originals not served (DLZMOD_noOrig)",
+        'a=e();return a.get("/app.js",',
+        'a=e();a.use(DLZMOD_noOrig);return a.get("/app.js",',
+    ),
+    (
+        # About's "Device IP Address" (polled every 5 s): Ethernet first as stock, else the Wi-Fi stick
+        "network: About shows the Wi-Fi address when there is no Ethernet one",
+        """Ce("ip addr show eth0 | grep -Pom 1 '[0-9.]{7,15}/'")""",
+        """Ce("{ ip addr show eth0; ip addr show wlan0; } 2>/dev/null | grep -Pom 1 '[0-9.]{7,15}/'")""",
+    ),
+    (
+        "update: the popup's OK (DLZMOD_UPDATE_NOTE_OK); Network panel (DLZMOD_NET)",
+        "async FIRMWARE_UPDATE_SUCCESS_OK(){",
+        "DLZMOD_UPDATE_NOTE_OK(){DLZMOD_updateNoteSeen()},"
+        # Network panel (Wi-Fi, SSH): answers go to this screen only (i = its send); not awaited,
+        # so a 45 s Wi-Fi connect does not hold up the screen's other commands
+        "DLZMOD_NET(e,t,a,i){DLZMOD_net(e,i)},"
+        "async FIRMWARE_UPDATE_SUCCESS_OK(){",
+    ),
+]
+
+# target: (patches, appended mod file, stamp the mod version into it)
+TARGETS = {
+    "app": (APP_PATCHES, HERE / "app-mod" / "dlzmod.js", True),
+    "server": (SERVER_PATCHES, HERE / "server-mod" / "dlzmod-server.js", False),
+}
+
+
+def main():
+    args = sys.argv[1:]
+    check = args[:1] == ["--check"]
+    if check:
+        args = args[1:]
+    if len(args) != 2 or args[0] not in TARGETS:
+        sys.exit(__doc__)
+    patches, mod_js, stamp = TARGETS[args[0]]
+    target = Path(args[1])
+    orig = target.with_name(target.name + ".orig")
+    if check:   # the stock file itself (or its kept original); nothing is written, not even .orig
+        orig = orig if orig.exists() else target
+    elif not orig.exists():
+        write_atomic(orig, target.read_bytes())
+    # bytes in, bytes out: no newline translation, so Windows and Linux builds are identical
+    src = orig.read_bytes().decode("utf-8")
+
+    for what, anchor, repl in patches:
+        n = src.count(anchor)
+        if n != 1:
+            sys.exit(f"anchor for '{what}' found {n} times, expected 1; nothing written")
+        src = src.replace(anchor, repl)
+        print(f"{'anchor ok' if check else 'patched'}: {what}")
+
+    mod = mod_js.read_bytes().decode("utf-8").replace("\r\n", "\n")
+    note = ""
+    if stamp:
+        version = read_version()
+        if mod.count(VERSION_PLACEHOLDER) != 1:
+            sys.exit(f"{mod_js.name}: expected one {VERSION_PLACEHOLDER}; nothing written")
+        mod = mod.replace(VERSION_PLACEHOLDER, version)
+        note = f" ({version})"
+    if check:
+        print(f"check ok: {len(patches)} anchors in {orig}, {mod_js.name}{note}")
+        return
+    src += "\n;" + mod
+    write_atomic(target, src.encode("utf-8"))
+    print(f"appended {mod_js.name}{note}; wrote {target} (original: {orig.name})")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,17 @@
+#!/bin/sh
+# ExecStartPre of dspserver (SD system): wait until server.js (evolve-node) listens on port 80.
+# dspserver connects to it once, right after its init ("Waiting for graphics... Done."), and does
+# not retry: when it is done first, it never gets its state (no audio, mic dead, REC ignored) until
+# a reboot. Normally the server wins by seconds; anything that slows the boot (the first-boot grow)
+# flips the order. Gives up after 45 s and lets dspserver start anyway, as stock would.
+i=0
+while [ $i -lt 225 ]; do
+  if [ -n "$(ss -Hltn 'sport = :80' 2>/dev/null)" ]; then
+    [ $i -gt 0 ] && echo "dlzmod-wait-hub: server.js listening after $((i / 5)).$((i % 5 * 2)) s"
+    exit 0
+  fi
+  sleep 0.2
+  i=$((i + 1))
+done
+echo "dlzmod-wait-hub: nothing on port 80 after 45 s, starting dspserver anyway" >&2
+exit 0

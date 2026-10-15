@@ -1,0 +1,7 @@
+# The internal eMMC read-only the moment it appears, however late in the start (dlzmod-emmc-ro.service
+# runs early and only locks what is there by then: the eMMC is probed asynchronously).
+# Found by type (the mmc card's "type" is MMC; the SD card is SD), never by number: the
+# whole disk, its partitions and the boot0/boot1 hardware partitions. Only on the mod card, which
+# holds / itself, so the eMMC is never the disk holding /.
+SUBSYSTEM=="block", KERNEL=="mmcblk[0-9]*", ACTION=="add|change", ATTRS{type}=="MMC", RUN+="/usr/sbin/blockdev --setro /dev/%k"
+SUBSYSTEM=="block", KERNEL=="mmcblk[0-9]*boot[0-9]", ACTION=="add|change", ATTRS{type}=="MMC", ATTR{force_ro}="1"

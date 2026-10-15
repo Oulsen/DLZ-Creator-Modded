@@ -1,0 +1,511 @@
+#!/bin/busybox sh
+# DLZ Creator Modded installer, PID 1 of our initramfs on Mackie's own kernel (loaded read-only from
+# the eMMC by boot.scr): checks, screens, touch, then the real install or a dry run (notes/installer.md).
+#
+# Order: wait for both disks, lock the eMMC read-only, only then mount anything. The eMMC is only
+# ever mounted ro,noload and read. The only write before the accept screen is the log on this
+# installer card's own FAT (found by type SD). With dlzmod.dryrun=1 the eMMC is only read, nothing is
+# written but that log; otherwise install-card.sh builds the mod card on this same card (all of the
+# installer is in RAM by then), in an order that keeps the card unbootable until its last step.
+/bin/busybox --install -s /bin
+# the initramfs only has /bin; the chroot (the stock rootfs) keeps blkid, sfdisk, e2fsck etc. in sbin
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+mkdir -p /proc /sys /dev /tmp /emmc /sd
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+# bash's <(...) opens /dev/fd/N: a normal boot gets these links from udev, a bare devtmpfs has none
+# (card-core.sh runs in the chroot, which shares this /dev) [device]
+ln -sf /proc/self/fd /dev/fd && ln -sf /proc/self/fd/0 /dev/stdin && ln -sf /proc/self/fd/1 /dev/stdout \
+  && ln -sf /proc/self/fd/2 /dev/stderr
+mount -t tmpfs tmpfs /tmp
+dmesg -n 1
+echo 0 > /sys/class/graphics/fbcon/cursor_blink 2>/dev/null
+
+# hard limit: whatever happens, sync and power off after 45 minutes (stopped by finish once the last
+# screen is up, so the result stays readable)
+(sleep 2700; sync; poweroff -f) &
+TIMER=$!
+
+PKG=/pkg
+VERSION=$(cat $PKG/VERSION 2>/dev/null)
+BUILD=$(sed -n 's/^BUILD=//p' $PKG/package.env 2>/dev/null)
+DRYRUN=no
+grep -qw 'dlzmod.dryrun=1' /proc/cmdline && DRYRUN=yes
+BANNER=""
+[ "$DRYRUN" = yes ] && BANNER="DRY RUN - nothing will be written"
+WIP="Do not switch off or remove the card"
+HINT="info|If nothing changes for 10 minutes: switch off and flash the installer again"
+LOG=/tmp/install.log
+UI_READY=no
+STAGE=""   # set once the real install starts writing the card (fail() wording)
+emmc=""
+sd=""
+SD=""
+
+# every line with the seconds since power-on (no clock at this point): where the time goes
+log() { _up=$(cut -d' ' -f1 /proc/uptime); echo "[$_up] $*" >> "$LOG"; echo "installer: $*" > /dev/console; }
+
+# chroot into the read-only eMMC rootfs for the stock tools (python3 for the screens, bash, blkid);
+# every screen carries the name (top), our sticker with the version (logo.bin) and the credit
+UI_CREDIT="by Oulsen · github.com/Oulsen/DLZ-Creator-Modded"
+ui() { chroot /emmc /usr/bin/python3 -I -B /tmp/pkg/ui/ui.py --brand "DLZ Creator Modded" --credit "$UI_CREDIT" "$@"; }
+add_line() { echo "$1|$2" >> /emmc/tmp/lines; log "check $1: $2"; }
+show_checks() { [ "$UI_READY" = yes ] && ui screen --banner "$BANNER" --title "$TITLE" --lines-file /tmp/lines; }
+
+# The mixer has no soft power-off, only the hard switch on the back: write the log out, release the
+# card, then say so on the last screen and wait. The eMMC stays mounted read-only (ro,noload) for the
+# chroot that draws the screen; cutting the power then is safe.
+finish() {  # ui screen options for the last screen (title, lines, text)
+  dmesg > "${LOGDIR:-/tmp}/dmesg-$N.txt" 2>/dev/null
+  # the last screen as a picture next to the log, drawn off-screen as it will look once the card is
+  # released (a card that cannot be released shows a warning instead of "Safe to power off"); ui.py
+  # gives up after 20 s (signal.alarm), so a hang here cannot keep the last screen away
+  if [ "$UI_READY" = yes ] && [ -n "$LOGDIR" ]; then
+    rm -f /emmc/tmp/screen.png
+    if ui --png /tmp/screen.png screen --banner "$BANNER" "$@" --notice "ok|Safe to power off" \
+         --notice-text "Use the switch on the back of the mixer" --footer "Log: ${LOGNAME_SHOWN:-not saved}" \
+         > /dev/null 2>> "$LOG" && cp /emmc/tmp/screen.png "$LOGDIR/screen-$N.png"; then
+      log "last screen saved as screen-$N.png (drawn before the card is released: it shows \"Safe to power off\" either way)"
+    else
+      log "last screen could not be saved as a picture"
+    fi
+  fi
+  log "finished"
+  sync
+  LOG=/tmp/install.log   # from here on nothing goes to the card
+  safe="ok|Safe to power off"
+  safe_how="Use the switch on the back of the mixer"
+  # card partitions card-core.sh mounted (in the chroot's /tmp) and its cleanup could not release
+  if [ -n "$SD" ]; then
+    for mp in $(grep "^$SD" /proc/mounts | cut -d' ' -f2 | grep '^/emmc/tmp/'); do
+      if umount "$mp" 2>/dev/null || mount -o remount,ro "$mp" 2>/dev/null; then
+        log "card mount $mp released"
+      else
+        log "card mount $mp could not be released"
+        safe="warn|Wait 10 s, then power off"
+        safe_how="Card not released. Then use the switch on the back of the mixer"
+      fi
+    done
+  fi
+  if grep -q " /sd " /proc/mounts; then   # mounted, with or without a log dir
+    if umount /sd 2>/dev/null; then
+      log "card unmounted"
+    elif mount -o remount,ro /sd 2>/dev/null; then
+      log "card remounted read-only"
+    else
+      log "card could not be released"
+      safe="warn|Wait 10 s, then power off"
+      safe_how="Card not released. Then use the switch on the back of the mixer"
+    fi
+  fi
+  sync
+  shown=no
+  if [ "$UI_READY" = yes ]; then
+    ui screen --banner "$BANNER" "$@" --notice "$safe" --notice-text "$safe_how" \
+      --footer "Log: ${LOGNAME_SHOWN:-not saved}" > /dev/null 2>&1 && shown=yes
+  fi
+  if [ "$shown" = no ]; then   # no screen (yet): the kernel text console still shows on the panel (fbcon, rotated)
+    printf '\n  %s. %s.\n' "${safe#*|}" "$safe_how" > /dev/tty1 && shown=yes
+  fi
+  log "last screen shown: $shown"
+  [ "$shown" = yes ] && kill "$TIMER" 2>/dev/null   # a hang before this point still ends in the 45-minute power-off
+  while true; do sleep 60; done
+}
+
+fail() {  # reason; what it says depends on how far the real install got (STAGE)
+  log "FAIL: $1"
+  stopped="Installation stopped"
+  [ "$DRYRUN" = yes ] && stopped="Dry run stopped"
+  case $STAGE in
+    card) said="The mixer itself was not changed. This card cannot start anything yet, so the mixer starts normally even with it inserted. To try again, flash the installer onto the card again." ;;
+    bootloader) said="The mixer itself was not changed. Remove this card before switching on again, then flash the installer onto it again." ;;
+    dump) said="The mixer itself was not changed. The backup on this card is not complete; the installer on it still works, so you can try again." ;;
+    *) said="Nothing was written to the mixer or the card (only the log). The mixer starts normally without this card." ;;
+  esac
+  [ "$UI_READY" = yes ] || printf '\n\n  DLZ Creator Modded installer stopped:\n  %s\n  %s\n' "$1" "$said" > /dev/tty1
+  # during the write phase the log may be lost with the card: its last lines go on screen for a photo
+  # (the 3 lines before the FAIL line just logged, which the red line above already says), taken
+  # now, before saving the log adds lines of its own
+  printf 'fail|%s\n' "$1" > /emmc/tmp/fail-lines 2>/dev/null
+  [ -n "$STAGE" ] && tail -n 4 "$LOG" | head -n 3 | sed 's/^/info|/' >> /emmc/tmp/fail-lines 2>/dev/null
+  [ "$STAGE" = dump ] && pr_dump_abort   # an unfinished backup holds the mixer's settings
+  [ -n "$STAGE" ] && ic_snap_down    # the copy's snapshot of the eMMC (RAM store, read-only loop), if any
+  [ -n "$STAGE" ] && ic_bk_release   # DLZDATA mounted for the backup: free for the log below (ic_guard)
+  if [ -n "$STAGE" ] && [ -z "$LOGDIR" ] && [ -b "${SD}p2" ] && ic_guard \
+     && mount -t vfat -o iocharset=ascii,flush "${SD}p2" /sd 2>/dev/null && mkdir -p /sd/dlzmod-logs; then
+    LOGDIR=/sd/dlzmod-logs   # the core got as far as DLZDATA: keep the log there
+    # an unfinished backup holds the mixer's settings and passwords: not left on a card that failed
+    if ls /sd/dlzmod-backup/*.part > /dev/null 2>&1; then
+      rm -f /sd/dlzmod-backup/*.part && log "unfinished backup deleted" || log "unfinished backup could not be deleted"
+    fi
+    N=1   # a fresh DLZDATA: install-1.txt, and finish() writes dmesg-1.txt next to it
+    cat "$LOG" > "$LOGDIR/install-1.txt" && LOG=$LOGDIR/install-1.txt
+    LOGNAME_SHOWN="DLZDATA/dlzmod-logs/install-1.txt"
+  elif [ "$STAGE" = card ] && [ -z "$LOGDIR" ] && ic_rescue_log; then
+    LOGDIR=/sd/dlzmod-logs   # no DLZDATA yet: a small DLZLOG partition on the card holds the log
+    N=1
+    cat "$LOG" > "$LOGDIR/install-1.txt" && LOG=$LOGDIR/install-1.txt
+    LOGNAME_SHOWN="DLZLOG/dlzmod-logs/install-1.txt"
+  fi
+  finish --title "$stopped" --title-colour red --lines-file /tmp/fail-lines --text "$said"
+}
+
+# print the mmcblkN whose card type is $1 (MMC = eMMC, SD = card); rc 1 = none, rc 2 = ambiguous
+disk_of_type() {
+  found=""
+  for d in /sys/block/mmcblk*; do
+    n=${d##*/}
+    case $n in *boot*|*rpmb*) continue ;; esac
+    [ "$(cat "$d/device/type" 2>/dev/null)" = "$1" ] || continue
+    [ -n "$found" ] && return 2
+    found=$n
+  done
+  [ -n "$found" ] || return 1
+  echo "$found"
+}
+
+log "DLZ Creator Modded installer $VERSION ($BUILD), dry run: $DRYRUN, kernel $(uname -r), uptime $(cut -d' ' -f1 /proc/uptime) s"
+
+# 1. the package in RAM is complete and undamaged
+(cd $PKG && sha256sum -c -s manifest) || fail "Installer package damaged: flash the installer card again"
+
+# 2. wait (max 15 s) until exactly one eMMC and one SD card with partition 1 are there
+i=0
+while [ $i -lt 30 ]; do
+  emmc=$(disk_of_type MMC) && sd=$(disk_of_type SD) && [ -e "/dev/${emmc}p1" ] && [ -e "/dev/${sd}p1" ] && break
+  sleep 0.5
+  i=$((i + 1))
+done
+log "disks after $((i / 2)) s: emmc=$emmc sd=$sd"
+for d in /sys/block/mmcblk*; do
+  log "  ${d##*/}: type=$(cat "$d/device/type" 2>/dev/null) size=$(cat "$d/size") sectors"
+done
+[ -n "$emmc" ] && [ -n "$sd" ] || fail "Internal storage or SD card not found (or more than one)"
+# the card's identity from here on: the guards (ic_guard, pr_guard) only write to this card, so a card
+# swapped while a screen waits for the OK is refused
+IC_CID=$(cat /sys/block/$sd/device/cid 2>/dev/null)
+[ -n "$IC_CID" ] || fail "The SD card has no identity (CID)"
+
+# 3. lock the eMMC before anything is mounted (same script as the mod card), then verify it
+sh $PKG/mod/sd-system/dlzmod-emmc-ro >> "$LOG" 2>&1 || fail "Internal storage could not be locked read-only"
+for b in /dev/$emmc /dev/${emmc}p*; do
+  [ "$(blockdev --getro "$b")" = 1 ] || fail "$b is still writable"
+done
+for f in /sys/block/${emmc}boot*/force_ro; do
+  [ -e "$f" ] || continue
+  [ "$(cat "$f")" = 1 ] || fail "${f%/force_ro} is still writable"
+done
+log "eMMC $emmc locked: $(blockdev --getro /dev/$emmc), boot areas: $(cat /sys/block/${emmc}boot*/force_ro 2>/dev/null | tr '\n' ' ')"
+
+# 4. log onto this installer card (FAT; ascii charset: iso8859-1 is a module on the eMMC)
+N=1
+LOGDIR=""
+if mount -t vfat -o iocharset=ascii,flush "/dev/${sd}p1" /sd && mkdir -p /sd/dlzmod-logs; then
+  while [ -e "/sd/dlzmod-logs/install-$N.txt" ]; do N=$((N + 1)); done
+  LOGDIR=/sd/dlzmod-logs
+  cat "$LOG" > "$LOGDIR/install-$N.txt"
+  LOG=$LOGDIR/install-$N.txt
+  LOGNAME_SHOWN="dlzmod-logs/install-$N.txt"
+fi
+
+# 5. the eMMC rootfs, read-only and without journal replay; touch drivers from it; chroot for the tools
+mount -t ext4 -o ro,noload "/dev/${emmc}p1" /emmc || fail "Internal storage could not be read"
+grep -q " /emmc ext4 ro," /proc/mounts || fail "Internal storage is not mounted read-only"
+M=/emmc/usr/lib/modules/$(uname -r)/kernel
+for m in drivers/input/evdev.ko drivers/input/touchscreen/goodix.ko; do
+  insmod "$M/$m" >> "$LOG" 2>&1 && log "insmod $m" || log "insmod $m failed"
+done
+mount -t tmpfs tmpfs /emmc/tmp || fail "Work space for the installer could not be set up"
+mount -o bind /dev /emmc/dev && mount -t proc proc /emmc/proc && mount -t sysfs sysfs /emmc/sys \
+  || fail "Work space for the installer could not be set up"
+cp -a $PKG /emmc/tmp/pkg
+: > /emmc/tmp/lines
+# the write paths (only called after an accept screen): the install, and the backup of a mixer the
+# mod does not support
+. $PKG/install-card.sh
+. $PKG/probe.sh
+EMMC=/dev/$emmc
+SD=/dev/$sd
+CH=/emmc
+rc=0
+ui probe >> "$LOG" 2>&1 || rc=$?
+[ "$rc" = 0 ] || [ "$rc" = 4 ] && UI_READY=yes   # 4 = screen fine, touch not (yet) found
+[ "$UI_READY" = yes ] || fail "The screen could not be started"
+TITLE="Checking your mixer"   # name and version are on every screen (ui())
+
+add_line ok "Installer package complete and undamaged"
+add_line ok "Internal storage locked read-only ($emmc)"
+show_checks
+
+gb10() { echo "$(( ($1 * 1048576 + 50000000) / 1000000000 )).$(( ($1 * 1048576 + 50000000) / 100000000 % 10 ))"; }   # MiB -> "x.y" GB
+
+# the touchscreen, needed for any OK: found, or the last screen
+need_touch() {
+  touch=$(ui touch 2>>"$LOG" | sed -n 's/^touch //p')
+  i=0
+  while [ "$touch" = none ] && [ $i -lt 10 ]; do   # the touch driver may need a moment after insmod
+    sleep 0.5
+    touch=$(ui touch 2>>"$LOG" | sed -n 's/^touch //p')
+    i=$((i + 1))
+  done
+  log "touch: $touch"
+  if [ "$touch" = none ] || [ -z "$touch" ]; then
+    add_line fail "Touchscreen not found: cannot ask for your OK"
+    finish --title "$TITLE" --title-colour red --lines-file /tmp/lines --text "Nothing was written."
+  fi
+  add_line ok "Touchscreen found"
+  show_checks
+}
+
+# A mixer the mod does not support (other model or firmware): a hardware report next to the log. If
+# its bootloader is one the installer's own boot is known to be safe next to (boards.txt), it can save
+# a backup of its internal storage onto this card, for analysis only (probe.sh, #46); otherwise it
+# stops here. Never returns
+unsupported() {
+  # a mixer on the supported firmware is refused when its GD32 marker is missing or not the one its
+  # model's firmware leaves: say so
+  case $src in
+    *"GD32 marker missing") model="$model, GD32 marker missing" ;;
+    *" does not match") model="$model, GD32 marker does not match the model" ;;
+  esac
+  saved="The log is not saved (the card's partition could not be written)"
+  if [ -n "$LOGDIR" ]; then
+    pr_report > "$LOGDIR/hardware-$N.txt" 2>> "$LOG" && saved="A hardware report was saved next to the log" \
+      || { log "hardware report incomplete"; saved="A hardware report (incomplete) was saved next to the log"; }
+  fi
+  log "bootloader on the eMMC: $(pr_bootloader)"
+  board=$(pr_known) || fail "Not supported: ${model}. $saved"
+  log "bootloader known ($board): a backup can be offered"
+  add_line warn "Not supported by the mod: $model"
+  [ -n "$LOGDIR" ] || fail "The log could not be saved on this card, so no backup is made"
+  pr_dump_ready || fail "No backup possible: $PR_WHY"
+  add_line ok "A backup for analysis is possible ($(gb10 $(pr_need_mib)) GB free needed)"
+  show_checks
+  need_touch
+  if [ "$DRYRUN" = yes ]; then
+    finish --title "Dry run: backup possible" --lines-file /tmp/lines --text "Nothing was written except the log."
+  fi
+  answer=$(ui screen --title "Save a backup for analysis?" \
+    --text "DLZ Creator Modded does not support this mixer. This installer can save a copy of the mixer's internal storage on this card, so we can find out whether the mod can support it. That is the goal, but no promise." \
+    --text "The copy holds your settings, presets and the lock PIN: keep it private. To help, send it as a private link via Discord (see README.txt next to the backup)." \
+    --text "The internal storage stays locked read-only and is never changed. The installer on this card stays as it is." \
+    --button accept="Save backup" --button cancel="Cancel" --timeout 300 \
+    --footer "No touch within 5 minutes = cancel" \
+    --next-title "Saving a backup" --next-line "ok|All checks passed" --next-line "wait|Starting" \
+    --next-line "$HINT" --next-footer "$WIP" 2>>"$LOG")
+  log "answer: $answer"
+  [ "$answer" = accept ] || finish --title "Cancelled" --title-colour yellow --text "Nothing was written."
+  kill "$TIMER" 2>/dev/null   # never a power-off while the card is written
+  STAGE=dump
+  t0=$(cut -d' ' -f1 /proc/uptime)
+  pr_dump | ui serve --title "Saving a backup" --line "ok|All checks passed" \
+    --line "wait|Saving the mixer's internal storage to this card" --line "$HINT" --footer "$WIP" > /dev/null 2>>"$LOG"
+  [ -e /tmp/pr-dump-ok ] || fail "Saving the backup failed (see the log)"
+  log "backup saved in $(awk -v a="$t0" -v b="$(cut -d' ' -f1 /proc/uptime)" 'BEGIN { printf "%.0f", b - a }') s"
+  finish --title "Backup saved" --line "ok|All checks passed" --line "ok|Backup saved on this card and checked" \
+    --text "It is in DLZDUMP/$(cat /tmp/pr-dir 2>/dev/null) on this card: copy the folder to a computer. It holds your settings, so keep it private." \
+    --text "To help: upload it and send the link privately via Discord, $PR_DISCORD (also in README.txt)." \
+    --text "The mixer itself was not changed. Without this card it starts its normal software."
+}
+
+# 6. checks, each on screen as it passes
+supported=yes
+src=$(chroot /emmc /bin/sh /tmp/pkg/mod/check-rootfs.sh / 2>>"$LOG") || {
+  [ -n "$src" ] || fail "The checks could not run on the mixer's software (see the log)"
+  supported=no
+}
+log "$src"
+model=${src#source: }
+model=${model%%, GD32 marker*}
+# on screen and in the backup's README Mackie's own name, "DLZ Creator", for the full-size (the log and
+# IC_MODEL below keep check-rootfs.sh's "full-size")
+case $model in "DLZ Creator full-size"*) model="DLZ Creator${model#DLZ Creator full-size}" ;; esac
+[ "$supported" = yes ] || unsupported
+# XS or full-size (the eMMC's /root/.dlzlite): card-core.sh checks that the card's copy is the same model
+IC_MODEL=${src#source: DLZ Creator }
+IC_MODEL=${IC_MODEL%%,*}
+# the card is bound to this mixer: the sha256 of its eMMC's CID (never the CID itself, it holds the
+# chip's serial number), checked by the card before every FPGA load (sd-system/dlzmod-cardcheck)
+IC_MIXER_ID=$(sha256sum < /sys/block/$emmc/device/cid 2>/dev/null | cut -d' ' -f1)
+[ ${#IC_MIXER_ID} = 64 ] || fail "The mixer's internal storage has no identity (CID)"
+add_line ok "$model"
+show_checks
+
+nparts=$(ls -d /sys/block/$emmc/${emmc}p* 2>/dev/null | wc -l)
+p1_start=$(cat /sys/block/$emmc/${emmc}p1/start)
+p1_size=$(cat /sys/block/$emmc/${emmc}p1/size)
+fstype=$(chroot /emmc /usr/sbin/blkid -p -o value -s TYPE /dev/${emmc}p1 2>>"$LOG")
+pttype=$(chroot /emmc /usr/sbin/blkid -p -o value -s PTTYPE /dev/$emmc 2>>"$LOG")
+log "eMMC layout: $nparts partition(s), p1 start=$p1_start size=$p1_size type=$fstype table=$pttype"
+[ "$nparts" = 1 ] && [ "$p1_start" = 8192 ] && [ "$fstype" = ext4 ] && [ "$pttype" = dos ] \
+  || fail "Internal storage layout is not the expected one ($nparts partitions, start $p1_start, $fstype, $pttype)"
+add_line ok "Internal storage layout as expected"
+show_checks
+
+# the card must hold the copy of the eMMC up to the end of p1 plus a 64 MiB DLZDATA
+copy_mib=$(( (p1_start + p1_size + 2047) / 2048 ))
+need_mib=$(( copy_mib + 64 ))
+sd_sectors=$(cat /sys/block/$sd/size)
+sd_mib=$((sd_sectors / 2048))
+sd_gb=$(( (sd_sectors * 512 + 500000000) / 1000000000 ))   # decimal GB, rounded, as printed on cards
+log "SD $sd: $sd_mib MiB ($sd_gb GB), needs $need_mib MiB"
+# the card's maker, model and date for the known good cards list; never its serial or the full CID
+# (the log is meant to be shared)
+c=/sys/block/$sd/device
+log "SD $sd: maker $(cat $c/manfid 2>/dev/null), oem $(cat $c/oemid 2>/dev/null), name $(cat $c/name 2>/dev/null), date $(cat $c/date 2>/dev/null), hw/fw rev $(cat $c/hwrev 2>/dev/null)/$(cat $c/fwrev 2>/dev/null)"
+# 16 GB minimum, 32 GB or more for recordings next to the ~7.7 GB system, 64 GB or more preferred.
+# Card sizes are decimal: "16/32/64 GB" cards are about 14.5-15 / 29-30 / 58-60 GiB, hence
+# 14000 / 28000 / 56000 MiB
+min_mib=14000
+[ "$need_mib" -gt "$min_mib" ] && min_mib=$need_mib
+[ "$sd_mib" -ge "$min_mib" ] || fail "SD card too small: $sd_gb GB. Use 16 GB or more (32 GB or more for recordings, 64 GB or more preferred)"
+if [ "$sd_mib" -lt 28000 ]; then
+  add_line warn "SD card: $sd_gb GB (little room for recordings: 32 GB or more, 64 GB preferred)"
+elif [ "$sd_mib" -lt 56000 ]; then
+  add_line ok "SD card: $sd_gb GB (64 GB or more preferred)"
+else
+  add_line ok "SD card: $sd_gb GB"
+fi
+show_checks
+
+chroot /emmc /usr/bin/bash /tmp/pkg/mod/card-core.sh --preflight >> "$LOG" 2>&1 \
+  || fail "Tools missing on the mixer (see the log)"
+# the copy reads the internal storage through a device-mapper snapshot: its kernel module loaded now,
+# before anything is written (install-card.sh, ic_dm_ready)
+ic_dm_ready || fail "Tools missing on the mixer (see the log)"
+add_line ok "All tools present on the mixer"
+show_checks
+
+# the mod's patches must fit this firmware before anything is written (they are applied last)
+for t in app:/srv/app.js server:/srv/server.js; do
+  chroot /emmc /usr/bin/python3 -B -E -s /tmp/pkg/mod/patch.py --check "${t%%:*}" "${t#*:}" >> "$LOG" 2>&1 \
+    || fail "The mod does not fit this firmware (${t#*:}, see the log)"
+done
+add_line ok "Mod fits this firmware"
+show_checks
+
+need_touch
+
+# 7. accept / cancel; no answer within 5 minutes = cancel
+if [ "$DRYRUN" = yes ]; then
+  answer=$(ui screen --banner "$BANNER" --title "Ready for the dry run" \
+    --text "The dry run does every check and reads the mixer's internal storage, like a real install, but writes nothing (only a log on this card)." \
+    --text "A real install will build the modded system on the SD card from your mixer's own software. The internal storage stays locked read-only and is never changed." \
+    --button accept="Start dry run" --button cancel="Cancel" --timeout 300 \
+    --footer "No touch within 5 minutes = cancel" \
+    --next-title "Reading the internal storage" --next-line "ok|All checks passed" --next-footer "$WIP" 2>>"$LOG")
+else
+  answer=$(ui screen --title "Ready to install" \
+    --text "This builds DLZ Creator Modded on this SD card from your mixer's own software. Everything on this card is erased." \
+    --text "The mixer's internal storage stays locked read-only and is never changed. Without the card the mixer keeps starting its normal software." \
+    --text "This takes about 10 to 15 minutes. Do not switch off or remove the card while it runs." \
+    --button accept="Install" --button cancel="Cancel" --timeout 300 \
+    --footer "No touch within 5 minutes = cancel" \
+    --next-title "Installing" --next-line "ok|All checks passed" --next-line "wait|Starting the install" \
+    --next-line "$HINT" --next-footer "$WIP" 2>>"$LOG")
+fi
+log "answer: $answer"
+if [ "$answer" != accept ]; then
+  finish --title "Cancelled" --title-colour yellow --text "Nothing was written."
+fi
+
+# 8. the real install (install-card.sh, write order in notes/installer.md design decision 8)
+if [ "$DRYRUN" != yes ]; then
+  kill "$TIMER" 2>/dev/null   # never a power-off while the card is written
+  # the installer card's FAT is about to go: the log stays in RAM until DLZDATA exists
+  if grep -q " /sd " /proc/mounts; then
+    cat "$LOG" > /tmp/install.log.new && mv /tmp/install.log.new /tmp/install.log
+    LOG=/tmp/install.log
+    LOGDIR=""
+    umount /sd || fail "The installer card could not be released (nothing was written)"
+  fi
+  LOGNAME_SHOWN="not saved"
+  if ! ic_guard; then   # nothing written: the installer card is intact, put the log back on it
+    if mount -t vfat -o iocharset=ascii,flush "/dev/${sd}p1" /sd && mkdir -p /sd/dlzmod-logs        && cat "$LOG" > "/sd/dlzmod-logs/install-$N.txt"; then
+      LOGDIR=/sd/dlzmod-logs LOG=/sd/dlzmod-logs/install-$N.txt
+      LOGNAME_SHOWN="dlzmod-logs/install-$N.txt"
+    fi
+    fail "Safety check before writing failed (see the log)"
+  fi
+  STAGE=card   # from here on fail() says the card is unusable (but not bootable)
+  ui screen --title "Installing" --line "ok|All checks passed" --line "wait|Preparing the card" --line "$HINT" --footer "$WIP" > /dev/null 2>&1
+  ic_clear || fail "Preparing the card failed (see the log)"
+  ic_data || fail "Preparing the card failed (see the log)"
+  rm -f /tmp/ic-copy-ok /tmp/ic-verify-ok /tmp/ic-bk-ok
+  t0=$(cut -d' ' -f1 /proc/uptime)
+  ic_copy | ui serve --title "Installing" --line "ok|All checks passed" --line "wait|Copying the mixer's software to the card, with a backup" \
+    --line "$HINT" --footer "$WIP" > /dev/null 2>>"$LOG"
+  [ -e /tmp/ic-copy-ok ] || fail "Copying to the card failed (see the log)"
+  t1=$(cut -d' ' -f1 /proc/uptime)
+  log "step 2: copy and backup done in $(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "%.0f", b - a }') s"
+  { ic_verify && ic_bk_finish; } | ui serve --title "Installing" --line "ok|All checks passed" --line "ok|Copied to the card, with a backup" \
+    --line "wait|Comparing the card with the mixer's own software" --line "$HINT" --footer "$WIP" > /dev/null 2>>"$LOG"
+  [ -e /tmp/ic-verify-ok ] || fail "The copy on the card is not correct (see the log). The card may be faulty"
+  [ -e /tmp/ic-bk-ok ] || fail "The backup on the card is not correct (see the log). The card may be faulty"
+  t2=$(cut -d' ' -f1 /proc/uptime)
+  log "step 2: checked in $(awk -v a="$t1" -v b="$t2" 'BEGIN { printf "%.0f", b - a }') s"
+  ic_build | ui serve --title "Installing" --line "ok|All checks passed" --line "ok|Copied to the card and compared with the mixer" \
+    --line "wait|Building the modded system" --line "$HINT" --footer "$WIP" > /dev/null 2>>"$LOG"
+  if [ ! -e /tmp/ic-build-ok ]; then
+    msg=$(cat /tmp/ic-build-fail 2>/dev/null)
+    fail "${msg:-Building the modded system failed (see the log)}"
+  fi
+  t3b=$(cut -d' ' -f1 /proc/uptime)
+  log "step 3-4: built in $(awk -v a="$t2" -v b="$t3b" 'BEGIN { printf "%.0f", b - a }') s"
+  STAGE=bootloader   # a failure from here on may leave a card that starts but does not work
+  ic_bootloader || fail "Making the card bootable failed (see the log)"
+  STAGE=done
+  t3=$(cut -d' ' -f1 /proc/uptime)
+  log "install done in $(awk -v a="$t0" -v b="$t3" 'BEGIN { printf "%.0f", b - a }') s from the first write"
+  # the log onto the new DLZDATA (the mod system keeps its own logs in the same folder)
+  if mount -t vfat -o iocharset=ascii,flush "${SD}p2" /sd && mkdir -p /sd/dlzmod-logs; then
+    N=1
+    while [ -e "/sd/dlzmod-logs/install-$N.txt" ]; do N=$((N + 1)); done
+    LOGDIR=/sd/dlzmod-logs
+    cat "$LOG" > "$LOGDIR/install-$N.txt" && LOG=$LOGDIR/install-$N.txt
+    LOGNAME_SHOWN="DLZDATA/dlzmod-logs/install-$N.txt"
+  fi
+  finish --title "Installation done" --line "ok|All checks passed" --line "ok|Copied to the card and compared with the mixer" \
+    --line "ok|Backup of the mixer saved on the card" --line "ok|Modded system built and made bootable" \
+    --text "Switch on again with this card in to start DLZ Creator Modded. Without the card the mixer starts its normal software." \
+    --text "The backup is in DLZDATA/dlzmod-backup: copy it to a computer to keep it. It holds your settings, so keep it private." \
+    --text "On a computer, Windows may offer to format a part of this card: never click Format."
+fi
+
+# 9. dry run: read the eMMC up to the end of p1, as the real copy will, and time it. The data goes to
+# /dev/null; progress lines go to one `ui.py serve` (a single python start, it only redraws). The read
+# ignores SIGPIPE, so a screen that dies does not stop it; /tmp/readok is only written after the last chunk
+CHUNK=64
+read_pass() {   # stdout: "PERCENT<TAB>TEXT" lines for ui serve
+  trap '' PIPE
+  done_mib=0
+  printf '0\tstarting\n' 2>/dev/null
+  while [ $done_mib -lt $copy_mib ]; do
+    n=$CHUNK
+    [ $((done_mib + n)) -gt $copy_mib ] && n=$((copy_mib - done_mib))
+    dd if=/dev/$emmc of=/dev/null bs=1048576 skip=$done_mib count=$n 2>/dev/null || { log "dd failed at $done_mib MiB"; return 1; }
+    done_mib=$((done_mib + n))
+    now=$(cut -d' ' -f1 /proc/uptime)
+    eta=$(awk -v a="$start" -v b="$now" -v d=$done_mib -v t=$copy_mib 'BEGIN {
+      s = b - a; if (s < 0.1) s = 0.1; left = (t - d) * s / d
+      if (d >= t) print "done"; else if (left < 60) print "less than a minute left"
+      else printf "about %d min left\n", int((left + 30) / 60) }')
+    printf '%s\t%s\n' $((done_mib * 100 / copy_mib)) "$(gb10 $done_mib) of $(gb10 $copy_mib) GB, $eta" 2>/dev/null
+  done
+  : > /tmp/readok
+}
+rm -f /tmp/readok
+start=$(cut -d' ' -f1 /proc/uptime)
+read_pass | ui serve --banner "$BANNER" --title "Reading the internal storage" --line "ok|All checks passed" \
+  --footer "$WIP" > /dev/null 2>>"$LOG"
+[ -e /tmp/readok ] || fail "Reading the internal storage failed (see the log)"
+end=$(cut -d' ' -f1 /proc/uptime)
+secs=$(awk -v a="$start" -v b="$end" 'BEGIN { s = b - a; print (s < 1 ? 1 : int(s)) }')
+log "dry run read: $copy_mib MiB in $secs s ($(awk -v a="$start" -v b="$end" -v d=$copy_mib 'BEGIN { s = b - a; printf "%.1f", d / (s > 0 ? s : 1) }') MiB/s, 64 MiB dd chunks, screens in their own process)"
+
+# 10. dry run result
+log "dry run passed"
+finish --title "Dry run passed" --lines-file /tmp/lines \
+  --line "ok|Internal storage read: $(gb10 $copy_mib) GB in $((secs / 60)) min $((secs % 60)) s" \
+  --text "Nothing was written except the log. You can remove the card after switching off."

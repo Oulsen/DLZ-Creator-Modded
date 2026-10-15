@@ -1,0 +1,18 @@
+# Scripts run on Linux (WSL) or in U-Boot: CRLF breaks them
+*.sh text eol=lf
+install/dumper/*.txt text eol=lf
+*.py text eol=lf
+# Installed onto the device as-is (scripts, systemd units, drop-ins)
+install/sd-system/** text eol=lf
+# Appended to the device's app.js/server.js: LF everywhere keeps package builds identical on any OS
+install/app-mod/** text eol=lf
+install/server-mod/** text eol=lf
+# Installer initramfs and U-Boot script (/init must be LF to run as PID 1)
+install/installer/** text eol=lf
+install/release/** text eol=lf
+# Read by /init with cat and by modversion.py: no CR
+VERSION text eol=lf
+# Public keys of the update signatures: read on the device and compared byte for byte
+install/keys/** text eol=lf
+# Windows batch files: cmd.exe needs CRLF (labels and goto misbehave with LF only)
+*.cmd text eol=crlf

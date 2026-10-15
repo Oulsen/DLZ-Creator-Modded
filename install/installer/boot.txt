@@ -1,0 +1,23 @@
+echo "== DLZ Creator Modded installer: Mackie kernel + DTB from the eMMC (read-only), our initramfs from SD =="
+# Route B (proven on the device): U-Boot only reads the eMMC (it cannot write ext4,
+# CONFIG_EXT4_WRITE off). uboot.env limits U-Boot to the SD card, so it never falls through to the
+# eMMC's own boot.scr. mkinstaller.sh fills in the extra kernel arguments (dry run: dlzmod.dryrun=1).
+# The backlight (PB3 enable, PB2 PWM on the XS) only blinks once the XS device tree was found: on
+# another board these pins may be wired to something else.
+setenv bootargs "console=ttyS0,115200 rdinit=/init fbcon=rotate:2 loglevel=4 cma=128M drm_kms_helper.drm_fbdev_overalloc=300 drm_kms_helper.drm_leak_fbdev_smem=1 vt.global_cursor_default=0 consoleblank=0 @EXTRA_ARGS@"
+if load mmc 1:1 ${kernel_addr_r} /boot/zImage; then
+  if load mmc 1:1 ${fdt_addr_r} /boot/dtb/sun8i-r40-mackie-evolve-a1.dtb; then
+    gpio set PB3
+    for n in 1 2 3 4; do gpio toggle PB2; sleep 0.3; done
+    if load mmc 0:1 ${ramdisk_addr_r} dlzmod/initrd.cpio.gz; then
+      bootz ${kernel_addr_r} ${ramdisk_addr_r}:${filesize} ${fdt_addr_r}
+    fi
+    for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do gpio toggle PB2; sleep 0.1; done
+  else
+    echo "installer: no XS device tree on the eMMC (other model?): nothing written"
+  fi
+fi
+echo "installer: load or boot failed, nothing written"
+poweroff
+# never return to U-Boot's boot sequence (uboot.env also limits it to the SD card)
+while true; do sleep 1; done

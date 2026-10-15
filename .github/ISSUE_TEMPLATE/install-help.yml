@@ -1,0 +1,41 @@
+name: Help with an install
+description: The installer stopped, refused or something looks wrong
+labels: [triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        First check [the install guide](https://github.com/Oulsen/DLZ-Creator-Modded/blob/main/docs/INSTALL.md):
+        most screens explain what to do. Never attach the backup (`dlzmod-backup/`), dumps or Mackie files.
+  - type: dropdown
+    id: mixer
+    attributes:
+      label: Mixer
+      options: [DLZ Creator XS, DLZ Creator (full-size)]
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Firmware build and installer version
+      description: Settings → About (without the card), and the version on the installer's screen
+      placeholder: build 1731, v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: card
+    attributes:
+      label: microSD card
+      placeholder: SanDisk Ultra 128 GB
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The last screen (a photo helps) and what you did before it.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Drag the files from the card's `dlzmod-logs/` folder here (on the part named `DLZDATA`, or `DLZLOG`).

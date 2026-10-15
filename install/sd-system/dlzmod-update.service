@@ -1,0 +1,19 @@
+[Unit]
+Description=dlzmod: install an update from DLZDATA/dlzmod-update (before the mixer software starts)
+# never runs when the eMMC could not be locked read-only this start
+Requires=dlzmod-emmc-ro.service
+After=local-fs.target dlzmod-emmc-ro.service dlzmod-grow-data.service
+Before=dlzmod-bootlog.service evolve-node.service evolve-app.service dspserver.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# unpacking and patching app.js/server.js take some seconds on the A40i; a hang must not hold the
+# mixer software back for good
+TimeoutStartSec=300
+# after a timeout's TERM the script puts the previous files back (it ignores further TERMs meanwhile)
+TimeoutStopSec=120
+ExecStart=/usr/local/sbin/dlzmod-update
+
+[Install]
+WantedBy=multi-user.target

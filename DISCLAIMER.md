@@ -1,0 +1,17 @@
+# Disclaimer
+
+**Unofficial.** DLZ Creator Modded is a community project. It is not affiliated with or endorsed by Mackie or LOUD Audio. All trademarks belong to their owners.
+
+**Alpha (early and experimental), use at your own risk.** No warranty of any kind. Modding may affect your device warranty.
+
+**Supported devices.** The Mackie DLZ Creator XS and DLZ Creator with firmware v1.2 build 1731. The XS is tested; the full-size DLZ Creator is untested: it has the same hardware and firmware as the XS, but the mod has not run on one yet. Other firmware builds are not supported; the mod refuses to install on them. On those the installer can save a backup of the internal storage for analysis instead (only read, not yet tried on such a mixer).
+
+**What it touches.** The mod runs from a microSD card. By design, the mixer's internal storage is only read, never written: take the card out and the mixer is stock again. This is how it is built, not a guarantee.
+
+**Never:**
+- install a Mackie firmware update with the mod card inserted (the mod refuses this anyway)
+- let Windows format the card's Linux partition when it offers to
+
+**No Mackie software is distributed.** Everything is built from a copy of your own mixer.
+
+**Built with AI assistance.** The maintainer leads the reverse engineering, design and testing, and uses Claude Code as a development tool for code and notes. Every change is reviewed and tested on a DLZ Creator XS with build 1731 before release; the full-size DLZ Creator gets the same software, untested on its own hardware.

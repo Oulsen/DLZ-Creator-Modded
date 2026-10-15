@@ -1,0 +1,45 @@
+echo "== DLZ SD boot - stage 2: full eMMC backup (read-only on eMMC) =="
+gpio set PB3
+if fatsize mmc 0:1 done2.txt; then
+  echo "backup already done - not repeating"
+  for n in 1 2 3 4 5 6 7 8 9 10; do gpio toggle PB2; sleep 0.2; done
+  poweroff
+  while true; do gpio toggle PB2; sleep 0.2; done
+fi
+for n in 1 2 3 4 5 6; do gpio toggle PB2; sleep 0.5; done
+setenv buf 0x50000000
+setenv msg "stage2 started"
+env export -t ${ramdisk_addr_r} msg
+fatwrite mmc 0:1 ${ramdisk_addr_r} stage2_started.txt ${filesize}
+mmc dev 1
+setenv blk 0
+while mmc read ${buf} ${blk} 0x20000; do
+  gpio toggle PB2
+  fatwrite mmc 0:1 ${buf} emmc_${blk}.bin 0x4000000
+  setexpr blk ${blk} + 0x20000
+  mmc dev 1
+done
+mmc dev 1
+while mmc read ${buf} ${blk} 0x800; do
+  fatwrite mmc 0:1 ${buf} emmc_${blk}.bin 0x100000
+  setexpr blk ${blk} + 0x800
+  mmc dev 1
+done
+for hp in 1 2; do
+  if mmc dev 1 ${hp}; then
+    setenv b 0
+    while mmc read ${buf} ${b} 0x800; do
+      fatwrite mmc 0:1 ${buf} emmcboot${hp}_${b}.bin 0x100000
+      setexpr b ${b} + 0x800
+      mmc dev 1 ${hp}
+    done
+  fi
+done
+mmc dev 1 0
+setenv msg "stage2 finished, end block ${blk}"
+env export -t ${ramdisk_addr_r} msg
+fatwrite mmc 0:1 ${ramdisk_addr_r} done2.txt ${filesize}
+echo "== done =="
+for n in 1 2 3 4 5 6 7 8 9 10; do gpio toggle PB2; sleep 0.2; done
+poweroff
+while true; do gpio toggle PB2; sleep 0.2; done
