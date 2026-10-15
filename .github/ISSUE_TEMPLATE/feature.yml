@@ -1,6 +1,6 @@
 name: Feature request
 description: Something the mod could add or do better
-title: "(FEATURE) "
+title: "(DLZ FEATURE) "
 labels: [triage]
 body:
   - type: textarea

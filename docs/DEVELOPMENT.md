@@ -252,9 +252,11 @@ The roadmap is the issues on GitHub and the board
 ([project 2](https://github.com/users/Oulsen/projects/2)). Notes hold the lasting knowledge; an
 issue's technical notes point to the note section instead of copying it.
 
-- **Issue titles** in plain language, with a type prefix: `(DLZ BUG)` stock Mackie behaviour,
-  `(MOD BUG)` caused by the mod, `(FEATURE)` new functionality, `(ANALYSIS) ...?` an idea that first
-  needs research, phrased as a question (it ends in a decision, and a `(FEATURE)` issue if yes).
+- **Issue titles** in plain language, with a type prefix: `(DLZ FEATURE)` something the mod lets
+  the mixer do, `(DLZ BUG)` stock Mackie behaviour, `(MOD FEATURE)` the mod itself (install, updates, safety,
+  support, development), `(MOD BUG)` caused by the mod, `(ANALYSIS) ...?` an idea that first needs
+  research, phrased as a question (it ends in a decision, and a feature issue if yes). New feature
+  requests start as `(DLZ FEATURE)`; triage corrects the prefix.
 - **Bugs vs. unfinished work**: a defect in what the release being worked on brings (not shipped
   yet) is simply fixed, without an issue. A defect in a released version gets a `MOD BUG` issue,
   never a reopen, so each issue stays in the changelog of the version it shipped in. Stock behaviour
@@ -286,7 +288,8 @@ issue's technical notes point to the note section instead of copying it.
 - **Releases**: a PR `develop` → `main`, merged with **"Create a merge commit"**, so `main` holds
   `develop`'s commits and the next release PR shows only what is new (no merge back into `develop`).
   The squash and merge-commit messages are the PR's title and description. Then an annotated tag
-  `vX.Y.Z` on that merge commit and a GitHub release with the `CHANGELOG.md` section as notes,
+  `vX.Y.Z` on that merge commit and a GitHub release with the `CHANGELOG.md` section as notes
+  (grouped under the section headings of "`CHANGELOG.md`" below, without the title prefixes),
   followed by the GPL source note from the README's "Legal" (U-Boot and busybox versions and their
   Debian source links, at the tag; update it when `vendor.sh` pins new ones), and the tested
   release files attached: the installer image with a `SHA256SUMS`, and the update file (`.tar` +
@@ -296,8 +299,10 @@ issue's technical notes point to the note section instead of copying it.
   recordings off the card first)". Check the release by downloading its files again
   (`gh release download`) and running `sha256sum -c SHA256SUMS`.
 - **`CHANGELOG.md`**: with every version bump a `## vX.Y.Z` section from the milestone's issues: their
-  titles as bullets, ordered `DLZ BUG`, `MOD BUG`, `FEATURE` (no `ANALYSIS`, no `release`). Written by
-  hand from the milestone; the release PR's `Fixes #N` lines come from the same list.
+  titles as bullets, ordered `DLZ FEATURE`, `DLZ BUG`, `MOD FEATURE`, `MOD BUG` (no `ANALYSIS`, no
+  `release`): what changes on the mixer first, then the mod itself. Written by hand from the
+  milestone; the release PR (`Fixes #N: <title>` lines) and the release notes use the same order, as
+  sections ("DLZ features", "DLZ bugs fixed", "Mod features", "Mod bugs fixed"; empty ones left out).
   The README's "What the mod does" follows: it describes the current mod, so a new feature or
   stock fix goes into its group there with the same bump.
 - **Community**: questions, bug reports and support go through issues, with templates for a bug,
