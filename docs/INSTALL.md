@@ -23,7 +23,7 @@ Creator Modded; **without the card** it starts its normal Mackie software, exact
   [Known good cards](../README.md#known-good-cards). **Everything on the card is erased.**
 - **A card reader** for your computer.
 - **The installer image** `dlz-installer-v….img` from the
-  [Releases page](https://github.com/Oulsen/DLZ-Creator-Modded/releases).
+  [latest release](https://github.com/Oulsen/DLZ-Creator-Modded/releases/latest).
 - A free tool to write the image: [balenaEtcher](https://etcher.balena.io/) or
   [Raspberry Pi Imager](https://www.raspberrypi.com/software/).
 - Optional: a USB Wi-Fi stick, if you want Wi-Fi (the mixer has none of its own).

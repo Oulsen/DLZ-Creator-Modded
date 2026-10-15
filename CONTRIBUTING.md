@@ -39,7 +39,8 @@ clone to a dump, the tests and the UI on your PC. Then:
    state.
 4. Run the tests that cover your change ([tests/README.md](tests/README.md)) and say in the pull
    request which ones ran and what you tested on a mixer, if anything. GitHub runs the checks that
-   need no mixer and no dump on every pull request by itself.
+   need no mixer and no dump on every pull request by itself, and the maintainer reviews every pull
+   request before it is merged.
 5. Keep the safety rules of [notes/modding-guide.md](notes/modding-guide.md): never write to the
    eMMC, never touch the GD32 or `/root/.dlzlite`. A change that runs on the mixer is reviewed and
    tested on a real mixer before it is merged.

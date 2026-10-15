@@ -19,6 +19,17 @@ Alpha, at your own risk: read [DISCLAIMER.md](DISCLAIMER.md) first.
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
+## Roadmap
+
+What is planned and what is being worked on, all on GitHub:
+
+- **[The board](https://github.com/users/Oulsen/projects/2)**: the planned bugs and features, from
+  "to do" to "done"
+- **[Milestones](https://github.com/Oulsen/DLZ-Creator-Modded/milestones)**: what goes into which
+  version
+- **[Issues](https://github.com/Oulsen/DLZ-Creator-Modded/issues)**: the details of each one, and new
+  reports. Missing something? Open a feature request
+
 ## Which mixers
 
 | Mixer | Firmware (Settings → About) | Status |
@@ -29,7 +40,8 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
 ## Install
 
-You need the mixer, a microSD card (16 GB or more) and a card reader. Write the installer image to
+You need the mixer, a microSD card (16 GB or more) and a card reader. Download the installer image
+from the [latest release](https://github.com/Oulsen/DLZ-Creator-Modded/releases/latest), write it to
 the card, put it in the mixer and follow the screen. Step by step, with pictures of every screen:
 **[docs/INSTALL.md](docs/INSTALL.md)**.
 
@@ -67,15 +79,14 @@ recording worked.
 
 - **Chat, questions, contact:** [Discord](https://discord.gg/Qa2fjzVbGp)
 - **Bugs, feature requests and help with an install:** [GitHub issues](https://github.com/Oulsen/DLZ-Creator-Modded/issues)
+- **A security hole:** privately, not in an issue: [SECURITY.md](SECURITY.md)
 
 Never post dumps, Mackie files, Wi-Fi passwords or keys, in any of these places.
 
 ## For developers
 
 How it works, the tools, building a card from source and the knowledge base:
-**[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**. The roadmap is on GitHub: the
-[issues](https://github.com/Oulsen/DLZ-Creator-Modded/issues) and the
-[board](https://github.com/users/Oulsen/projects/2).
+**[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**; how to help: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Legal
 

@@ -80,7 +80,7 @@ organised: "GitHub workflow" below and [CONTRIBUTING.md](../CONTRIBUTING.md).
 | `vendor/` | Third-party U-Boot, downloaded in Setup (git-ignored) |
 | `build/` | Generated images/scripts (git-ignored) |
 | `dumps/` | Data read from the device (git-ignored, never share) |
-| `.github/` | Issue templates (bug, feature, help with an install), the pull request template and the checks GitHub runs on every push and pull request (`workflows/checks.yml`: unit tests, key guards, script syntax) |
+| `.github/` | Issue templates (bug, feature, help with an install), the pull request template, `CODEOWNERS` (who reviews) and the checks GitHub runs on every push and pull request (`workflows/checks.yml`: unit tests, key guards, script syntax) |
 | `.claude/skills/` | Workflows for Claude Code: the device review, the UI sandbox, SSH to your mixer, the release build |
 
 ## Notes
@@ -252,9 +252,11 @@ The roadmap is the issues on GitHub and the board
 ([project 2](https://github.com/users/Oulsen/projects/2)). Notes hold the lasting knowledge; an
 issue's technical notes point to the note section instead of copying it.
 
-- **Issue titles** in plain language, with a type prefix: `(DLZ BUG)` stock Mackie behaviour,
-  `(MOD BUG)` caused by the mod, `(FEATURE)` new functionality, `(ANALYSIS) ...?` an idea that first
-  needs research, phrased as a question (it ends in a decision, and a `(FEATURE)` issue if yes).
+- **Issue titles** in plain language, with a type prefix: `(DLZ FEATURE)` something the mod lets
+  the mixer do, `(DLZ BUG)` stock Mackie behaviour, `(MOD FEATURE)` the mod itself (install, updates, safety,
+  support, development), `(MOD BUG)` caused by the mod, `(ANALYSIS) ...?` an idea that first needs
+  research, phrased as a question (it ends in a decision, and a feature issue if yes). New feature
+  requests start as `(DLZ FEATURE)`; triage corrects the prefix.
 - **Bugs vs. unfinished work**: a defect in what the release being worked on brings (not shipped
   yet) is simply fixed, without an issue. A defect in a released version gets a `MOD BUG` issue,
   never a reopen, so each issue stays in the changelog of the version it shipped in. Stock behaviour
@@ -278,20 +280,40 @@ issue's technical notes point to the note section instead of copying it.
   Work PRs into `develop` say `Refs #N`, never `Fixes #N` (that would close the issue before it is
   released). "Device test" is the list for the next session with the mixer; issues that the tests and
   the sandbox fully cover (docs, a screen text) skip it. An issue closes only through the release PR,
-  whose description lists `Fixes #N` for every released issue (with squash-merge only the PR
-  description counts).
-- **Branches and releases**: `develop` for work and tests, `main` for releases only. A release is a
-  PR `develop` → `main`, squash-merged, then a tag `vX.Y.Z` and a GitHub release with the
-  `CHANGELOG.md` section as notes, followed by the GPL source note from the README's "Legal" (U-Boot
-  and busybox versions and their Debian source links; update it when `vendor.sh` pins new ones), and
-  the tested release files attached: the installer image, and the update file (`.tar` + `.tar.sig`)
-  only when the release installs as a drop-in from the previous one ([notes/updates.md](../notes/updates.md),
-  "Release files"). The notes start with how to get it: "Update from vX.Y.Z: copy the update
-  files" or "Full install with the installer image (copy your recordings off the card first)". After the merge, `main` goes back into
-  `develop`, or the next release PR shows old changes again.
+  whose description lists `Fixes #N: <title>` for every released issue (one keyword per issue;
+  GitHub reads the PR description, not the commits).
+- **Branches**: `develop` for work and tests, `main` for releases only. Nothing is committed to
+  either directly: every change gets its own branch from `develop` (`fix/...`, `feature/...`,
+  `docs/...`) and a PR into `develop`, **squash-merged** (one commit per change).
+- **Review**: every PR into `develop` gets a review before it is merged, also a small one that only
+  changes docs. A contributor's PR: the maintainer reviews it (`.github/CODEOWNERS` requests that
+  once the repo is public; a ruleset makes it required). The maintainer's own PRs: one review pass
+  by an AI reviewer on the branch's diff before the PR opens (for docs: consistency with the other
+  docs and correctness; for code: bugs, failure paths, what the tests cannot see); findings are
+  fixed, or named in the PR description as accepted. The release PR `develop` → `main` only carries
+  reviewed changes: its check is the changelog section, the `Fixes #N` list and that the release
+  files are the tested ones. A change that runs on the mixer still gets its device review, once per
+  image (`.claude/skills/device-review`).
+- **Releases**: a PR `develop` → `main`, merged with **"Create a merge commit"**, so `main` holds
+  `develop`'s commits and the next release PR shows only what is new (no merge back into `develop`).
+  The squash and merge-commit messages are the PR's title and description. The release build is
+  made and tested from `develop`'s tip before the PR (its `package.env` names that commit; the merge
+  commit has the same `install/` and `VERSION`, so the release-build check is not run on `main`).
+  Then an annotated tag `vX.Y.Z` on that merge commit and a GitHub release with the `CHANGELOG.md` section as notes
+  (grouped under the section headings of "`CHANGELOG.md`" below, without the title prefixes),
+  followed by the GPL source note from the README's "Legal" (U-Boot and busybox versions and their
+  Debian source links, at the tag; update it when `vendor.sh` pins new ones), and the tested
+  release files attached: the installer image with a `SHA256SUMS`, and the update file (`.tar` +
+  `.tar.sig`, in `SHA256SUMS` too) only when the release installs as a drop-in from the previous one
+  ([notes/updates.md](../notes/updates.md), "Release files"). The notes start with how to get it:
+  "Update from vX.Y.Z: copy the update files" or "Full install with the installer image (copy your
+  recordings off the card first)". Check the release by downloading its files again
+  (`gh release download`) and running `sha256sum -c SHA256SUMS`.
 - **`CHANGELOG.md`**: with every version bump a `## vX.Y.Z` section from the milestone's issues: their
-  titles as bullets, ordered `DLZ BUG`, `MOD BUG`, `FEATURE` (no `ANALYSIS`, no `release`). Written by
-  hand from the milestone; the release PR's `Fixes #N` lines come from the same list.
+  titles as bullets, ordered `DLZ FEATURE`, `DLZ BUG`, `MOD FEATURE`, `MOD BUG` (no `ANALYSIS`, no
+  `release`): what changes on the mixer first, then the mod itself. Written by hand from the
+  milestone; the release PR (`Fixes #N: <title>` lines) and the release notes use the same order, as
+  sections ("DLZ features", "DLZ bugs fixed", "Mod features", "Mod bugs fixed"; empty ones left out).
   The README's "What the mod does" follows: it describes the current mod, so a new feature or
   stock fix goes into its group there with the same bump.
 - **Community**: questions, bug reports and support go through issues, with templates for a bug,

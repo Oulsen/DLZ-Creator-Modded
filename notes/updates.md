@@ -9,12 +9,13 @@ Code: `install/sd-system/dlzmod-update` (the updater on the card), `install/appl
 ## Release files
 
 A release has up to two downloads, built in one step from the same **package**
-(`install/release/build-release.cmd` → `mkinstaller.sh` + `mkpackage.sh`):
+(`install/release/build-release.cmd` → `mkinstaller.sh` + `mkpackage.sh`), and a `SHA256SUMS` for them:
 
 | File | Contents | For |
 |---|---|---|
 | `dlz-installer-vX.Y.Z.img` | Debian U-Boot + `uboot.env` + `boot.scr` + the package | A new install: write to a card, boot, install |
 | `dlzmod-vX.Y.Z.tar` + `.tar.sig` | The package: installer initramfs + all mod files (patches, services, layers), and its signature | An update of an existing mod card |
+| `SHA256SUMS` | The sha256 of every file above that the release publishes, made at the release from the tested files (`sha256sum` in `build/release`, two spaces before the name) | Checking a download |
 
 What installs and what updates is always the same code. Neither is ever named like a Mackie `.upd`.
 
