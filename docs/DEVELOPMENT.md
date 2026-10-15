@@ -261,10 +261,10 @@ issue's technical notes point to the note section instead of copying it.
   yet) is simply fixed, without an issue. A defect in a released version gets a `MOD BUG` issue,
   never a reopen, so each issue stays in the changelog of the version it shipped in. Stock behaviour
   gets a `DLZ BUG` issue whenever it is found.
-- **Labels**: the type (`dlz-bug`, `mod-bug`, `feature`, `analysis`); `roadmap` (our own plan, puts
-  the issue on the board); `needs-info` (waiting for information from outside); `release` (release
-  chores, never in the changelog); `triage` (a new community report, not looked at yet). Progress is
-  not a label but the board's Status.
+- **Labels**: the type, matching the title prefix (`dlz-feature`, `dlz-bug`, `mod-feature`, `mod-bug`,
+  `analysis`); `roadmap` (our own plan, puts the issue on the board); `needs-info` (waiting for
+  information from outside); `release` (release chores, never in the changelog); `triage` (a new
+  community report, not looked at yet). Progress is not a label but the board's Status.
 - **Milestones are versions** (`v0.1.0`, `v0.2.0`, ...), plus `Later` for planned work without a
   version; an issue moves to a version milestone once it is planned.
 - **Issue body**: "What's wrong" / "What it adds" (plain, changelog tone), "Done when" (checklist,
