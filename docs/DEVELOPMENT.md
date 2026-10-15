@@ -252,8 +252,8 @@ The roadmap is the issues on GitHub and the board
 ([project 2](https://github.com/users/Oulsen/projects/2)). Notes hold the lasting knowledge; an
 issue's technical notes point to the note section instead of copying it.
 
-- **Issue titles** in plain language, with a type prefix: `(DLZ FEATURE)` something the mixer can
-  do, `(DLZ BUG)` stock Mackie behaviour, `(MOD FEATURE)` the mod itself (install, updates, safety,
+- **Issue titles** in plain language, with a type prefix: `(DLZ FEATURE)` something the mod lets
+  the mixer do, `(DLZ BUG)` stock Mackie behaviour, `(MOD FEATURE)` the mod itself (install, updates, safety,
   support, development), `(MOD BUG)` caused by the mod, `(ANALYSIS) ...?` an idea that first needs
   research, phrased as a question (it ends in a decision, and a feature issue if yes). New feature
   requests start as `(DLZ FEATURE)`; triage corrects the prefix.
@@ -288,7 +288,8 @@ issue's technical notes point to the note section instead of copying it.
 - **Releases**: a PR `develop` → `main`, merged with **"Create a merge commit"**, so `main` holds
   `develop`'s commits and the next release PR shows only what is new (no merge back into `develop`).
   The squash and merge-commit messages are the PR's title and description. Then an annotated tag
-  `vX.Y.Z` on that merge commit and a GitHub release with the `CHANGELOG.md` section as notes,
+  `vX.Y.Z` on that merge commit and a GitHub release with the `CHANGELOG.md` section as notes
+  (grouped under the section headings of "`CHANGELOG.md`" below, without the title prefixes),
   followed by the GPL source note from the README's "Legal" (U-Boot and busybox versions and their
   Debian source links, at the tag; update it when `vendor.sh` pins new ones), and the tested
   release files attached: the installer image with a `SHA256SUMS`, and the update file (`.tar` +
