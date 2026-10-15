@@ -2,7 +2,8 @@
 # Push a dev build to a dev card over Wi-Fi (Git Bash): build the package in WSL, copy it into the
 # card's DLZDATA/dlzmod-update/ over SSH, restart the mixer and show the update's report. The card
 # applies it at startup like any drop-in update (notes/updates.md, "Drop-in update"): signature,
-# checks, sandbox. Nothing else on the mixer is changed.
+# checks, sandbox. Nothing else on the mixer is changed (DLZDATA, read-only while the mixer runs, is
+# writable only for the copy).
 #
 # Usage: bash dev/push.sh                 build HEAD into build/push, push it, restart, show the result
 #        bash dev/push.sh <package>.tar   push a package built before (its .tar.sig next to it), e.g.
@@ -100,10 +101,33 @@ echo "   signature matches the card's dev key"
 
 # 3. copy: earlier packages out (the updater takes every dlzmod-*.tar, more than one is never
 # installed), under a temporary name first and renamed only when complete (a cut connection ends
-# the remote cat normally), the .sig last (without it the card does not try the tar), checked, flushed
+# the remote cat normally), the .sig last (without it the card does not try the tar), checked, flushed.
+# server.js keeps DLZDATA mounted read-only and makes it read-write only while it writes itself, a
+# recording (notes/open-questions.md, Q28): read-write now means it is busy, so stop (checked and
+# remounted in one command, no recording can start in between); otherwise read-write for the copy
+# and read-only again after it, however the script ends (the trap: an error, Ctrl-C, a closed window)
 echo "== copy to $U/"
+RW=0
+rodata() {
+  RW=0
+  mixer "sync; mount -o remount,ro '$DATA'" \
+    || echo "push: DLZDATA could not be made read-only again: restart the mixer" >&2
+}
+trap '[ "$RW" = 0 ] || rodata' EXIT
+trap 'exit 130' INT TERM HUP
+RC=0
+mixer "case \$(findmnt -rno OPTIONS -T '$DATA' | head -n 1) in
+  ro,*) mount -o remount,rw '$DATA' ;;
+  rw,*) exit 3 ;;
+  *) exit 4 ;;
+esac" || RC=$?
+case $RC in
+  0) RW=1 ;;
+  3) die "DLZDATA is mounted read-write on the mixer (a recording?): push when it is done" ;;
+  *) die "DLZDATA could not be made writable on the mixer" ;;
+esac
 mixer "mkdir -p '$U' && rm -f '$U'/dlzmod-*.tar '$U'/dlzmod-*.tar.sig '$U'/.push-part" \
-  || die "cannot write to $U on the mixer (DLZDATA read-only?)"
+  || die "cannot write to $U on the mixer"
 put() {
   mixer "cat > '$U/.push-part' && [ \"\$(stat -c %s '$U/.push-part')\" = $(stat -c %s "$1") ] \
     && mv -f '$U/.push-part' '$U/$2' || { rm -f '$U/.push-part'; exit 1; }" < "$1"
@@ -111,8 +135,10 @@ put() {
 put "$TAR" "$NAME.tar" || die "copying the package failed"
 put "$SIG" "$NAME.tar.sig" || { mixer "rm -f '$U/$NAME.tar'" || true; die "copying the signature failed"; }
 # hashes only: Git Bash marks binary files with '*', the mixer does not
-SUMS=$(mixer "cd '$U' && sha256sum '$NAME.tar' '$NAME.tar.sig' && sync" | tr -d '\r' | cut -d' ' -f1)
+SUMS=$(mixer "cd '$U' && sha256sum '$NAME.tar' '$NAME.tar.sig' && sync" | tr -d '\r' | cut -d' ' -f1) \
+  || die "the copy on the mixer could not be checked"
 [ "$SUMS" = "$(sha256sum "$TAR" "$SIG" | cut -d' ' -f1)" ] || die "copy on the mixer differs from $TAR"
+rodata
 
 # 4. restart and wait for the new boot and the updater's report
 echo "== restart"

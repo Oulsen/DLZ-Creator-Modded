@@ -71,7 +71,7 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
       the mixer software at every boot, ~2.2 s). Moving its copy after the start, into the
       server's mount, does not work: server.js mounts DLZDATA read-only (`ro,noatime`, `rw` only
       while it writes itself), and remounting it under the server could break a recording
-      [static, server.js]. Expected: ~1.4 s off a normal boot [device: the next install]
+      [static, server.js; `ro` while idle: device]. Expected: ~1.4 s off a normal boot [device: the next install]
     - Open: (B) a stopwatch from power-on to the UI and to sound, card in vs card out (stock from
       the eMMC, nothing touched); (C) only if B shows a gap: 10 s of 4 KiB random reads, O_DIRECT,
       read-only, on the card and on the eMMC (`python3` with an mmap-aligned buffer; mixer idle).

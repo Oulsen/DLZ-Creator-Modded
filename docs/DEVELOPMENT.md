@@ -279,7 +279,9 @@ bash dev/push.sh          # build in WSL, check, copy, restart, wait, print upda
 The mixer restarts on every push: not during a recording. Before the restart, `push.sh` checks the
 package the way the card will: the signature against the card's own `dev.pub` (a release card, or
 one built with another dev key, stops here), `CHANNEL=dev`, `REINSTALL=no`, not older than the
-card's version, and not a file the card refused before. Earlier packages in `dlzmod-update/` are
+card's version, and not a file the card refused before. The mixer software keeps DLZDATA mounted
+read-only and writable only while it records: `push.sh` stops when it finds it writable, else makes
+it writable for the copy and read-only again after it. Earlier packages in `dlzmod-update/` are
 removed (more than one is never installed). After the restart it waits for the new boot and the
 updater's report, prints it and says from the report whether the package was installed. Packages
 stay in `build/push/`.
