@@ -278,17 +278,23 @@ issue's technical notes point to the note section instead of copying it.
   Work PRs into `develop` say `Refs #N`, never `Fixes #N` (that would close the issue before it is
   released). "Device test" is the list for the next session with the mixer; issues that the tests and
   the sandbox fully cover (docs, a screen text) skip it. An issue closes only through the release PR,
-  whose description lists `Fixes #N` for every released issue (with squash-merge only the PR
-  description counts).
-- **Branches and releases**: `develop` for work and tests, `main` for releases only. A release is a
-  PR `develop` → `main`, squash-merged, then a tag `vX.Y.Z` and a GitHub release with the
-  `CHANGELOG.md` section as notes, followed by the GPL source note from the README's "Legal" (U-Boot
-  and busybox versions and their Debian source links; update it when `vendor.sh` pins new ones), and
-  the tested release files attached: the installer image, and the update file (`.tar` + `.tar.sig`)
-  only when the release installs as a drop-in from the previous one ([notes/updates.md](../notes/updates.md),
-  "Release files"). The notes start with how to get it: "Update from vX.Y.Z: copy the update
-  files" or "Full install with the installer image (copy your recordings off the card first)". After the merge, `main` goes back into
-  `develop`, or the next release PR shows old changes again.
+  whose description lists `Fixes #N: <title>` for every released issue (one keyword per issue;
+  GitHub reads the PR description, not the commits).
+- **Branches**: `develop` for work and tests, `main` for releases only. Nothing is committed to
+  either directly: every change gets its own branch from `develop` (`fix/...`, `feature/...`,
+  `docs/...`) and a PR into `develop`, **squash-merged** (one commit per change).
+- **Releases**: a PR `develop` → `main`, merged with **"Create a merge commit"**, so `main` holds
+  `develop`'s commits and the next release PR shows only what is new (no merge back into `develop`).
+  The squash and merge-commit messages are the PR's title and description. Then an annotated tag
+  `vX.Y.Z` on that merge commit and a GitHub release with the `CHANGELOG.md` section as notes,
+  followed by the GPL source note from the README's "Legal" (U-Boot and busybox versions and their
+  Debian source links, at the tag; update it when `vendor.sh` pins new ones), and the tested
+  release files attached: the installer image with a `SHA256SUMS`, and the update file (`.tar` +
+  `.tar.sig`, in `SHA256SUMS` too) only when the release installs as a drop-in from the previous one
+  ([notes/updates.md](../notes/updates.md), "Release files"). The notes start with how to get it:
+  "Update from vX.Y.Z: copy the update files" or "Full install with the installer image (copy your
+  recordings off the card first)". Check the release by downloading its files again
+  (`gh release download`) and running `sha256sum -c SHA256SUMS`.
 - **`CHANGELOG.md`**: with every version bump a `## vX.Y.Z` section from the milestone's issues: their
   titles as bullets, ordered `DLZ BUG`, `MOD BUG`, `FEATURE` (no `ANALYSIS`, no `release`). Written by
   hand from the milestone; the release PR's `Fixes #N` lines come from the same list.

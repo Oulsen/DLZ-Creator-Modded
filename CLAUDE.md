@@ -45,6 +45,9 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   its card on the board. Never post Mackie code or dump secrets in issues. A defect found in what
   the release being worked on brings (not shipped yet) is simply fixed, without an issue; a defect
   in a released version, or in stock Mackie behaviour, gets a `MOD BUG` / `DLZ BUG` issue.
+- Never commit to `main` or `develop` directly: every change on its own branch from `develop`, a PR
+  into `develop` (`/pr`, squash-merged by the user); a release is a PR `develop` → `main`, merged
+  with a merge commit (`docs/DEVELOPMENT.md`, "Branches" and "Releases").
 - With every version bump, write a `## vX.Y.Z` section in `CHANGELOG.md` (newest version first)
   from the milestone's issues: their titles as bullets `- (DLZ BUG|MOD BUG|FEATURE) ...`, in the
   order DLZ BUG, MOD BUG, FEATURE. Update the README's "What the mod does" (the current mod, by
