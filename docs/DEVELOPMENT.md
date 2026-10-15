@@ -171,6 +171,7 @@ The repo is public, so what goes into it is limited by what the project may publ
 | Tool | Runs on | Purpose |
 |---|---|---|
 | `ui-sandbox.sh` | Git Bash + Node | Run the mixer UI on this PC at http://127.0.0.1/ in the on-device layout (copy of `/srv` in `dumps/sandbox`, shell commands blocked, localhost only); `DLZ_FULLSIZE=1` shows the full-size DLZ Creator's UI from its own copy (`dumps/sandbox-full`) |
+| `push.sh` | Git Bash + WSL | Build HEAD, push it over Wi-Fi to a dev card as a drop-in update, restart the mixer and show the update's report ("Dev card" below); settings in `dev/push.env` (git-ignored, from `push.env.example`) |
 | `ui-sandbox/shot.js` | Node + Chrome | Headless screenshot of the sandbox UI, optionally after taps |
 | `ui-sandbox/fake-vu-live.js` | browser | Moving fake meter levels that follow the faders, loaded into the sandbox page by the shim (off with `/?novu`) |
 | `installer-shot.py` | WSL (Pillow) | Render an installer screen (`ui.py`) as a PNG, upright, as it will look on the mixer |
@@ -245,6 +246,55 @@ cp $B/install/sd.env.example /root/dlz/sd.env && chmod 600 /root/dlz/sd.env   # 
 SDCONF=/root/dlz/sd.env bash $B/install/build-sd.sh /root/dlz/orig.img $B/build/dlz-sd-dev.img
 ssh root@mackie-dlz-creator-xs.local   # an XS's name on the network
 ```
+
+## Dev card: test builds over Wi-Fi
+
+A card that takes new builds of the mod without leaving the mixer: build, push, one restart, test.
+The push only puts the package and its signature in `DLZDATA/dlzmod-update/`, so every build goes
+through the same signature check and sandbox as a user's drop-in update (`notes/updates.md`).
+
+**Once per card.** A card trusts the keys it was installed with for life, and a card from the
+release image trusts only the release keys: use a second microSD for development.
+
+1. Install it from a dev installer image (`install/release/mkpackage.sh` and `mkinstaller.sh`,
+   without `RELEASE=1`, with your own `DLZMOD_SIGNING_KEYS`), or build it with `build-sd.sh` and an
+   SSH key in `sd.env` (above).
+2. On the mixer's screen (Settings, DLZ Creator Modded, Network): connect Wi-Fi, turn SSH on with
+   "Keep on after a restart".
+3. Add your key once (Git Bash): `ssh-copy-id -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519.pub
+   root@<mixer>` with the SSH password from step 2 (`IdentitiesOnly`: the mixer allows 3 tries, and
+   an SSH agent with several keys uses them up before the password). Not needed for a `build-sd.sh`
+   card with an SSH key.
+4. `cp dev/push.env.example dev/push.env` and fill in the mixer's address and your key. The script
+   never asks for anything: a key with a passphrase goes into `ssh-agent` first, and the dev key is
+   used as `mkkeys.sh` makes it (without a passphrase).
+
+**The loop** (Git Bash, repo root):
+
+```bash
+git commit -m "WIP ..."   # only a committed tree is signed; WIP commits disappear in the squash merge
+bash dev/push.sh          # build in WSL, check, copy, restart, wait, print update-N.txt
+```
+
+The mixer restarts on every push: not during a recording. Before the restart, `push.sh` checks the
+package the way the card will: the signature against the card's own `dev.pub` (a release card, or
+one built with another dev key, stops here), `CHANNEL=dev`, `REINSTALL=no`, not older than the
+card's version, and not a file the card refused before. The mixer software keeps DLZDATA mounted
+read-only and writable only while it records: `push.sh` stops when it finds it writable, else makes
+it writable for the copy and read-only again after it. Earlier packages in `dlzmod-update/` are
+removed (more than one is never installed). After the restart it waits for the new boot and the
+updater's report, prints it and says from the report whether the package was installed. Packages
+stay in `build/push/`.
+
+**Back to an older build** of the same version (bisecting): equal versions install, so check out
+the older commit and push again, or push its package from before: `bash dev/push.sh
+build/push/dlzmod-v0.2.0-dev-<commit>.tar`. A refused file is not tried again; a new build is a new
+file.
+
+Not covered: changes that need a full install (`REINSTALL=yes`: guards, the updater's gates, boot
+visuals, the card layout). Each pushed build is a build on the mixer: `device-review` at the tier
+the change asks for. The release gate stays: a release candidate still gets a fresh install from
+the installer image and an update from a card running the previous release.
 
 ## GitHub workflow
 

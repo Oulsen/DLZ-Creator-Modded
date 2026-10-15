@@ -26,3 +26,4 @@ __pycache__/
 *.key
 sd.env
 .env
+dev/push.env
