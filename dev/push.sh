@@ -111,19 +111,23 @@ RW=0
 rodata() {
   RW=0
   mixer "sync; mount -o remount,ro '$DATA'" \
-    || echo "push: DLZDATA could not be made read-only again: restart the mixer" >&2
+    || echo "push: DLZDATA could not be made read-only again (a recording started?): restart the mixer" >&2
 }
 trap '[ "$RW" = 0 ] || rodata' EXIT
 trap 'exit 130' INT TERM HUP
+# armed before the call: a connection lost after the remote remount still makes it read-only again;
+# only the two answers that say nothing was remounted disarm it
+RW=1
 RC=0
 mixer "case \$(findmnt -rno OPTIONS -T '$DATA' | head -n 1) in
-  ro,*) mount -o remount,rw '$DATA' ;;
-  rw,*) exit 3 ;;
+  ro|ro,*) mount -o remount,rw '$DATA' ;;
+  rw|rw,*) exit 3 ;;
   *) exit 4 ;;
 esac" || RC=$?
 case $RC in
-  0) RW=1 ;;
-  3) die "DLZDATA is mounted read-write on the mixer (a recording?): push when it is done" ;;
+  0) ;;
+  3) RW=0; die "DLZDATA is mounted read-write on the mixer (a recording?): push when it is done" ;;
+  4) RW=0; die "DLZDATA's mount on the mixer could not be read" ;;
   *) die "DLZDATA could not be made writable on the mixer" ;;
 esac
 mixer "mkdir -p '$U' && rm -f '$U'/dlzmod-*.tar '$U'/dlzmod-*.tar.sig '$U'/.push-part" \
