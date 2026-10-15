@@ -35,8 +35,10 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   against the change. `--check docs/images/install` (WSL) says whether the screens are current.
 - The roadmap lives on GitHub: every bug and feature is an issue in `Oulsen/DLZ-Creator-Modded`
   on the board https://github.com/users/Oulsen/projects/2 (life cycle, labels and milestones:
-  `docs/DEVELOPMENT.md` "GitHub workflow"). Title `(DLZ BUG|MOD BUG|FEATURE) ...` in plain
-  language, no technical terms (DLZ BUG = stock Mackie behaviour, MOD BUG = caused by the mod), or
+  `docs/DEVELOPMENT.md` "GitHub workflow"). Title `(DLZ FEATURE|DLZ BUG|MOD FEATURE|MOD BUG) ...`
+  in plain language, no technical terms (DLZ FEATURE = something the mixer can do, MOD FEATURE = the
+  mod itself: install, updates, safety, support, development; DLZ BUG = stock Mackie behaviour,
+  MOD BUG = caused by the mod), or
   `(ANALYSIS) ...?` for an idea that first needs research (label `analysis`); lasting knowledge lives
   in the topic notes and the body points to it, work details of one issue go into its own body (a
   collapsed `<details>` block under "Technical notes"). There is no backlog file: to-dos are issues,
@@ -49,8 +51,8 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   into `develop` (`/pr`, squash-merged by the user); a release is a PR `develop` → `main`, merged
   with a merge commit (`docs/DEVELOPMENT.md`, "Branches" and "Releases").
 - With every version bump, write a `## vX.Y.Z` section in `CHANGELOG.md` (newest version first)
-  from the milestone's issues: their titles as bullets `- (DLZ BUG|MOD BUG|FEATURE) ...`, in the
-  order DLZ BUG, MOD BUG, FEATURE. Update the README's "What the mod does" (the current mod, by
+  from the milestone's issues: their titles as bullets, in the order DLZ FEATURE, DLZ BUG, MOD
+  FEATURE, MOD BUG (the release PR and the release notes use the same order, as sections). Update the README's "What the mod does" (the current mod, by
   group) in the same bump.
 - `dumps/` and `build/` are private and git-ignored. Never commit Mackie binaries, dumps or `.upd`
   files; in notes, describe Mackie code and point to it (file, function, search string), never paste
