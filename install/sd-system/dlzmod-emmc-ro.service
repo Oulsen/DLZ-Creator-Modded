@@ -1,0 +1,13 @@
+[Unit]
+Description=dlzmod: make the internal eMMC read-only
+DefaultDependencies=no
+Before=local-fs-pre.target sysinit.target flash-gd32.service upgradedaemon.service
+Wants=local-fs-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/dlzmod-emmc-ro
+
+[Install]
+WantedBy=sysinit.target

@@ -1,0 +1,53 @@
+# The checks that need no mixer, no dump and no Mackie files: the server mod's unit tests, the build
+# tools' key guards (tests/guards.sh), and a syntax check of every shell script and Python file. The
+# rehearsals on card images run on a PC with the dump (tests/README.md).
+name: checks
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # the mixer runs Node 18 (evolve-node)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 18
+
+      - name: Server mod unit tests
+        run: node install/server-mod/test-dlzmod-server.js
+
+      - name: Key guards of the build tools
+        run: bash tests/guards.sh
+
+      - name: Shell syntax (by shebang)
+        run: |
+          f=0; n=0
+          while IFS= read -r p; do
+            first=$(head -c 100 "$p" | head -n 1 | tr -d '\0')
+            case $first in
+              '#!'*bash*) sh=bash ;;
+              '#!'*/sh|'#!'*/sh' '*|'#!/usr/bin/env sh'*|'#!/bin/busybox sh'*) sh=sh ;;
+              '#!'*python*|'#!'*node*) continue ;;
+              # an interpreter this step does not know must not slip through unchecked
+              '#!'*) echo "::error file=$p::unknown interpreter: $first"; f=$((f + 1)); continue ;;
+              # sourced scripts have no shebang (install-card.sh and probe.sh by busybox sh, the
+              # others by bash): both shells must read them
+              *) case $p in *.sh) sh="bash sh" ;; *) continue ;; esac ;;
+            esac
+            n=$((n + 1))
+            for s in $sh; do $s -n "$p" || { echo "::error file=$p::syntax error ($s)"; f=$((f + 1)); }; done
+          done < <(git ls-files)
+          echo "shell scripts: $n checked, $f failed"
+          [ "$f" = 0 ]
+
+      - name: Python syntax
+        run: python3 -m py_compile $(git ls-files '*.py')

@@ -1,0 +1,83 @@
+#!/bin/sh
+# Before Mackie's FPGA loader (flash-fpga.service.d/dlzmod.conf; faderlink and dspserver Require it):
+# is this card in the mixer it was made for, and does that mixer still have the firmware the card
+# expects? The card carries its source's /root/.dlzlite (XS or full-size, it picks the FPGA bitstream at
+# every start) and GD32 marker, and never flashes the GD32. Mackie's flash-fpga.sh loads the bitstream
+# the card's flag picks; it must match the GD32 that is really in the mixer. Three checks:
+# - the card's flag and GD32 marker agree: exactly the marker of that model's firmware
+#   (check-rootfs.sh's rule, notes/architecture.md "One firmware, two products")
+# - the mixer's own eMMC has the same flag and the same GD32 marker(s) as the card: read with debugfs,
+#   read-only (-c, no mount, no journal replay; dlzmod-emmc-ro has locked the eMMC before flash-gd32).
+#   This catches a card in the other model (also developer cards) and a GD32 that a Mackie update on
+#   the eMMC moved to other firmware after the card was made
+# - the eMMC is the one the installer copied: /etc/dlzmod/mixer-id holds the sha256 of its CID (not
+#   the CID itself, which holds the chip's serial number), or "any" on a card built on a PC from a
+#   dump (build-sd.sh, developer cards)
+# On a failure the FPGA loader, faderlink and dspserver do not start (no audio, the screen works),
+# and /run/dlzmod-cardcheck holds the text the screen shows (dlzmod-server.js, DLZMOD_updateNoteSend).
+set -u
+R=/root
+SYS=/sys/block
+DEV=/dev
+NOTE=/run/dlzmod-cardcheck
+WAIT=10
+READ_TIMEOUT=20
+rm -f "$NOTE"
+fail() {   # <log line> <screen text>
+  echo "dlzmod-cardcheck: $1: the FPGA loader, faderlink and dspserver stay off" >&2
+  printf '%s\n' "$2" > "$NOTE"
+  exit 1
+}
+again="Install again with the installer on this mixer."
+
+model=full-size fw=evolve
+if [ -f "$R/.dlzlite" ]; then model=XS fw=dlzlite; fi
+want=.gd32-loaded-firmware-$fw-154.bin
+markers=$(cd "$R" && ls -d .gd32-loaded-* 2>/dev/null | tr '\n' ' ')
+[ "$markers" = "$want " ] || fail "DLZ Creator $model, GD32 marker(s) '${markers% }', expected $want" \
+  "This card's software does not match this mixer. $again"
+
+# the internal eMMC (probed asynchronously: wait for it), never its boot or RPMB parts
+emmc="" n=0
+while :; do
+  for d in "$SYS"/mmcblk*; do
+    case ${d##*/} in *boot*|*rpmb) continue ;; esac
+    [ "$(cat "$d/device/type" 2>/dev/null)" = MMC ] && [ -e "$DEV/${d##*/}p1" ] && { emmc=${d##*/}; break; }
+  done
+  [ -n "$emmc" ] || [ "$n" -ge "$WAIT" ] && break
+  n=$((n + 1)); sleep 1
+done
+[ -n "$emmc" ] || fail "no internal eMMC found" "This card cannot find the mixer's internal storage. $again"
+
+# the mixer's own flag and GD32 marker(s), read-only from the eMMC's system partition ("." proves the read);
+# time-limited: flash-fpga is a oneshot without a start timeout, and faderlink holds basic.target. In
+# the background and never waited for: a read stuck in the kernel cannot be killed (timeout(1) would
+# hang with it); after READ_TIMEOUT s the check goes on with what is there and refuses
+LS=$NOTE.ls
+rm -f "$LS"
+{ debugfs -c -R "ls -p /root" "$DEV/${emmc}p1" 2>/dev/null; echo END; } > "$LS" &
+n=0
+until grep -qx END "$LS" 2>/dev/null || [ "$n" -ge $((READ_TIMEOUT * 5)) ]; do n=$((n + 1)); sleep 0.2; done
+grep -qx END "$LS" 2>/dev/null || kill -9 $! 2>/dev/null
+list=$(cat "$LS" 2>/dev/null)
+rm -f "$LS"
+printf '%s\n' "$list" | grep -q '^/[0-9]*/040[0-7]*/[0-9]*/[0-9]*/\./' \
+  || fail "the eMMC's /root could not be read" "This card cannot read the mixer's internal storage. $again"
+emodel=full-size
+printf '%s\n' "$list" | grep -q '^/[0-9]*/100[0-7]*/[0-9]*/[0-9]*/\.dlzlite/' && emodel=XS
+emarkers=$(printf '%s\n' "$list" | cut -d/ -f6 | grep '^\.gd32-loaded-' | sort | tr '\n' ' ')
+[ "$emodel" = "$model" ] || fail "the card is for a DLZ Creator $model, this mixer is a DLZ Creator $emodel" \
+  "This card was made for another model of DLZ Creator."
+[ "$emarkers" = "$markers" ] || fail "GD32 marker(s) on the eMMC '${emarkers% }', on the card '${markers% }'" \
+  "The mixer's own firmware has changed since this card was made."
+
+bound=$(head -n 1 /etc/dlzmod/mixer-id 2>/dev/null)
+[ -n "$bound" ] || fail "no /etc/dlzmod/mixer-id" "This card does not say which mixer it was made for. $again"
+if [ "$bound" = any ]; then
+  echo "dlzmod-cardcheck: DLZ Creator $model, $want on card and eMMC; developer card (not bound to a mixer)"
+  exit 0
+fi
+id=$(sha256sum < "$SYS/$emmc/device/cid" | cut -d' ' -f1)
+[ "$id" = "$bound" ] || fail "the internal eMMC is not the one this card was made from" \
+  "This card was made for another mixer. $again"
+echo "dlzmod-cardcheck: DLZ Creator $model, $want on card and eMMC; the mixer this card was made for"

@@ -1,0 +1,14 @@
+[Unit]
+Description=dlzmod: copy the last boots' syslog to DLZDATA
+After=local-fs.target dlzmod-grow-data.service
+# Done before server.js mounts DLZDATA; dspserver waits as well, see dlzmod-grow-data.service
+Before=evolve-node.service evolve-app.service dspserver.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=30
+ExecStart=/usr/local/sbin/dlzmod-bootlog
+
+[Install]
+WantedBy=multi-user.target

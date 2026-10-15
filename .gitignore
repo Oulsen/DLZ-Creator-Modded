@@ -1,0 +1,28 @@
+# Device dumps contain Mackie's copyrighted firmware and per-unit identifiers - never commit
+dumps/
+
+# Generated artifacts (rebuild with install/)
+build/
+
+# Local experiments (e.g. the installer spike)
+.tmp/
+
+# Third-party binaries (download with install/release/vendor.sh, see docs/DEVELOPMENT.md)
+vendor/
+
+*.img
+*.upd
+# eMMC backups and dumps outside dumps/ (they hold the lock PIN and Mackie's firmware): the
+# installer's backup and the dumper card's chunks
+*.zst
+dlzmod-backup/
+emmc_*.bin
+emmcboot*_*.bin
+__pycache__/
+
+# Keys and local config never belong here: private signing keys live outside the repo (mkkeys.sh),
+# sd.env in WSL (sd.env.example); a second net in case one is copied in by mistake
+*.pem
+*.key
+sd.env
+.env

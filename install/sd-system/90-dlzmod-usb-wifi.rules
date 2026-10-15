@@ -1,0 +1,10 @@
+# dlzmod: USB Wi-Fi sticks whose chip the stock kernel drives, but whose USB id its driver does not
+# list. On plug-in: load the driver and give it the id (new_id, the USB core's dynamic id), so it
+# binds. One line per stick, only for exactly that id. new_id with 5 fields (id, interface class ff,
+# reference id) copies the reference entry's driver_info (the chip type the driver reads at probe)
+# and binds only the vendor-specific interface, like the driver's own entries.
+# - TP-Link Archer T3U (AC1300), 2357:012e, RTL8822BU: the stock 88x2bu (driver rtl88x2bu) lists
+#   2357:012d/0115/0138 (all class ff, driver_info 10 = RTL8822B) but not 012e [device:
+#   no driver bound, no wlan0; id table read from the module]
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="2357", ATTR{idProduct}=="012e", \
+  RUN{builtin}+="kmod load 88x2bu", RUN+="/bin/sh -c 'echo 2357 012e ff 2357 012d > /sys/bus/usb/drivers/rtl88x2bu/new_id'"

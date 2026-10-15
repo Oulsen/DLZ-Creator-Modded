@@ -1,0 +1,733 @@
+// DLZ Creator Modded additions to Mackie's /srv/app.js, appended by install/patch.py.
+// Only function declarations here: they are hoisted, so the patched Mackie code can call them
+// even when the UI is built before this part of the script has run.
+
+function DLZMOD_yellow() {
+  return "#FFD600";
+}
+
+// Filled in from the repo's VERSION file by patch.py
+function DLZMOD_version() {
+  return "%%DLZMOD_VERSION%%";
+}
+
+function DLZMOD_tabLabel() {
+  return "DLZ Creator Modded";
+}
+
+// Settings tab bar: About (short label) and the Mod tab (last) get fixed widths, Mackie's other
+// tabs share the rest equally. Same 2 px gaps as the original; the last tab takes the rounding
+// remainder.
+function DLZMOD_layoutTabs(page) {
+  if (!page.banks) return;
+  const gap = 2;
+  const aboutW = 120;
+  const modW = 230;
+  const n = page.banks.length - 1;
+  const each = (page.w - aboutW - modW - gap * n) / (n - 1) | 0;
+  let x = 0;
+  page.banks.forEach((b, i) => {
+    const w = i === n ? page.w - x : i === n - 1 ? aboutW : each;
+    b.setGeometry(x, null, w, null);
+    x += w + gap;
+  });
+}
+
+// Mod settings live in the hub state like Mackie's own keys (saved in srv_data.json, cleared by a
+// factory reset). app.js refuses keys its Data store does not know yet ([NOT IN DATA]), so ours
+// are added with their defaults before use; the hub's INIT then brings the saved values. Every
+// default is the stock behaviour: after an install the mixer looks
+// and works like stock until a setting is changed.
+function DLZMOD_keys() {
+  return { "dlzmod.hideHeader": 0, "dlzmod.meterMode": 0, "dlzmod.preColor": 0, "dlzmod.preLevel": 0,
+    "dlzmod.meterMarks": 0 };
+}
+
+// "Meter marks" (Mod page): the mod's yellow and red zones, dB tick marks and the dB numbers beside
+// LR; off = Mackie's plain meters. The meters repaint on every VU message; the LR fader, which draws
+// the numbers, is repainted on a change.
+function DLZMOD_meterMarks() {
+  return (Data.data["dlzmod.meterMarks"] ?? 0) !== 0;
+}
+
+function DLZMOD_applyMeterMarks() {
+  const lr = typeof VU_STRUCT !== "undefined" && VU_STRUCT.m && VU_STRUCT.m.strips && VU_STRUCT.m.strips[0];
+  if (lr && lr.sl) lr.sl.update();
+}
+
+// "Both": the "before the fader" bar's look (Mod page): colour green or grey, strong or soft over the
+// meter background. Green is the strip's own Color.green. Strengths per colour, compared in the
+// sandbox: green still shows on the empty track at 15 % and blurs into the bright bar above 50 %;
+// grey vanishes into the track below 25 % and stays apart from the green bar at 60 %.
+function DLZMOD_preColor() {
+  return ["#9CCC56", "#D0D0D0"][Data.data["dlzmod.preColor"] | 0] || "#9CCC56";
+}
+
+function DLZMOD_preAlpha() {
+  const grey = (Data.data["dlzmod.preColor"] | 0) === 1;
+  return (Data.data["dlzmod.preLevel"] | 0) === 1 ? (grey ? 0.25 : 0.15) : (grey ? 0.6 : 0.5);
+}
+
+// Meters. The hub sends every pickup of a strip in each VU message; Mackie's strip meters show
+// "post" (after the fader) and their second value is "pre" (before the gain), unused: the strips have
+// no havePre. "dlzmod.meterMode" (Mod page): 0 = Mackie; 1 = Both: Mackie's own dim second bar
+// (havePre) behind, fed with "gain" (after the gain, before the fader), the clip block also follows
+// it (clipping is about the input); 2 = only before the fader. Strips without a gain pickup stay as
+// Mackie. Replaces m.setValue(post, pre) in parseVuData (patched), for vu and vu2.
+function DLZMOD_vuSet(m, gain, idx, post, pre) {
+  const mode = DLZMOD_meterModeNow();
+  const g = gain && idx < gain.length ? deconvertVU(gain.charCodeAt(idx) || 0) : null;
+  const both = mode === 1 && g !== null;
+  const fill = both ? DLZMOD_dim(DLZMOD_preColor(), DLZMOD_preAlpha()) : null;
+  if (both !== !!m.dlzmodPre || (both && m.fillStylePre !== fill)) {   // only ever undo our own havePre
+    m.dlzmodPre = both;
+    m.havePre = both;
+    if (both) m.fillStylePre = fill;
+  }
+  if (both) {
+    m.setValue(post, g);
+    if (m.autoClip && g >= m.clipThreshold) m.clip();
+  } else {
+    m.setValue(mode === 2 && g !== null ? g : post, pre);
+  }
+}
+
+// a colour at strength a over Mackie's meter background (#393939): the "before the fader" bar
+function DLZMOD_dim(hex, a) {
+  const c = DLZMOD_dim.cache || (DLZMOD_dim.cache = {});
+  const k = hex + a;
+  if (!c[k]) {
+    const mix = (i) => Math.round(0x39 + (parseInt(hex.substr(i, 2), 16) - 0x39) * a).toString(16).padStart(2, "0");
+    c[k] = "#" + mix(1) + mix(3) + mix(5);
+  }
+  return c[k];
+}
+
+// Called from VUMeter.paint (patched) right after the bar: s = bar length, e = full length (px).
+// Strip meters (Mackie's channel palette Color.vuGrad) get solid yellow and red zones over the bar
+// at Mackie's own colour stops (on the device the gradient is off and the bar is plain green), and
+// dB notches. Values are dB-linear, 80 dB for the full length (modVuByDb: 1/80 per dB), top = 0 dB
+// [guess until measured with a test tone, #38].
+function DLZMOD_vuPaint(m, t, s, e) {
+  if (m.gradArr !== Color.vuGrad || m.flipped || e < 40) return;
+  // the device never draws Mackie's gradient (VU_GRADIENT); a browser would, under our zones
+  // (createGradient puts it into fillStyle). From the next frame on both draw the strip's own solid
+  // green (Strip passes fillStyle: Color.green) with the same zones
+  if (m.gradient) {
+    m.gradient = false;
+    m.fillStyle = Color.green;
+  }
+  if (!DLZMOD_meterMarks()) return;   // Mackie's plain look (Mod page "Meter marks" off)
+  const g = m.gradArr;
+  const yellow = g.find((c) => c[1] !== g[0][1]);   // first stop that is not green
+  const red = g[g.length - 1];
+  const rect = (from, to) => m.horizontal ? t.fillRect(from, 0, to - from, m.h) : t.fillRect(0, m.h - to, m.w, to - from);
+  // zones on the bright bar (0..s) and, dimmed, on the part of the "before the fader" bar above it
+  const s2 = m.dlzmodPre ? Math.min(e, e * m.value2 | 0) : 0;
+  for (const [stop, colour] of [[yellow, yellow && yellow[1]], [red, red[1]]]) {
+    if (!stop) continue;
+    const from = e * stop[0] | 0;
+    const end = stop === red ? e : e * red[0] | 0;
+    if (Math.min(s, end) > from) {
+      t.fillStyle = colour;
+      rect(from, Math.min(s, end));
+    }
+    if (Math.min(s2, end) > Math.max(from, s)) {
+      t.fillStyle = DLZMOD_dim(colour, DLZMOD_preAlpha());
+      rect(Math.max(from, s), Math.min(s2, end));
+    }
+  }
+  // dB scale: tick marks on every channel meter; the numbers only beside the LR meter (one readable
+  // scale without crowding every strip), in the gap right of its right bar: left of the meter
+  // Mackie's fader marks fill the strip up to its edge
+  const marks = [0, -6, -12, -18, -24, -36, -48];   // inside: only hoisted declarations at top level
+  t.fillStyle = "rgba(0,0,0,0.8)";
+  for (const db of marks) {
+    if (db === 0) continue;   // the top edge
+    const p = e * (1 + db / 80) | 0;
+    rect(p, p + 1);
+  }
+  const lr = typeof VU_STRUCT !== "undefined" && VU_STRUCT.m && VU_STRUCT.m.strips && VU_STRUCT.m.strips[0];
+  const sl = lr && lr.sl;
+  if (sl && m === (lr.vu2 || lr.vu) && !m.horizontal && !sl.dlzmodScale) {
+    sl.dlzmodScale = true;
+    const paint = sl.paint;
+    sl.paint = function (c) {
+      const r = paint.apply(this, arguments);
+      DLZMOD_paintDbScale(c, this, m);
+      return r;
+    };
+    sl.update();
+  }
+}
+
+// The dB numbers, beside the LR meter only (one readable scale without crowding every strip), in the
+// gap right of its right bar: left of the meter Mackie's fader marks fill the strip, and the gap
+// belongs to the LR fader (an opaque Slider in the strip's colour, from the meter's edge on), so the
+// fader draws them: its paint is wrapped once, for this one fader (DLZMOD_vuPaint). Drawn on the
+// fader's own clean background they stay sharp (drawn by the meter, outside its area, they piled up)
+// and come back when the knob has passed. No minus sign (everything below the top is negative), at
+// the meter's tick marks, on whole pixels; t is in the fader's coordinates.
+function DLZMOD_paintDbScale(t, sl, m) {
+  if (!DLZMOD_meterMarks()) return;
+  // drawn after the fader's own paint, so on top of its knob: leave out a number the knob covers
+  // (knob centre: 18 px from the ends of the travel, measured in the sandbox; value 0..1 = bottom..top)
+  const knobY = 18 + (1 - (sl.value || 0)) * (sl.h - 36);
+  for (const db of [0, -6, -12, -18, -24, -36, -48]) {
+    const y = Math.round(m.y - sl.y + Math.max(7, m.h - m.h * (1 + db / 80)));
+    if (Math.abs(y - knobY) < (sl.knobRadius || 11) + 7) continue;
+    t.drawText(String(-db), m.x + m.w + 2 - sl.x, y, { color: "#c8c8c8", font: Font.font(600, "8pt"), align: "left", valign: "middle" });
+  }
+}
+
+function DLZMOD_initKeys() {
+  Object.entries(DLZMOD_keys()).forEach(([k, v]) => Data.has(k) || (Data.data[k] = v));
+}
+
+function DLZMOD_headerHidden() {
+  return !!Data.get("dlzmod.hideHeader");
+}
+
+// Header (TopBar: status icons, pad indicators, messages). app.setPage shows it on every page switch
+// (patched to ask DLZMOD_headerHidden); this applies a change right away. Full-screen pages
+// (assistant, keyboard, language, ...) hide the nav bar as well: leave those alone.
+function DLZMOD_applyHeader() {
+  if (typeof app === "undefined" || !app.topBar || !app.navBar.visible) return;
+  app.topBar.setVisible(!DLZMOD_headerHidden());
+  app.updateGeometry();
+  app.update();
+}
+
+// Settings → Bluetooth / Disk: the only SD slot holds the boot card, so its Format button is hidden
+// (server.js refuses FORMAT_SD too) and this note sits where the button was (centre 54 px above
+// the panel's bottom edge).
+function DLZMOD_paintSdNote(t, panel) {
+  let cx = panel.w / 2 | 0, y = panel.h - 54;
+  t.drawText(DLZMOD_tabLabel(), cx, y - 11,
+    { color: DLZMOD_yellow(), font: Font.font(600, "13pt"), align: "center", valign: "middle" });
+  t.drawText("runs from this card", cx, y + 12,
+    { color: "#888888", font: Font.font(500, "12pt"), align: "center", valign: "middle" });
+}
+
+// The drop-in update's result, once after the start that installed it (or refused it), in the style
+// of Mackie's firmware popups (green / red text, showMessage); OK tells the server it was seen
+// (dlzmod-server.js, DLZMOD_updateNoteSend). n: {ok, version} or {ok: false, report}.
+function DLZMOD_showUpdateNote(n) {
+  if (!n) return;
+  const text = n.ok
+    ? "Updated to " + n.version + "."
+    : "The update was not installed.\nSee " + (n.report ? "dlzmod-logs/" + n.report : "dlzmod-logs") + " on the card.";
+  showMessage(text, {
+    title: DLZMOD_tabLabel() + " update", textColor: n.ok ? Color.green : Color.red2,
+    font: Font.font(500, "17pt"), textDY: 32, func: () => $NET.cmd("DLZMOD_UPDATE_NOTE_OK"),
+  });
+}
+
+// The card's check before the FPGA loader failed (sd-system/dlzmod-cardcheck): no audio this start.
+// Shown at every start while it fails, red as Mackie's failure popups; text from the check itself.
+function DLZMOD_showCardNote(text) {
+  if (!text) return;
+  showMessage(text + "\nThe mixer has no sound now. Take the card out to use it normally.", {
+    title: DLZMOD_tabLabel(), textColor: Color.red2, font: Font.font(500, "17pt"), textDY: 32,
+  });
+}
+
+// "Installed: v0.1.0 (dev-b2f2852)" or "Last update not installed: ..." (dlzmod-server.js,
+// DLZMOD_updateStatusFrom); the Mod sub-page shows only the refusal (the rest repeats its version)
+function DLZMOD_setUpdateStatus(s) {
+  DLZMOD_setUpdateStatus.text = s || "";
+  const page = DLZMOD_page();
+  if (page && page.visible) page.about.update();
+}
+
+function DLZMOD_updateFailed() {
+  const s = DLZMOD_setUpdateStatus.text || "";
+  return s.startsWith("Last update not installed") ? s : "";
+}
+
+function DLZMOD_page() {
+  return typeof app !== "undefined" && app.pageSettings && app.pageSettings.dlzmod;
+}
+
+// Mod page under Settings, after About. Unlike Mackie's pages (829 x 392 with wide margins) it fills
+// the Settings area with 12 px margins: on the device the knob panel leaves Settings 938 px, and with
+// the header shown 464 px below the tab bar (measured in the sandbox), so 914 x 440. Sub-tabs in the
+// style of Settings' own tab bar sit above one of three pages of panels: Display (Screen + Meters),
+// Network, Mod. Laid out for the header shown; with it hidden Mackie's centring (anchors) splits the
+// extra 30 px above and below. glesgui only has Proxima Nova Light/Regular/Semibold: use font weights
+// 300-600.
+function DLZMOD_settingsPage(parent, y) {
+  DLZMOD_initKeys();
+  Data.regWidget("dlzmod.hideHeader", DLZMOD_applyHeader);   // also when changed from a browser
+  Data.regWidget("dlzmod.meterMarks", DLZMOD_applyMeterMarks);
+  const top = 44 + 8;   // sub-tabs (44) and a gap, then the panels
+  return new Widget(parent, {
+    anchors: [0, y, null, null, !0, !0],
+    size: [914, top + DLZMOD_panelH()],
+    opaque: !1,
+    paint: function () {},   // only the tabs and panels, the page's black between them
+    _constructor: function () {
+      this.sub = 0;
+      this.tabs = ["Display", "Network", "Mod"].map((text, i) => new ToggleButton(this, {
+        anchors: [i * 202, 0], w: 200, h: 44, text: text, opaque: !1,
+        colors: [Color.buttonBg, DLZMOD_yellow()], textColor: Color.subNavButtonText, textColorON: Color.black,
+        textStyle: { align: "left", valign: "middle", x: 7, y: 23, offsetX: 0, offsetY: 0, font: Font.font(600, "18px") },
+        onToggleON: () => this.setSub(i), getVal: () => this.sub === i,
+      }));
+      this.screen = DLZMOD_screenPanel(this, 0, top, 290);
+      this.meters = DLZMOD_metersPanel(this, 290 + 12, top, 914 - 290 - 12);
+      this.network = DLZMOD_networkPanel(this, 0, top, 914);
+      this.about = DLZMOD_aboutPanel(this, 0, top, 914);
+      this.groups = [[this.screen, this.meters], [this.network], [this.about]];
+      this.setSub(0);
+      // the Network panel's status, every 3 s while it is on screen
+      setInterval(() => this.network.globalVisible() && $NET.cmd("DLZMOD_NET", { op: "status" }), 3000);
+    },
+    setSub: function (i) {
+      this.sub = i;
+      this.groups.forEach((g, j) => g.forEach((p) => p.setVisible(j === i)));
+      if (i === 1) $NET.cmd("DLZMOD_NET", { op: "status" });
+      this.update();
+    },
+    onShow: function () {
+      $NET.cmd("DLZMOD_NET", { op: "status" });
+    },
+  });
+}
+
+// height of the Mod page's panels (see DLZMOD_settingsPage)
+function DLZMOD_panelH() {
+  return 388;
+}
+
+// text row of the Mod page's panels: title, grey line below
+function DLZMOD_paintRow(t, x, y, title, sub, max, subColor) {
+  t.drawText(title, x, y - 12, { color: Color.white, font: Font.font(500, "16pt"), align: "left", valign: "middle" });
+  if (sub) t.drawText(sub, x, y + 14, { color: subColor || "#888888", font: Font.font(500, "12pt"), align: "left",
+    valign: "middle", max: max });
+}
+
+// Mackie's window, a yellow line on top, the title
+function DLZMOD_paintPanel(w, t, title, color, font) {
+  PAINT_WINDOW_BG.call(w, t);
+  t.fRect(DLZMOD_yellow(), 0, 0, w.w, 4);
+  t.drawText(title, w.w / 2 | 0, 40, { color: color, font: font, align: "center", valign: "middle" });
+}
+
+// same switch as Mackie's DEMO MODE, ON in mod yellow, 24 px from the right edge of a panel w wide
+function DLZMOD_switch(parent, w, y, key, apply) {
+  return new Switcher(parent, {
+    anchors: [w - 24 - 72, y], size: [72, 46], margin: 10,
+    bgColors: [Color.buttonBg, DLZMOD_yellow()], knobMargin: 0, key: key,
+    onToggleON: apply, onToggleOFF: apply,
+  });
+}
+
+// Mackie's segmented control, in mod yellow. applyParams takes an array parameter's first element
+// (Mackie writes items:[["",""]]), and only setItems derives w from the items: both given here
+function DLZMOD_switchBox(parent, x, y, h, key, items, itemWidth, size) {
+  return new SwitchBox(parent, {
+    anchors: [x, y], w: items.length * itemWidth, h: h, itemWidth: itemWidth, key: key,
+    items: [items], bgColor: Color.buttonBg, color: DLZMOD_yellow(),
+    alphaOn: 1, textColorOn: "#000000", border: 0, borderOn: 0,
+    textStyle: { offsetX: 0, offsetY: 1, font: Font.font(500, size), align: "center", valign: "middle" },
+  });
+}
+
+// Display: the header
+function DLZMOD_screenPanel(parent, x, y, w) {
+  return new Widget(parent, {
+    anchors: [x, y],
+    size: [w, DLZMOD_panelH()],
+    bgColor: Color.bgDark,
+    _constructor: function () {
+      this.hideHeader = DLZMOD_switch(this, w, 73, "dlzmod.hideHeader", DLZMOD_applyHeader);
+    },
+    paint: function (t) {
+      DLZMOD_paintPanel(this, t, "Screen", Color.white, Font.font(500, "20pt"));
+      const grey = { color: "#888888", font: Font.font(500, "12pt"), align: "left", valign: "middle", max: this.w - 48 };
+      t.drawText("Hide header", 24, this.hideHeader.geomCenterY(),
+        { color: Color.white, font: Font.font(500, "16pt"), align: "left", valign: "middle" });
+      t.drawText("Status icons and messages", 24, 136, grey);
+      t.drawText("at the top of the screen", 24, 156, grey);
+    },
+  });
+}
+
+function DLZMOD_meterModeNow() {
+  return Data.data["dlzmod.meterMode"] ?? 0;
+}
+
+// Display: the channel meters. The mode is read on every VU message (DLZMOD_vuSet): nothing to apply
+function DLZMOD_metersPanel(parent, x, y, w) {
+  return new Widget(parent, {
+    anchors: [x, y],
+    size: [w, DLZMOD_panelH()],
+    bgColor: Color.bgDark,
+    _constructor: function () {
+      // big touch targets: the whole width inside the 28 px margins
+      const inner = w - 56, item3 = inner / 3 | 0, item2 = (inner - 40) / 4 | 0;
+      this.meterMode = DLZMOD_switchBox(this, 28, 124, 52, "dlzmod.meterMode", ["Mackie", "Both", "Before fader"], item3, "15pt");
+      // the "before the fader" bar's look, only with Both (the other modes have no second bar)
+      this.preColor = DLZMOD_switchBox(this, 28, 244, 46, "dlzmod.preColor", ["Green", "Grey"], item2, "14pt");
+      this.preLevel = DLZMOD_switchBox(this, 28 + 2 * item2 + 40, 244, 46, "dlzmod.preLevel", ["Strong", "Soft"], item2, "14pt");
+      const sync = () => {
+        const both = DLZMOD_meterModeNow() === 1;
+        this.preColor.setVisible(both);
+        this.preLevel.setVisible(both);
+        this.update();   // hide() only clears the flag: without a repaint the rows stay drawn
+      };
+      Data.regWidget("dlzmod.meterMode", sync);
+      sync();
+      this.meterMarks = DLZMOD_switch(this, w, 312, "dlzmod.meterMarks", DLZMOD_applyMeterMarks);
+    },
+    paint: function (t) {
+      DLZMOD_paintPanel(this, t, "Meters", Color.white, Font.font(500, "20pt"));
+      const max = this.w - 56;
+      const mode = DLZMOD_meterModeNow();
+      DLZMOD_paintRow(t, 28, 92, "Channel meters", ["After the fader, as Mackie shows them",
+        "After the fader, with the level before the fader dimmed behind", "Before the fader"][mode] || "", max);
+      if (mode === 1) DLZMOD_paintRow(t, 28, 212, "Before-fader bar", "Its colour and strength", max);
+      DLZMOD_paintRow(t, 28, this.meterMarks.geomCenterY(), "Meter marks",
+        "Yellow and red zones, dB marks and numbers", this.w - 28 - 120);
+    },
+  });
+}
+
+// Mod: what is installed and how to update it
+function DLZMOD_aboutPanel(parent, x, y, w) {
+  return new Widget(parent, {
+    anchors: [x, y],
+    size: [w, DLZMOD_panelH()],
+    bgColor: Color.bgDark,
+    paint: function (t) {
+      DLZMOD_paintPanel(this, t, DLZMOD_tabLabel(), DLZMOD_yellow(), Font.font(600, "24pt"));
+      t.drawText("Unofficial mod for the Mackie DLZ Creator", this.w / 2 | 0, 70,
+        { color: "#888888", font: Font.font(500, "12pt"), align: "center", valign: "middle" });
+      const max = this.w - 56;
+      DLZMOD_paintRow(t, 28, 136, "Version", DLZMOD_version(), max);
+      const failed = DLZMOD_updateFailed();
+      DLZMOD_paintRow(t, 28, 206, "Updates",
+        failed || "Copy the update's .tar and .sig to DLZDATA/dlzmod-update", max, failed ? Color.red2 : null);
+      t.drawText("by Oulsen · github.com/Oulsen/DLZ-Creator-Modded", this.w / 2 | 0, this.h - 24,
+        { color: "#666666", font: Font.font(500, "12pt"), align: "center", max: max });
+    },
+  });
+}
+
+// Network panel: Wi-Fi (a USB stick) and SSH, both run by the server mod (DLZMOD_net in
+// dlzmod-server.js). The status comes from the server (DLZMOD_NET_STATE); the SSH switch shows it
+// and is no hub key, so nothing about it is sent to other clients or saved in srv_data.json.
+function DLZMOD_netState() {
+  return DLZMOD_netState.s || { stick: false, wifi: "", ssid: "", signal: 0, ip: "", ssh: false, sshKeep: false, unknown: true };
+}
+
+function DLZMOD_setNetState(s) {
+  DLZMOD_netState.s = s;
+  const page = DLZMOD_page();
+  if (page) page.network.update();
+}
+
+// Wi-Fi status on the Wi-Fi card: two short lines and their colour
+function DLZMOD_wifiStatusText(s) {
+  if (s.remote) return ["Only on the mixer's", "own screen", "#888888"];
+  if (s.unknown) return ["…", "", "#888888"];
+  // stick = NetworkManager has a Wi-Fi device, i.e. a stick with a driver; one without stays unseen
+  if (!s.stick) return ["No working Wi-Fi stick", "Not every stick is supported", "#888888"];
+  if (s.wifi === "connected") return [s.ssid || "Connected", s.ip, Color.main];
+  if (s.wifi === "connecting") return ["Connecting…", "", DLZMOD_yellow()];
+  if (s.wifi === "unavailable") return ["Wi-Fi stick not ready", "", "#888888"];
+  return ["Not connected", "", "#888888"];
+}
+
+// Network page: two cards, Wi-Fi and SSH, in a container without paint of its own, so that
+// page.network.update() and globalVisible() cover both
+function DLZMOD_networkPanel(parent, x, y, w) {
+  const cw = (w - 12) / 2 | 0;
+  return new Widget(parent, {
+    anchors: [x, y],
+    size: [w, DLZMOD_panelH()],
+    opaque: !1,
+    paint: function () {},
+    _constructor: function () {
+      this.wifi = DLZMOD_wifiCard(this, 0, cw);
+      this.ssh = DLZMOD_sshCard(this, w - cw, cw);
+    },
+  });
+}
+
+function DLZMOD_wifiCard(parent, x, w) {
+  return new Widget(parent, {
+    anchors: [x, 0],
+    size: [w, DLZMOD_panelH()],
+    bgColor: Color.bgDark,
+    _constructor: function () {
+      this.networks = new E1Button(this, {
+        anchors: [0, 150, null, null, !0], size: [w - 48, 56], text: "Wi-Fi Networks...",
+        onPress: () => DLZMOD_wifiList(),
+        getState: function () {
+          const s = DLZMOD_netState();
+          this.enabled = s.stick && s.wifi !== "unavailable";
+        },
+      });
+    },
+    paint: function (t) {
+      DLZMOD_paintPanel(this, t, "Wi-Fi", Color.white, Font.font(500, "20pt"));
+      const max = this.w - 48;
+      const [line1, line2, color] = DLZMOD_wifiStatusText(DLZMOD_netState());
+      t.drawText(line1, 24, 92, { color: color, font: Font.font(500, "16pt"), align: "left", valign: "middle", max: max });
+      if (line2) t.drawText(line2, 24, 118, { color: "#888888", font: Font.font(500, "12pt"), align: "left",
+        valign: "middle", max: max });
+      t.drawText("Needs a USB Wi-Fi stick: the mixer has no Wi-Fi of its own", this.w / 2 | 0, this.h - 24,
+        { color: "#666666", font: Font.font(500, "12pt"), align: "center", max: max });
+    },
+  });
+}
+
+// SSH: on asks for a new root password; "Keep on after a restart" can be turned on while it runs,
+// and off also for a marker left behind (both are the server's state, DLZMOD_sshPaths in
+// dlzmod-server.js: without it SSH is off after a restart). The warning shows before it is turned on.
+function DLZMOD_sshCard(parent, x, w) {
+  return new Widget(parent, {
+    anchors: [x, 0],
+    size: [w, DLZMOD_panelH()],
+    bgColor: Color.bgDark,
+    _constructor: function () {
+      // no hub key: shows the server's state (getState); a tap flips it only until the next
+      // status, so ON asks for the password and OFF switches SSH off
+      this.ssh = new Switcher(this, {
+        anchors: [w - 24 - 72, 73], size: [72, 46], margin: 10,
+        bgColors: [Color.buttonBg, DLZMOD_yellow()], knobMargin: 0,
+        getState: function () {
+          this.value = !!DLZMOD_netState().ssh;
+        },
+        setVal: function (v) {
+          this.value = v;
+        },
+        onToggleON: () => DLZMOD_confirmSsh(),
+        onToggleOFF: () => {
+          DLZMOD_netBusy("Switching SSH off…", 60, $FA.lock);
+          $NET.cmd("DLZMOD_NET", { op: "ssh", on: !1 });
+        },
+      });
+      this.keepOn = new Switcher(this, {
+        anchors: [w - 24 - 72, 206], size: [72, 46], margin: 10,
+        bgColors: [Color.buttonBg, DLZMOD_yellow()], knobMargin: 0,
+        getState: function () {
+          const s = DLZMOD_netState();
+          this.value = !!s.sshKeep;
+          this.enabled = !!s.ssh || !!s.sshKeep;   // a marker left behind can always go
+        },
+        setVal: function (v) {
+          this.value = v;
+        },
+        onToggleON: () => DLZMOD_sshKeepSet(!0),
+        onToggleOFF: () => DLZMOD_sshKeepSet(!1),
+      });
+      this.password = new E1Button(this, {
+        anchors: [0, 300, null, null, !0], size: [w - 48, 56], text: "SSH Password...",
+        onPress: () => DLZMOD_askSshPassword(),
+        getState: function () {
+          this.enabled = !!DLZMOD_netState().ssh;
+        },
+      });
+    },
+    paint: function (t) {
+      DLZMOD_paintPanel(this, t, "SSH", Color.white, Font.font(500, "20pt"));
+      const s = DLZMOD_netState(), max = this.w - 48;
+      DLZMOD_paintRow(t, 24, this.ssh.geomCenterY(), "Remote login", s.ssh ? "On" : s.sshKeep ? "Off now, back on at the next start" : "Off", this.w - 24 - 120);
+      const warn = { color: Color.red2, font: Font.font(500, "12pt"), align: "left", valign: "middle", max: max };
+      t.drawText("Gives full root access to the mixer over the network.", 24, 140, warn);
+      t.drawText("Only on a network you trust; normal use does not need it.", 24, 160, warn);
+      t.drawText("Never run apt upgrade or change system files.", 24, 180, warn);
+      DLZMOD_paintRow(t, 24, this.keepOn.geomCenterY(), "Keep on after a restart",
+        "Otherwise SSH turns off at the next start", this.w - 24 - 120);
+      if (s.ssh && s.ip) t.drawText("ssh root@" + s.ip, this.w / 2 | 0, 278, { color: "#888888", font: Font.font(500, "12pt"),
+        align: "center", valign: "middle", max: max });
+    },
+  });
+}
+
+function DLZMOD_sshKeepSet(on) {
+  DLZMOD_netBusy(on ? "Keeping SSH on…" : "SSH turns off at the next start…", 30, $FA.lock);
+  $NET.cmd("DLZMOD_NET", { op: "sshKeep", on: on });
+}
+
+// Mackie's full-screen keyboard (askInput) for a password; the title says what it is for. Its
+// keyboard takes 36 characters (maxInput, made for names): 64 here, Mackie's limit back after.
+function DLZMOD_askPassword(title, onValue) {
+  const kbd = app.pageKbd && app.pageKbd.kbd;
+  const max = kbd ? kbd.maxInput : 0;
+  if (kbd) kbd.maxInput = 64;
+  const reset = () => {
+    if (kbd) kbd.maxInput = max;
+    setKbdTitle("");
+    const page = DLZMOD_page();
+    if (page) page.network.update();   // a cancelled SSH switch goes back to the server's state
+  };
+  setKbdTitle(title);
+  // the keyboard calls this before it closes its page (accept: onValue, then close → pageBack); a
+  // popup opened right away went with the page [device]: run it once the page is back
+  askInput("", (v) => {
+    reset();
+    setTimeout(() => onValue(v), 0);
+  }, reset, reset);
+}
+
+// Switching SSH on asks first, in the style of Mackie's confirmations (the red button as in "Forget
+// this network"); the switch goes back to the server's state meanwhile, so Cancel leaves it off
+function DLZMOD_confirmSsh() {
+  const page = DLZMOD_page();
+  if (page) page.network.update();
+  new PopupConfirm(app, {
+    title: "Remote login (SSH)",
+    text: "Anyone with the password gets full control of the mixer.\nChanging or deleting system files can stop it from working.\nOnly for people who know Linux.",
+    buttons: [{ text: "Turn on", colors: [Color.deny, Color.red] }, { text: lang.CANCEL }],
+    icon: $FA.exclamation,
+    func: () => setTimeout(() => DLZMOD_askSshPassword(), 0),   // once the popup has closed
+  });
+}
+
+function DLZMOD_askSshPassword() {
+  DLZMOD_askPassword("New root password for SSH (8 or more characters)", (pw) => {
+    if (pw.length < 8) return DLZMOD_netResult({ ok: !1, text: "An SSH password has 8 to 64 characters" });
+    DLZMOD_netBusy("Setting up SSH…\nThe first time takes up to a few minutes.", 240, $FA.lock);
+    $NET.cmd("DLZMOD_NET", { op: "ssh", on: !0, password: pw });
+  });
+}
+
+// Mackie's spinner popup (as showMessageWithSpinner) while a change runs; closed by its outcome,
+// or after seconds without one (the server restarted, the connection dropped): the popup is modal
+function DLZMOD_netBusy(text, seconds = 90, icon = $FA.wifi) {
+  DLZMOD_netIdle();
+  DLZMOD_netBusy.popup = new PopupShowProgress(app, { title: "", text: text, icon: icon });
+  DLZMOD_netBusy.timer = setTimeout(() => DLZMOD_netResult({ ok: !1, text: "No answer from the mixer.\nTry again." }),
+    seconds * 1000);
+}
+
+function DLZMOD_netIdle() {
+  const p = DLZMOD_netBusy.popup;
+  clearTimeout(DLZMOD_netBusy.timer);
+  DLZMOD_netBusy.popup = null;
+  if (p) p.close();
+}
+
+// outcome of a network change, in the style of Mackie's popups
+function DLZMOD_netResult(r) {
+  DLZMOD_netIdle();
+  showMessage(r.text, { title: "Network", textColor: r.ok ? Color.green : Color.red2,
+    font: Font.font(500, "17pt"), textDY: 32 });
+  const page = DLZMOD_page();
+  if (page) page.network.update();
+}
+
+// Wi-Fi network list: a Mackie popup (modal: the page behind it takes no touches), up to 6
+// networks, connected first, then by signal (the server sorts). A tap closes it and connects
+// (password on Mackie's keyboard when the network has one), or offers to forget a saved one.
+function DLZMOD_setWifiList(l) {
+  const p = DLZMOD_wifiList.popup;
+  if (p) p.setList(l);
+}
+
+function DLZMOD_wifiList() {
+  const ROWS = 6, ROW_H = 44, TOP = 66, W = 720;
+  if (DLZMOD_wifiList.popup) return;
+  DLZMOD_wifiList.popup = new PopupWindow(app, {
+    w: W, h: 430, bgColor: Color.bgPopup, list: [], scanning: !1, error: "",
+    initWidgets: function () {
+      for (let i = 0; i < ROWS; i++) {
+        new Widget(this, {
+          anchors: [24, TOP + i * ROW_H], size: [W - 48, ROW_H - 4], opaque: !1, idx: i,
+          paint: function () {},   // touch area only: the popup paints the rows
+          onup: function () {
+            const n = this.parent.list[this.idx];
+            if (n && !this.parent.scanning) this.parent.pick(n);
+          },
+        });
+      }
+      this.scan = new E1Button(this, {
+        anchors: [24, null, null, 22], size: [210, 50], text: "Scan Again",
+        onPress: () => this.rescan(),
+        getState: function () {
+          this.enabled = !this.parent.scanning;
+        },
+      });
+      new E1Button(this, {
+        anchors: [null, null, 24, 22], size: [210, 50], text: lang.CANCEL,
+        onPress: () => this.close(),
+      });
+      this.rescan();
+    },
+    // every way out ends here: close() (Cancel, a pick) destroys it, and so does a tap outside the
+    // popup, which skips onClose (the marker then stayed set and the button did nothing until a
+    // restart [device]); PopupWindow's own onDestroy resets the overlay's background
+    onDestroy: function () {
+      DLZMOD_wifiList.popup = null;
+      PopupWindow.prototype.onDestroy.call(this);
+      $NET.cmd("DLZMOD_NET", { op: "status" });
+    },
+    rescan: function () {
+      this.scanning = !0;
+      this.error = "";
+      this.update();
+      $NET.cmd("DLZMOD_NET", { op: "scan" });
+    },
+    setList: function (l) {
+      this.scanning = !1;
+      this.list = (l && l.networks || []).slice(0, ROWS);
+      this.error = l && l.error || "";
+      this.update();
+    },
+    pick: function (n) {
+      this.close();   // the keyboard and the other popups need the screen to themselves
+      if (n.security === "unsupported") {
+        return DLZMOD_netResult({ ok: !1, text: n.ssid + " uses a login this mixer\ndoes not support (WEP or company login)." });
+      }
+      if (n.active || n.known) {
+        return new PopupConfirm(app, {
+          title: n.ssid, text: n.active ? "Connected. Forget this network?" : "Saved. Forget this network?",
+          buttons: [{ text: "Forget", colors: [Color.deny, Color.red] }, { text: lang.CANCEL }],
+          icon: $FA.wifi,
+          func: () => {
+            DLZMOD_netBusy("Forgetting " + n.ssid + "…", 60);
+            $NET.cmd("DLZMOD_NET", { op: "forget", ssid: n.ssid });
+          },
+        });
+      }
+      const connect = (pw) => {
+        DLZMOD_netBusy("Connecting to " + n.ssid + "…", 150);
+        $NET.cmd("DLZMOD_NET", { op: "connect", ssid: n.ssid, security: n.security, password: pw });
+      };
+      if (n.security === "open") return connect("");
+      DLZMOD_askPassword("Wi-Fi password for " + n.ssid, (pw) => {
+        if (pw.length < 8) return DLZMOD_netResult({ ok: !1, text: "A Wi-Fi password has 8 to 63 characters" });
+        connect(pw);
+      });
+    },
+    paint: function (t) {
+      PopupWindow.prototype.paint.call(this, t);
+      t.drawText("Wi-Fi Networks", this.w / 2 | 0, 36, { color: Color.white, font: Font.font(600, "18pt"),
+        align: "center", valign: "middle" });
+      const msg = this.scanning ? "Looking for networks…" : this.error || (this.list.length ? "" : "No networks found");
+      if (msg) t.drawText(msg, this.w / 2 | 0, TOP + 2 * ROW_H, { color: Color.text, font: Font.font(500, "14pt"),
+        align: "center", valign: "middle" });
+      if (this.scanning) return;
+      this.list.forEach((n, i) => {
+        const y = TOP + i * ROW_H, cy = y + (ROW_H - 4) / 2 | 0, right = this.w - 24;
+        t.fRect(Color.buttonBg, 24, y, W - 48, ROW_H - 4);
+        // signal: four bars, lit by strength
+        for (let b = 0; b < 4; b++) {
+          const h = 6 + b * 6;
+          t.fRect(n.signal > b * 25 ? (n.active ? Color.main : Color.white) : "#555555", 40 + b * 8, cy + 12 - h, 5, h);
+        }
+        t.drawText(n.ssid, 90, cy, { color: n.active ? Color.main : Color.white, font: Font.font(500, "15pt"),
+          align: "left", valign: "middle", max: W - 300 });
+        const tag = n.active ? "Connected" : n.known ? "Saved" : n.security === "unsupported" ? "Not supported" : "";
+        if (tag) t.drawText(tag, right - 44, cy, { color: n.active ? Color.main : "#888888", font: Font.font(500, "12pt"),
+          align: "right", valign: "middle" });
+        if (n.security !== "open") t.drawText($FA.lock, right - 20, cy, { color: "#888888", font: Font.fa("16px"),
+          align: "center", valign: "middle" });
+      });
+    },
+  });
+}

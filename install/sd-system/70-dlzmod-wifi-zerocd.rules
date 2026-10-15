@@ -1,0 +1,4 @@
+# DLZ Creator Modded: a Realtek Wi-Fi stick in its driver-CD mode (0bda:1a2b) is ejected, which
+# switches it to Wi-Fi mode (/usr/local/sbin/dlzmod-zerocd-eject). Only this one CD device. Through
+# systemd-run: udevd holds the device locked during the event, an eject from inside it gets EBUSY.
+ACTION=="add", SUBSYSTEM=="block", KERNEL=="sr[0-9]*", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="1a2b", RUN+="/usr/bin/systemd-run --no-block --collect --quiet /usr/local/sbin/dlzmod-zerocd-eject /dev/%k"

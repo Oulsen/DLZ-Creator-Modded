@@ -1,0 +1,68 @@
+#!/bin/sh
+# First boot of a fresh card: grow the FAT32 DLZDATA partition (p2) to the end of the card and
+# format it. Only acts when p2 still holds the .dlzmod-fresh marker written by the build, so a
+# DLZDATA with user data is never reformatted. Only the SD card holding / is ever touched.
+# dlzmod-logs/ (the on-device installer saves its log there) is kept in RAM and put back.
+# Once DLZDATA is set up (grown here, or found without the marker), READY on this card's own system
+# says so and later boots stop at once: the check mounted DLZDATA at every boot and took ~1.5 s
+# before the mixer software could start [device]. Only a freshly built card carries the
+# marker on DLZDATA, and such a card comes with a fresh system without READY.
+set -eu
+
+log() { echo "dlzmod-grow-data: $*"; }
+READY=/var/lib/dlzmod/dlzdata-ready
+ready() { mkdir -p "${READY%/*}" && : > "$READY" || log "could not note that DLZDATA is set up"; }
+
+if [ -e "$READY" ]; then
+  log "DLZDATA set up before (${READY})"
+  exit 0
+fi
+
+root_part=$(findmnt -no SOURCE /)
+disk_name=$(lsblk -no PKNAME "$root_part")
+disk=/dev/$disk_name
+part=${disk}p2
+
+if [ "$(cat "/sys/block/$disk_name/device/type" 2>/dev/null)" != SD ]; then
+  log "/ is not on an SD card ($disk), nothing to do"
+  exit 0
+fi
+if [ "$(blkid -o value -s LABEL "$part" 2>/dev/null)" != DLZDATA ]; then
+  log "$part is not DLZDATA, nothing to do"
+  exit 0
+fi
+
+mnt=$(mktemp -d)
+mount -t vfat -o ro "$part" "$mnt"
+fresh=no
+[ -f "$mnt/.dlzmod-fresh" ] && fresh=yes
+keep=""
+if [ "$fresh" = yes ] && [ -d "$mnt/dlzmod-logs" ]; then
+  keep=$(mktemp -d /run/dlzmod-logs.XXXXXX)
+  cp -r "$mnt/dlzmod-logs/." "$keep/" || log "could not keep dlzmod-logs"
+fi
+umount "$mnt"
+if [ "$fresh" != yes ]; then
+  rmdir "$mnt"
+  log "DLZDATA already set up"
+  ready
+  exit 0
+fi
+
+before=$(blockdev --getsize64 "$part")
+echo ", +" | sfdisk --quiet --no-reread --no-tell-kernel -N 2 "$disk"
+partx -u -n 2 "$disk"
+after=$(blockdev --getsize64 "$part")
+mkfs.vfat -F 32 -n DLZDATA "$part" >/dev/null
+log "DLZDATA grown from $((before / 1048576)) MiB to $((after / 1048576)) MiB and formatted"
+ready
+if [ -n "$keep" ]; then
+  if mount -t vfat "$part" "$mnt" && mkdir -p "$mnt/dlzmod-logs" && cp -r "$keep/." "$mnt/dlzmod-logs/"; then
+    log "dlzmod-logs put back"
+  else
+    log "could not put dlzmod-logs back"
+  fi
+  umount "$mnt" 2>/dev/null || true
+  rm -rf "$keep"
+fi
+rmdir "$mnt"

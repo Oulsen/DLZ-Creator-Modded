@@ -1,0 +1,35 @@
+# busybox applets the installer /init uses; mkpackage.sh checks them against the pinned busybox
+# (run under qemu-arm) before packaging. Add here when /init starts using a new one.
+sh
+mount
+umount
+mkdir
+rmdir
+cat
+sleep
+poweroff
+sync
+dmesg
+grep
+sed
+awk
+cut
+tr
+wc
+ls
+cp
+rm
+dd
+chroot
+sha256sum
+blockdev
+insmod
+uname
+printf
+od
+mv
+head
+tail
+kill
+mkfifo
+ln

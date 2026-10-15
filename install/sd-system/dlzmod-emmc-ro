@@ -1,0 +1,38 @@
+#!/bin/sh
+# Make the internal eMMC read-only at kernel level before any other service runs (SD system only).
+# The eMMC is found by type (MMC vs SD), never by number; the disk holding / is never touched.
+# Exits 1 (unit shows as failed) when an eMMC is found but cannot be locked.
+set -u
+
+# the installer's initramfs has no findmnt/lsblk: root_disk stays empty there (/ is in RAM)
+root_src=$(findmnt -no SOURCE / 2>/dev/null || true)
+root_disk=$(lsblk -no PKNAME "$root_src" 2>/dev/null || true)
+rc=0
+found=0
+for d in /sys/block/mmcblk*; do
+  [ -e "$d" ] || continue
+  n=${d##*/}
+  [ "$(cat "$d/device/type" 2>/dev/null)" = MMC ] || continue
+  if [ "$n" = "$root_disk" ]; then
+    echo "dlzmod-emmc-ro: $n holds /, not locking it (not booted from SD?)" >&2
+    continue
+  fi
+  found=1
+  # boot0/boot1 hardware partitions have their own force_ro switch
+  [ -f "$d/force_ro" ] && echo 1 > "$d/force_ro"
+  blockdev --setro "/dev/$n"
+  for p in "$d/$n"p*; do
+    [ -e "$p" ] && blockdev --setro "/dev/${p##*/}"
+  done
+  for dev in "/dev/$n" "/dev/$n"p*; do
+    [ -b "$dev" ] || continue
+    if [ "$(blockdev --getro "$dev")" = 1 ]; then
+      echo "dlzmod-emmc-ro: $dev read-only"
+    else
+      echo "dlzmod-emmc-ro: $dev is still writable" >&2
+      rc=1
+    fi
+  done
+done
+[ "$found" = 1 ] || echo "dlzmod-emmc-ro: no eMMC found" >&2
+exit $rc

@@ -1,0 +1,10 @@
+# Mackie bootloaders whose PMIC and DRAM settings the installer's own boot matches (Debian's U-Boot
+# SPL from the installer card sets them before any of our code runs). A filter, not a safety gate:
+# it runs in /init, after the SPL, so it cannot protect the boot that already happened; it only
+# keeps the backup ("dump") to boards known to be the XS's. On a mixer the mod does not support,
+# /init only offers the backup when the eMMC holds one of these, byte for byte. Hashes only (sha256):
+#   spl   = the eGON SPL at 8 KiB, its header's length (XS: 24576 bytes)
+#   uboot = the legacy uImage at 40 KiB, 64-byte header + its data size (XS: 459544 bytes)
+# name spl uboot (one line each; checked against Debian's U-Boot: notes/installer.md, "Package and
+# image", Safe U-Boot)
+xs-1731 72d21fd8a32a81158ffbb368a33a1d4114c7a46c71b5a9a9e67c7cd5215b5d61 f6628013d2b3f5cfaf41e853df8992d52f4d4e66c828ad14e3dff19691d76757

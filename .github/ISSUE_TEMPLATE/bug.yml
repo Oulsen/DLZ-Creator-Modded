@@ -1,0 +1,37 @@
+name: Bug
+description: Something does not work as it should, with the mod or on a stock mixer
+title: "(MOD BUG) "
+labels: [triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never attach the backup (`dlzmod-backup/`), dumps, Mackie files, Wi-Fi passwords or keys.
+        A bug in Mackie's own software (also without the card)? Change the title's prefix to `(DLZ BUG)`.
+  - type: dropdown
+    id: mixer
+    attributes:
+      label: Mixer
+      options: [DLZ Creator XS, DLZ Creator (full-size)]
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Firmware build and mod version
+      description: Settings → About, and Settings → DLZ Creator Modded
+      placeholder: build 1731, v0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what happened instead. A photo of the screen helps.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Drag the files from the card's `dlzmod-logs/` folder here.

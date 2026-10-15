@@ -1,0 +1,27 @@
+#!/usr/bin/python3
+# DLZ Creator Modded: some Realtek Wi-Fi sticks first show up as a virtual driver CD (0bda:1a2b);
+# ejecting it switches them to Wi-Fi mode. The card has no eject or usb_modeswitch, so this does the
+# CDROMEJECT ioctl. Started by 70-dlzmod-wifi-zerocd.rules through systemd-run, outside the udev
+# event: udevd keeps the block device open and locked while it handles it, and the kernel refuses an
+# eject while anyone else has the drive open (EBUSY). It may still be busy for a moment: retry.
+import errno, fcntl, os, sys, time
+
+dev = sys.argv[1]
+for _ in range(20):
+    try:
+        fd = os.open(dev, os.O_RDONLY | os.O_NONBLOCK)
+        try:
+            fcntl.ioctl(fd, 0x5309)  # CDROMEJECT
+        finally:
+            os.close(fd)
+        print("dlzmod-zerocd-eject: ejected " + dev)
+        sys.exit(0)
+    except OSError as e:
+        if e.errno in (errno.ENOENT, errno.ENXIO, errno.ENODEV):
+            sys.exit(0)  # the CD is gone: the stick has switched already
+        if e.errno != errno.EBUSY:
+            print("dlzmod-zerocd-eject: " + dev + ": " + e.strerror)
+            sys.exit(1)
+    time.sleep(0.5)
+print("dlzmod-zerocd-eject: " + dev + " stayed busy")
+sys.exit(1)
