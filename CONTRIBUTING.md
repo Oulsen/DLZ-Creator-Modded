@@ -18,6 +18,9 @@ Pick a template (bug, feature, help with an install) and fill it in. What helps 
 **Never post** the backup (`dlzmod-backup/`), dumps, Mackie files, Wi-Fi passwords or keys. The backup
 holds your mixer's settings, including the lock PIN.
 
+Found a security hole (a way into the mixer, or around the mod's safety locks)? Not in an issue:
+report it privately, see [SECURITY.md](SECURITY.md).
+
 Tested a microSD card? Open an issue with the card's exact name and size, the mod version, the
 install time (from `dlzmod-logs/install-N.txt`) and whether recording worked; it goes into the
 README's list of known good cards.
@@ -29,7 +32,8 @@ clone to a dump, the tests and the UI on your PC. Then:
 
 1. Pick or open an issue first, so the work is agreed before it is done.
 2. Fork, branch from `develop`, and open the pull request into `develop` with `Refs #N` (not
-   `Fixes #N`: issues close with the release).
+   `Fixes #N`: issues close with the release). GitHub suggests `main`, the release branch: switch
+   the base to `develop`.
 3. Follow the rules in DEVELOPMENT.md, "Rules for notes and code": no Mackie code (describe it and
    point to it), nothing from a dump, confidence tags on observations, notes describe the current
    state.

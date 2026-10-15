@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Report a security hole privately
+    url: https://github.com/Oulsen/DLZ-Creator-Modded/security/advisories/new
+    about: A way into the mixer or around the mod's safety locks. Not in a public issue (SECURITY.md).
   - name: Chat on Discord
     url: https://discord.gg/Qa2fjzVbGp
     about: Questions and talk about the mod. Bugs found there still become issues.
