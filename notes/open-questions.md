@@ -100,6 +100,9 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
     Known: in the freezes during a start (components/glesgui.md, "Bad starts after a software
     restart") the syslog stops before the cause, so a freeze needs a log that does not go through
     the card [device].
+34. Why does a closed popup stay on the device's screen until the page below it draws again, when
+    closing it clears the foreground layer and asks for a frame [static]? The mod works around it on
+    the Mod page (modding-guide.md, "PC sandbox"); other quiet pages may show the same.
 
 ## Installer boot
 

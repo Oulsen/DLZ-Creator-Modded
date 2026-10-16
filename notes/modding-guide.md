@@ -243,6 +243,13 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
   straight-on photo of the device (1.80:1) [device: photo measurement]. Layout stays 1024x600 px.
 - Remaining device differences: a few `$ENV.isNode` text offsets/fonts, NanoVG vs browser
   anti-aliasing, and canvas calls glesgui lacks (e.g. `setLineDash`).
+- A closed popup stays on the device's screen until the page below it draws again [device: up to
+  3 s on the Mod page's Network panel, until its status redraw, #67]. On the device, closing one
+  clears the whole foreground layer (`clearFgRect`) and asks for a frame (`needDrawFrame`) [static],
+  yet that frame still shows it (why: open-questions.md, 34); pages with meters draw all the time and
+  hide it.
+  The mod draws the Mod page right after every `PopupWindow` closes (`DLZMOD_hookPopups`) and after
+  the keyboard [device: gone at once after the SSH warning, keyboard, spinner and result message].
 - Screenshots without touching your own browser:
   `node dev/ui-sandbox/shot.js build/shots/x.png [x,y taps...]` (headless Chrome, `#INT`,
   taps in UI pixels, e.g. `905,60` = Settings gear).

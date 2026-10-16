@@ -254,6 +254,28 @@ function DLZMOD_page() {
   return typeof app !== "undefined" && app.pageSettings && app.pageSettings.dlzmod;
 }
 
+// On the device a closed popup stays on screen until the page below it draws again: on the Mod page,
+// which draws nothing until its next status, up to 3 s [device] (notes/modding-guide.md). A repaint
+// of the page right after it closes, only while the page is on screen.
+function DLZMOD_repaintSoon() {
+  setTimeout(() => {
+    const page = DLZMOD_page();
+    if (page && page.globalVisible()) page.update();
+  }, 0);
+}
+
+// every popup ends in onDestroy (a button, close(), a tap outside it): Mackie's own runs first, then
+// the repaint
+function DLZMOD_hookPopups() {
+  if (DLZMOD_hookPopups.done) return;
+  DLZMOD_hookPopups.done = !0;
+  const destroyed = PopupWindow.prototype.onDestroy;
+  PopupWindow.prototype.onDestroy = function () {
+    destroyed.call(this);
+    DLZMOD_repaintSoon();
+  };
+}
+
 // Mod page under Settings, after About. Unlike Mackie's pages (829 x 392 with wide margins) it fills
 // the Settings area with 12 px margins: on the device the knob panel leaves Settings 938 px, and with
 // the header shown 464 px below the tab bar (measured in the sandbox), so 914 x 440. Sub-tabs in the
@@ -263,6 +285,7 @@ function DLZMOD_page() {
 // 300-600.
 function DLZMOD_settingsPage(parent, y) {
   DLZMOD_initKeys();
+  DLZMOD_hookPopups();
   Data.regWidget("dlzmod.hideHeader", DLZMOD_applyHeader);   // also when changed from a browser
   Data.regWidget("dlzmod.meterMarks", DLZMOD_applyMeterMarks);
   const top = 44 + 8;   // sub-tabs (44) and a gap, then the panels
@@ -423,8 +446,13 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
 // Network panel: Wi-Fi (a USB stick) and SSH, both run by the server mod (DLZMOD_net in
 // dlzmod-server.js). The status comes from the server (DLZMOD_NET_STATE); the SSH switch shows it
 // and is no hub key, so nothing about it is sent to other clients or saved in srv_data.json.
+// An SSH change sent from here counts as running at once (DLZMOD_sshSend), not only from the server's
+// next status, until its outcome or the popup's time-out (DLZMOD_netIdle). Another network change's
+// spinner drops that mark too; the server's sshBusy brings it back with the next status.
 function DLZMOD_netState() {
-  return DLZMOD_netState.s || { stick: false, wifi: "", ssid: "", signal: 0, ip: "", ssh: false, sshKeep: false, unknown: true };
+  const s = DLZMOD_netState.s || { stick: false, wifi: "", ssid: "", signal: 0, ip: "", ssh: false, sshKeep: false,
+    sshBusy: "", unknown: true };
+  return DLZMOD_sshSend.busy && !s.sshBusy ? Object.assign({}, s, { sshBusy: DLZMOD_sshSend.busy }) : s;
 }
 
 function DLZMOD_setNetState(s) {
@@ -443,6 +471,22 @@ function DLZMOD_wifiStatusText(s) {
   if (s.wifi === "connecting") return ["Connecting…", "", DLZMOD_yellow()];
   if (s.wifi === "unavailable") return ["Wi-Fi stick not ready", "", "#888888"];
   return ["Not connected", "", "#888888"];
+}
+
+// SSH status under "Remote login" and its colour. Other devices get no SSH state (DLZMOD_net), and a
+// change still running (sshBusy) shows as Wi-Fi's "Connecting…" does
+function DLZMOD_sshStatusText(s) {
+  if (s.remote) return ["Only on the mixer's own screen", "#888888"];
+  if (s.unknown) return ["…", "#888888"];
+  if (s.sshBusy === "on") return ["Setting up…", DLZMOD_yellow()];
+  if (s.sshBusy === "off") return ["Switching off…", DLZMOD_yellow()];
+  if (s.ssh) return ["On", "#888888"];
+  return [s.sshKeep ? "Off now, back on at the next start" : "Off", "#888888"];
+}
+
+// the SSH controls: not on another device, and not while a change runs
+function DLZMOD_sshIdle(s) {
+  return !s.remote && !s.sshBusy;
 }
 
 // Network page: two cards, Wi-Fi and SSH, in a container without paint of its own, so that
@@ -504,16 +548,15 @@ function DLZMOD_sshCard(parent, x, w) {
         anchors: [w - 24 - 72, 73], size: [72, 46], margin: 10,
         bgColors: [Color.buttonBg, DLZMOD_yellow()], knobMargin: 0,
         getState: function () {
-          this.value = !!DLZMOD_netState().ssh;
+          const s = DLZMOD_netState();
+          this.value = !!s.ssh;
+          this.enabled = DLZMOD_sshIdle(s);
         },
         setVal: function (v) {
           this.value = v;
         },
         onToggleON: () => DLZMOD_confirmSsh(),
-        onToggleOFF: () => {
-          DLZMOD_netBusy("Switching SSH off…", 60, $FA.lock);
-          $NET.cmd("DLZMOD_NET", { op: "ssh", on: !1 });
-        },
+        onToggleOFF: () => DLZMOD_sshSend(!1),
       });
       this.keepOn = new Switcher(this, {
         anchors: [w - 24 - 72, 206], size: [72, 46], margin: 10,
@@ -521,7 +564,7 @@ function DLZMOD_sshCard(parent, x, w) {
         getState: function () {
           const s = DLZMOD_netState();
           this.value = !!s.sshKeep;
-          this.enabled = !!s.ssh || !!s.sshKeep;   // a marker left behind can always go
+          this.enabled = DLZMOD_sshIdle(s) && (!!s.ssh || !!s.sshKeep);   // a marker left behind can always go
         },
         setVal: function (v) {
           this.value = v;
@@ -533,14 +576,16 @@ function DLZMOD_sshCard(parent, x, w) {
         anchors: [0, 300, null, null, !0], size: [w - 48, 56], text: "SSH Password...",
         onPress: () => DLZMOD_askSshPassword(),
         getState: function () {
-          this.enabled = !!DLZMOD_netState().ssh;
+          const s = DLZMOD_netState();
+          this.enabled = DLZMOD_sshIdle(s) && !!s.ssh;
         },
       });
     },
     paint: function (t) {
       DLZMOD_paintPanel(this, t, "SSH", Color.white, Font.font(500, "20pt"));
       const s = DLZMOD_netState(), max = this.w - 48;
-      DLZMOD_paintRow(t, 24, this.ssh.geomCenterY(), "Remote login", s.ssh ? "On" : s.sshKeep ? "Off now, back on at the next start" : "Off", this.w - 24 - 120);
+      const [status, color] = DLZMOD_sshStatusText(s);
+      DLZMOD_paintRow(t, 24, this.ssh.geomCenterY(), "Remote login", status, this.w - 24 - 120, color);
       const warn = { color: Color.red2, font: Font.font(500, "12pt"), align: "left", valign: "middle", max: max };
       t.drawText("Gives full root access to the mixer over the network.", 24, 140, warn);
       t.drawText("Only on a network you trust; normal use does not need it.", 24, 160, warn);
@@ -567,8 +612,7 @@ function DLZMOD_askPassword(title, onValue) {
   const reset = () => {
     if (kbd) kbd.maxInput = max;
     setKbdTitle("");
-    const page = DLZMOD_page();
-    if (page) page.network.update();   // a cancelled SSH switch goes back to the server's state
+    DLZMOD_repaintSoon();   // once the page is back: a cancelled SSH switch shows the server's state again
   };
   setKbdTitle(title);
   // the keyboard calls this before it closes its page (accept: onValue, then close → pageBack); a
@@ -596,9 +640,18 @@ function DLZMOD_confirmSsh() {
 function DLZMOD_askSshPassword() {
   DLZMOD_askPassword("New root password for SSH (8 or more characters)", (pw) => {
     if (pw.length < 8) return DLZMOD_netResult({ ok: !1, text: "An SSH password has 8 to 64 characters" });
-    DLZMOD_netBusy("Setting up SSH…\nThe first time takes up to a few minutes.", 240, $FA.lock);
-    $NET.cmd("DLZMOD_NET", { op: "ssh", on: !0, password: pw });
+    DLZMOD_sshSend(!0, pw);
   });
+}
+
+// SSH on or off: the spinner, the card's mark (DLZMOD_netState) and the command
+function DLZMOD_sshSend(on, password) {
+  if (on) DLZMOD_netBusy("Setting up SSH…\nThe first time takes up to a few minutes.", 240, $FA.lock);
+  else DLZMOD_netBusy("Switching SSH off…", 60, $FA.lock);
+  DLZMOD_sshSend.busy = on ? "on" : "off";
+  $NET.cmd("DLZMOD_NET", on ? { op: "ssh", on: !0, password: password } : { op: "ssh", on: !1 });
+  const page = DLZMOD_page();
+  if (page) page.network.update();
 }
 
 // Mackie's spinner popup (as showMessageWithSpinner) while a change runs; closed by its outcome,
@@ -614,6 +667,7 @@ function DLZMOD_netIdle() {
   const p = DLZMOD_netBusy.popup;
   clearTimeout(DLZMOD_netBusy.timer);
   DLZMOD_netBusy.popup = null;
+  DLZMOD_sshSend.busy = "";
   if (p) p.close();
 }
 
