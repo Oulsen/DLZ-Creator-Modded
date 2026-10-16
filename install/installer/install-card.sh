@@ -181,13 +181,16 @@ ic_data() {
 }
 
 # One progress bar for the whole install, in three phases: copy 0-49 %, compare 49-89 %, build
-# 89-100 %. The time left covers the whole rest: the current phase from its measured speed, the
-# compare as a share of the copy's time (same card), the build as a fixed estimate. The screen shows
-# the time left for this step and for the whole install. [device, used blocks,
+# 89-100 %. The time left covers the whole rest: the current phase from its measured speed blended
+# with the device's own times (blend(): the speed so far says little at the start of a step, it once
+# foretold 22 min for under 5 [device]), the compare as a share of the copy's time (same card), the
+# build as a fixed estimate. The screen shows the time left for this step and for the whole install;
+# every ~30 s a progress line goes into the install log, for comparing. [device, used blocks,
 # SanDisk Ultra 128 GB: copy 320 s (2322 MiB in use + a 978 MiB backup), compare with the backup's
 # unpack 258 s = 81 %, build 37 s; 616 s from the first write]
 IC_BAR_COPY=49 IC_BAR_COMPARE=40 IC_BAR_BUILD=11
 IC_COMPARE_PCT=81   # compare time as % of the copy time
+IC_COPY_MS=130      # copy (and backup) time per MiB in use, ms [device: 277 s and 302 s for 2322 MiB, two cards]
 IC_BUILD_SECS=40    # build phase, all 10 parts
 IC_BK_PCT=42        # backup size as % of the MiB in use, until the copy can tell (measured: 978 of 2322)
 IC_NL='
@@ -233,6 +236,17 @@ function alltxt(l) {
   if (l < 60) return "Less than a minute left for the whole install"
   return sprintf("About %d min left for the whole install", int((l + 30) / 60))
 }
+# blend(p, t, m): the time left at progress p (0..1) of a step that takes about t seconds on the
+# mixer, m the time left from the measured speed (-1: not yet). The measured speed rules near the end,
+# the device times near the start, where the speed so far says little (its streams are not even:
+# the blocks in use sit near their start)
+function blend(p, t, m) { if (p < 0) p = 0; if (p > 1) p = 1; if (m < 0) return t * (1 - p); return (1 - p) * t * (1 - p) + p * m }
+# every 15th round (~30-40 s) the line with its time into the install log, for comparing the
+# estimates with the real times afterwards (lg: the log, n: the round). Always last in a round:
+# busybox awk ends when it cannot open a file (a read-only DLZDATA after an error, say), and only the
+# lines printed before that reach the screen. The [ -w ] check in the shell catches a missing log only
+# (for root it passes on any file that exists)
+function logline(lg, n, now, s) { if (lg != "" && n % 15 == 1) { printf "[%.2f] progress: %s\n", now, s >> lg; close(lg) } }
 '
 # ic_copy_tick [final]: the copy step's line: what has reached the card (its sectors-written count,
 # DLZDATA included) and the time left. The bar is that share of a total that is not shown (it holds
@@ -240,19 +254,24 @@ function alltxt(l) {
 # backup's rest (its final size extrapolated from zstd's output per MiB in use its e2image has read:
 # the zeros of its stream add next to nothing) and the page cache (Dirty + Writeback; the installer's
 # only writes are the card's: the eMMC is read-only, the snapshot store is tmpfs). The backup's stream
-# is the file system's full size; its zero tail costs processor time only (minutes on the device,
-# while nothing more reached the card), so the bar and the time left also follow the stream's position,
-# whichever is behind. Reads ic_copy's _t0 _ts (the speed's start, after the snapshot) _u _fsm _w0 and
-# the pids _pc (the copy) and _pbe/_pbz (the backup's e2image and zstd, from their pid files); keeps
-# _cdone _bdone _pmax _bpart (an ended pid can be reused, the bar never goes back, zstd's count goes
-# with it). final: the step is done
+# is the file system's full size, but not a measure of time: the used blocks sit near its start (in
+# the dump 87 % of them in its first 35 %), the zeros after them go fast, so its position since the
+# start foretold many times the real time [device: 22 min at the start, the step took under 5]. The
+# backup's time left is therefore its e2image's reads (the MiB in use, ~4 % more with the metadata),
+# and once those are done the stream's rest at its speed since then (the zero tail costs processor
+# time only, while nothing more reaches the card). Reads ic_copy's _t0 _ts (the speed's start, after
+# the snapshot) _u _fsm _w0 and the pids _pc (the copy) and _pbe/_pbz (the backup's e2image and zstd,
+# from their pid files); keeps _cdone _bdone _pmax _bpart (an ended pid can be reused, the bar never
+# goes back, zstd's count goes with it), _tz _bwz (the zero tail's start: time, stream position) and
+# _tk (the round). final: the step is done
 ic_copy_tick() {
+  _lg=""; [ -w "$LOG" ] && _lg=$LOG
   [ -n "$_pbe" ] || read -r _pbe 2>/dev/null < "$CH/tmp/ic-pid-bke"
   [ -n "$_pbz" ] || read -r _pbz 2>/dev/null < "$CH/tmp/ic-pid-bkz"
   _o=$(awk -v sd="${SD##*/}" -v pc="$_pc" -v pbe="$_pbe" -v pbz="$_pbz" -v u="$_u" -v fsm="$_fsm" \
       -v w0="$_w0" -v t0="$_t0" -v ts="$_ts" -v cdone="$_cdone" -v bdone="$_bdone" -v pmax="$_pmax" \
       -v bpart="$_bpart" -v final="${1:-0}" -v wc=$IC_BAR_COPY -v cp=$IC_COMPARE_PCT -v bs=$IC_BUILD_SECS \
-      -v bk=$IC_BK_PCT "$IC_AWK"'
+      -v bk=$IC_BK_PCT -v cms=$IC_COPY_MS -v tz="${_tz:-0}" -v bwz="${_bwz:-0}" -v tk="${_tk:-0}" -v lg="$_lg" "$IC_AWK"'
   BEGIN {
     if (fsm < 1) fsm = 1
     now = first(rd("/proc/uptime"), 1); s = now - ts
@@ -272,30 +291,47 @@ ic_copy_tick() {
     if (eb < bpart) eb = bpart
     todo = (u - cw) + (eb - bpart) + dirty
     total = card + todo; if (total < 1) total = 1
-    if (final) { pm = 1000; total = card; left = 0; wpm = 1000 }
-    else {
+    if (final) {
+      pm = 1000; total = card; left = 0; wpm = 1000
+      printf "%d\n", now - t0 > "/tmp/ic-copy-secs"; close("/tmp/ic-copy-secs")   # for the compare: its estimate
+    } else {
       wpm = card * 1000 / total
-      spm = 1000; if (!bdone) spm = bw * 1000 / fsm
-      pm = min(min(wpm, spm), 990)   # 100 % only when the step is done
+      pm = min(wpm, 990)   # 100 % only when the step is done
       # the speeds only once they mean something: the first writes wait in the page cache
       wl = -1; if (card >= 100 && s >= 15) wl = todo * s / card
-      sl = 0; if (!bdone) { sl = -1; if (bw >= 256 && s >= 15) sl = (fsm - bw) * s / bw }
-      left = -1; if (wl >= 0 && sl >= 0) left = max(wl, sl)
+      sl = 0
+      if (!bdone) {
+        sl = -1; brd = min(br, u)
+        if (brd < u) { if (brd >= 256 && s >= 15) sl = (u - brd) * s / brd }
+        else {
+          # the zero tail: its speed from its own start, a few seconds in
+          if (tz <= 0) { tz = now; bwz = bw }
+          if (bw >= fsm) sl = 0
+          else if (now - tz >= 6 && bw > bwz) sl = (fsm - bw) * (now - tz) / (bw - bwz)
+          # its own speed not known yet (or the stream stalled): the speed since the start, too high
+          # rather than a "nearly done" for minutes
+          else if (bw > 0) sl = (fsm - bw) * s / bw
+        }
+      }
+      ml = -1; if (wl >= 0 && sl >= 0) ml = max(wl, sl)
+      left = blend(pm / 1000, u * cms / 1000, ml)
     }
     pm = int(max(pm, pmax))
-    if (card < 1 && left < 0) txt = "starting"
-    else if (cdone && !bdone && wpm >= 980) txt = "finishing the backup, " lefttxt(left)
+    # the time left shows from the first round (blend: the device times until there is a speed)
+    if (cdone && !bdone && wpm >= 980) txt = "finishing the backup, " lefttxt(left)
     # no total: it holds the backup size, an estimate until the backup ends (seconds before the copy
     # does), and it wandered 3.0 -> 4.6 -> 3.5 GB in the rehearsal; the bar and the time left show
     # how far it is. No apostrophes in here: this awk program sits in single quotes
     else txt = gb(card) " GB written, " lefttxt(left)
     all = ""; if (left >= 0) all = alltxt(left + ((now - t0) + left) * cp / 100 + bs)
-    print cdone, bdone, pm, bpart
-    printf "%d\tStep 1 of 3: %s\t%s\n", int(wc * pm / 1000), txt, all }' 2>/dev/null)
+    tk++
+    print cdone, bdone, pm, bpart, tz, bwz, tk
+    printf "%d\tStep 1 of 3: %s\t%s\n", int(wc * pm / 1000), txt, all
+    logline(lg, tk, now, "step 1, " int(wc * pm / 1000) " %, " txt ", " all) }' 2>/dev/null)
   [ -n "$_o" ] || return 0
   # shellcheck disable=SC2086
   set -- ${_o%%"$IC_NL"*}
-  _cdone=$1 _bdone=$2 _pmax=$3 _bpart=$4
+  _cdone=$1 _bdone=$2 _pmax=$3 _bpart=$4 _tz=$5 _bwz=$6 _tk=$7
   printf '%s\n' "${_o#*"$IC_NL"}" 2>/dev/null
 }
 
@@ -468,7 +504,8 @@ ic_copy() {
   printf '0\tStep 1 of 3: starting\n' 2>/dev/null
   ic_snap_up || return 1
   _u=$IC_USED_MIB _fsm=$((IC_FS_SECTORS / 2048))
-  _w0=$(ic_written) _pbe="" _pbz="" _cdone=0 _bdone=0 _pmax=0 _bpart=0
+  rm -f /tmp/ic-copy-secs
+  _w0=$(ic_written) _pbe="" _pbz="" _cdone=0 _bdone=0 _pmax=0 _bpart=0 _tz=0 _bwz=0 _tk=0
   _ts=$(cut -d' ' -f1 /proc/uptime)
   _off=$((p1_start * 512))
   # before each write: the card is still there (a pulled card's name would become a plain file in the
@@ -609,16 +646,25 @@ ic_bk_file() {
 # system's full size, zeros included (the card side's reads ran ahead of it and stopped at the size in
 # use while cmp still had minutes to go [device]). The backup's unpack reads the same card
 # alongside: bar and time follow whichever of the two is behind (an unpack whose read position is not
-# known holds nothing back). The GB count shows from the first round, the time left once there is
-# enough to go by (otherwise it says only "starting" for over a minute [device]). Reads ic_verify's
+# known holds nothing back). The GB count and the time left show from the first round (blend: the
+# device times until there is a speed; a bare "starting" stood there for over a minute [device]). The
+# stream position is not even in time here either, but its zeros do cost time (cmp had minutes to go
+# after the card side's reads), so it stays the measure [guess until an install's progress lines
+# say otherwise]. Reads ic_verify's
 # _t0 _vfs _pcs (the snapshot side's e2image, from its pid file) and ic_bk_file's _bzf _bdonef _bsz
-# _bt0; keeps _cmpdone _vpos _pmax (the bar never goes back)
+# _bt0, and _cs (the copy's seconds); keeps _cmpdone _vpos _pmax (the bar never goes back) _tk (the
+# round). The time left: blend() of the measured one and IC_COMPARE_PCT of the copy's time, the share
+# the copy's own line already counted on for the whole install (so that does not jump at the change)
 ic_cmp_tick() {
+  _lg=""; [ -w "$LOG" ] && _lg=$LOG
+  [ -n "$_cs" ] || read -r _cs 2>/dev/null < /tmp/ic-copy-secs
+  [ -n "$_cs" ] || _cs=$(( ${_u:-2322} * IC_COPY_MS / 1000 ))
   [ -n "$_pcs" ] || read -r _pcs 2>/dev/null < "$CH/tmp/ic-pid-cmps"
   [ -n "$_bz" ] || [ -z "$_bzf" ] || read -r _bz 2>/dev/null < "$_bzf"
   _o=$(awk -v pcs="$_pcs" -v vfs="$_vfs" -v cmpdone="${_cmpdone:-0}" -v vpos="${_vpos:-0}" -v pmax="${_pmax:-0}" \
       -v bz="$_bz" -v bsz="$_bsz" -v bt0="$_bt0" -v bdonef="$_bdonef" -v t0="$_t0" \
-      -v wc=$IC_BAR_COPY -v wv=$IC_BAR_COMPARE -v bs=$IC_BUILD_SECS "$IC_AWK"'
+      -v wc=$IC_BAR_COPY -v wv=$IC_BAR_COMPARE -v bs=$IC_BUILD_SECS -v cp=$IC_COMPARE_PCT -v cs="$_cs" \
+      -v tk="${_tk:-0}" -v lg="$_lg" "$IC_AWK"'
   BEGIN {
     if (vfs < 1) vfs = 1
     now = first(rd("/proc/uptime"), 1); s = now - t0
@@ -639,17 +685,23 @@ ic_cmp_tick() {
     pm = d * 1000 / vfs; if (bm >= 0 && bm < pm) pm = bm
     pm = int(max(pm, pmax))
     cl = 0; if (!cmpdone) { cl = -1; if (d >= 128 && s >= 15) cl = (vfs - d) * s / d }
-    left = -1
-    if (cl >= 0 && !(cmpdone && run && bm < 0)) left = max(cl, bl)
+    ml = -1
+    if (cl >= 0 && !(cmpdone && run && bm < 0)) ml = max(cl, bl)
+    left = blend(pm / 1000, cs * cp / 100, ml)
+    # the backup check with its unpack position not known yet: no estimate (the bar is full, so the
+    # blend would say nothing is left)
+    if (cmpdone && run && bm < 0) left = -1
     if (cmpdone && run) txt = "checking the backup, " lefttxt(left)
     else txt = gb(d) " of " gb(vfs) " GB compared, " lefttxt(left)
     all = ""; if (left >= 0) all = alltxt(left + bs)
-    print cmpdone, d, pm
-    printf "%d\tStep 2 of 3: %s\t%s\n", wc + int(wv * pm / 1000), txt, all }' 2>/dev/null)
+    tk++
+    print cmpdone, d, pm, tk
+    printf "%d\tStep 2 of 3: %s\t%s\n", wc + int(wv * pm / 1000), txt, all
+    logline(lg, tk, now, "step 2, " wc + int(wv * pm / 1000) " %, " txt ", " all) }' 2>/dev/null)
   [ -n "$_o" ] || return 0
   # shellcheck disable=SC2086
   set -- ${_o%%"$IC_NL"*}
-  _cmpdone=$1 _vpos=$2 _pmax=$3
+  _cmpdone=$1 _vpos=$2 _pmax=$3 _tk=$4
   printf '%s\n' "${_o#*"$IC_NL"}" 2>/dev/null
 }
 
@@ -691,7 +743,7 @@ ic_verify() {
     wait $c
     rm -f /tmp/ic-cmpf
     echo $r > /tmp/ic-cmp.rc' _ $((p1_start * 512)) "$SD" "$IC_SNAP_DEV" > /dev/null 2>> "$LOG" &
-  _pv=$! _pcs="" _cmpdone=0 _vpos=0 _pmax=0
+  _pv=$! _pcs="" _cmpdone=0 _vpos=0 _pmax=0 _tk=0 _cs=""
   ic_bk_file
   while kill -0 $_pv 2>/dev/null; do ic_cmp_tick; sleep 2; done
   wait $_pv
