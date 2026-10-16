@@ -264,7 +264,8 @@ function DLZMOD_repaintSoon() {
   }, 0);
 }
 
-// every popup ends in onDestroy (a button, close(), a tap outside it): Mackie's own first
+// every popup ends in onDestroy (a button, close(), a tap outside it): Mackie's own runs first, then
+// the repaint
 function DLZMOD_hookPopups() {
   if (DLZMOD_hookPopups.done) return;
   DLZMOD_hookPopups.done = !0;
@@ -446,7 +447,8 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
 // dlzmod-server.js). The status comes from the server (DLZMOD_NET_STATE); the SSH switch shows it
 // and is no hub key, so nothing about it is sent to other clients or saved in srv_data.json.
 // An SSH change sent from here counts as running at once (DLZMOD_sshSend), not only from the server's
-// next status, until its outcome or the popup's time-out (DLZMOD_netIdle).
+// next status, until its outcome or the popup's time-out (DLZMOD_netIdle). Another network change's
+// spinner drops that mark too; the server's sshBusy brings it back with the next status.
 function DLZMOD_netState() {
   const s = DLZMOD_netState.s || { stick: false, wifi: "", ssid: "", signal: 0, ip: "", ssh: false, sshKeep: false,
     sshBusy: "", unknown: true };
@@ -642,6 +644,7 @@ function DLZMOD_askSshPassword() {
   });
 }
 
+// SSH on or off: the spinner, the card's mark (DLZMOD_netState) and the command
 function DLZMOD_sshSend(on, password) {
   if (on) DLZMOD_netBusy("Setting up SSH…\nThe first time takes up to a few minutes.", 240, $FA.lock);
   else DLZMOD_netBusy("Switching SSH off…", 60, $FA.lock);

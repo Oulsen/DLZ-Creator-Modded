@@ -459,6 +459,7 @@ test("net ssh: a status while SSH is being set up or switched off says so, and n
     const s1 = [], s2 = [], s3 = [];
     const change = net(a, sendTo(s1), f);
     await new Promise((r) => setTimeout(r, 20));
+    assert.ok(release, "the change reached " + step);
     await net({ op: "status" }, sendTo(s2), f);
     assert.strictEqual(s2[0].data.sshBusy, busy, a.on ? "setting up" : "switching off");
     release();

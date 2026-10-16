@@ -473,7 +473,8 @@ function DLZMOD_wifiSaved(dir = DLZMOD_nmDir()) {
 }
 
 // status for the Network panel: stick present, Wi-Fi state, network name, address, SSH on, and an SSH
-// change still running ("on"/"off", DLZMOD_net), so the card says so after its popup was closed
+// change still running ("on"/"off", DLZMOD_net), so the card still says so when the screen lost its own
+// mark (a reload, another network change)
 async function DLZMOD_netState(run = DLZMOD_run, paths = DLZMOD_sshPaths()) {
   const st = { stick: false, wifi: "", ssid: "", signal: 0, ip: "", ssh: false, sshKeep: false,
     sshBusy: DLZMOD_net.sshBusy || "" };
