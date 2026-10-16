@@ -34,6 +34,10 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
    replace or add to the built-in init? (The `sys.*` API is known statically, see dspserver.md.)
 7. Which codec chips are on the XS board (AKM, Everest, ESS Sabre)?
 8. Which chip does USB audio to the PC: the FPGA or a separate bridge? (`lsusb -v` on the PC.)
+   Known: it can show up under two identities, `0A73:003A` (normal, LOUD's driver) and once
+   `0A4A:AC1E` (a standard USB Audio 2.0 device) [device]; neither ID is in any file on the rootfs,
+   the FPGA bitstreams or the GD32 firmware [static], so most likely a chip with its own firmware
+   [guess] (hardware.md). `lsusb -v` of both identities would name it.
 9. Stock's media scan filters out `/` by lsblk's `mountpoint` column: is that column still in
    `lsblk -O` on the mod card? (Which `mmcblk` is which is answered: hardware.md, Storage.)
 10. GD32 UART protocol and baud rate on ttyS2.
@@ -90,20 +94,12 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
 18. Which USB controller is the external USB-A port on, and does U-Boot need VBUS enabled for it?
     (Only matters if we ever boot from USB, see hardware.md.) Also: how much current the port can
     supply, and whether a heavy load (bus-powered drive, phone charging) sags the board's 5 V.
-21. Does the RTC keep time without power? Known: offline, a recording got the file date
-    2023-11-16, the dump's saved time, because `fake-hwclock` never moves the clock back and rtc0
-    read earlier [device]; online, chrony (Ubuntu pools, `makestep 1 3`, `rtcsync`) steps the clock
-    within minutes, while the boot's earlier journal lines keep the old time [static] [device].
-    rtc0 may simply never have been set (only a sync writes it). Decisive test: set rtc0
-    (`hwclock -w` after a sync), cut power for minutes, boot offline, read
-    `/sys/class/rtc/rtc0/{date,time}`. A full-size teardown (linuxslate.com forum, t=21) shows no
-    coin cell on the top of the digital board and says the rear switch cuts all power; the
-    underside is not shown, so a supercap is not ruled out. Likely no backup battery [guess, strong].
-    The system timezone is `Etc/UTC` (no timezone handling in `server.js`), so FAT file times are UTC
-    and recording names carry no date (`REC_NNNN`) [static].
 31. What does a "frozen on the logo" crash look like from inside? Kill glesgui 6 times in 10 s on the
     SD system and confirm the logo stays while audio keeps running; after a real freeze, read
     `/var/log/syslog` and `kern.log` (persist on disk) for the cause (OOM, segfault, kernel oops).
+    Known: in the freezes during a start (components/glesgui.md, "Bad starts after a software
+    restart") the syslog stops before the cause, so a freeze needs a log that does not go through
+    the card [device].
 
 ## Installer boot
 
