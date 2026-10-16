@@ -2,9 +2,11 @@
 
 ## v0.2.0
 
+- (DLZ BUG) Anyone on the same network can control the mixer, without a PIN or password
 - (MOD FEATURE) Quicker and broader automatic checks for every change to the mod
 - (MOD FEATURE) A development card that takes new test builds over Wi-Fi
 - (MOD FEATURE) The Mod page and the logs on the card show which build is installed
+- (MOD BUG) Recordings, presets and snapshots can only be deleted or renamed on the mixer's own screen
 - (MOD BUG) Install time estimate far too high at the start of a step
 - (MOD BUG) SSH card shows nothing while SSH is being set up
 - (MOD BUG) Update: a few rare failure paths are not handled carefully enough

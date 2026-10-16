@@ -11,11 +11,14 @@ Alpha, at your own risk: read [DISCLAIMER.md](DISCLAIMER.md) first.
 - **Meters**: level before or after the fader, yellow and red zones, a dB scale
 - **Screen**: the header bar can be hidden for more room; a "DLZ Creator Modded" tab in Settings;
   its own startup screens and a startup log for bug reports
-- **Network**: Wi-Fi from the screen (with a USB Wi-Fi stick) and remote login (SSH), off by default
+- **Network**: Wi-Fi from the screen (with a USB Wi-Fi stick), remote login (SSH), and control from
+  a computer's web browser after pairing with a PIN (phones and tablets not yet,
+  [#52](https://github.com/Oulsen/DLZ-Creator-Modded/issues/52)); all off by default
 - **Safety**: no firmware updates from the card, the mixer's internal storage is never changed
 - **Updates** of the mod without losing recordings or settings
 - **Fixes for stock bugs**: the recording crash after take 9,999; new recordings overwriting old
-  ones; anyone on the network (or a prepared SD card or USB stick) changing files on the mixer
+  ones; anyone on the network (or a prepared SD card or USB stick) changing files on the mixer;
+  anyone on the network controlling the mixer without a PIN
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
@@ -53,9 +56,10 @@ the card, put it in the mixer and follow the screen. Step by step, with pictures
 - A card belongs to the mixer it was installed on: in another mixer it keeps the sound hardware off
   and says so on the screen
 - The installer also saves a backup of the mixer's internal storage onto the card
-- On a network (cable or Wi-Fi), anyone on that network can control the mixer, as with Mackie's own
-  software: only connect it to networks you trust, not to an open café or venue Wi-Fi. A PIN for
-  phones and computers is planned ([#45](https://github.com/Oulsen/DLZ-Creator-Modded/issues/45))
+- On a network (cable or Wi-Fi), other devices can only control the mixer once you allow it
+  (Settings → DLZ Creator Modded → Remote, off by default) and pair them with the PIN shown
+  there. Open the mixer by its IP address or its `.local` name. The connection is not encrypted: only use it on networks you trust, not on an open café or
+  venue Wi-Fi
 - It is still an alpha made by one person: see [DISCLAIMER.md](DISCLAIMER.md)
 
 ## SD cards

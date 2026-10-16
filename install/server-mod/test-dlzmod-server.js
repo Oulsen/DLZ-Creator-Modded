@@ -8,6 +8,13 @@ const vm = require("vm");
 
 const ctx = vm.createContext({ require, process, Buffer, setTimeout, clearTimeout, console: { log() {}, error() {} } });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "dlzmod-server.js"), "utf8"), ctx);
+// the pairing state (#45) in a folder of its own, never this PC's /var/lib; pairIn() gives a test a fresh one
+const pairIn = (name) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dlzpair-" + name + "-"));
+  ctx.DLZMOD_pairDir = () => dir;
+  return dir;
+};
+pairIn("start");
 const { DLZMOD_pickRecName: pick, DLZMOD_recAnimal: animal, DLZMOD_animals: animals,
   DLZMOD_recName: recName, DLZMOD_updateNoteFrom: noteFrom, DLZMOD_updateStatusFrom: statusFrom,
   DLZMOD_updateNoteSend: noteSend, DLZMOD_updateNoteSeen: noteSeen } = ctx;
@@ -299,9 +306,12 @@ test("keyfile: name as bytes, password escaped, open networks without a security
 test("net status: stick, network, address, SSH", async () => {
   const sent = [];
   await net({ op: "status" }, sendTo(sent), fakeNet({ ssh: true }));
+  const pair = sent[0].data.pair;
+  delete sent[0].data.pair;
   assert.deepStrictEqual(sent, [{ cmd: "DLZMOD_NET_STATE", id: 0, data:
     { stick: true, wifi: "connected", ssid: "Home:Net", signal: 74, ip: "192.168.1.42", ssh: true, sshKeep: false,
       sshBusy: "" } }]);
+  assert.deepStrictEqual(Object.keys(pair).sort(), ["devices", "ips", "on", "own", "pin", "wait"], "the Remote Control panel's status");
   const s2 = plain(await netState(fakeNet({ nostick: true }).run));
   assert.strictEqual(s2.stick, false);
   assert.strictEqual(plain(await netState(fakeNet({ state: "connecting (getting IP configuration)" }).run)).wifi, "connecting");
@@ -553,7 +563,7 @@ test("net: from another device on the network only the status, nothing changed o
 const { DLZMOD_cmdAllowed: cmdOk, DLZMOD_keyAllowed: keyOk, DLZMOD_inMedia: inMedia, DLZMOD_noOrig: noOrig } = ctx;
 const HANDLERS = Object.fromEntries(["MEDIA_DELETE", "MEDIA_RENAME", "MEDIA_SWITCH_TRACK", "MEDIA_DIR", "PRESET_WRITE",
   "PRESET_READ", "PRESET_LIST", "PRESET_DELETE", "PRESET_RENAME", "SNAP_SAVE", "SNAP_LOAD", "SNAP_DELETE", "SNAP_RENAME",
-  "SAMPLE_LOAD", "SAMPLE_PREVIEW_START", "FORMAT_USB", "REC_START", "DLZMOD_NET"].map((c) => [c, () => {}]));
+  "SAMPLE_LOAD", "SAMPLE_PREVIEW_START", "FORMAT_USB", "REC_START", "DLZMOD_NET", "FACTORY_RESET", "RESET", "RESTART_GUI"].map((c) => [c, () => {}]));
 const ROOTS = ["/media/sd", "-"];
 const SCREEN = local(() => {}), PHONE = () => {};
 test("files: the screen keeps every file command, with names as stock uses them", () => {
@@ -685,6 +695,452 @@ test("net: one change at a time, unknown actions refused", async () => {
   assert.strictEqual(result(s1)[0].ok, true);
   await net({ op: "reboot" }, sendTo(s3), { run, dir });
   assert.deepStrictEqual(result(s3), [{ ok: false, text: "Unknown network action" }]);
+});
+
+// #45: control from other devices, pairing with a PIN
+const { DLZMOD_pair: pairState, DLZMOD_pairSet: pairSet, DLZMOD_pairTry: pairTry, DLZMOD_pairForget: pairForget,
+  DLZMOD_pairStatus: pairStatus, DLZMOD_pairValid: pairValid, DLZMOD_allowRequest: allowReq,
+  DLZMOD_remoteAdmit: admit, DLZMOD_remoteHttp: remoteHttp } = ctx;
+const cookie = (token) => "io=x; dlzmod_pair=" + token;
+const HOST = "192.168.1.20";
+const handshake = (address, headers = {}) => ({ socket: { remoteAddress: address }, headers: Object.assign({ host: HOST }, headers) });
+const allowed = (req) => {
+  let r;
+  allowReq(req, (err, ok) => (r = ok));
+  return r;
+};
+// a paired device: the PIN from the screen's status, the token from the answer
+const pairOne = (now = Date.now()) => pairTry(pairStatus(now).pin, now).token;
+const fakeSocket = (address, headers) => {
+  const ev = new (require("events"))();
+  return Object.assign(ev, { handshake: { address, headers: Object.assign({ host: HOST }, headers) }, dropped: 0,
+    disconnect() {
+      this.dropped++;
+      this.emit("disconnect");
+    } });
+};
+test("pairing: off on a fresh card; the mixer itself always gets in, other devices not", () => {
+  pairIn("fresh");
+  assert.strictEqual(pairStatus().on, false);
+  assert.strictEqual(allowed(handshake("127.0.0.1")), true, "the screen, dspserver, faderlink");
+  assert.strictEqual(allowed(handshake("::1")), true);
+  assert.strictEqual(allowed(handshake("::ffff:127.0.0.1")), true);
+  assert.strictEqual(allowed(handshake("192.168.1.50")), false);
+  assert.strictEqual(allowed(handshake("::ffff:192.168.1.50")), false);
+  assert.strictEqual(pairTry("000000").ok, false);
+  assert.strictEqual(pairTry("000000").off, true);
+});
+test("pairing: the right PIN gives a token once; the PIN changes after each pairing", () => {
+  const dir = pairIn("pin");
+  assert.strictEqual(pairSet(true), "saved");
+  const pin = pairStatus().pin;
+  assert.match(pin, /^\d{6}$/);
+  const r = pairTry(" " + pin + " ");
+  assert.strictEqual(r.ok, true, "spaces around it are fine");
+  assert.match(r.token, /^[0-9a-f]{64}$/);
+  assert.ok(pairValid(cookie(r.token)));
+  assert.ok(!pairValid(cookie(r.token.replace(/^./, (c) => (c === "a" ? "b" : "a")))), "another token");
+  assert.ok(!pairValid("dlzmod_pair=" + r.token.slice(1)) && !pairValid(""), "a short token, no cookie");
+  assert.notStrictEqual(pairStatus().pin, pin, "one PIN, one device");
+  assert.strictEqual(pairTry(pin).ok, false, "the old PIN no longer pairs");
+  assert.strictEqual(pairStatus().devices, 1);
+  const saved = fs.readFileSync(path.join(dir, "state.json"), "utf8");
+  assert.ok(!saved.includes(r.token), "the card keeps only the token's hash");
+  for (const bad of ["", "12345", "1234567", "abcdef", null, undefined, 123456]) assert.strictEqual(pairTry(bad).ok, false, String(bad));
+});
+test("pairing: 5 wrong PINs pause it for 60 s, doubling, at most 15 min; the right PIN waits too", () => {
+  pairIn("pause");
+  pairSet(true);
+  const t0 = 1000000000;
+  const pin = pairStatus(t0).pin;
+  const wrong = pin === "000000" ? "111111" : "000000";
+  for (let i = 0; i < 4; i++) assert.deepStrictEqual(plain(pairTry(wrong, t0)), { ok: false, wait: 0 });
+  assert.deepStrictEqual(plain(pairTry(wrong, t0)), { ok: false, wait: 60 }, "the fifth");
+  assert.strictEqual(pairTry(pin, t0 + 59000).ok, false, "the right PIN during the pause");
+  assert.strictEqual(pairStatus(t0 + 30000).wait, 30, "the screen shows the pause");
+  let t = t0 + 60000;
+  const pauses = [];
+  for (let round = 0; round < 6; round++) {
+    let r;
+    for (let i = 0; i < 5; i++) r = pairTry(wrong, t);
+    pauses.push(r.wait);
+    t += r.wait * 1000;
+  }
+  assert.deepStrictEqual(pauses, [120, 240, 480, 900, 900, 900]);
+  assert.strictEqual(pairTry(pin, t).ok, true, "after the pause");
+  for (let i = 0; i < 4; i++) pairTry(wrong, t);
+  assert.strictEqual(pairTry(wrong, t).wait, 60, "a pairing starts the count again");
+});
+test("pairing: kept on the card; a damaged state file means off", () => {
+  const dir = pairIn("keep");
+  pairSet(true);
+  const token = pairOne();
+  const pin = pairStatus().pin;
+  pairIn("other");
+  assert.ok(!pairValid(cookie(token)));
+  ctx.DLZMOD_pairDir = () => dir;   // read again from the card, as after a restart
+  assert.ok(pairValid(cookie(token)));
+  assert.strictEqual(pairStatus().pin, pin);
+  for (const broken of ["{", "null", '{"on":true,"pin":"12","tokens":[]}', '{"on":"yes","pin":"123456"}']) {
+    const d2 = pairIn("broken");
+    fs.writeFileSync(path.join(d2, "state.json"), broken);
+    assert.strictEqual(pairStatus().on, false, broken);
+  }
+  const d3 = pairIn("junk");
+  fs.writeFileSync(path.join(d3, "state.json"), JSON.stringify({ on: true, pin: "123456", tokens: ["x", "A".repeat(64), "1".repeat(64)] }));
+  assert.strictEqual(pairStatus().devices, 1, "junk entries dropped");
+  assert.strictEqual(pairState().tokens[0], "1".repeat(64));
+});
+test("pairing: off and Forget all devices end every pairing and drop paired connections", () => {
+  pairIn("forget");
+  pairSet(true);
+  const t1 = pairOne(), t2 = pairOne();
+  assert.strictEqual(pairStatus().devices, 2);
+  const s1 = fakeSocket("192.168.1.50", { cookie: cookie(t1) });
+  assert.strictEqual(admit(s1, {}), true);
+  const pin = pairStatus().pin;
+  assert.strictEqual(pairForget(), "saved");
+  assert.strictEqual(s1.dropped, 1, "connection dropped");
+  assert.ok(!pairValid(cookie(t1)) && !pairValid(cookie(t2)));
+  assert.notStrictEqual(pairStatus().pin, pin, "a new PIN");
+  assert.strictEqual(pairStatus().on, true);
+  const t3 = pairOne();
+  const s2 = fakeSocket("192.168.1.51", { cookie: cookie(t3) });
+  admit(s2, {});
+  assert.strictEqual(pairSet(false), "saved");
+  assert.strictEqual(s2.dropped, 1);
+  assert.strictEqual(pairStatus().pin, "");
+  assert.strictEqual(allowed(handshake("192.168.1.51", { cookie: cookie(t3) })), false);
+  assert.strictEqual(pairSet(true), "saved");
+  assert.strictEqual(allowed(handshake("192.168.1.51", { cookie: cookie(t3) })), false, "on again: paired anew");
+});
+test("pairing: socket.io from other devices only paired and from the mixer's own page", () => {
+  pairIn("sio");
+  pairSet(true);
+  const token = pairOne();
+  assert.strictEqual(allowed(handshake("192.168.1.50", { cookie: cookie(token) })), true, "no Origin: not a browser");
+  assert.strictEqual(allowed(handshake("192.168.1.50", { cookie: cookie(token), origin: "http://" + HOST })), true);
+  assert.strictEqual(allowed(handshake("192.168.1.50", { cookie: cookie(token), origin: "http://evil.example" })), false);
+  assert.strictEqual(allowed(handshake("192.168.1.50", { cookie: cookie(token), origin: "null" })), false);
+  assert.strictEqual(allowed(handshake("192.168.1.50", { origin: "http://" + HOST })), false, "no cookie");
+  // the connection itself, checked once more (ua)
+  const screen = { dlzmodLocal: true };
+  assert.strictEqual(admit(fakeSocket("127.0.0.1", {}), screen), true);
+  assert.strictEqual(screen.dlzmodPaired, undefined, "the screen needs no pairing stamp");
+  const bad = fakeSocket("192.168.1.50", {}), badSend = {};
+  assert.strictEqual(admit(bad, badSend), false);
+  assert.strictEqual(bad.dropped, 1);
+  assert.strictEqual(badSend.dlzmodPaired, undefined);
+  const evil = fakeSocket("192.168.1.50", { cookie: cookie(token), origin: "http://evil.example" });
+  assert.strictEqual(admit(evil, {}), false);
+  const good = fakeSocket("192.168.1.50", { cookie: cookie(token) }), goodSend = {};
+  assert.strictEqual(admit(good, goodSend), true);
+  assert.strictEqual(goodSend.dlzmodPaired, true);
+  good.emit("disconnect");
+  pairForget();
+  assert.strictEqual(good.dropped, 0, "a connection that ended is not kept");
+});
+test("pairing: an own PIN pairs several devices, stays until changed or switched off; obvious ones refused", async () => {
+  const dir = pairIn("own");
+  const { DLZMOD_pairSetPin: setPin, DLZMOD_pinWeak: weak } = ctx;
+  assert.strictEqual(setPin("482915"), "Turn control from other devices on first");
+  pairSet(true);
+  for (const w of ["000000", "999999", "123456", "234567", "456789", "012345", "987654", "654321", "543210", "121212", "112233", "696969", "123123", "120120", "100001"]) {
+    assert.ok(weak(w), w);
+    assert.strictEqual(setPin(w), "Too easy to guess.\nPick another PIN.", w);
+  }
+  for (const ok of ["482915", "135790", "123457", "120934", "855777"]) assert.ok(!weak(ok), ok);
+  for (const bad of ["12345", "1234567", "48291a", " 48291", undefined, 482915]) assert.strictEqual(setPin(bad), "A PIN has 6 digits", String(bad));
+  const t1 = pairOne();
+  assert.strictEqual(setPin("482915"), "");
+  assert.ok(pairValid(cookie(t1)), "setting a PIN keeps the devices paired");
+  const st = plain(pairStatus());
+  assert.strictEqual(st.pin, "482915");
+  assert.strictEqual(st.own, true);
+  const t2 = pairTry("482915").token, t3 = pairTry("482915").token;
+  assert.ok(t2 && t3 && pairValid(cookie(t2)) && pairValid(cookie(t3)), "the same PIN pairs a second and third device");
+  assert.strictEqual(pairStatus().pin, "482915", "an own PIN stays after a pairing");
+  ctx.DLZMOD_pairDir = () => dir + "-x";
+  ctx.DLZMOD_pairDir = () => dir;   // read again, as after a restart
+  assert.strictEqual(pairStatus().own, true);
+  assert.strictEqual(pairForget(), "saved");
+  assert.ok(!pairValid(cookie(t2)));
+  assert.strictEqual(pairStatus().pin, "482915", "Forget keeps an own PIN");
+  const s1 = [];
+  await net({ op: "pairForget" }, sendTo(s1), fakeNet());
+  assert.deepStrictEqual(result(s1), [{ ok: true, text: "All devices are forgotten.\nYour own PIN stays." }]);
+  const s2 = [];
+  await net({ op: "pairPin" }, sendTo(s2), fakeNet());
+  assert.deepStrictEqual(result(s2), [{ ok: true, text: "Back to a random PIN", quiet: true }], "no popup: the panel shows the PIN");
+  assert.notStrictEqual(pairStatus().pin, "482915");
+  assert.strictEqual(pairStatus().own, false);
+  const s3 = [];
+  await net({ op: "pairPin", pin: " 482915 " }, sendTo(s3), fakeNet());
+  assert.deepStrictEqual(result(s3), [{ ok: true, text: "Your own PIN is set", quiet: true }]);
+  const s4 = [];
+  await net({ op: "pairPin", pin: "111111" }, Object.assign((m) => s4.push(plain(m)), { dlzmodPaired: true }), fakeNet());
+  assert.strictEqual(pairStatus().pin, "482915", "a paired phone cannot change the PIN");
+  pairSet(false);
+  pairSet(true);
+  assert.strictEqual(pairStatus().own, false, "off forgets an own PIN");
+  assert.notStrictEqual(pairStatus().pin, "482915");
+});
+test("pairing: a card that cannot save never ends up more open after a restart than the screen says", async () => {
+  const dir = pairIn("nosave");
+  const restart = () => {
+    ctx.DLZMOD_pairDir = () => dir + "-elsewhere";
+    pairState();
+    ctx.DLZMOD_pairDir = () => dir;
+  };
+  // a folder where the temp file goes: every save fails, as on a full or read-only card
+  const block = () => fs.mkdirSync(path.join(dir, "state.json.dlzmod-new"));
+  const unblock = () => fs.rmdirSync(path.join(dir, "state.json.dlzmod-new"));
+  block();
+  assert.strictEqual(pairSet(true), "", "on is not saved");
+  assert.strictEqual(pairStatus().on, false, "so it stays off");
+  unblock();
+  pairSet(true);
+  const token = pairOne(), pin = pairStatus().pin;
+  block();
+  assert.deepStrictEqual(plain(pairTry(pin)), { ok: false, wait: 0, failed: true }, "a pairing the card did not take");
+  assert.strictEqual(pairStatus().pin, pin, "the PIN stays usable");
+  assert.strictEqual(ctx.DLZMOD_pairSetPin("482915"), "Could not save the PIN");
+  assert.strictEqual(pairStatus().own, false);
+  const sock = fakeSocket("192.168.1.50", { cookie: cookie(token) });
+  admit(sock, {});
+  assert.strictEqual(pairForget(), "removed", "Forget not saved: the file goes, so off");
+  assert.strictEqual(sock.dropped, 1);
+  assert.strictEqual(pairStatus().on, false);
+  restart();
+  assert.ok(!pairValid(cookie(token)) && pairStatus().on === false, "after a restart: off, the device forgotten");
+  unblock();
+  pairSet(true);
+  const t2 = pairOne();
+  block();
+  assert.strictEqual(pairSet(false), "removed", "off not saved: the file goes");
+  restart();
+  assert.ok(!pairValid(cookie(t2)) && pairStatus().on === false, "after a restart: off");
+  unblock();
+  pairSet(true);
+  pairOne();
+  // neither saved nor removed (the state file cannot go): off holds in memory, and the screen says so
+  fs.unlinkSync(path.join(dir, "state.json"));
+  fs.mkdirSync(path.join(dir, "state.json", "x"), { recursive: true });
+  block();
+  assert.strictEqual(pairSet(false), "");
+  assert.strictEqual(pairStatus().on, false, "off in memory all the same");
+  const s1 = [];
+  await net({ op: "pair", on: false }, sendTo(s1), fakeNet());
+  assert.deepStrictEqual(result(s1), [{ ok: false,
+    text: "Off now, but the card could not save it:\npaired devices may come back after a restart." }]);
+});
+// express-like request and response for the HTTP gate
+const httpReq = (address, p, o = {}) => Object.assign(new (require("events"))(), { socket: { remoteAddress: address }, path: p,
+  method: o.method || "GET", headers: Object.assign({ host: HOST }, o.headers || {}), setEncoding() {}, resume() {
+    this.resumed = true;
+  }, destroy() {
+    this.destroyed = true;
+  } });
+const httpRes = () => ({ status: 0, headers: {}, body: "",
+  setHeader(name, value) {
+    this.headers[name] = value;
+  },
+  writeHead(status, headers) {
+    this.status = status;
+    Object.assign(this.headers, headers);
+  },
+  end(b) {
+    this.body += b || "";
+  } });
+const gate = (req) => {
+  const res = httpRes();
+  let next = false;
+  remoteHttp(req, res, () => (next = true));
+  return next ? "next" : res;
+};
+test("pairing: HTTP: the mixer itself as stock; other devices: off page, PIN page, then only the UI's files", () => {
+  pairIn("http");
+  assert.strictEqual(remoteHttp.length, 3, "express takes a 4-parameter function for an error handler");
+  assert.strictEqual(gate(httpReq("127.0.0.1", "/srv_data.json")), "next", "the mixer itself: unchanged");
+  const off = gate(httpReq("192.168.1.50", "/"));
+  assert.strictEqual(off.status, 403);
+  assert.match(off.body, /Control from other devices is off/);
+  assert.ok(!/<form/.test(off.body), "no PIN form while off");
+  pairSet(true);
+  const form = gate(httpReq("192.168.1.50", "/"));
+  assert.strictEqual(form.status, 200);
+  assert.match(form.body, /<form method="post" action="\/dlzmod-pair">/);
+  assert.ok(!form.body.includes(pairStatus().pin), "the PIN is never on the page");
+  assert.strictEqual(gate(httpReq("192.168.1.50", "/app.js")).status, 403, "not paired: not even the UI");
+  assert.strictEqual(gate(httpReq("192.168.1.50", "/srv_data.json")).status, 403);
+  const token = pairOne();
+  const asPaired = (p) => gate(httpReq("192.168.1.50", p, { headers: { cookie: cookie(token) } }));
+  for (const p of ["/", "/index.html", "/app.js", "/style.css", "/favicon.ico", "/libs/socket.io.js",
+    "/fonts/fa/fa-solid-900.woff", "/img1x/fx.png"]) {
+    assert.strictEqual(asPaired(p), "next", p);
+  }
+  for (const p of ["/srv_data.json", "/presets/eq/a.json", "/presets_factory/eq/a.json", "/package.json", "/server.js",
+    "/node_modules/express/package.json", "/emu.html", "/libs/../srv_data.json", "/libs/%2e%2e/srv_data.json",
+    "/libs/..%2fsrv_data.json", "/img1x/", "/libs/a%00.js", "/%E0%A4%A"]) {
+    const r = asPaired(p);
+    assert.ok(r !== "next" && r.status >= 400, p);
+  }
+});
+test("pairing: HTTP: before pairing (also switched off) only the login page's logo and two fonts", () => {
+  pairIn("login");
+  const files = ["/img1x/DLZ_XS.png", "/img1x/DLZ_Creator.png", "/fonts/proximanova/ProximaNova-Regular.woff",
+    "/fonts/proximanova/ProximaNova-Semibold.woff"];
+  const other = ["/img1x/fx.png", "/fonts/proximanova/ProximaNova-Bold.woff", "/fonts/proximanova/../../srv_data.json",
+    "/img1x/DLZ_XS.png/../../srv_data.json", "/img1x/DLZ_XS.pngx", "/app.js"];
+  for (const on of [false, true]) {
+    pairSet(on);
+    for (const f of files) assert.strictEqual(gate(httpReq("192.168.1.50", f)), "next", f + (on ? " (on)" : " (off)"));
+    for (const f of other) assert.notStrictEqual(gate(httpReq("192.168.1.50", f)), "next", f + (on ? " (on)" : " (off)"));
+  }
+  assert.notStrictEqual(gate(httpReq("192.168.1.50", files[0], { method: "POST" })), "next", "only GET and HEAD");
+  const page = gate(httpReq("192.168.1.50", "/"));
+  assert.match(page.body, /<img class="l" src="\/img1x\/DLZ_(XS|Creator)\.png"/);
+  assert.ok(!/src="(?!\/img1x\/DLZ_)|url\((?!\/fonts\/proximanova\/ProximaNova-(Regular|Semibold)\.woff)/.test(page.body),
+    "the page asks for nothing else");
+});
+test("pairing: HTTP: the PIN form sets an HttpOnly, same-site cookie; wrong PINs and other pages refused", async () => {
+  pairIn("post");
+  pairSet(true);
+  const post = (body, headers) => new Promise((resolve) => {
+    const req = httpReq("192.168.1.50", "/dlzmod-pair", { method: "POST", headers });
+    const res = httpRes();
+    const end = res.end;
+    res.end = function (b) {
+      end.call(this, b);
+      resolve(res);
+    };
+    remoteHttp(req, res, () => resolve("next"));
+    req.emit("data", body);
+    req.emit("end");
+  });
+  const wrong = await post("pin=" + (pairStatus().pin === "000000" ? "111111" : "000000"));
+  assert.strictEqual(wrong.status, 200);
+  assert.match(wrong.body, /Wrong PIN/);
+  assert.strictEqual(wrong.headers["Set-Cookie"], undefined);
+  const evil = await post("pin=" + pairStatus().pin, { origin: "http://evil.example" });
+  assert.strictEqual(evil.status, 403, "a form on another web page");
+  const ok = await post("pin=" + pairStatus().pin, { origin: "http://" + HOST });
+  assert.strictEqual(ok.status, 303);
+  assert.strictEqual(ok.headers.Location, "/");
+  const m = /^dlzmod_pair=([0-9a-f]{64}); Path=\/; Max-Age=\d+; HttpOnly; SameSite=Strict$/.exec(ok.headers["Set-Cookie"]);
+  assert.ok(m, ok.headers["Set-Cookie"]);
+  assert.ok(pairValid(cookie(m[1])));
+  const big = await post("pin=" + "1".repeat(300));
+  assert.strictEqual(big.status, 413);
+  assert.strictEqual(big.headers.Connection, "close", "the answer goes out, then the connection closes");
+  // DNS rebinding: a web page's own name pointed at the mixer, Host and Origin matching each other
+  const before = pairStatus().pin;
+  const rebound = await post("pin=" + before, { host: "evil.example", origin: "http://evil.example" });
+  assert.strictEqual(rebound.status, 421);
+  assert.strictEqual(rebound.headers["Set-Cookie"], undefined);
+  assert.strictEqual(pairStatus().pin, before, "refused before the PIN is tried");
+});
+test("pairing: only by the mixer's IP address, its .local name or localhost (DNS rebinding)", () => {
+  pairIn("host");
+  pairSet(true);
+  const token = pairOne();
+  const hostOk = ctx.DLZMOD_hostOk;
+  for (const h of ["192.168.1.30", "192.168.1.30:80", "[fe80::1]", "[::1]:80", "localhost", "mackie-dlz-creator-xs.local",
+    "Mackie-DLZ-Creator-XS.local:80"]) assert.strictEqual(hostOk(h), true, h);
+  for (const h of ["evil.example", "192.168.1.30.evil.example", "mixer.lan", "mixer.fritz.box", "mixer", "local",
+    "evil.local.example", "192.168.1.30:8080", "", undefined]) assert.strictEqual(hostOk(h), false, String(h));
+  const asHost = (host, origin) => ({ cookie: cookie(token), host, origin });
+  assert.strictEqual(gate(httpReq("192.168.1.50", "/", { headers: { host: "evil.example" } })).status, 421);
+  assert.strictEqual(gate(httpReq("192.168.1.50", "/app.js", { headers: asHost("evil.example") })).status, 421,
+    "a paired cookie does not help (and a rebound page has none)");
+  assert.strictEqual(gate(httpReq("127.0.0.1", "/", { headers: { host: "evil.example" } })), "next", "the mixer itself: as stock");
+  assert.strictEqual(allowed(handshake("192.168.1.50", asHost("evil.example", "http://evil.example"))), false);
+  assert.strictEqual(allowed(handshake("192.168.1.50", asHost("mackie-dlz-creator-xs.local", "http://mackie-dlz-creator-xs.local"))),
+    true);
+  assert.strictEqual(allowed(handshake("192.168.1.50", asHost(undefined, "http://" + HOST))), false, "no Host, but an Origin");
+  assert.strictEqual(admit(fakeSocket("192.168.1.50", asHost("evil.example", "http://evil.example")), {}), false);
+});
+test("pairing: at most 16 devices, the oldest goes first", () => {
+  pairIn("cap");
+  pairSet(true);
+  const tokens = [];
+  for (let i = 0; i < 17; i++) tokens.push(pairOne());
+  assert.strictEqual(pairValid(cookie(tokens[0])), false, "the first one paired");
+  for (const t of tokens.slice(1)) assert.strictEqual(pairValid(cookie(t)), true);
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(ctx.DLZMOD_pairDir(), "state.json"), "utf8")).tokens.length, 16);
+});
+// #48: paired devices delete and rename again, recordings only in the recordings folders
+const PAIRED = Object.assign(() => {}, { dlzmodPaired: true });
+test("files: a paired device deletes and renames recordings, presets and snapshots", () => {
+  for (const [cmd, args] of [["MEDIA_DELETE", { path: "sd:/DLZ_Creator_XS_Recordings/REC_0001_otter.wav" }],
+    ["MEDIA_DELETE", { path: "/media/sd/DLZ_Creator_Recordings/REC_0002/track1.wav" }],
+    ["MEDIA_RENAME", { path: "sd:\\DLZ_Creator_XS_Recordings\\REC_0003_owl.wav", newName: "Interview.wav" }],
+    ["MEDIA_RENAME", { path: "sd:/DLZ_Creator_XS_Recordings/REC_0004", newName: "Band take" }],
+    ["PRESET_DELETE", { type: "eq", name: "Mine" }], ["PRESET_RENAME", { type: "rev", name: "Hall", newName: "Big hall" }],
+    ["SNAP_DELETE", { name: "Show 1" }], ["SNAP_RENAME", { name: "Show 1", newName: "Show 2" }]]) {
+    assert.strictEqual(cmdOk(HANDLERS, cmd, args, PAIRED, ROOTS), "", cmd + " " + JSON.stringify(args));
+  }
+});
+test("pairing: factory reset, restarting the screen and the System Lock PIN only from the mixer's screen", () => {
+  for (const cmd of ["FACTORY_RESET", "RESET", "RESTART_GUI"]) {
+    assert.strictEqual(cmdOk(HANDLERS, cmd, {}, PAIRED, ROOTS), "only on the mixer's own screen", cmd + " from a paired device");
+    assert.strictEqual(cmdOk(HANDLERS, cmd, {}, SCREEN, ROOTS), "", cmd + " from the screen");
+  }
+  for (const v of ["1234", "", 0, null]) {
+    assert.ok(!keyOk("lock", v, PAIRED), "a paired device cannot set or remove the lock PIN: " + JSON.stringify(v));
+    assert.ok(keyOk("lock", v, SCREEN), "the screen can: " + JSON.stringify(v));
+  }
+  assert.ok(keyOk("i.0.lock", 1, PAIRED), "a channel's lock (mute groups) is another key");
+});
+test("files: a paired device changes nothing outside those folders, and no sample paths or formatting", () => {
+  for (const p of ["sd:/notes.txt", "sd:/DLZ_Creator_XS_Recordings", "sd:/DLZ_Creator_XS_Recordings/", "sd:/",
+    "sd:/DLZ_Creator_XS_Recordings/../dlzmod-update/x.tar", "sd:/DLZ_Creator_XS_Recordings_old/a.wav",
+    "/media/sd/DLZ_Creator_XS_Recordings/../../../srv/server.js", "/srv/srv_data.json", "/etc/shadow",
+    "usb:/DLZ_Creator_XS_Recordings/a.wav", "sd:/DLZ_Creator_XS_Recordings/a\0.wav", "", undefined, 7]) {
+    assert.strictEqual(cmdOk(HANDLERS, "MEDIA_DELETE", { path: p }, PAIRED, ROOTS), "not in a recordings folder", "delete " + p);
+    assert.strictEqual(cmdOk(HANDLERS, "MEDIA_RENAME", { path: p, newName: "x.wav" }, PAIRED, ROOTS), "not in a recordings folder",
+      "rename " + p);
+  }
+  assert.strictEqual(cmdOk(HANDLERS, "MEDIA_RENAME", { path: "sd:/DLZ_Creator_XS_Recordings/a.wav", newName: "../../a.wav" },
+    PAIRED, ROOTS), "not a plain name");
+  assert.strictEqual(cmdOk(HANDLERS, "PRESET_DELETE", { type: "../..", name: "x" }, PAIRED, ROOTS), "not a preset folder");
+  assert.strictEqual(cmdOk(HANDLERS, "SNAP_DELETE", { name: "../../srv_data" }, PAIRED, ROOTS), "not a plain name");
+  for (const cmd of ["SAMPLE_LOAD", "SAMPLE_PREVIEW_START", "FORMAT_USB"]) {
+    assert.strictEqual(cmdOk(HANDLERS, cmd, { path: "sd:/DLZ_Creator_XS_Recordings/a.wav" }, PAIRED, ROOTS),
+      "only on the mixer's own screen", cmd);
+  }
+  assert.strictEqual(cmdOk(HANDLERS, "MEDIA_DELETE", { path: "sd:/DLZ_Creator_XS_Recordings/a.wav" },
+    Object.assign(() => {}, { dlzmodPaired: "yes" }), ROOTS), "only on the mixer's own screen", "only a true stamp counts");
+  assert.strictEqual(cmdOk(HANDLERS, "MEDIA_DELETE", { path: "/srv/srv_data.json" },
+    Object.assign(() => {}, { dlzmodLocal: true, dlzmodPaired: true }), ROOTS), "", "the screen as stock");
+  const usb = ["/media/sd", "/media/usb"];
+  assert.strictEqual(cmdOk(HANDLERS, "MEDIA_DELETE", { path: "usb:/DLZ_Creator_XS_Recordings/a.wav" }, PAIRED, usb), "",
+    "the stick's recordings");
+});
+test("pairing: the switch and Forget only from the mixer's screen; the PIN only to the screen", async () => {
+  pairIn("net");
+  const s1 = [];
+  await net({ op: "pair", on: true }, sendTo(s1), fakeNet());
+  assert.deepStrictEqual(result(s1), [{ ok: true, text: "Control from other devices is on" }]);
+  const st = s1.find((m) => m.cmd === "DLZMOD_NET_STATE").data.pair;
+  assert.strictEqual(st.on, true);
+  assert.match(st.pin, /^\d{6}$/);
+  const token = pairOne();
+  const s2 = [];
+  const phone = Object.assign((m) => s2.push(plain(m)), { dlzmodPaired: true });
+  await net({ op: "pair", on: false }, phone, fakeNet());
+  await net({ op: "pairForget" }, phone, fakeNet());
+  await net({ op: "status" }, phone, fakeNet());
+  assert.ok(pairValid(cookie(token)), "a paired phone cannot switch it off or forget devices");
+  assert.ok(!JSON.stringify(s2).includes(pairStatus().pin) && !s2.some((m) => m.data && m.data.pair), "no PIN to a phone");
+  const s3 = [];
+  await net({ op: "pairForget" }, sendTo(s3), fakeNet());
+  assert.deepStrictEqual(result(s3), [{ ok: true, text: "All devices are forgotten.\nThe PIN is new." }]);
+  assert.ok(!pairValid(cookie(token)));
+  const s4 = [];
+  await net({ op: "pair", on: false }, sendTo(s4), fakeNet());
+  assert.deepStrictEqual(result(s4), [{ ok: true, text: "Control from other devices is off.\nAll devices are forgotten." }]);
+  assert.strictEqual(s4.find((m) => m.cmd === "DLZMOD_NET_STATE").data.pair.on, false);
 });
 
 (async () => {

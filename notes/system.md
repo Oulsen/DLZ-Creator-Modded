@@ -119,8 +119,8 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
 | Port | Process | Bind | Auth | Conf. |
 |---|---|---|---|---|
 | 22 | sshd | all | password + keys | [static] |
-| 80 | server.js (HTTP + socket.io) | all | **none** | [device] (`ss -ltnp`) |
-| 89 | server.js (newline-JSON) | all | **none** | [device] |
+| 80 | server.js (HTTP + socket.io) | all | **none** (mod: other devices only paired, #45) | [device] (`ss -ltnp`) |
+| 89 | server.js (newline-JSON) | all (mod: 127.0.0.1 and ::1) | **none** | [device] |
 | 8011 | glesgui (WebSocket) | 127.0.0.1 only (app.js uses it) | none | [device] |
 | ? | upgradedaemon (Prologue, default 8080) | `0.0.0.0` | RSA-signed upload | [guess] |
 
@@ -143,7 +143,10 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   panel: Wi-Fi and SSH"
 - **Ports 80 and 89 give full control to anyone on the LAN**, with no authentication: every mixer
   parameter plus `FACTORY_RESET`, `FORMAT_SD/USB`, `FIRMWARE_UPDATE`. `express.static(/srv)` also
-  serves `srv_data.json` and the presets [static]
+  serves `srv_data.json` and the presets [static]. Every socket.io client gets the whole state store
+  as `INIT`, `lock` included [static]. On the mod card other devices need "Control from other
+  devices" and a pairing with a PIN, and port 89 listens on loopback only ([mod.md](mod.md), "Remote
+  Control", #45)
 - **Stock's file commands reach any file** [static, server.js]: `MEDIA_DELETE` and `MEDIA_RENAME`
   take a path from the client, only rewrite its `sd:`/`usb:` prefix and unlink or rename it as root
   (the new name may contain `/`); server.js has a containment helper for the media folder, but these
@@ -153,15 +156,22 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   paths dspserver opens; multitrack track names (`i.N.name`) become rename targets; on mounting a
   card or stick, each `*.wav.unfinished` name goes unquoted into a shell command for `wavfinalizer`
   (a name with `;` runs as root). On stock that reaches the whole eMMC system. The mod limits file
-  commands to the mixer's own screen and checks names and folders for everyone ([mod.md](mod.md),
-  #47); everything else stays open until #45 (pairing with a PIN)
+  commands to the mixer's own screen (deleting and renaming also to paired devices, recordings only in
+  their folders, #48) and checks names and folders for everyone ([mod.md](mod.md), #47)
 - Port 89's only Mackie client is app.js running in Node (the screen: `$NET.usePipeForNode=1`,
   `usePipePort=89`); browsers use socket.io on :80 [static]. It listens on all interfaces
   (`ss -ltnp` [device]). Closing it to the network needs a listener on **both** loopback addresses:
   app.js connects to `localhost`, which Node 18 resolves to `::1` first when the mixer has an IPv6
-  address, so a 127.0.0.1-only listener cuts the screen off [static + qemu]
-- The "System Lock" password lives in state key `lock` in `srv_data.json` (plain); whether it
-  gates the web UI is unknown [static] / [guess]
+  address, so a 127.0.0.1-only listener cuts the screen off [static + qemu]. The mod does that
+  (`DLZMOD_listen89`, #45) [device: `ss -ltn` shows `127.0.0.1:89` and `[::1]:89`, the screen
+  connects, no restarts]
+- dspserver and faderlink are socket.io clients on `localhost:80`, so port 80 itself must stay open:
+  the mod tells the mixer's own connections (127.0.0.1 / ::1) from other devices per connection
+  [static]
+- The "System Lock" password lives in state key `lock` in `srv_data.json` (plain) [static]. It
+  does not gate the web UI's commands: the server reads `lock` only in the hardware handlers `HWREC`,
+  `PADPRSD` and `ALT`; a browser shows the lock overlay of a locked mixer, but its socket.io commands
+  go through [static]. Since #45 only paired browsers get that far (`notes/mod.md`)
 
 Implication: keep the mixer on a trusted LAN, and never port-forward it.
 

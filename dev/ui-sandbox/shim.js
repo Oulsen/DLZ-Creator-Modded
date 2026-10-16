@@ -176,6 +176,18 @@ function fromThisPc(req) {
   const origin = req.headers.origin;
   return LOCAL_HOST.test(req.headers.host || '') && (origin === undefined || LOCAL_ORIGIN.test(origin));
 }
+// DLZ_SANDBOX_REMOTE=1: http://localhost/ plays another device on the network (a phone): the mod
+// sees a LAN address on that connection and the page is Mackie's own index.html (the browser
+// layout), so control from other devices and pairing (#45) can be tried on this PC.
+// http://127.0.0.1/ stays the mixer's own screen; the browser keeps a cookie per host, so the two
+// stay apart. Still this PC only (Host and Origin as above).
+const REMOTE = process.env.DLZ_SANDBOX_REMOTE === '1';
+const PRETEND_PHONE = '192.0.2.10';
+function asPhone(req) {
+  if (!REMOTE || !/^localhost(:80)?$/i.test(req.headers.host || '')) return false;
+  Object.defineProperty(req.socket, 'remoteAddress', { value: PRETEND_PHONE, configurable: true });
+  return true;
+}
 const http = require('http');
 const emit = http.Server.prototype.emit;
 http.Server.prototype.emit = function (event, req, res) {
@@ -189,7 +201,8 @@ http.Server.prototype.emit = function (event, req, res) {
     else { res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('sandbox: this PC only\n'); }
     return true;
   }
-  if (event === 'request' && req.method === 'GET' && /^\/(index\.html)?(\?.*)?$/.test(req.url)) {
+  const phone = (event === 'request' || event === 'upgrade') && asPhone(req);
+  if (!phone && event === 'request' && req.method === 'GET' && /^\/(index\.html)?(\?.*)?$/.test(req.url)) {
     let html = fs.readFileSync('index.html', 'utf8')
       .replace('<script src="app.js">', FORCE_INT + '\n  <script src="app.js">')
       .replace('</head>', PANEL_ASPECT + '\n</head>');
@@ -242,4 +255,5 @@ net.Server.prototype.emit = function (event, socket) {
   return netEmit.apply(this, arguments);
 };
 
-console.log('[sandbox] shell commands blocked, listening on 127.0.0.1 only');
+console.log('[sandbox] shell commands blocked, listening on 127.0.0.1 only' +
+  (REMOTE ? '; http://localhost/ plays a phone on the network' : ''));

@@ -120,6 +120,32 @@ APP_PATCHES = [
         "if(DLZMOD_vuSet(e.vu2,l,T+1,o,a),",
     ),
     (
+        # #45: the server refuses the System Lock PIN and a factory reset from other devices; in a
+        # browser Mackie's UI would lock or "reset" only itself, so there the buttons are not shown
+        # (DLZMOD_external is known before the pages are built)
+        "remote: no System Lock button in a browser",
+        "text:lang.SYSTEM_LOCK,",
+        "text:lang.SYSTEM_LOCK,visible:!DLZMOD_external(),",
+    ),
+    (
+        # a mixer locked on its screen shows the lock in the browser too: tapping it says where to unlock
+        "remote: unlocking only on the mixer's own screen",
+        'ondown(){Data.get("lock")&&new PopupLock(app)}',
+        'ondown(){Data.get("lock")&&(DLZMOD_screenOnly()||new PopupLock(app))}',
+    ),
+    (
+        "remote: no Factory Reset (setup page) in a browser",
+        "this.reset=new E1Button(this,{anchors:[30,null,30,i],w:e,text:wrapText(lang.FACTORY_RESET,30,15),",
+        "this.reset=new E1Button(this,{anchors:[30,null,30,i],w:e,visible:!DLZMOD_external(),"
+        "text:wrapText(lang.FACTORY_RESET,30,15),",
+    ),
+    (
+        "remote: no Factory Reset (About) in a browser",
+        "this.factoryReset=new E1Button(this,{anchors:[0,210,null,null,!0],text:lang.FACTORY_RESET,",
+        "this.factoryReset=new E1Button(this,{anchors:[0,210,null,null,!0],visible:!DLZMOD_external(),"
+        "text:lang.FACTORY_RESET,",
+    ),
+    (
         # next to Mackie's firmware popups: the drop-in update's result (DLZMOD_UPDATE_NOTE, once,
         # until its OK) and the installed build and last refusal for the Mod page
         # (DLZMOD_UPDATE_STATUS), sent by the server mod when the screen has loaded
@@ -170,10 +196,13 @@ SERVER_PATCHES = [
     ),
     (
         # each connection's send function says whether it comes from the mixer itself (127.0.0.1:
-        # the device's screen); DLZMOD_net only takes changes from those (DLZMOD_isLocal)
-        "network: socket.io connections marked local or not",
+        # the device's screen); DLZMOD_net only takes changes from those (DLZMOD_isLocal). #45:
+        # another device only when paired (stamped dlzmodPaired), else it is dropped before anything
+        # of it runs
+        "network: socket.io connections marked local or paired, others dropped",
         '};Xt(),e.on("message",(async e=>await la(e,t)))}',
         '};t.send.dlzmodLocal=DLZMOD_isLocal(e.handshake&&e.handshake.address);'
+        'if(!DLZMOD_remoteAdmit(e,t.send))return;'
         'Xt(),e.on("message",(async e=>await la(e,t)))}',
     ),
     (
@@ -211,7 +240,22 @@ SERVER_PATCHES = [
         # /srv is served as it is: the originals patch.py and apply-mod.sh keep there stay private
         "files: kept originals not served (DLZMOD_noOrig)",
         'a=e();return a.get("/app.js",',
-        'a=e();a.use(DLZMOD_noOrig);return a.get("/app.js",',
+        # #45: other devices only with "Control from other devices" on and paired, and then only the
+        # UI's own files (not srv_data.json or the presets)
+        'a=e();a.use(DLZMOD_noOrig);a.use(DLZMOD_remoteHttp);return a.get("/app.js",',
+    ),
+    (
+        # #45: the socket.io handshake of another device needs the pairing cookie and the mixer's
+        # own page as its origin (DLZMOD_allowRequest)
+        "network: socket.io handshakes from other devices only when paired",
+        "ct=new r(rt,{cookie:!1,allowEIO3:!0})",
+        "ct=new r(rt,{cookie:!1,allowEIO3:!0,allowRequest:DLZMOD_allowRequest})",
+    ),
+    (
+        # #45: port 89 is the screen's connection only: loopback, IPv4 and IPv6 (DLZMOD_listen89)
+        "network: port 89 on loopback only",
+        "pt&&pt.listen(89);",
+        "pt&&DLZMOD_listen89(pt,da);",
     ),
     (
         # About's "Device IP Address" (polled every 5 s): Ethernet first as stock, else the Wi-Fi stick

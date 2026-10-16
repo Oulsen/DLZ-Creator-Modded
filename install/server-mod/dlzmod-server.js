@@ -211,8 +211,8 @@ function DLZMOD_updateNoteSeen(dir = "/var/lib/dlzmod-update") {
 // NetworkManager keyfile, the SSH password into chpasswd's stdin. (Stock logs incoming commands
 // only at VERBOSITY >= 2, which the mixer does not set.) Programs run without a shell (execFile),
 // so a network name is never parsed as a command.
-// Changes only from the mixer itself: the hub has no login, so any device on the network (or a web
-// page in a browser on it) could otherwise set the root password. server.js's socket.io (ua) and
+// Changes only from the mixer itself, also with pairing (#45): a paired phone must not set the root
+// password or pair more devices. server.js's socket.io (ua) and
 // TCP (da) connections stamp their send function with dlzmodLocal (patch.py): the device's screen
 // connects to 127.0.0.1. Others only get the status.
 function DLZMOD_isLocal(address) {
@@ -223,13 +223,19 @@ function DLZMOD_isLocal(address) {
 // as root without a check, so any device on the network could delete, move, write or read any file
 // (and undo the mod's patches). patch.py runs every command through DLZMOD_cmdAllowed and every
 // plain key through DLZMOD_keyAllowed first.
-// - deleting and renaming (recordings, presets, snapshots), loading samples from a path and
-//   formatting the USB stick: only from the mixer's own screen (the dlzmodLocal stamp); phones and
-//   tablets get them back with #45's pairing (#48)
+// - deleting and renaming (recordings, presets, snapshots): from the mixer's own screen (the
+//   dlzmodLocal stamp) and from paired devices (dlzmodPaired, #48), recordings only inside the
+//   recordings folders
+// - loading samples from a path, formatting the USB stick, a factory reset and restarting the screen
+//   (RESTART_GUI: a few in a row run evolve-app into systemd's start limit, the screen stays dark
+//   until a power cycle): only from the mixer's own screen
 // - for everyone: preset folders only Mackie's own, names only plain names (no folder in them)
 // - from other devices: a track to play only from the SD card or the USB stick
 const DLZMOD_SCREEN_ONLY = ["MEDIA_DELETE", "MEDIA_RENAME", "PRESET_DELETE", "PRESET_RENAME", "SNAP_DELETE",
-  "SNAP_RENAME", "SAMPLE_LOAD", "SAMPLE_PREVIEW_START", "FORMAT_USB"];
+  "SNAP_RENAME", "SAMPLE_LOAD", "SAMPLE_PREVIEW_START", "FORMAT_USB", "FACTORY_RESET", "RESET", "RESTART_GUI"];
+const DLZMOD_PAIRED_FILES = ["MEDIA_DELETE", "MEDIA_RENAME", "PRESET_DELETE", "PRESET_RENAME", "SNAP_DELETE", "SNAP_RENAME"];
+// server.js's recordings folders (full-size, XS), on the SD card and the USB stick
+const DLZMOD_REC_DIRS = ["DLZ_Creator_Recordings", "DLZ_Creator_XS_Recordings"];
 const DLZMOD_PRESET_TYPES = ["ch", "comp", "del", "ds", "eq", "gate", "rev", "snaps"];
 const DLZMOD_RAW_NAME = ["PRESET_READ", "PRESET_DELETE", "PRESET_RENAME", "SNAP_LOAD", "SNAP_DELETE", "SNAP_RENAME"];
 const DLZMOD_RAW_NEW_NAME = ["PRESET_RENAME", "MEDIA_RENAME"];
@@ -241,8 +247,9 @@ function DLZMOD_plainName(n) {
 }
 
 // path (as stock takes it: "sd:" / "usb:" prefixes, "\" as separator) inside one of the media roots
-// (mount points, "-" when nothing is mounted), and not the root itself
-function DLZMOD_inMedia(p, roots) {
+// (mount points, "-" when nothing is mounted), and not the root itself; with subs: inside one of
+// those folders on a medium, and not the folder itself
+function DLZMOD_inMedia(p, roots, subs) {
   if (typeof p !== "string" || p.includes("\0")) return false;
   const path = require("path");
   let f = p.replace(/\\/g, "/");
@@ -255,8 +262,10 @@ function DLZMOD_inMedia(p, roots) {
   f = path.resolve("/", f);
   return roots.some((r) => {
     if (!r || r === "-") return false;
-    const rel = path.relative(path.resolve(r), f);
-    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+    return (subs || [""]).some((s) => {
+      const rel = path.relative(path.resolve(r, s), f);
+      return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+    });
   });
 }
 
@@ -265,7 +274,13 @@ function DLZMOD_cmdAllowed(handlers, cmd, args, send, roots) {
   if (!Object.prototype.hasOwnProperty.call(handlers, cmd)) return "not a command";
   const a = args && typeof args === "object" ? args : {};
   const local = !!(send && send.dlzmodLocal === true);
-  if (!local && DLZMOD_SCREEN_ONLY.includes(cmd)) return "only on the mixer's own screen";
+  const paired = !local && !!(send && send.dlzmodPaired === true);
+  if (!local && DLZMOD_SCREEN_ONLY.includes(cmd) && !(paired && DLZMOD_PAIRED_FILES.includes(cmd))) {
+    return "only on the mixer's own screen";
+  }
+  if (paired && /^MEDIA_(DELETE|RENAME)$/.test(cmd) && !DLZMOD_inMedia(a.path, roots, DLZMOD_REC_DIRS)) {
+    return "not in a recordings folder";
+  }
   if (/^PRESET_/.test(cmd) && !DLZMOD_PRESET_TYPES.includes(a.type)) return "not a preset folder";
   // a snapshot file's keys are set by the server itself when it is loaded (SNAP_LOAD), past
   // DLZMOD_keyAllowed: other devices save snapshots with SNAP_SAVE (the server's own state), they
@@ -279,12 +294,14 @@ function DLZMOD_cmdAllowed(handlers, cmd, args, send, roots) {
 }
 
 // plain key/value messages (stock stores and relays every key): no prototype keys; keys with a file
-// path dspserver opens or records to only from the screen; track names (multitrack file names) from
-// other devices plain
+// path dspserver opens or records to only from the screen; the System Lock PIN (`lock`: setting,
+// changing or removing it) only from the screen (#45: other devices still receive it, Mackie's web
+// UI needs it for its own lock screen); track names (multitrack file names) from other devices plain
 function DLZMOD_keyAllowed(key, value, send) {
   if (key === "__proto__" || key === "constructor" || key === "prototype") return false;
   const local = !!(send && send.dlzmodLocal === true);
   if (!local && /(^|\.)(file|recFile|currentFileName)$/i.test(key)) return false;
+  if (!local && key === "lock") return false;
   // from other devices only: the screen keeps stock's names ("Mic 1/2" typed on the mixer stays as is)
   if (!local && /^[ip]\.[^.]+\.name$/.test(key) && typeof value === "string" && value !== "" && !DLZMOD_plainName(value)) {
     return false;
@@ -312,6 +329,381 @@ function DLZMOD_noOrig(req, res, next) {
   }
   if (/\.(orig|dlzmod-new)[\/\\]*$/i.test(p)) return res.status(404).end();
   next();
+}
+
+// Control from other devices (#45). Stock lets anyone on the network control the mixer (both ports,
+// no login). Here the mixer itself (the screen, dspserver, faderlink: all on localhost) keeps
+// everything; other devices only while "Control from other devices" is on (Mod page, Remote Control)
+// and once paired with the PIN shown there. A pairing gives the browser a random token (cookie,
+// HttpOnly); the card keeps only its sha256. A random PIN pairs one device: a new one after each
+// pairing. Or the owner's own PIN (6 digits, not an obvious one): it stays until changed, for pairing
+// several devices without the screen. Wrong PINs, counted for all devices together: after 5 a pause
+// of 60 s, doubling up to 15 min. Off forgets every device and the own PIN; "Forget all devices"
+// forgets the devices (an own PIN stays, a random one is new); both drop paired connections.
+// State in /var/lib/dlzmod-remote/state.json (root only; an update keeps it, a fresh card has none,
+// so it starts off). The PIN never goes into a hub key or a log line, only to the screen.
+// Port 89 listens on loopback only (DLZMOD_listen89): its only client is the screen.
+function DLZMOD_pairDir() {
+  return "/var/lib/dlzmod-remote";
+}
+
+function DLZMOD_pairHash(token) {
+  return require("crypto").createHash("sha256").update(String(token)).digest("hex");
+}
+
+function DLZMOD_newPin() {
+  return String(require("crypto").randomInt(0, 1000000)).padStart(6, "0");
+}
+
+// the state, read once per folder (the tests swap DLZMOD_pairDir); fails/until: the wrong-PIN pause, in memory
+function DLZMOD_pair() {
+  const p = DLZMOD_pair;
+  const dir = DLZMOD_pairDir();
+  if (p.dir !== dir) {
+    let s = {};
+    try {
+      s = JSON.parse(require("fs").readFileSync(dir + "/state.json", "utf8")) || {};
+    } catch (e) {}
+    const pin = /^\d{6}$/.test(s.pin) ? s.pin : "";
+    p.dir = dir;
+    p.on = s.on === true && pin !== "";
+    p.pin = p.on ? pin : "";
+    p.own = p.on && s.own === true;
+    p.tokens = p.on && Array.isArray(s.tokens) ? s.tokens.filter((t) => /^[0-9a-f]{64}$/.test(t)).slice(-16) : [];
+    p.fails = 0;
+    p.pauses = 0;
+    p.until = 0;
+  }
+  return p;
+}
+
+function DLZMOD_pairSave(dir, s) {
+  try {
+    require("fs").mkdirSync(dir, { recursive: true, mode: 0o700 });
+    DLZMOD_writeDurable(dir + "/state.json", JSON.stringify({ on: s.on, pin: s.pin, own: s.own, tokens: s.tokens }) + "\n", 0o600);
+    return true;
+  } catch (e) {
+    console.error("dlzmod: pairing state not saved:", e.message);
+    return false;
+  }
+}
+
+// a change of {on, pin, own, tokens}: to the card first, into memory after, so the card never says
+// more than memory (after a restart the card counts; only when a safer change can be neither saved
+// nor removed does the card keep the old state, until a restart). safer (off, forget): in memory even when the
+// card cannot take it; then the file goes (no file = off at the next start). Returns "saved",
+// "removed" (off now, the file is gone) or "" (not saved: an opening change did not happen; a safer
+// one holds until a restart only)
+function DLZMOD_pairCommit(next, safer) {
+  const p = DLZMOD_pair();
+  if (DLZMOD_pairSave(p.dir, next)) {
+    Object.assign(p, next);
+    return "saved";
+  }
+  if (!safer) return "";
+  try {
+    require("fs").unlinkSync(p.dir + "/state.json");
+    DLZMOD_syncDir(p.dir);
+    Object.assign(p, { on: false, pin: "", own: false, tokens: [] });
+    return "removed";
+  } catch (e) {
+    if (e.code === "ENOENT") {
+      Object.assign(p, { on: false, pin: "", own: false, tokens: [] });
+      return "removed";
+    }
+    console.error("dlzmod: pairing state not removed:", e.message);
+    Object.assign(p, next);
+    return "";
+  }
+}
+
+// the token from a Cookie header ("" without one)
+function DLZMOD_pairToken(cookie) {
+  for (const part of String(cookie || "").split(";")) {
+    const m = /^\s*dlzmod_pair=([0-9a-f]{64})\s*$/.exec(part);
+    if (m) return m[1];
+  }
+  return "";
+}
+
+function DLZMOD_pairValid(cookie) {
+  const p = DLZMOD_pair();
+  const token = DLZMOD_pairToken(cookie);
+  return p.on && token !== "" && p.tokens.includes(DLZMOD_pairHash(token));
+}
+
+// the name a browser used for the mixer: an IP address, a .local name or localhost. A web page
+// elsewhere can point a name of its own at the mixer (DNS rebinding); Host and Origin then both carry
+// that name and match each other
+function DLZMOD_hostOk(host) {
+  const h = String(host || "").toLowerCase().replace(/:80$/, "");
+  return /^(\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:.]+\]|localhost|([a-z0-9-]+\.)+local)$/.test(h);
+}
+
+// a browser names the page a request comes from: only the mixer's own pages (a web page elsewhere,
+// open in a browser on the network, must not drive the mixer), by a name of the mixer's own
+// (DLZMOD_hostOk). No Origin: not a browser
+function DLZMOD_originOk(headers) {
+  const h = headers || {};
+  if (!DLZMOD_hostOk(h.host)) return false;
+  if (!h.origin) return true;
+  return h.origin === "http://" + h.host;
+}
+
+// a PIN tried by another device: {ok, token} or {ok: false, wait (seconds), off}
+function DLZMOD_pairTry(pin, now = Date.now()) {
+  const p = DLZMOD_pair();
+  if (!p.on) return { ok: false, off: true, wait: 0 };
+  if (now < p.until) return { ok: false, wait: Math.ceil((p.until - now) / 1000) };
+  const crypto = require("crypto");
+  const given = Buffer.from(String(pin || "").trim());
+  const good = given.length === 6 && crypto.timingSafeEqual(given, Buffer.from(p.pin));
+  if (!good) {
+    if (++p.fails >= 5) {
+      p.fails = 0;
+      p.until = now + Math.min(60000 * 2 ** p.pauses, 900000);
+      p.pauses++;
+      console.error("dlzmod: 5 wrong PINs, pairing paused");
+    }
+    return { ok: false, wait: now < p.until ? Math.ceil((p.until - now) / 1000) : 0 };
+  }
+  const token = crypto.randomBytes(32).toString("hex");
+  // a pairing the card did not take is not given out (it would be gone after a restart)
+  if (!DLZMOD_pairCommit({ on: true, pin: p.own ? p.pin : DLZMOD_newPin(), own: p.own,
+    tokens: p.tokens.concat(DLZMOD_pairHash(token)).slice(-16) }, false)) return { ok: false, wait: 0, failed: true };
+  p.fails = 0;
+  p.pauses = 0;
+  console.log("dlzmod: a device was paired");
+  return { ok: true, token: token };
+}
+
+// on: a new random PIN, no devices yet; off: PIN (an own one too) and devices gone; off drops paired
+// connections right away. DLZMOD_pairCommit's answer
+function DLZMOD_pairSet(on) {
+  const p = DLZMOD_pair();
+  const r = DLZMOD_pairCommit(on ? { on: true, pin: DLZMOD_newPin(), own: false, tokens: [] }
+    : { on: false, pin: "", own: false, tokens: [] }, !on);
+  if (r || !on) {
+    p.fails = 0;
+    p.pauses = 0;
+    p.until = 0;
+    DLZMOD_pairDrop();
+  }
+  return r;
+}
+
+// "Forget all devices": a random PIN is new as well (it may have been seen); an own PIN stays
+// (the owner changes it when it has leaked). Paired connections drop. DLZMOD_pairCommit's answer
+function DLZMOD_pairForget() {
+  const p = DLZMOD_pair();
+  if (!p.on) return "saved";
+  const r = DLZMOD_pairCommit({ on: true, pin: p.own ? p.pin : DLZMOD_newPin(), own: p.own, tokens: [] }, true);
+  DLZMOD_pairDrop();
+  return r;
+}
+
+// an own PIN the first guesses would find: at most two different digits (000000, 121212, 112211),
+// a straight run up or down (123456, 987654, 012345), a repeated block (123123, 120120) or three
+// doubled digits (112233)
+function DLZMOD_pinWeak(pin) {
+  if (new Set(pin).size <= 2) return true;
+  if (/^(\d{3})\1$/.test(pin) || /^(\d)\1(\d)\2(\d)\3$/.test(pin)) return true;
+  const d = [...pin].map(Number);
+  const steps = new Set(d.slice(1).map((v, i) => v - d[i]));
+  return steps.size === 1 && (steps.has(1) || steps.has(-1));
+}
+
+// the owner's own PIN (only while on; the devices stay paired), or "" for a random one again.
+// "" = done, else why not
+function DLZMOD_pairSetPin(pin) {
+  const p = DLZMOD_pair();
+  if (!p.on) return "Turn control from other devices on first";
+  if (pin !== "") {
+    if (typeof pin !== "string" || !/^\d{6}$/.test(pin)) return "A PIN has 6 digits";
+    if (DLZMOD_pinWeak(pin)) return "Too easy to guess.\nPick another PIN.";
+  }
+  const own = pin !== "";
+  return DLZMOD_pairCommit({ on: true, pin: own ? pin : DLZMOD_newPin(), own: own, tokens: p.tokens }, false)
+    ? "" : "Could not save the PIN";
+}
+
+// for the screen only (DLZMOD_net's status): never sent to another device
+function DLZMOD_pairStatus(now = Date.now()) {
+  const p = DLZMOD_pair();
+  const ips = [];
+  try {
+    for (const list of Object.values(require("os").networkInterfaces())) {
+      for (const a of list || []) if (a.family === "IPv4" && !a.internal) ips.push(a.address);
+    }
+  } catch (e) {}
+  return { on: p.on, pin: p.pin, own: p.own, devices: p.tokens.length, wait: now < p.until ? Math.ceil((p.until - now) / 1000) : 0,
+    ips: ips };
+}
+
+// paired socket.io connections, dropped when the switch goes off or the devices are forgotten
+function DLZMOD_pairDrop() {
+  const set = DLZMOD_remoteAdmit.sockets;
+  if (!set) return;
+  for (const s of [...set]) {
+    try {
+      s.disconnect(true);
+    } catch (e) {}
+  }
+  set.clear();
+}
+
+// socket.io's allowRequest (patch.py): the handshake of every new connection, before it exists.
+// The mixer itself always; another device only paired, from the mixer's own page
+function DLZMOD_allowRequest(req, cb) {
+  const h = (req && req.headers) || {};
+  if (DLZMOD_isLocal(req && req.socket && req.socket.remoteAddress)) return cb(null, true);
+  if (DLZMOD_pairValid(h.cookie) && DLZMOD_originOk(h)) return cb(null, true);
+  cb("not paired", false);
+}
+
+// server.js's socket.io connection (ua, patch.py), after the dlzmodLocal stamp: the same check once
+// more on the connection itself; a paired one is stamped dlzmodPaired (DLZMOD_cmdAllowed) and kept
+// for DLZMOD_pairDrop. false: dropped, nothing of it runs
+function DLZMOD_remoteAdmit(socket, send) {
+  if (send && send.dlzmodLocal === true) return true;
+  const h = (socket && socket.handshake && socket.handshake.headers) || {};
+  if (!(DLZMOD_pairValid(h.cookie) && DLZMOD_originOk(h))) {
+    try {
+      socket.disconnect(true);
+    } catch (e) {}
+    return false;
+  }
+  send.dlzmodPaired = true;
+  const set = DLZMOD_remoteAdmit.sockets || (DLZMOD_remoteAdmit.sockets = new Set());
+  set.add(socket);
+  socket.on("disconnect", () => set.delete(socket));
+  return true;
+}
+
+// what a paired browser may load: the UI (index.html, app.js and its libraries, fonts and pictures).
+// Not srv_data.json (the System Lock PIN), presets, node_modules, package files, the demo pages
+function DLZMOD_remoteFileOk(p) {
+  return !/(^|\/)\.\.?(\/|$)/.test(p) && !p.includes("\0") &&
+    /^\/(|index\.html|app\.js|style\.css|favicon\.ico|(libs|fonts|img1x)\/.+)$/.test(p);
+}
+
+// what the PIN and switch-off pages load before any pairing: Mackie's logo and the two font weights
+// they use (stock files from the firmware, nothing of the mixer's state)
+function DLZMOD_loginFileOk(p) {
+  return /^\/(img1x\/DLZ_(XS|Creator)\.png|fonts\/proximanova\/ProximaNova-(Regular|Semibold)\.woff)$/.test(p);
+}
+
+// express middleware in front of everything (patch.py, after DLZMOD_noOrig): the mixer itself as
+// stock; another device gets the switch-off page, the PIN page or, paired, the UI's own files. Three
+// parameters: express takes a function with four for an error handler
+function DLZMOD_remoteHttp(req, res, next) {
+  if (DLZMOD_isLocal(req.socket && req.socket.remoteAddress)) return next();
+  if (!DLZMOD_hostOk(req.headers && req.headers.host)) {
+    return DLZMOD_remotePage(res, 421, "Open the mixer by its IP address or its .local name.");
+  }
+  const p = DLZMOD_pair();
+  let path = String(req.path || "");
+  try {
+    path = decodeURIComponent(path);
+  } catch (e) {
+    return DLZMOD_remotePage(res, 400, "");
+  }
+  if (DLZMOD_loginFileOk(path) && (req.method === "GET" || req.method === "HEAD")) return next();
+  if (!p.on) {
+    return DLZMOD_remotePage(res, 403, "Control from other devices is off. Turn it on at the mixer: " +
+      DLZMOD_remoteTab() + ".");
+  }
+  if (path === "/dlzmod-pair" && req.method === "POST") return DLZMOD_pairPost(req, res);
+  if (!DLZMOD_pairValid(req.headers && req.headers.cookie)) {
+    if (path === "/" || path === "/index.html") return DLZMOD_remotePage(res, 200, "", true);
+    return DLZMOD_remotePage(res, 403, "Not paired with this mixer.");
+  }
+  if (!DLZMOD_remoteFileOk(path)) return DLZMOD_remotePage(res, 404, "");
+  next();
+}
+
+function DLZMOD_remoteTab() {
+  return "Settings → DLZ Creator Modded → Remote";
+}
+
+// the PIN form posted: a cookie and on to the mixer, or the form again with what went wrong
+function DLZMOD_pairPost(req, res) {
+  if (!DLZMOD_originOk(req.headers)) return DLZMOD_remotePage(res, 403, "");
+  let body = "";
+  let tooBig = false;
+  req.setEncoding("utf8");
+  req.on("data", (c) => {
+    body += c;
+    if (body.length > 200 && !tooBig) {
+      tooBig = true;
+      // the answer first, then the connection closes (destroying the request would cut the answer off)
+      req.removeAllListeners("data");
+      req.resume();
+      res.setHeader("Connection", "close");
+      DLZMOD_remotePage(res, 413, "");
+    }
+  });
+  req.on("end", () => {
+    if (tooBig) return;
+    const r = DLZMOD_pairTry(new (require("url").URLSearchParams)(body).get("pin") || "");
+    if (r.ok) {
+      res.writeHead(303, { Location: "/", "Cache-Control": "no-store",
+        "Set-Cookie": "dlzmod_pair=" + r.token + "; Path=/; Max-Age=34560000; HttpOnly; SameSite=Strict" });
+      return res.end();
+    }
+    if (r.off) return DLZMOD_remotePage(res, 403, "Control from other devices is off.");
+    if (r.failed) return DLZMOD_remotePage(res, 503, "The mixer could not save the pairing. Try again.", true);
+    DLZMOD_remotePage(res, 200, r.wait ? "Too many wrong PINs. Try again in " + r.wait + " seconds." : "Wrong PIN, try again.", true);
+  });
+}
+
+// the mod's own small page for other devices, in Mackie's look (Settings' panels: black, thin #333
+// border, Proxima Nova, Mackie green; the model's logo from About), with the mod's marker at the
+// bottom as in the SD card panel: a message, and the PIN form when form is set. Before pairing it
+// loads only DLZMOD_loginFileOk's files
+function DLZMOD_remotePage(res, status, text, form) {
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const logo = globalThis.isDLZLite ? "DLZ_XS" : "DLZ_Creator";
+  const font = (w, f) => "@font-face{font-family:PN;font-weight:" + w + ";src:url(/fonts/proximanova/ProximaNova-" + f +
+    ".woff)}";
+  const html = "<!DOCTYPE html><html><head><meta charset=\"utf-8\">" +
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>DLZ Creator</title><style>" +
+    font(400, "Regular") + font(600, "Semibold") +
+    "*{box-sizing:border-box}body{background:#000;color:#c2c2c2;font:17px/1.4 PN,sans-serif;margin:0;" +
+    "padding:32px 16px}.c{max-width:420px;margin:0 auto;border:1.5px solid #333;border-radius:6px;" +
+    "padding:32px 24px 20px;text-align:center}.l{display:block;width:100%;max-width:280px;margin:0 auto 10px}" +
+    "h1{color:#f9f9f9;font-weight:400;font-size:22px;margin:0 0 24px}p{margin:0 0 20px}" +
+    ".m{color:#db6f64;font-weight:600}b{color:#f9f9f9;font-weight:600}.n{white-space:nowrap}" +
+    "input{display:block;width:100%;font:600 36px/1 PN,sans-serif;letter-spacing:10px;text-align:center;" +
+    "color:#f9f9f9;background:#141414;border:1.5px solid #333;border-radius:6px;padding:14px 0 14px 10px;" +
+    "margin:0 0 16px}input:focus{outline:none;border-color:#9CCC56}button{width:100%;font:600 19px PN,sans-serif;" +
+    "color:#000;background:#9CCC56;border:0;border-radius:6px;padding:14px}button:active{background:#86b347}" +
+    ".f{margin:28px 0 0;font-size:13px;color:#888}.f span{color:#FFD600;font-weight:600}" +
+    // a computer: in the middle of the window; a phone keeps it at the top, where the keyboard leaves it
+    "@media(min-width:600px) and (min-height:500px){body{min-height:100vh;display:flex;align-items:center}" +
+    ".c{flex:1}}</style></head><body><div class=\"c\">" +
+    "<img class=\"l\" src=\"/img1x/" + logo + ".png\" alt=\"DLZ Creator\"><h1>Remote Control</h1>" +
+    (text ? "<p class=\"m\">" + esc(text) + "</p>" : "") +
+    (form ? "<p>Enter the PIN from the mixer:<br><b>" +
+      DLZMOD_remoteTab().split(" → ").map((s) => "<span class=\"n\">" + esc(s) + "</span>").join(" → ") +
+      "</b><br>then tap Show PIN.</p>" +
+      "<form method=\"post\" action=\"/dlzmod-pair\"><input name=\"pin\" type=\"text\" inputmode=\"numeric\" " +
+      "autocomplete=\"one-time-code\" maxlength=\"6\" pattern=\"[0-9]{6}\" placeholder=\"······\" required autofocus>" +
+      "<button>Pair</button></form>" : "") +
+    "<p class=\"f\"><span>DLZ Creator Modded</span></p></div></body></html>";
+  res.writeHead(status, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+  res.end(html);
+}
+
+// port 89 (the screen's connection) on loopback only, IPv4 and IPv6: app.js connects to
+// "localhost", which Node 18 resolves to ::1 first when the mixer has an IPv6 address. Stock
+// listened on every interface. Without IPv6 the ::1 listener only logs
+function DLZMOD_listen89(server, onConnection) {
+  server.listen(89, "127.0.0.1");
+  const v6 = require("net").createServer();
+  v6.on("connection", onConnection);
+  v6.on("error", (e) => console.error("dlzmod: port 89 on ::1:", e.message));
+  v6.listen(89, "::1");
 }
 
 function DLZMOD_nmDir() {
@@ -513,6 +905,8 @@ async function DLZMOD_net(args, send, opts = {}) {
     } catch (e) {}
   };
   const result = (ok, text) => reply("DLZMOD_NET_RESULT", { ok: ok, text: text });
+  // the screen's status, with the Remote Control panel's (PIN included: only ever to the screen)
+  const state = async () => Object.assign(await DLZMOD_netState(run, paths), { pair: DLZMOD_pairStatus() });
   const a = args || {};
   try {
     // another device on the network: no network name, address or SSH state, and nothing run (its
@@ -525,7 +919,7 @@ async function DLZMOD_net(args, send, opts = {}) {
       if (DLZMOD_net.status) return;
       DLZMOD_net.status = true;
       try {
-        return reply("DLZMOD_NET_STATE", await DLZMOD_netState(run, paths));
+        return reply("DLZMOD_NET_STATE", await state());
       } finally {
         DLZMOD_net.status = false;
       }
@@ -550,12 +944,31 @@ async function DLZMOD_net(args, send, opts = {}) {
         DLZMOD_net.sshBusy = a.on ? "on" : "off";
         await DLZMOD_sshSet(a, run, result, opts.sshdDir, paths);
       } else if (a.op === "sshKeep") await DLZMOD_sshKeep(a, run, result, paths);
-      else result(false, "Unknown network action");
+      else if (a.op === "pair" && a.on) {
+        const r = DLZMOD_pairSet(true);
+        result(!!r, r ? "Control from other devices is on" : "Could not save the setting");
+      } else if (a.op === "pair") {
+        const r = DLZMOD_pairSet(false);
+        result(!!r, r ? "Control from other devices is off.\nAll devices are forgotten."
+          : "Off now, but the card could not save it:\npaired devices may come back after a restart.");
+      } else if (a.op === "pairForget") {
+        const r = DLZMOD_pairForget();
+        result(r === "saved", r === "removed"
+          ? "All devices are forgotten.\nThe card could not save the setting, so control\nfrom other devices is off."
+          : !r ? "Forgotten now, but the card could not save it:\nthey may come back after a restart."
+          : DLZMOD_pair().own ? "All devices are forgotten.\nYour own PIN stays." : "All devices are forgotten.\nThe PIN is new.");
+      } else if (a.op === "pairPin") {
+        const pin = typeof a.pin === "string" ? a.pin.trim() : "";
+        const why = DLZMOD_pairSetPin(pin);
+        // done: no popup on the screen (quiet), its Remote panel shows the new PIN
+        if (why) result(false, why);
+        else reply("DLZMOD_NET_RESULT", { ok: true, text: pin ? "Your own PIN is set" : "Back to a random PIN", quiet: true });
+      } else result(false, "Unknown network action");
     } finally {
       DLZMOD_net.busy = false;
       DLZMOD_net.sshBusy = "";
     }
-    reply("DLZMOD_NET_STATE", await DLZMOD_netState(run, paths));
+    reply("DLZMOD_NET_STATE", await state());
   } catch (e) {
     console.error("dlzmod: network " + a.op + ":", e.message);
     result(false, "That did not work (" + a.op + ")");
