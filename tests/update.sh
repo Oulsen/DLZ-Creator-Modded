@@ -30,6 +30,8 @@ cleanup() { umount -R $R/dev 2>/dev/null; umount $R/proc/sys/fs/binfmt_misc $R/r
 trap cleanup EXIT
 # every run: no temp files of the updater left in the card's /tmp afterwards (its report, work and
 # restore folders)
+# (the chroot has no /sys: the refusal of the rehearsal settings on an SD card, #84, never fires
+# here; it is shown on the mixer, notes/updates.md "Rehearsal settings")
 run() {
   chroot $R /usr/bin/env DLZMOD_DATA=/mnt/dlzdata /usr/local/sbin/dlzmod-update > $W/run.out 2>&1; echo "rc=$?" >> $W/run.out; sed 's/^/    | /' $W/run.out
   ls $R/tmp | grep -q '^dlzmod-' && { bad "temp files left in /tmp: $(ls $R/tmp | grep '^dlzmod-' | tr '\n' ' ')"; rm -rf $R/tmp/dlzmod-*; }
@@ -442,7 +444,7 @@ cp /bin/true "$MNT/usr/local/sbin/dlzmod-suid" && chmod 4755 "$MNT/usr/local/sbi
 EOF
 with() { echo "cp $W/$1 mod/$1; printf '. \"\$TOOLS/$1\"\n' >> mod/apply-mod.sh"; }
 
-echo "== 56: a boot.scr that writes the eMMC: refused"
+echo "== 56: a boot.scr that writes the eMMC: refused (by the allowlist, as 43-44b; kept for the day boot.scr gets a content check again)"
 put $(craft dlzmod-vmmcw "$(with x-mmcw.sh)"); run
 refused dlzmod-vmmcw "the update changes /boot/boot.scr, which an update may not"
 

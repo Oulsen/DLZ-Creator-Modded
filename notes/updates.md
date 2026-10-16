@@ -151,8 +151,8 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   A later version that needs a path outside this list needs a full install, or first an update that
   only brings the newer updater (its own list applies from the next update).
 - **The new updater copy** must keep the installed one's `GUARDS` list exactly and contain its gates
-  (signature check, the sandbox's uid, capability drop, user namespaces off, read-only remount, eMMC check,
-  allowlist, key check). A text check: it catches a mistake, not a hostile signer.
+  (signature check, the sandbox's uid, capability drop, user namespaces off, read-only remount, eMMC check, the refusal
+  of rehearsal settings on the card, allowlist, key check). A text check: it catches a mistake, not a hostile signer.
 - **`boot.scr`**: the card keeps Armbian's stock `boot.scr`, and an update cannot place, change or
   remove anything under `boot/` (nothing there is on the allowlist: `boot.scr`, `armbianEnv.txt`,
   the kernel, initrd, DTBs and overlays it loads): a new one comes only with a full install, where

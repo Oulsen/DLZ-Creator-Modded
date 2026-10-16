@@ -75,7 +75,9 @@ STOCK_UNITS="flash-gd32.service flash-fpga.service upgradedaemon.service upgrade
 SERVER_MARKERS='dlzmod: FORMAT_SD refused, the SD slot holds the boot card
 dlzmod: firmware updates are disabled on the SD card
 async FIRMWARE_UPDATE(){return{rootResponse:{cmd:"FIRMWARE_UPDATE_FAILED"'
-# what an update may change (snapshot and restore), as patterns relative to the rootfs
+# what an update may change (snapshot and restore), as patterns relative to the rootfs; boot/boot.scr
+# stays although no update may change it any more: the snapshot puts back a try an older updater cut
+# off, and seeding it into the stage is what shows a package that removes it (refused by the allowlist)
 SNAP_GLOBS="srv/app.js srv/server.js srv/srv_data.json usr/local/sbin/dlzmod-* etc/systemd/system/dlzmod-*.service etc/systemd/system/ssh.socket
 etc/systemd/system/flash-gd32.service etc/systemd/system/flash-fpga.service etc/systemd/system/upgradedaemon.service
 etc/systemd/system/upgraderun.service
@@ -642,7 +644,7 @@ if grep -qx usr/local/sbin/dlzmod-update <<< "$changed"; then
   [ "$(sed -n '/^GUARDS="/,/"$/p' "$new" | sed 's/^GUARDS="//; s/"$//')" = "$GUARDS" ] \
     || refuse "its new update script changes the guard list: needs a full install"
   for g in 'openssl pkeyutl -verify -pubin' '--bounding-set=-all' '--reuid=65533' 'max_user_namespaces' \
-      'remount,bind,ro' 'blockdev --getro' \
+      'remount,bind,ro' 'blockdev --getro' '/device/type" 2>/dev/null)" = SD' \
       'refuse "the update changes /$p, which an update may not' '[ "$(key_sums)" = "$keys_before" ]'; do
     grep -qF -- "$g" "$new" || refuse "its new update script lacks a check ($g): needs a full install"
   done

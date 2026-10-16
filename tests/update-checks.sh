@@ -38,6 +38,8 @@ cur=$(cat "$NEW")
 out=$(gate "$cur" "$NEW") && ok "this copy's own gate accepts itself" || bad "this copy's own gate on itself: $out"
 sed 's/--reuid=65533/--reuid=0/' "$NEW" > "$TMP/no-gate"
 out=$(gate "$cur" "$TMP/no-gate"); [ $? = 1 ] && ok "a copy without a gate string is refused: $out" || bad "a copy without a gate string: not refused ($out)"
+sed 's#/device/type" 2>/dev/null)" = SD#/device/type" 2>/dev/null)" = XX#' "$NEW" > "$TMP/no-sd"
+out=$(gate "$cur" "$TMP/no-sd"); [ $? = 1 ] && ok "a copy without the rehearsal-settings refusal (#84) is refused: $out" || bad "a copy without the #84 refusal: not refused ($out)"
 sed '/^GUARDS="/s/^GUARDS="./GUARDS="0/' "$NEW" > "$TMP/guards"
 out=$(gate "$cur" "$TMP/guards"); [ $? = 1 ] && ok "a copy with a changed guard list is refused: $out" || bad "a copy with a changed guard list: not refused ($out)"
 
