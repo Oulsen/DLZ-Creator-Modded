@@ -28,7 +28,12 @@ mount -t binfmt_misc binfmt_misc $R/proc/sys/fs/binfmt_misc || echo "WARNING: no
 mount -t tmpfs tmpfs $R/run && python3 -c "import socket,sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])" $R/run/fake.sock
 cleanup() { umount -R $R/dev 2>/dev/null; umount $R/proc/sys/fs/binfmt_misc $R/run 2>/dev/null; umount $R/tmp $R/proc $R/mnt/dlzdata 2>/dev/null; rmdir $R/mnt/dlzdata 2>/dev/null; umount $R $D; losetup -d $L; rm -rf $W; }
 trap cleanup EXIT
-run() { chroot $R /usr/bin/env DLZMOD_DATA=/mnt/dlzdata /usr/local/sbin/dlzmod-update > $W/run.out 2>&1; echo "rc=$?" >> $W/run.out; sed 's/^/    | /' $W/run.out; }
+# every run: no temp files of the updater left in the card's /tmp afterwards (its report, work and
+# restore folders)
+run() {
+  chroot $R /usr/bin/env DLZMOD_DATA=/mnt/dlzdata /usr/local/sbin/dlzmod-update > $W/run.out 2>&1; echo "rc=$?" >> $W/run.out; sed 's/^/    | /' $W/run.out
+  ls $R/tmp | grep -q '^dlzmod-' && { bad "temp files left in /tmp: $(ls $R/tmp | grep '^dlzmod-' | tr '\n' ' ')"; rm -rf $R/tmp/dlzmod-*; }
+}
 U=$D/dlzmod-update
 reports() { ls $D/dlzmod-logs/ 2>/dev/null | grep -c '^update-'; }
 last() { ls $D/dlzmod-logs/update-*.txt 2>/dev/null | sort -V | tail -1; }
@@ -80,16 +85,6 @@ cmp -s $K/dev.pub <(tr -d '\r' < $REPO/install/keys/dev.pub) && echo "  (dev key
 cp $TK/release.pub $TK/release2.pub $TK/dev.pub $K/
 cp "$PKG" "$W/${PKG##*/}"; PKG=$W/${PKG##*/}; sign $PKG
 
-echo "== 0: every function in the update script is defined before any line uses it (the live-only eMMC"
-echo "   check once called 'later' before its definition: bash said 'command not found' and went on)"
-S0=$R/usr/local/sbin/dlzmod-update
-for fn in $(grep -oE '^[a-z_]+\(\) \{' $S0 | cut -d'(' -f1); do
-  def=$(grep -nE "^$fn\(\) \{" $S0 | head -1 | cut -d: -f1)
-  use=$(sed 's/[[:space:]]#.*$//' $S0 | grep -nE "(^|[^a-z_\$])$fn([^a-z_(]|$)" | grep -v ':\s*#' | grep -v 'trap ' | head -1 | cut -d: -f1)
-  [ -z "$use" ] || [ "$use" -ge "$def" ] || bad "$fn used on line $use before its definition on line $def"
-done
-ok "function order checked"
-
 echo "== 1: nothing to do"
 n0=$(reports); run; [ "$(reports)" = "$n0" ] && ok "no report" || bad "a report for nothing"
 
@@ -102,6 +97,24 @@ echo "== 3: a package that really changes something (dlzmod.js)"
 P=$(craft dlzmod-vchanged "printf '\n// dlzmod update test\n' >> mod/app-mod/dlzmod.js"); put $P; run
 said "INSTALLED: " && [ ! -e $U/dlzmod-vchanged.tar ] && ok "installed, package deleted" || bad "not installed"
 grep -q "dlzmod update test" $R/srv/app.js && ok "app.js has the new code" || bad "app.js without the new code"
+APP=$(sha $R/srv/app.js)
+
+echo "== 3b: a card on v0.1.0's updater takes this package (by its own gate and sandbox), then the new one takes the next"
+OLDU=$(git -C $REPO -c safe.directory=$REPO show v0.1.0:install/sd-system/dlzmod-update 2>/dev/null)
+NEWU=$(tar -xOf "$PKG" --wildcards '*/initrd.cpio.gz' | zcat | cpio -i --quiet --to-stdout '*pkg/mod/sd-system/dlzmod-update')
+if [ -z "$OLDU" ] || [ -z "$NEWU" ]; then bad "no v0.1.0 tag here (git fetch --tags) or no updater in the package"
+else
+  printf '%s\n' "$OLDU" > $R/usr/local/sbin/dlzmod-update
+  put $(craft dlzmod-vfrom010 "printf '\n// from v0.1.0 test\n' >> mod/app-mod/dlzmod.js"); run
+  said "INSTALLED: " && grep -q "from v0.1.0 test" $R/srv/app.js && ok "installed by the v0.1.0 updater" || bad "the v0.1.0 updater did not install it"
+  if [ "$(cat $R/usr/local/sbin/dlzmod-update)" = "$NEWU" ]; then ok "the card's updater is now the package's"
+  else   # the cases below test the package's updater, not v0.1.0's
+    bad "the card kept another updater (the package's put back for the cases below)"
+    printf '%s\n' "$NEWU" > $R/usr/local/sbin/dlzmod-update; chmod 755 $R/usr/local/sbin/dlzmod-update
+  fi
+  put $(craft dlzmod-vfromnew "printf '\n// by the new updater\n' >> mod/app-mod/dlzmod.js"); run
+  said "INSTALLED: " && grep -q "by the new updater" $R/srv/app.js && ok "the next package installed by the new updater" || bad "the new updater did not install the next one"
+fi
 APP=$(sha $R/srv/app.js)
 
 if [ -z "${QUICK:-}" ]; then   # QUICK=1: only the install, a good update, model/marker and guards
@@ -131,9 +144,6 @@ said "nothing on the card was changed" && ok "refused, nothing placed" || bad "n
 [ "$(sha $R/srv/app.js)" = "$APP" ] && ok "app.js as before the update" || bad "app.js CHANGED"
 rm -f $U/dlzmod-vfail7.tar $U/dlzmod-vfail7.tar.sig
 
-echo "== 8: a symlink in the initramfs"
-put $(craft dlzmod-vlink "ln -s /etc mod/evil") $U/; run; refused dlzmod-vlink "links or special files"
-
 fi
 if [ -e $R/root/.dlzlite ]; then wrong=full-size; else wrong=XS; fi   # a package made for the other model only
 echo "== 9: made for the $wrong only"
@@ -145,14 +155,6 @@ mv $R/root/.gd32-loaded-firmware-$mine-154.bin $R/root/.gd32-loaded-firmware-$ot
 put $(craft dlzmod-vmarker "true") $U/; run; refused dlzmod-vmarker "does not pass the package's check"
 mv $R/root/.gd32-loaded-firmware-$other-154.bin $R/root/.gd32-loaded-firmware-$mine-154.bin
 rm -f $U/dlzmod-vmarker.tar $U/dlzmod-vmarker.tar.sig
-
-echo "== 10: older version"
-put $(craft dlzmod-vold "echo v0.0.9 > VERSION && sed -i 's/^DLZMOD_VERSION=.*/DLZMOD_VERSION=v0.0.9/' package.env" "sed -i 's/^DLZMOD_VERSION=.*/DLZMOD_VERSION=v0.0.9/' package.env") $U/; run; refused dlzmod-vold "older"
-
-echo "== 11: a guard that still says ExecStart= but starts the flash again"
-put $(craft dlzmod-vguard "echo 'ExecStart=/usr/local/bin/flash-gd32.sh' >> mod/sd-system/flash-gd32.service.d/dlzmod.conf") $U/; run
-refused dlzmod-vguard "changes a safety guard"
-grep -q flash-gd32.sh $R/etc/systemd/system/flash-gd32.service.d/dlzmod.conf && bad "GD32 GUARD WEAKENED" || ok "GD32 guard as installed"
 
 echo "== 12: apply puts an extra drop-in next to the GD32 guard"
 put $(craft dlzmod-vextra "cat $HERE/fixtures/extra-dropin.sh >> mod/apply-mod.sh") $U/; run
@@ -197,9 +199,6 @@ said "stopped 3 times" && said "it never finished" && ok "given up" || bad "not 
 [ ! -e $ST/tries ] && [ ! -e $ST/inprogress ] && ok "counters cleared" || bad "counters left"
 rm -f $U/dlzmod-vhang.tar $U/dlzmod-vhang.tar.sig
 
-echo "== 18: an initramfs that unpacks to more than the limit"
-put $(craft dlzmod-vbomb "head -c 70000000 /dev/zero > mod/big") $U/; run; refused dlzmod-vbomb "unpacks too big"
-
 echo "== 19: a cut-off try left a drop-in next to the GD32 guard, the package was removed since: repaired anyway"
 chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
 echo "some-old-package" > $ST/inprogress
@@ -207,9 +206,6 @@ printf '[Service]\nExecStart=/bin/false\n' > $R/etc/systemd/system/flash-gd32.se
 run
 said "after a try that was cut off" && said "previous files restored" && ok "repaired without a package" || bad "not repaired"
 [ "$(ls -A $R/etc/systemd/system/flash-gd32.service.d)" = dlzmod.conf ] && [ ! -e $ST/inprogress ] && ok "drop-in gone, marker cleared" || bad "drop-in or marker left"
-
-echo "== 20: a compressed tar"
-gzip -c "$PKG" > $U/dlzmod-vgz.tar; sign $U/dlzmod-vgz.tar; run; refused dlzmod-vgz "not a plain tar"
 
 echo "== 21: no signature file, then the next start, then the signature added"
 P=$(craft dlzmod-vnosig "printf '\n// nosig test\n' >> mod/app-mod/dlzmod.js"); cp $P $U/; run
@@ -233,24 +229,10 @@ cp "$PKG" $W/vafter.tar; sign $W/vafter.tar
 python3 -c "import sys; f=open(sys.argv[1],'r+b'); f.seek(4000); b=f.read(1); f.seek(4000); f.write(bytes([b[0]^1]))" $W/vafter.tar
 cp $W/vafter.tar $U/dlzmod-vafter.tar; cp $W/vafter.tar.sig $U/dlzmod-vafter.tar.sig; run; refused dlzmod-vafter "not signed with a key this card trusts"
 
-echo "== 24: a signature file of the wrong size"
-P=$(craft dlzmod-vsig65 ":"); echo x >> $P.sig; put $P; run; refused dlzmod-vsig65 "not an ed25519 signature"
-
-echo "== 25: a test build on a release card (release.pub + release2.pub)"
-mv $K/dev.pub $W/dev.pub.kept
-P=$(craft dlzmod-vdevonrel "printf '\n// dev on release\n' >> mod/app-mod/dlzmod.js"); put $P; run; refused dlzmod-vdevonrel "not signed with a key this card trusts"
-mv $W/dev.pub.kept $K/dev.pub
-
-echo "== 26: signed with the release key but marked dev"
-P=$(SIGNKEY=release craft dlzmod-vrelasdev ":"); put $P; run; refused dlzmod-vrelasdev "a 'dev' package signed with the release key"
-
 echo "== 27: a release package (release key, CHANNEL=release) on the developer card"
 P=$(SIGNKEY=release craft dlzmod-vrel "printf '\n// release test\n' >> mod/app-mod/dlzmod.js; setchan release" "setchan release"); put $P; run
 said "INSTALLED: " && said "signature: release key" && grep -q "release test" $R/srv/app.js && ok "installed" || bad "release package not installed"
 APP=$(sha $R/srv/app.js)
-
-echo "== 28: a dev package marked release, signed with the dev key"
-P=$(craft dlzmod-vdevasrel "setchan release" "setchan release"); put $P; run; refused dlzmod-vdevasrel "a 'release' package signed with the dev key"
 
 echo "== 29: an update that adds a trusted key: caught, put back"
 KS=$(cd $K && sha256sum *)
@@ -269,11 +251,6 @@ echo "== 31: a package.env key this version does not know (a later version's): i
 P=$(craft dlzmod-vfuture "printf '\n// future test\n' >> mod/app-mod/dlzmod.js; echo FUTURE_FIELD=something >> package.env" "echo FUTURE_FIELD=something >> package.env"); put $P; run
 said "INSTALLED: " && ok "installed" || bad "unknown key refused"
 APP=$(sha $R/srv/app.js)
-
-echo "== 32: a card without update keys (made before signed updates)"
-mv $K $W/keys.kept
-P=$(craft dlzmod-vnokeys ":"); put $P; run; refused dlzmod-vnokeys "has no update keys"
-mv $W/keys.kept $K
 
 echo "== 33: update keys per channel (card-core.sh): package.env wins; none only with DLZMOD_CHANNEL=dev (build-sd.sh); else refused"
 F33=$W/k33; mkdir -p $F33/tools/keys; cp $REPO/install/keys/*.pub $F33/tools/keys/
@@ -319,9 +296,6 @@ P=$(SIGNKEY=release2 craft dlzmod-vspare "printf '\n// spare key test\n' >> mod/
 said "INSTALLED: " && said "signature: release2 key" && grep -q "spare key test" $R/srv/app.js && ok "installed with the spare key" || bad "spare-signed release not installed"
 mv $W/dev.pub.kept $K/dev.pub
 APP=$(sha $R/srv/app.js)
-
-echo "== 37: signed with the spare release key but marked dev"
-P=$(SIGNKEY=release2 craft dlzmod-vspareasdev ":"); put $P; run; refused dlzmod-vspareasdev "a 'dev' package signed with the release key"
 
 echo "== 38: a cut-off try had already written its (newer) version: the check uses the snapshot's"
 chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
@@ -467,6 +441,36 @@ refused dlzmod-vsetrw "puts something unexpected at /etc/udev/rules.d/99-dlzmod-
 echo "== 59: a setuid file: refused"
 put $(craft dlzmod-vsuid "$(with x-suid.sh)"); run
 refused dlzmod-vsuid "puts something unexpected at /usr/local/sbin/dlzmod-suid"
+
+echo "== 60: the progress marker cannot be written: not installed this time, then installed"
+P=$(craft dlzmod-vprogress "printf '\n// marker test\n' >> mod/app-mod/dlzmod.js")
+mkdir $ST/inprogress.new; put $P; run
+said "NOT INSTALLED this time" && said "progress marker not written" && ok "stopped before the steps" || bad "not stopped at the marker"
+[ -e $U/dlzmod-vprogress.tar ] && [ ! -e $ST/inprogress ] && [ "$(sha $R/srv/app.js)" = "$APP" ] \
+  && ok "package kept, no marker, app.js unchanged" || bad "package gone, marker set or app.js changed"
+rmdir $ST/inprogress.new; run
+said "INSTALLED: " && grep -q "marker test" $R/srv/app.js && ok "installed at the next start" || bad "not installed at the next start"
+APP=$(sha $R/srv/app.js)
+rm -f $U/dlzmod-vprogress.tar $U/dlzmod-vprogress.tar.sig   # left only when this case failed
+
+echo "== 61: a step that exits with 3 is a failed step, not a firmware that does not fit"
+put $(craft dlzmod-vexit3 "sed -i 's/^record_version() {/record_version() { exit 3/' mod/apply-mod.sh"); run
+refused dlzmod-vexit3 "a step failed (exit 3)"
+
+echo "== 62: a cut-off try whose snapshot cannot be unpacked: restore incomplete, no temp folder left"
+for f in previous.tar previous.list; do cp $ST/$f $W/$f.keep 2>/dev/null; done
+chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list'
+echo "not a tar" > $ST/previous.tar
+echo "gone-package" > $ST/inprogress
+run
+said "RESTORE INCOMPLETE" && ok "restore incomplete reported" || bad "no RESTORE INCOMPLETE"
+rm -f $ST/inprogress   # the snapshot pair as it was before this case
+for f in previous.tar previous.list; do [ -e $W/$f.keep ] && mv $W/$f.keep $ST/$f || rm -f $ST/$f; done
+
+echo "== 63: stops before DLZDATA (not on an SD card): no report file left in /tmp"
+chroot $R /usr/local/sbin/dlzmod-update > $W/run.out 2>&1
+grep -q "not on an SD card" $W/run.out && ok "stopped: not on an SD card" || bad "did not stop at the SD check: $(cat $W/run.out)"
+ls $R/tmp | grep -q '^dlzmod-update-report' && bad "report file left in /tmp" || ok "no report file left"
 fi
 echo "== 14: guards still as installed after all this"
 for f in flash-gd32 upgradedaemon upgraderun; do

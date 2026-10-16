@@ -26,10 +26,23 @@ set -u
 PATH=/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C   # one sort order for every list compared here (comm, the snapshot list)
 ROOT=${DLZMOD_ROOT:-}
+# checks only (tests/update-checks.sh, on a PC): every check of steps 1 and 2 on a rehearsal tree, then
+# stop before the snapshot. Nothing is written but its own temp files: no report on DLZDATA, the
+# package stays, the try records go to a temp copy of the state folder. Only with both rehearsal
+# folders set, never on a card's own / (the unit's environment never has it; the sandbox's is empty)
+CHECK_ONLY=${DLZMOD_CHECK_ONLY:-}
+case $CHECK_ONLY in
+  '') ;;
+  1) [ -n "$ROOT" ] && [ -d "$ROOT" ] && [ -n "${DLZMOD_DATA:-}" ] && [ -d "$DLZMOD_DATA" ] \
+       && [ "$(cd "$ROOT" && pwd -P)" != / ] \
+       || { echo "dlzmod-update: checks only needs DLZMOD_ROOT (not /) and DLZMOD_DATA, both folders"; exit 2; } ;;
+  *) echo "dlzmod-update: DLZMOD_CHECK_ONLY can only be 1"; exit 2 ;;
+esac
 STATE=$ROOT/var/lib/dlzmod-update
 KEYS=$ROOT/usr/local/share/dlzmod-keys   # release.pub, release2.pub, dev.pub: fixed at install
 MAX_PKG=$((64 * 1024 * 1024))   # a real package is about 1 MB
 REPORT=$(mktemp /tmp/dlzmod-update-report.XXXXXX)
+trap 'rm -f "$REPORT"' EXIT   # until finish takes over (below)
 WROTE=no
 log() { echo "dlzmod-update: $*"; echo "$*" >> "$REPORT"; }
 
@@ -126,6 +139,7 @@ else
   mount -t vfat -o ro "$part" "$DATA" || { echo "dlzmod-update: DLZDATA could not be mounted"; rmdir "$DATA"; exit 0; }
 fi
 writable() {   # DLZDATA read-write from here on
+  [ -z "$CHECK_ONLY" ] || return 1
   [ "$WROTE" = yes ] && return 0
   [ -n "${DLZMOD_DATA:-}" ] || mount -o remount,rw "$DATA" || return 1
   WROTE=yes
@@ -148,6 +162,7 @@ later() {
 }
 
 WORK=""
+CHECK_STATE=""
 APPLYING=no
 finish() {   # the report next to the other logs, then DLZDATA released
   if [ -s "$REPORT" ] && writable; then
@@ -163,6 +178,7 @@ finish() {   # the report next to the other logs, then DLZDATA released
   [ -z "$UNS_OLD" ] || echo "$UNS_OLD" > "$UNS" 2>/dev/null
   rm -f "$REPORT"
   [ -z "$WORK" ] || rm -rf "$WORK"
+  [ -z "$CHECK_STATE" ] || rm -rf "$CHECK_STATE"
   [ "$WROTE" = no ] || sync -f "$DATA/."
   if [ -z "${DLZMOD_DATA:-}" ]; then
     umount "$DATA" && rmdir "$DATA" || echo "dlzmod-update: DLZDATA could not be unmounted"
@@ -177,7 +193,8 @@ clean_new() {   # half-written files from a write cut off before its rename (put
 restore() {   # the snapshot back, and what the update added removed; not stopped halfway by a TERM
   local r f t ok=yes
   trap '' TERM INT
-  r=$(mktemp -d /tmp/dlzmod-restore.XXXXXX) && tar -xpf "$STATE/previous.tar" -C "$r" >> "$REPORT" 2>&1 || { trap on_term TERM INT; return 1; }
+  r=$(mktemp -d /tmp/dlzmod-restore.XXXXXX) && tar -xpf "$STATE/previous.tar" -C "$r" >> "$REPORT" 2>&1 \
+    || { [ -z "$r" ] || rm -rf "$r"; trap on_term TERM INT; return 1; }
   # file by file, atomically and only where it differs (like apply-mod.sh's put_file): the guards,
   # unchanged, are not touched at all
   while IFS= read -r f; do
@@ -211,9 +228,18 @@ if [ ! -e "$U/README.txt" ]; then
     "startup and then deleted; the result is in dlzmod-logs." > "$U/README.txt"
 fi
 shopt -s nullglob
+if [ -n "$CHECK_ONLY" ]; then
+  # the state the checks read (the card's version, a cut-off try's snapshot), copied; no try records,
+  # so every run checks afresh
+  CHECK_STATE=$(mktemp -d /tmp/dlzmod-checks.XXXXXX) || { CHECK_STATE=""; later "no room in /tmp"; }
+  for f in version inprogress previous.tar previous.list; do
+    [ ! -f "$STATE/$f" ] || cp "$STATE/$f" "$CHECK_STATE/" || later "the state could not be copied"
+  done
+  STATE=$CHECK_STATE
+fi
 mkdir -p "$STATE"
-clean_new
-if [ -s "$STATE/inprogress" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ] && ! guards_ok > /dev/null; then
+[ -n "$CHECK_ONLY" ] || clean_new
+if [ -z "$CHECK_ONLY" ] && [ -s "$STATE/inprogress" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ] && ! guards_ok > /dev/null; then
   log "the guards are not as installed after a try that was cut off: putting the files from before it back"
   if restore && guards_ok; then log "previous files restored"; rm -f "$STATE/inprogress"; sync
   else log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"; fi
@@ -223,7 +249,7 @@ if [ ${#pkgs[@]} = 0 ]; then   # nothing to do (every normal start)
   rm -f "$STATE/unsigned" "$STATE/multiple"
   # a try cut off while placing, and its file removed since (the guards may be fine, so the repair
   # above did not run): the files from before it go back, or the card keeps a half-placed update
-  if [ -s "$STATE/inprogress" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ]; then
+  if [ -z "$CHECK_ONLY" ] && [ -s "$STATE/inprogress" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ]; then
     log "an update was cut off while placing its files and is no longer there: putting the files from before it back"
     if restore && guards_ok; then log "previous files restored"; rm -f "$STATE/inprogress" "$STATE/tries"; sync
     else log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"; fi
@@ -384,6 +410,7 @@ bash -n "$T/apply-mod.sh" && bash -n "$T/sd-system/dlzmod-update" || fail "its s
 # (whether its patches fit this firmware: patch.py --check, the package's own code, runs in the
 # sandbox in step 3, never here as root)
 guards_ok || later "the guards on this card are not as installed: install again with the installer image"
+if [ -n "$CHECK_ONLY" ]; then log "CHECKS PASSED (checks only: nothing applied)"; exit 0; fi
 
 # 3. snapshot of everything it may change (once per package: a retry after a power cut keeps the one
 # from before the first try), then apply in a subshell run as a plain command (bash ignores set -e
@@ -404,8 +431,10 @@ else
   fi
   snap_list > "$STATE/previous.list.new" && tar -cpf "$STATE/previous.tar.new" -C "$ROOT/" -T "$STATE/previous.list.new" \
     && sync && mv -f "$STATE/previous.list.new" "$STATE/previous.list" && mv -f "$STATE/previous.tar.new" "$STATE/previous.tar" \
-    || later "snapshot not written (card full?)"
-  echo "$SUM" > "$STATE/inprogress.new" && sync && mv -f "$STATE/inprogress.new" "$STATE/inprogress" && sync
+    || { rm -f "$STATE/previous.list.new" "$STATE/previous.tar.new"; later "snapshot not written (card full?)"; }
+  echo "$SUM" > "$STATE/inprogress.new" && sync && mv -f "$STATE/inprogress.new" "$STATE/inprogress" \
+    || { rm -f "$STATE/inprogress.new"; later "progress marker not written (card full?)"; }
+  sync
   log "snapshot of the current files taken"
 fi
 # The package's own steps (apply-mod.sh: install_sd_system, apply_patches, set_mod_defaults,
@@ -491,7 +520,7 @@ exec setpriv --reuid=65533 --regid=65533 --clear-groups --bounding-set=-all --in
   /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME=/ TMPDIR=/run/sb/tmp PYTHONDONTWRITEBYTECODE=1 \
   /bin/bash -c 'set -Eeuo pipefail; MNT=/run/sb/stage; TOOLS=/run/pkg/mod
     for t in app:srv/app.js server:srv/server.js; do
-      python3 -B -E -s "$TOOLS/patch.py" --check "${t%%:*}" "$MNT/${t#*:}" || exit 3
+      python3 -B -E -s "$TOOLS/patch.py" --check "${t%%:*}" "$MNT/${t#*:}" || exit 213
     done
     . "$TOOLS/apply-mod.sh"; install_sd_system; apply_patches; set_mod_defaults; record_version'
 SANDBOX_EOF
@@ -506,7 +535,8 @@ ready=$(unshare -m -p -n -f --kill-child --mount-proc --propagation private /bin
 rc=$?
 [ -z "$UNS_OLD" ] || { echo "$UNS_OLD" > "$UNS"; UNS_OLD=""; }
 [ "$ready" = ready ] || later "the update sandbox could not be set up (exit $rc)"
-[ "$rc" != 3 ] || refuse "does not fit this firmware (patch.py --check)"
+# 213: the firmware check's own code, which no tool or signal (128+n) gives on its own
+[ "$rc" != 213 ] || refuse "does not fit this firmware (patch.py --check)"
 [ "$rc" = 0 ] || refuse "a step failed (exit $rc); nothing on the card was changed"
 
 # what the steps changed: "<path>" per file or link that differs, is new, or is gone; nothing else

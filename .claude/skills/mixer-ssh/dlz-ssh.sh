@@ -2,23 +2,22 @@
 # SSH to the mixer (the mod card's system) from WSL, read-only by default.
 #
 #   bash dlz-ssh.sh host <ip or name>       store the mixer's address (WSL ~/.config, kept)
-#   bash dlz-ssh.sh pass <password>         store the session's password in /tmp (WSL only, mode 600)
+#   bash dlz-ssh.sh pass                    store the session's password, read from stdin (WSL /tmp only)
 #   bash dlz-ssh.sh run '<command>'         run a read-only command on the mixer
 #   bash dlz-ssh.sh get <remote> <local>    copy a file from the mixer to the PC
 #   bash dlz-ssh.sh show                    the stored address, and whether a password is stored
 #   bash dlz-ssh.sh forget [--all]          remove password, askpass, known hosts (--all: the address too)
 #
 # The address lives in ~/.config/dlz-mixer-ssh/host (WSL, outside the repo; another mixer or network:
-# store the new one). The password lives only in /tmp/dlz-ssh-pass (never in the repo, never on ssh's
-# command line). Host keys go to /tmp/dlz-ssh-known-hosts: every install makes a new card with new keys.
+# store the new one). The password, the askpass helper and the host keys live in a private folder from
+# mktemp -d in /tmp (mode 700, its path in ~/.config/dlz-mixer-ssh/tmpdir); the password never goes on
+# a command line, not even this script's. Host keys: every install makes a new card with new keys.
 # "run" refuses commands that look like writes (see WRITE_RE) unless DLZ_SSH_WRITE=1 is set, which is
 # only done after the user confirmed that exact command in the current turn (SKILL.md).
 set -u
 CONF=$HOME/.config/dlz-mixer-ssh
 HOSTF=$CONF/host
-PASS=/tmp/dlz-ssh-pass
-ASK=/tmp/dlz-ssh-askpass
-KNOWN=/tmp/dlz-ssh-known-hosts
+TMPF=$CONF/tmpdir
 
 # a command word or construct that changes state; checked after removing harmless redirections
 # Only where a command starts: at the beginning, after ; & | ( ` or $(, after if/then/do/else/!, or
@@ -34,8 +33,20 @@ gethost() {
   [ -n "$host" ] || { echo "no mixer address stored: ask the user, then bash dlz-ssh.sh host <ip or name>" >&2; exit 2; }
   echo "[mixer: root@$host]" >&2
 }
+# the session's private folder: only the one recorded in $TMPF, and only while it is a real folder
+# (no link) owned by us with mode 700; otherwise "new" makes a fresh one and records it
+privdir() {   # privdir [new]
+  D=$(cat "$TMPF" 2>/dev/null)
+  if [ -n "$D" ] && [ -d "$D" ] && [ ! -L "$D" ] && [ -O "$D" ] && [ "$(stat -c %a "$D")" = 700 ]; then :
+  elif [ "${1:-}" = new ]; then
+    D=$(mktemp -d /tmp/dlz-ssh.XXXXXXXX) && mkdir -p "$CONF" && printf '%s\n' "$D" > "$TMPF" \
+      || { echo "no private folder could be made in /tmp" >&2; exit 2; }
+  else D=; return 1
+  fi
+  PASS=$D/pass ASK=$D/askpass KNOWN=$D/known-hosts
+}
 askpass() {
-  [ -s "$PASS" ] || { echo "no password stored: bash dlz-ssh.sh pass <password>" >&2; exit 2; }
+  privdir && [ -s "$PASS" ] || { echo "no password stored: bash dlz-ssh.sh pass (password on stdin)" >&2; exit 2; }
   printf '#!/bin/sh\ncat %s\n' "$PASS" > "$ASK" && chmod 700 "$ASK"
 }
 sshopts() {
@@ -49,11 +60,15 @@ case ${1:-} in
     printf '%s' "${2:-}" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9.:-]*$' || { echo "usage: dlz-ssh.sh host <ip or name>" >&2; exit 2; }
     mkdir -p "$CONF" && printf '%s\n' "$2" > "$HOSTF" && echo "mixer address stored: $2 ($HOSTF)" ;;
   pass)
-    [ -n "${2:-}" ] || { echo "usage: dlz-ssh.sh pass <password>" >&2; exit 2; }
-    umask 077; printf '%s' "$2" > "$PASS"; echo "password stored in $PASS (WSL /tmp only)" ;;
+    # never as an argument: that would put it in the process list and the shell history
+    [ $# = 1 ] || { echo "usage: dlz-ssh.sh pass, with the password on stdin (never as an argument)" >&2; exit 2; }
+    if [ -t 0 ]; then IFS= read -rsp "mixer password: " pw; echo >&2; else IFS= read -r pw || [ -n "$pw" ]; fi
+    [ -n "$pw" ] || { echo "no password read" >&2; exit 2; }
+    privdir new
+    umask 077; printf '%s' "$pw" > "$PASS" && echo "password stored in $D (WSL /tmp only)" ;;
   show)
     echo "address: $(cat "$HOSTF" 2>/dev/null || echo none)"
-    [ -s "$PASS" ] && echo "password: stored for this session" || echo "password: none" ;;
+    privdir && [ -s "$PASS" ] && echo "password: stored for this session" || echo "password: none" ;;
   run)
     cmd=${2:?command}
     if [ "${DLZ_SSH_WRITE:-0}" != 1 ]; then
@@ -75,8 +90,18 @@ case ${1:-} in
     # shellcheck disable=SC2046
     SSH_ASKPASS=$ASK SSH_ASKPASS_REQUIRE=force DISPLAY=: scp $(sshopts) "root@$host:$remote" "$local" < /dev/null ;;
   forget)
-    rm -f "$PASS" "$ASK" "$KNOWN"; echo "password, askpass and known hosts removed"
+    # the recorded folder whenever it is a real folder of ours, also one whose mode was changed since
+    # (directly in /tmp only: a `*` in case also matches / and .., so those are refused first)
+    D=$(cat "$TMPF" 2>/dev/null)
+    case $D in
+      /tmp/dlz-ssh.*/*|*..*) echo "not removed: the recorded folder $D is not one of ours" >&2 ;;
+      /tmp/dlz-ssh.?*) if [ -d "$D" ] && [ ! -L "$D" ] && [ -O "$D" ] && rm -rf "$D"; then
+          echo "password, askpass and known hosts removed"
+        else echo "nothing removed (no folder of ours at $D)"; fi ;;
+      *) echo "nothing to remove" ;;
+    esac
+    rm -f "$TMPF"
     [ "${2:-}" = --all ] && rm -f "$HOSTF" && echo "address removed" ;;
   *)
-    sed -n '2,17p' "$0"; exit 2 ;;
+    sed -n '2,16p' "$0"; exit 2 ;;
 esac

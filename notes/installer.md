@@ -201,6 +201,10 @@ On a SanDisk Ultra 128 GB (A1, U1) in an XS, times from the first write [device]
 |---|---|---|---|---|
 | Current | **526 s** | **277 s** for 2322 MiB in use, 978 MiB backup | **210 s** | 38 s |
 
+The same installer on a Gigastone 4K UHD Video 64 GB (U3) [device]: 553 s in all, the copy 302 s
+(+9 %), the compare 212 s: writing is a little slower, reading the same. The installs before the
+current one ran on the SanDisk only (the timings below).
+
 What the time depends on:
 - Copying only the blocks in use (#49): the whole p1 (7293 MiB) took 555 s for the copy and 931 s
   in all, and 1262 s with the backup. Reading the eMMC alone runs at 44 MB/s (7297 MiB in 167 s)
@@ -222,7 +226,7 @@ What the time depends on:
 - Never rely on `set -e` inside a subshell or function whose status is tested (bash ignores it
   there: a failing step carried on and reported "installed")
 - Every function defined before any line uses it (a call before its definition is "command not
-  found" and the script carries on; `tests/update.sh` checks this statically)
+  found" and the script carries on; `tests/update-checks.sh` checks this statically for the updater)
 - busybox: every variable in a sh function is global; `wc -c` reads the whole file; no background
   jobs in the copy (a qemu-user signal race once crashed the emulated busybox)
 - No apostrophes inside the awk programs of `install-card.sh`: they sit in single quotes

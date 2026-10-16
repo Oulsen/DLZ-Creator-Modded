@@ -18,7 +18,7 @@ root, with `MSYS_NO_PATHCONV=1` in Git Bash:
 W="MSYS_NO_PATHCONV=1 wsl -d Ubuntu -e bash .claude/skills/mixer-ssh/dlz-ssh.sh"
 $W show                                    # stored address? password this session?
 $W host <ip or name>                       # when none is stored or the user gives a new one
-$W pass '<password>'                       # once per session (WSL /tmp only)
+printf '%s\n' '<password>' | $W pass        # once per session, on stdin (WSL /tmp only)
 $W run 'uptime; findmnt -no SOURCE /'      # read-only command; prints [mixer: root@<address>]
 $W get <remote file> build/device-logs/<name>   # copy to the PC (git-ignored)
 $W forget                                  # at the end of the session (--all: the address too)
@@ -30,11 +30,14 @@ $W forget                                  # at the end of the session (--all: t
   `mackie-dlz-creator-xs.local`) and store it with `host`. Say which address is used when it was
   stored in an earlier session. User `root`.
 - **Password**: only from the user, in this conversation, for this session; never write it into
-  the repo, notes, memory or any command line other than `pass`. When the user uses a test
+  the repo, notes, memory or any command line. It goes to `pass` on stdin, through the shell's own
+  `printf` (a builtin, so it is on no command line in WSL: not `wsl`'s, not `ssh`'s, not
+  `dlz-ssh.sh`'s); `pass` refuses an argument and stores
+  it in a private `mktemp -d` folder (mode 700) that `forget` removes. When the user uses a test
   password, remind them to change it and turn SSH keep-on off before the mixer leaves home.
 - SSH must be on (Settings, Network, SSH). Connection refused or timeout: ask the user, do not
   scan the network.
-- Host keys go to a file in `/tmp`: each install makes a new card with new keys, so a changed key
+- Host keys go to the same private folder: each install makes a new card with new keys, so a changed key
   after a reinstall is expected (`forget` clears it). A changed key *without* a reinstall: stop and
   tell the user.
 

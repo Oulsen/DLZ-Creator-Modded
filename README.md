@@ -74,6 +74,7 @@ recording worked.
 | Card | Size | Mod version | Install time | Write speed during install | Recording |
 |---|---|---|---|---|---|
 | SanDisk Ultra microSDXC UHS-I, A1, U1, Class 10 | 128 GB | v0.1.0 | 9 min | about 13 MB/s | yes |
+| Gigastone 4K UHD Video microSDXC, U3 | 64 GB | v0.1.0 | 9 min | about 11 MB/s | not tried yet |
 
 ## Help and contact
 
