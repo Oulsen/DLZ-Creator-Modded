@@ -123,6 +123,16 @@ onto a card is checked by the `device-review` skill first.
   no total (the total holds the backup's size, an estimate until the backup ends, and it wandered);
   the compare shows "X of N GB compared". `tests/rehearse-install.sh` times every progress line and
   fails on a mean gap over 6 s or one over 20 s
+- **Time left (#66):** the streams that copy, back up and compare are the file system's full size,
+  but the blocks in use sit near their start (in the dump 87 % of them in the first 35 % of the
+  stream) [static, dumpe2fs], so a speed since the start of a step foretold many times the real time:
+  22 min for a step of under 5, the whole install jumping back to 9 min at step 2 [device]. Each step's
+  time left is now its measured one blended with the device's own times (130 ms per MiB in use for the
+  copy, the compare 81 % of the copy's real time), the measured one weighing more as the step goes on;
+  the backup's part follows its reads of the data, then the zero tail at its own speed. Every ~30 s a
+  progress line goes into the install log (`progress: step N, ...`); the rehearsal checks every shown
+  time against the real one (within twice plus a minute) [guess for the mixer until an install's
+  log lines say otherwise]
 
 ## Endings and power
 
