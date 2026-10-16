@@ -152,7 +152,11 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   only brings the newer updater (its own list applies from the next update).
 - **The new updater copy** must keep the installed one's `GUARDS` list exactly and contain its gates
   (signature check, the sandbox's uid, capability drop, user namespaces off, read-only remount, eMMC check, the refusal
-  of rehearsal settings on the card, allowlist, key check). A text check: it catches a mistake, not a hostile signer.
+  of rehearsal settings on the card, allowlist, key check). A text check: it catches a mistake, not a
+  hostile signer. The strings are looked for outside the new copy's own gate block (that block lists
+  them all, so before #93 a check dropped from the code was still found there; v0.1.0 cards check
+  the update that brings this with their old copy), and a
+  copy without that block is refused [static; tests/update-checks.sh, also with the card's mawk].
 - **`boot.scr`**: the card keeps Armbian's stock `boot.scr`, and an update cannot place, change or
   remove anything under `boot/` (nothing there is on the allowlist: `boot.scr`, `armbianEnv.txt`,
   the kernel, initrd, DTBs and overlays it loads): a new one comes only with a full install, where

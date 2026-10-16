@@ -36,10 +36,23 @@ done
 # (a refusal is exit 1; 2 = this copy's own gate was not found, which must not count as a refusal)
 cur=$(cat "$NEW")
 out=$(gate "$cur" "$NEW") && ok "this copy's own gate accepts itself" || bad "this copy's own gate on itself: $out"
-sed 's/--reuid=65533/--reuid=0/' "$NEW" > "$TMP/no-gate"
-out=$(gate "$cur" "$TMP/no-gate"); [ $? = 1 ] && ok "a copy without a gate string is refused: $out" || bad "a copy without a gate string: not refused ($out)"
-sed 's#/device/type" 2>/dev/null)" = SD#/device/type" 2>/dev/null)" = XX#' "$NEW" > "$TMP/no-sd"
+# a check dropped from the code only: the gate block's own list still names it (it must not count)
+codesub() {   # codesub <text> <replacement>: in $NEW, outside the gate block
+  awk -v a="$1" -v b="$2" -v s='if grep -qx usr/local/sbin/dlzmod-update <<< "$changed"; then' '
+    function rep(t,   i) { while ((i = index(t, a)) > 0) t = substr(t, 1, i - 1) b substr(t, i + length(a)); return t }
+    $0 == s { blk = 1 }
+    !blk { $0 = rep($0) }
+    { print }
+    blk && /^fi$/ { blk = 0 }' "$NEW"
+}
+codesub '--reuid=65533' '--reuid=0' > "$TMP/no-gate"
+grep -qF -- '--reuid=65533' "$TMP/no-gate" && grep -c -- '--reuid=65533' "$TMP/no-gate" | grep -qx 1 \
+  || bad "the control copy is not what it should be (the gate list keeps the string, the code loses it)"
+out=$(gate "$cur" "$TMP/no-gate"); [ $? = 1 ] && ok "a copy that drops a check from its code (its gate list unchanged) is refused: $out" || bad "a copy that drops a check from its code: not refused ($out)"
+codesub '/device/type" 2>/dev/null)" = SD' '/device/type" 2>/dev/null)" = XX' > "$TMP/no-sd"
 out=$(gate "$cur" "$TMP/no-sd"); [ $? = 1 ] && ok "a copy without the rehearsal-settings refusal (#84) is refused: $out" || bad "a copy without the #84 refusal: not refused ($out)"
+sed 's/^if grep -qx usr\/local\/sbin\/dlzmod-update <<< "\$changed"; then$/if true; then/' "$NEW" > "$TMP/no-block"
+out=$(gate "$cur" "$TMP/no-block"); [ $? = 1 ] && ok "a copy without the check of its own next copy is refused: $out" || bad "a copy without the check of its next copy: not refused ($out)"
 sed '/^GUARDS="/s/^GUARDS="./GUARDS="0/' "$NEW" > "$TMP/guards"
 out=$(gate "$cur" "$TMP/guards"); [ $? = 1 ] && ok "a copy with a changed guard list is refused: $out" || bad "a copy with a changed guard list: not refused ($out)"
 

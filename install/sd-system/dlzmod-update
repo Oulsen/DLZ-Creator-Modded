@@ -643,10 +643,18 @@ if grep -qx usr/local/sbin/dlzmod-update <<< "$changed"; then
   [ -f "$new" ] && bash -n "$new" || refuse "its new update script does not parse"
   [ "$(sed -n '/^GUARDS="/,/"$/p' "$new" | sed 's/^GUARDS="//; s/"$//')" = "$GUARDS" ] \
     || refuse "its new update script changes the guard list: needs a full install"
+  # the gates are looked for outside this block of the new copy: its own list names every one of them,
+  # so a check dropped from the code would still be found there; a copy without the block's first
+  # line has no such check of its next copy at all
+  grep -qxF 'if grep -qx usr/local/sbin/dlzmod-update <<< "$changed"; then' "$new" \
+    || refuse "its new update script does not check its own next copy: needs a full install"
+  code=$(awk '$0 == "if grep -qx usr/local/sbin/dlzmod-update <<< \"$changed\"; then" { skip = 1 }
+      !skip { print }
+      skip && /^fi$/ { skip = 0 }' "$new")
   for g in 'openssl pkeyutl -verify -pubin' '--bounding-set=-all' '--reuid=65533' 'max_user_namespaces' \
       'remount,bind,ro' 'blockdev --getro' '/device/type" 2>/dev/null)" = SD' \
       'refuse "the update changes /$p, which an update may not' '[ "$(key_sums)" = "$keys_before" ]'; do
-    grep -qF -- "$g" "$new" || refuse "its new update script lacks a check ($g): needs a full install"
+    grep -qF -- "$g" <<< "$code" || refuse "its new update script lacks a check ($g): needs a full install"
   done
 fi
 
