@@ -350,7 +350,7 @@ put $(craft dlzmod-vbootscr "cp $W/new-boot.scr mod/new-boot.scr; printf 'cp \"\
 refused dlzmod-vbootscr "the update changes /boot/boot.scr, which an update may not"
 cmp -s $R/boot/boot.scr $W/boot.scr.kept && ok "boot.scr as before" || bad "BOOT.SCR CHANGED"
 
-echo "== 44: a boot.scr that is not a U-Boot script image: refused"
+echo "== 44: a boot.scr that is not a U-Boot script image: refused the same way (by the allowlist, whatever it holds)"
 put $(craft dlzmod-vbadscr "printf 'cp /etc/hostname \"\$MNT/boot/boot.scr\"\n' >> mod/apply-mod.sh"); run
 refused dlzmod-vbadscr "the update changes /boot/boot.scr, which an update may not"
 cmp -s $R/boot/boot.scr $W/boot.scr.kept && ok "boot.scr as before" || bad "BOOT.SCR CHANGED"
