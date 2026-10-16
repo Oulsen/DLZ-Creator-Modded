@@ -91,9 +91,16 @@ case ${1:-} in
     SSH_ASKPASS=$ASK SSH_ASKPASS_REQUIRE=force DISPLAY=: scp $(sshopts) "root@$host:$remote" "$local" < /dev/null ;;
   forget)
     # the recorded folder whenever it is a real folder of ours, also one whose mode was changed since
+    # (directly in /tmp only: a `*` in case also matches / and .., so those are refused first)
     D=$(cat "$TMPF" 2>/dev/null)
-    case $D in /tmp/dlz-ssh.*) [ -d "$D" ] && [ ! -L "$D" ] && [ -O "$D" ] && rm -rf "$D" ;; esac
-    rm -f "$TMPF"; echo "password, askpass and known hosts removed"
+    case $D in
+      /tmp/dlz-ssh.*/*|*..*) echo "not removed: the recorded folder $D is not one of ours" >&2 ;;
+      /tmp/dlz-ssh.?*) if [ -d "$D" ] && [ ! -L "$D" ] && [ -O "$D" ] && rm -rf "$D"; then
+          echo "password, askpass and known hosts removed"
+        else echo "nothing removed (no folder of ours at $D)"; fi ;;
+      *) echo "nothing to remove" ;;
+    esac
+    rm -f "$TMPF"
     [ "${2:-}" = --all ] && rm -f "$HOSTF" && echo "address removed" ;;
   *)
     sed -n '2,16p' "$0"; exit 2 ;;
