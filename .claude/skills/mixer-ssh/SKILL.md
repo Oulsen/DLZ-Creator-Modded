@@ -95,7 +95,7 @@ The project's hard rules (`CLAUDE.md`) apply over SSH too; point to them and ref
 - The card is `mmcblk0` (p1 the system, p2 `DLZDATA`), the eMMC `mmcblk1`; check with `lsblk -o
   NAME,LABEL,SIZE,RO,MOUNTPOINT` before relying on it
 - DLZDATA's mount point: find it (`findmnt -rno TARGET -S LABEL=DLZDATA` or `lsblk`); Mackie's
-  server mounts it. Logs in its `dlzmod-logs/`: `install-N.txt` (the installer, highest N =
+  server mounts it. Logs in its `dlzmod-logs/`: `install-N-<version>.txt` (the installer, highest N =
   newest), boot logs from `dlzmod-bootlog`, update results; the backup in `dlzmod-backup/`
 - Fetched logs go to `build/device-logs/` (git-ignored, private), e.g. `install4.txt`
 - Mod units: `dlzmod-*` (bootlog, cardcheck, emmc-ro, grow-data, update), Mackie's `evolve-node`

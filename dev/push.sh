@@ -160,8 +160,8 @@ nolog() {
   mixer 'journalctl -b -u dlzmod-update --no-pager | tail -n 30' >&2 || true
   exit 1
 }
-# a new report: last-report is replaced (mv) for every one, so its inode changes even when the
-# name comes again (the updater takes the lowest free update-N.txt)
+# a new report: last-report is replaced (mv) for every one, so its inode changes even if the
+# name came again (the updater numbers on from the highest update-N)
 NEWREP=""
 while :; do
   NEWREP=$(mixer 'echo "$(cat /var/lib/dlzmod-update/last-report 2>/dev/null) $(stat -c %i /var/lib/dlzmod-update/last-report 2>/dev/null)"' \

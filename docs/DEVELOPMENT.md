@@ -275,7 +275,7 @@ release image trusts only the release keys: use a second microSD for development
 
 ```bash
 git commit -m "WIP ..."   # only a committed tree is signed; WIP commits disappear in the squash merge
-bash dev/push.sh          # build in WSL, check, copy, restart, wait, print update-N.txt
+bash dev/push.sh          # build in WSL, check, copy, restart, wait, print update-N-<version>.txt
 ```
 
 The mixer restarts on every push: not during a recording. Before the restart, `push.sh` checks the

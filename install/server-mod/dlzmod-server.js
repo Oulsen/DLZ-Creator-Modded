@@ -104,7 +104,7 @@ async function DLZMOD_recName(dir, others = []) {
 //   shown         what the screen last confirmed (a fresh install writes it: no popup then)
 //   failed        sha256 of the update file that failed last (the updater removes it on success)
 //   shown-failed  the failure the screen last confirmed
-//   last-report   "update-N.txt", the updater's newest report in DLZDATA/dlzmod-logs
+//   last-report   "update-N-v0.1.0-dev-b2f2852.txt", the updater's newest report in DLZDATA/dlzmod-logs
 // A failure comes first: it is newer than any install (a success removes "failed").
 // Pure part: f(name) is the file's first line or "" when missing.
 function DLZMOD_updateNoteFrom(f) {
@@ -114,11 +114,14 @@ function DLZMOD_updateNoteFrom(f) {
   return null;
 }
 
-// status line for the Mod page, every start
+// for the Mod page, every start: the installed build ("" before the first install wrote it) and the
+// last refusal ("" when the last update went in)
 function DLZMOD_updateStatusFrom(f) {
   const report = f("last-report") ? "dlzmod-logs/" + f("last-report") : "dlzmod-logs";
-  if (f("failed")) return "Last update not installed: see " + report + " on the card";
-  return f("installed") ? "Installed: " + f("installed") : "";
+  return {
+    installed: f("installed"),
+    failed: f("failed") ? "Last update not installed: see " + report + " on the card" : "",
+  };
 }
 
 function DLZMOD_updateFile(dir) {

@@ -69,7 +69,9 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    each file atomically and only when it differs. Then the installed updater's own checks: the guards'
    exact content, nothing else in the guard drop-in folders, the enable links, the stock units they
    act on unchanged, the `server.js` refusals of Format SD and firmware updates, the keys unchanged.
-7. **Result**: success deletes the tar and `.sig` and writes `DLZDATA/dlzmod-logs/update-N.txt`.
+7. **Result**: success deletes the tar and `.sig` and writes `DLZDATA/dlzmod-logs/update-N-<version>.txt`
+   (named like the package, `v0.1.0` or `v0.1.0-dev-c0e3084`; `unknown-version` when it stopped before
+   reading the package; N one past the highest, so the newest report has the highest number).
    Failure restores the snapshot and removes what the update added; the files stay, and the same file
    is not tried again until a different one is there. A package gets 3 tries; a failure that is not
    the package's fault (no eMMC seen yet, the sandbox setup failing) is `later` and uses up no try.
@@ -96,8 +98,9 @@ sandbox's is empty), and if something did, it would only stop sooner.
 
 After a start that installed or refused an update, the screen shows it once, in the style of
 Mackie's firmware popups (`showMessage`): green "Updated to v… ." or red "The update was not
-installed. See dlzmod-logs/update-N.txt on the card." The last refusal also stays, in red, in the
-"Updates" row of the Mod page. Same round trip as Mackie's `.upgradesuccess` popup: the server mod
+installed. See dlzmod-logs/update-N-<version>.txt on the card." The last refusal also stays, in red, in the
+"Updates" row of the Mod page, and its "Version" row always shows `installed` (the build, as the
+popup names it). Same round trip as Mackie's `.upgradesuccess` popup: the server mod
 sends `DLZMOD_UPDATE_NOTE` in `GUI_LOADED`; the OK comes back as `DLZMOD_UPDATE_NOTE_OK` and only
 then is it marked shown. State in `/var/lib/dlzmod-update/`: `installed` (version + build), `shown`
 (written by the OK, fsynced with its folder: without that, a quick power-off after OK brought the

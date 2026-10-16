@@ -89,8 +89,15 @@ echo "== 1: nothing to do"
 n0=$(reports); run; [ "$(reports)" = "$n0" ] && ok "no report" || bad "a report for nothing"
 
 echo "== 2: the same package as installed"
+# a report from before v0.2.0 (no version in its name) with a gap below it: the next one comes after it
+mkdir -p $D/dlzmod-logs && : > $D/dlzmod-logs/update-20.txt
 put "$PKG"; run
 [ ! -e $U/${PKG##*/} ] && [ ! -e $U/${PKG##*/}.sig ] && said "INSTALLED: " && said "signature: dev key" && ok "installed, package and signature deleted" || bad "not installed"
+# named like the package (dlzmod-v0.1.0-dev-abc1234 -> update-21-v0.1.0-dev-abc1234.txt), the popup's name the same
+PTOP=$(tar -tf "$PKG" | head -n 1 | cut -d/ -f1)
+[ "$(basename "$(last)")" = "update-21-${PTOP#dlzmod-}.txt" ] && ok "report named $(basename "$(last)")" || bad "report name: $(basename "$(last)"), expected update-21-${PTOP#dlzmod-}.txt"
+[ "$(cat $ST/last-report)" = "$(basename "$(last)")" ] && ok "last-report names it" || bad "last-report: $(cat $ST/last-report)"
+rm -f $D/dlzmod-logs/update-20.txt
 [ "$(sha $R/srv/app.js)" = "$APP" ] && ok "app.js unchanged (same package)" || bad "app.js changed"
 
 echo "== 3: a package that really changes something (dlzmod.js)"
@@ -308,6 +315,7 @@ APP=$(sha $R/srv/app.js)
 
 echo "== 39: two files, removed, then the same two again: reported again"
 cp "$PKG" $U/dlzmod-va.tar; cp "$PKG" $U/dlzmod-vb.tar; run; said "more than one" && ok "reported" || bad "not reported"
+case $(basename "$(last)") in update-*-unknown-version.txt) ok "report named without a version: $(basename "$(last)")" ;; *) bad "report name: $(basename "$(last)")" ;; esac
 rm $U/dlzmod-va.tar $U/dlzmod-vb.tar; run
 [ ! -e $ST/multiple ] && ok "marker cleared with nothing there" || bad "marker kept"
 n1=$(reports); cp "$PKG" $U/dlzmod-va.tar; cp "$PKG" $U/dlzmod-vb.tar; run
