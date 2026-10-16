@@ -107,7 +107,11 @@ else
   printf '%s\n' "$OLDU" > $R/usr/local/sbin/dlzmod-update
   put $(craft dlzmod-vfrom010 "printf '\n// from v0.1.0 test\n' >> mod/app-mod/dlzmod.js"); run
   said "INSTALLED: " && grep -q "from v0.1.0 test" $R/srv/app.js && ok "installed by the v0.1.0 updater" || bad "the v0.1.0 updater did not install it"
-  [ "$(cat $R/usr/local/sbin/dlzmod-update)" = "$NEWU" ] && ok "the card's updater is now the package's" || bad "the card kept another updater"
+  if [ "$(cat $R/usr/local/sbin/dlzmod-update)" = "$NEWU" ]; then ok "the card's updater is now the package's"
+  else   # the cases below test the package's updater, not v0.1.0's
+    bad "the card kept another updater (the package's put back for the cases below)"
+    printf '%s\n' "$NEWU" > $R/usr/local/sbin/dlzmod-update; chmod 755 $R/usr/local/sbin/dlzmod-update
+  fi
   put $(craft dlzmod-vfromnew "printf '\n// by the new updater\n' >> mod/app-mod/dlzmod.js"); run
   said "INSTALLED: " && grep -q "by the new updater" $R/srv/app.js && ok "the next package installed by the new updater" || bad "the new updater did not install the next one"
 fi
@@ -454,12 +458,14 @@ put $(craft dlzmod-vexit3 "sed -i 's/^record_version() {/record_version() { exit
 refused dlzmod-vexit3 "a step failed (exit 3)"
 
 echo "== 62: a cut-off try whose snapshot cannot be unpacked: restore incomplete, no temp folder left"
+for f in previous.tar previous.list; do cp $ST/$f $W/$f.keep 2>/dev/null; done
 chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list'
-cp $ST/previous.tar $W/previous.tar.keep 2>/dev/null; echo "not a tar" > $ST/previous.tar
+echo "not a tar" > $ST/previous.tar
 echo "gone-package" > $ST/inprogress
 run
 said "RESTORE INCOMPLETE" && ok "restore incomplete reported" || bad "no RESTORE INCOMPLETE"
-rm -f $ST/inprogress; [ -e $W/previous.tar.keep ] && mv $W/previous.tar.keep $ST/previous.tar || rm -f $ST/previous.tar
+rm -f $ST/inprogress   # the snapshot pair as it was before this case
+for f in previous.tar previous.list; do [ -e $W/$f.keep ] && mv $W/$f.keep $ST/$f || rm -f $ST/$f; done
 
 echo "== 63: stops before DLZDATA (not on an SD card): no report file left in /tmp"
 chroot $R /usr/local/sbin/dlzmod-update > $W/run.out 2>&1

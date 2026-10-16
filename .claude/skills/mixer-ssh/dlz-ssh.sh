@@ -62,7 +62,7 @@ case ${1:-} in
   pass)
     # never as an argument: that would put it in the process list and the shell history
     [ $# = 1 ] || { echo "usage: dlz-ssh.sh pass, with the password on stdin (never as an argument)" >&2; exit 2; }
-    if [ -t 0 ]; then read -rsp "mixer password: " pw; echo >&2; else IFS= read -r pw || [ -n "$pw" ]; fi
+    if [ -t 0 ]; then IFS= read -rsp "mixer password: " pw; echo >&2; else IFS= read -r pw || [ -n "$pw" ]; fi
     [ -n "$pw" ] || { echo "no password read" >&2; exit 2; }
     privdir new
     umask 077; printf '%s' "$pw" > "$PASS" && echo "password stored in $D (WSL /tmp only)" ;;
@@ -90,7 +90,10 @@ case ${1:-} in
     # shellcheck disable=SC2046
     SSH_ASKPASS=$ASK SSH_ASKPASS_REQUIRE=force DISPLAY=: scp $(sshopts) "root@$host:$remote" "$local" < /dev/null ;;
   forget)
-    privdir && rm -rf "$D"; rm -f "$TMPF"; echo "password, askpass and known hosts removed"
+    # the recorded folder whenever it is a real folder of ours, also one whose mode was changed since
+    D=$(cat "$TMPF" 2>/dev/null)
+    case $D in /tmp/dlz-ssh.*) [ -d "$D" ] && [ ! -L "$D" ] && [ -O "$D" ] && rm -rf "$D" ;; esac
+    rm -f "$TMPF"; echo "password, askpass and known hosts removed"
     [ "${2:-}" = --all ] && rm -f "$HOSTF" && echo "address removed" ;;
   *)
     sed -n '2,16p' "$0"; exit 2 ;;

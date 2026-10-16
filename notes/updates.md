@@ -83,11 +83,12 @@ without one (every released updater's gate for the new copy; the package and car
 wrong model, older version, a weakened guard, the signing cases), on the PC; installed and refused (one
 byte changed, original `.sig`) on the mixer, by the mixer's own OpenSSL 3.0.2 [device].
 
-**Checks only** (`DLZMOD_CHECK_ONLY=1`, for `tests/update-checks.sh`): the updater runs steps 1 and 2
-on a rehearsal tree and stops before the snapshot with `CHECKS PASSED` or the usual `NOT INSTALLED:`
-reason. It writes nothing outside its own temp files: no README or report on DLZDATA, the package
-stays, no start-up repair, the try records in a temp copy of the state folder (so every run checks
-afresh). It only starts with `DLZMOD_ROOT` (not `/`) and `DLZMOD_DATA` both set to folders; any
+**Checks only** (`DLZMOD_CHECK_ONLY=1`, for `tests/update-checks.sh`) [static, tested on the PC]: the
+updater runs steps 2 and 3 (find, check) on a rehearsal tree and stops before step 4, the snapshot,
+with `CHECKS PASSED` or the usual `NOT INSTALLED:` reason. Apart from the package's own
+`check-rootfs.sh`, which runs as in step 3 and only reads, it writes nothing outside its own temp
+files: no README or report on DLZDATA, the package stays, no start-up repair, the try records in a
+temp copy of the state folder (so every run checks afresh). It only starts with `DLZMOD_ROOT` (not `/`) and `DLZMOD_DATA` both set to folders; any
 other value of the flag stops it. On the mixer nothing sets it (the unit's environment is clean, the
 sandbox's is empty), and if something did, it would only stop sooner.
 

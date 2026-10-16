@@ -28,15 +28,18 @@ tags=$(git -c safe.directory="$PWD" tag -l 'v*')
 [ -n "$tags" ] || bad "no v* tags here (a shallow clone? git fetch --depth=1 origin '+refs/tags/v*:refs/tags/v*')"
 for t in $tags; do
   old=$(git -c safe.directory="$PWD" show "$t:$NEW" 2>/dev/null) || { bad "$t has no $NEW"; continue; }
-  out=$(gate "$old" "$NEW") && ok "the $t updater accepts this one" || bad "the $t updater refuses this one: $out"
+  out=$(gate "$old" "$NEW") && ok "the $t updater accepts this one (the tags here: $(echo $tags); newer ones: git fetch --tags)" \
+    || bad "the $t updater refuses this one: $out"
 done
 # the check itself must be able to fail: this copy's own gate against copies that drop a gate string
 # or change the guard list
+# (a refusal is exit 1; 2 = this copy's own gate was not found, which must not count as a refusal)
 cur=$(cat "$NEW")
+out=$(gate "$cur" "$NEW") && ok "this copy's own gate accepts itself" || bad "this copy's own gate on itself: $out"
 sed 's/--reuid=65533/--reuid=0/' "$NEW" > "$TMP/no-gate"
-out=$(gate "$cur" "$TMP/no-gate") && bad "a copy without a gate string passes" || ok "a copy without a gate string is refused: $out"
+out=$(gate "$cur" "$TMP/no-gate"); [ $? = 1 ] && ok "a copy without a gate string is refused: $out" || bad "a copy without a gate string: not refused ($out)"
 sed '/^GUARDS="/s/^GUARDS="./GUARDS="0/' "$NEW" > "$TMP/guards"
-out=$(gate "$cur" "$TMP/guards") && bad "a copy with a changed guard list passes" || ok "a copy with a changed guard list is refused: $out"
+out=$(gate "$cur" "$TMP/guards"); [ $? = 1 ] && ok "a copy with a changed guard list is refused: $out" || bad "a copy with a changed guard list: not refused ($out)"
 
 # every function in the updater is defined before any line uses it (the live-only eMMC check once
 # called `later` before its definition: bash said "command not found" and went on)
@@ -134,8 +137,12 @@ out=$(DLZMOD_CHECK_ONLY=1 DLZMOD_ROOT=$R bash "$NEW" 2>&1); rc=$?
 [ $rc = 2 ] && ok "without DLZMOD_DATA: refused" || bad "without DLZMOD_DATA: rc $rc, $out"
 out=$(DLZMOD_CHECK_ONLY=1 DLZMOD_ROOT=/ DLZMOD_DATA=$D bash "$NEW" 2>&1); rc=$?
 [ $rc = 2 ] && ok "DLZMOD_ROOT=/: refused" || bad "DLZMOD_ROOT=/: rc $rc, $out"
+out=$(DLZMOD_CHECK_ONLY=1 DLZMOD_DATA=$D bash "$NEW" 2>&1); rc=$?
+[ $rc = 2 ] && ok "without DLZMOD_ROOT: refused" || bad "without DLZMOD_ROOT: rc $rc, $out"
+before=$(tree)
 out=$(DLZMOD_CHECK_ONLY=1 DLZMOD_ROOT=$R/.. DLZMOD_DATA=$D bash "$NEW" 2>&1); rc=$?
-[ $rc != 2 ] && ok "a rehearsal folder that is not / is accepted" || bad "DLZMOD_ROOT=$R/..: refused"
+[ $rc = 0 ] && [ "$(tree)" = "$before" ] && ok "a rehearsal folder that is not / is accepted, nothing written" \
+  || bad "DLZMOD_ROOT=$R/..: rc $rc or the trees changed: $out"
 
 echo "-- checks only: a good package passes, and stays"
 mkpkg good
@@ -143,6 +150,7 @@ fresh; put good; check "CHECKS PASSED" "the package passes"
 [ -e "$U/dlzmod-good.tar" ] && [ ! -e "$U/README.txt" ] && [ ! -d "$D/dlzmod-logs" ] && ok "package kept, no README, no report" || bad "DLZDATA written"
 fresh; put good; check "signature: dev key" "verified by the dev key"
 fresh; check "rc=0" "nothing to check: nothing happens"
+[ "$(grep -vc '^rc=' "$OUT")" = 0 ] || bad "nothing to check: it said something: $(grep -v '^rc=' "$OUT" | head -3)"
 
 echo "-- checks only: refused (the package)"
 fresh; cp "$TMP/good.tar" "$U/dlzmod-bad.tar"; flip "$U/dlzmod-bad.tar"; sign "$U/dlzmod-bad.tar" dev; check "damaged" "4: one byte changed, signed again"
