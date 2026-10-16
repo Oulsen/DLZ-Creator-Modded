@@ -141,8 +141,10 @@ Sub-tabs Display / Network / Remote / Mod; layout and how to add a setting:
 
 Stock lets anyone on the network control the mixer over both ports, without a login: every setting,
 factory reset, formatting, and `srv_data.json` (the System Lock PIN) and the presets as files. The mod
-keeps the mixer itself as stock and lets other devices in only when asked [static; tried in the PC
-sandbox, not yet on the mixer]:
+keeps the mixer itself as stock and lets other devices in only when asked [device: off by default,
+pairing from a computer's browser with a random and an own PIN, the PIN hidden as dots until Show
+PIN, deleting and renaming a recording from the browser, System Lock and Factory Reset only on the
+screen, Forget and Off locking the browser out; the screen, faders and audio unchanged]:
 
 - **Who is the mixer itself**: connections from 127.0.0.1 / ::1 (the screen on port 89; dspserver and
   faderlink over socket.io on port 80). Nothing changes for them.

@@ -163,7 +163,8 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   (`ss -ltnp` [device]). Closing it to the network needs a listener on **both** loopback addresses:
   app.js connects to `localhost`, which Node 18 resolves to `::1` first when the mixer has an IPv6
   address, so a 127.0.0.1-only listener cuts the screen off [static + qemu]. The mod does that
-  (`DLZMOD_listen89`, #45)
+  (`DLZMOD_listen89`, #45) [device: `ss -ltn` shows `127.0.0.1:89` and `[::1]:89`, the screen
+  connects, no restarts]
 - dspserver and faderlink are socket.io clients on `localhost:80`, so port 80 itself must stay open:
   the mod tells the mixer's own connections (127.0.0.1 / ::1) from other devices per connection
   [static]
