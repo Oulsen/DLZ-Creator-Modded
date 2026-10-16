@@ -74,7 +74,7 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
 
 ## Mod settings (Settings → DLZ Creator Modded)
 
-Sub-tabs Display / Network / Remote Control / Mod; layout and how to add a setting:
+Sub-tabs Display / Network / Remote / Mod; layout and how to add a setting:
 [modding-guide.md](modding-guide.md), "Mod settings". Every default on these tabs equals stock.
 
 - **Hide header** (#31): more room; also hides the toasts, the red pad indicators and "DEMO MODE".
@@ -148,12 +148,12 @@ sandbox, not yet on the mixer]:
   faderlink over socket.io on port 80). Nothing changes for them.
 - **Off by default** (a fresh card has no state file): another device gets a page saying where to turn
   it on, socket.io refuses its handshake (`allowRequest`).
-- **On** (Settings → DLZ Creator Modded → Remote Control, asks first; only from the screen): the panel
+- **On** (Settings → DLZ Creator Modded → Remote, asks first; only from the screen): the panel
   shows the address(es) to open and a 6-digit PIN, hidden as dots until "Show PIN" (30 s; the screen
   is often on camera). A browser without a pairing gets the mod's PIN page;
   the right PIN sets a random 32-byte token as cookie `dlzmod_pair` (`HttpOnly`, `SameSite=Strict`,
   400 days). A random PIN pairs one device: a new PIN shows after each pairing. Or the owner's own
-  PIN ("Own PIN...", 6 digits; at most two different digits, straight runs like 123456 or 987654,
+  PIN ("Own PIN...", 6 digits on a PIN pad in the layout of Mackie's System Lock; at most two different digits, straight runs like 123456 or 987654,
   repeated blocks like 123123 and doubled digits like 112233 are refused): it stays, for pairing several devices without the screen, until "Random PIN", a new own
   PIN or switching off. Wrong PINs, counted for all devices together: after 5 a pause of 60 s,
   doubling up to 15 min, on the panel too.
@@ -176,6 +176,10 @@ sandbox, not yet on the mixer]:
   off and Forget hold in memory at once, and when the card cannot save them the file is removed (no
   file = off at the next start); if even that fails the screen says the devices may come back after
   a restart.
+- **In the browser** (Mackie's `EXTERNAL`) System Lock (setting and unlocking) and Factory Reset say
+  "Only on the mixer's own screen" (`DLZMOD_screenOnly`, patch.py): the server refuses them, and
+  Mackie's web UI would otherwise lock or "reset" only itself. Setting an own PIN or a random one
+  shows no popup: the panel shows the new PIN.
 - **Port 89** listens on 127.0.0.1 and ::1 only (`DLZMOD_listen89`): its only client is the screen.
   That also ends the unbounded line buffer there as a network problem.
 - **For a computer, not yet for phones and tablets**: Mackie's web UI does not fit a phone and misses

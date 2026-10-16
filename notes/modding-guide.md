@@ -95,7 +95,7 @@ The pattern, as used by "Hide header" (`install/app-mod/dlzmod.js`):
 - The key is global: a browser remote sees the same setting as the device.
 - Not for state the server owns (Wi-Fi, SSH on the Network panel): those come from the server mod
   as messages (`DLZMOD_NET_STATE`), so nothing is broadcast or saved in `srv_data.json`.
-- Layout: sub-tabs Display / Network / Remote Control / Mod (Mackie `ToggleButton`, 200 x 44, mod
+- Layout: sub-tabs Display / Network / Remote / Mod (Mackie `ToggleButton`, 200 x 44, mod
   yellow when active), 8 px gap, then that sub-page's cards, 388 px high. Unlike Mackie's pages
   (829 x 392) the page fills Settings with 12 px margins: 914 x 440, laid out for the header shown
   (464 px under the tab bar, measured in the sandbox); with it hidden,
@@ -261,7 +261,7 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
 - **A phone on the network, on this PC** (#45): `DLZ_SANDBOX_REMOTE=1 bash dev/ui-sandbox.sh`. Then
   http://localhost/ plays another device (the shim gives that connection the address 192.0.2.10 and
   leaves `index.html` to Mackie's server, so it opens in remote mode), while http://127.0.0.1/ stays
-  the mixer's screen. Turn "Control from other devices" on in the screen's Remote Control tab and pair
+  the mixer's screen. Turn "Control from other devices" on in the screen's Remote tab and pair
   the localhost tab with the PIN; the browser keeps a cookie per host, so the two stay apart. Still
   this PC only.
 - Works: the whole UI, state changes, presets/snapshots, port-89 clients (state persists in the

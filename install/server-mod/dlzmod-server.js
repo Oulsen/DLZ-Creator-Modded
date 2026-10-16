@@ -609,7 +609,7 @@ function DLZMOD_remoteHttp(req, res, next) {
 }
 
 function DLZMOD_remoteTab() {
-  return "Settings → DLZ Creator Modded → Remote Control";
+  return "Settings → DLZ Creator Modded → Remote";
 }
 
 // the PIN form posted: a cookie and on to the mixer, or the form again with what went wrong
@@ -943,7 +943,9 @@ async function DLZMOD_net(args, send, opts = {}) {
       } else if (a.op === "pairPin") {
         const pin = typeof a.pin === "string" ? a.pin.trim() : "";
         const why = DLZMOD_pairSetPin(pin);
-        result(!why, why || (pin ? "Your own PIN is set" : "Back to a random PIN"));
+        // done: no popup on the screen (quiet), its Remote panel shows the new PIN
+        if (why) result(false, why);
+        else reply("DLZMOD_NET_RESULT", { ok: true, text: pin ? "Your own PIN is set" : "Back to a random PIN", quiet: true });
       } else result(false, "Unknown network action");
     } finally {
       DLZMOD_net.busy = false;

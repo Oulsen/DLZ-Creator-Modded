@@ -871,12 +871,12 @@ test("pairing: an own PIN pairs several devices, stays until changed or switched
   assert.deepStrictEqual(result(s1), [{ ok: true, text: "All devices are forgotten.\nYour own PIN stays." }]);
   const s2 = [];
   await net({ op: "pairPin" }, sendTo(s2), fakeNet());
-  assert.deepStrictEqual(result(s2), [{ ok: true, text: "Back to a random PIN" }]);
+  assert.deepStrictEqual(result(s2), [{ ok: true, text: "Back to a random PIN", quiet: true }], "no popup: the panel shows the PIN");
   assert.notStrictEqual(pairStatus().pin, "482915");
   assert.strictEqual(pairStatus().own, false);
   const s3 = [];
   await net({ op: "pairPin", pin: " 482915 " }, sendTo(s3), fakeNet());
-  assert.deepStrictEqual(result(s3), [{ ok: true, text: "Your own PIN is set" }]);
+  assert.deepStrictEqual(result(s3), [{ ok: true, text: "Your own PIN is set", quiet: true }]);
   const s4 = [];
   await net({ op: "pairPin", pin: "111111" }, Object.assign((m) => s4.push(plain(m)), { dlzmodPaired: true }), fakeNet());
   assert.strictEqual(pairStatus().pin, "482915", "a paired phone cannot change the PIN");

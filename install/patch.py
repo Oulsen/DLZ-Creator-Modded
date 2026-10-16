@@ -120,6 +120,29 @@ APP_PATCHES = [
         "if(DLZMOD_vuSet(e.vu2,l,T+1,o,a),",
     ),
     (
+        # #45: the server refuses the System Lock PIN and a factory reset from other devices; in a
+        # browser Mackie's UI would lock or "reset" only itself, so there these say where they work
+        # (DLZMOD_screenOnly)
+        "remote: System Lock button only on the mixer's own screen",
+        "onPress:()=>new PopupLock(this.getDomain()),regKey:[",
+        "onPress:()=>DLZMOD_screenOnly()||new PopupLock(this.getDomain()),regKey:[",
+    ),
+    (
+        "remote: unlocking only on the mixer's own screen",
+        'ondown(){Data.get("lock")&&new PopupLock(app)}',
+        'ondown(){Data.get("lock")&&(DLZMOD_screenOnly()||new PopupLock(app))}',
+    ),
+    (
+        "remote: Factory Reset (setup page) only on the mixer's own screen",
+        "dy:20},onPress:()=>{new PopupConfirm(this.getDomain(),{title:lang.FACTORY_RESET",
+        "dy:20},onPress:()=>{if(DLZMOD_screenOnly())return;new PopupConfirm(this.getDomain(),{title:lang.FACTORY_RESET",
+    ),
+    (
+        "remote: Factory Reset (About) only on the mixer's own screen",
+        'textColor:"#bbb",onPress:()=>{new PopupConfirm(this.getDomain(),{title:lang.FACTORY_RESET',
+        'textColor:"#bbb",onPress:()=>{if(DLZMOD_screenOnly())return;new PopupConfirm(this.getDomain(),{title:lang.FACTORY_RESET',
+    ),
+    (
         # next to Mackie's firmware popups: the drop-in update's result (DLZMOD_UPDATE_NOTE, once,
         # until its OK) and the installed build and last refusal for the Mod page
         # (DLZMOD_UPDATE_STATUS), sent by the server mod when the screen has loaded

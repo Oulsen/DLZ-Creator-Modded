@@ -296,7 +296,7 @@ function DLZMOD_settingsPage(parent, y) {
     paint: function () {},   // only the tabs and panels, the page's black between them
     _constructor: function () {
       this.sub = 0;
-      this.tabs = ["Display", "Network", "Remote Control", "Mod"].map((text, i) => new ToggleButton(this, {
+      this.tabs = ["Display", "Network", "Remote", "Mod"].map((text, i) => new ToggleButton(this, {
         anchors: [i * 202, 0], w: 200, h: 44, text: text, opaque: !1,
         colors: [Color.buttonBg, DLZMOD_yellow()], textColor: Color.subNavButtonText, textColorON: Color.black,
         textStyle: { align: "left", valign: "middle", x: 7, y: 23, offsetX: 0, offsetY: 0, font: Font.font(600, "18px") },
@@ -679,9 +679,12 @@ function DLZMOD_netIdle() {
   if (p) p.close();
 }
 
-// outcome of a network change, in the style of Mackie's popups
+// outcome of a network change, in the style of Mackie's popups. quiet (a PIN set): no popup, the
+// Remote panel shows the new PIN instead
 function DLZMOD_netResult(r) {
   DLZMOD_netIdle();
+  const pg = DLZMOD_page();
+  if (r.ok && r.quiet && pg && pg.pair.globalVisible()) return pg.pair.revealPin(!0);   // else the popup
   showMessage(r.text, { title: "Network", textColor: r.ok ? Color.green : Color.red2,
     font: Font.font(500, "17pt"), textDY: 32 });
   const page = DLZMOD_page();
@@ -733,7 +736,7 @@ function DLZMOD_pairPanel(parent, x, y, w) {
         anchors: [w - 24 - 200 - 12 - 200, 310], size: [200, 56], text: "Random PIN",
         onPress: () => {
           DLZMOD_netBusy("Making a random PIN…", 30, $FA.lock);
-          $NET.cmd("DLZMOD_NET", { op: "pairPin" });
+          $NET.cmd("DLZMOD_NET", { op: "pairPin" });   // no popup after: the panel shows the new PIN
         },
         getState: function () {
           const p = DLZMOD_netState().pair;
@@ -812,14 +815,69 @@ function DLZMOD_confirmPair() {
   });
 }
 
-// on Mackie's keyboard, as the SSH password; the server checks it too (6 digits, not an obvious one)
+// on a PIN pad in the layout of Mackie's System Lock (PopupLock: 3 x 4 keys, the digits above as
+// underscores), for 6 digits; the server checks it too (not an obvious one). Set: no popup, the
+// panel shows the new PIN (DLZMOD_netResult, quiet)
 function DLZMOD_askOwnPin() {
-  DLZMOD_askPassword("Your own PIN for other devices (6 digits)", (pin) => {
-    pin = pin.trim();
-    if (!/^\d{6}$/.test(pin)) return DLZMOD_netResult({ ok: !1, text: "A PIN has 6 digits" });
+  DLZMOD_pinPad("Your own PIN", (pin) => {
     DLZMOD_netBusy("Setting your PIN…", 30, $FA.lock);
     $NET.cmd("DLZMOD_NET", { op: "pairPin", pin: pin });
   });
+}
+
+// Mackie's PopupLock layout and behaviour (the back key closes, a 7th digit starts over, the lock
+// key works once all digits are in), for n digits and its own action
+function DLZMOD_pinPad(title, onDone, n = 6) {
+  new PopupWindow(app, {
+    w: 350, h: 430, value: "", color: Color.main,
+    input: function (d) {
+      if (this.value.length >= n) this.value = "";
+      this.value += d;
+      this.done.enabled = this.value.length === n;
+      this.update();
+    },
+    initWidgets: function () {
+      const keys = [];
+      for (let i = 0; i < 9; i++) keys.push(["" + (i + 1), () => this.input(i + 1)]);
+      keys.push(["", () => this.close(), { paintOverlay: function (t) {
+        t.drawText($MI.arrow_back, this.w / 2 | 0, this.h / 2 | 0, { color: Color.white30, font: Font.mi("28px"),
+          align: "center", valign: "middle" });
+      } }]);
+      keys.push(["0", () => this.input(0)]);
+      keys.push(["", () => {
+        const v = this.value;
+        this.close();
+        setTimeout(() => onDone(v), 0);   // once the popup has closed
+      }, { enabled: !1, colors: [Color.confirm, Color.main], paintOverlay: function (t) {
+        t.drawText($FA.check, this.w / 2 | 0, this.h / 2 | 0, { color: this.state ? Color.white : Color.main,
+          font: Font.fa("28px"), align: "center", valign: "middle" });
+      } }]);
+      keys.forEach((k, i) => {
+        const b = new E1Button(this, Object.assign({ anchors: [76 * (i % 3 - 1), 72 * (i / 3 | 0) - 60, , , !0, !0],
+          size: [66, 60], text: k[0], font: Font.font(600, "15pt"), textColor: Color.white, onPress: k[1] }, k[2] || {}));
+        if (i === 11) this.done = b;
+      });
+    },
+    paint: function (t) {
+      PopupWindow.prototype.paint.call(this, t);
+      const c = this.w / 2 | 0, step = 34;
+      t.drawText(title, c, 26, { color: "#C2C2C2", font: Font.font(600, "16pt"), align: "center", valign: "middle" });
+      t.fRect(Color.bgDark, c - 120, 55, 240, 50, 8);
+      t.setParams({ color: this.color, font: Font.font(600, "24pt") });
+      (this.value + "_".repeat(n - this.value.length)).split("").forEach((ch, i) => {
+        t.drawText(ch, c + step * (i - (n - 1) / 2), 80);
+      });
+    },
+  });
+}
+
+// in a browser (Mackie's EXTERNAL: not the mixer's own screen) what the server only takes from the
+// screen says so instead of acting as if it worked (System Lock, Factory Reset; patch.py); true:
+// stop there
+function DLZMOD_screenOnly() {
+  if (typeof EXTERNAL === "undefined" || !EXTERNAL) return !1;
+  showMessage("Only on the mixer's own screen", { title: DLZMOD_tabLabel(), font: Font.font(500, "17pt"), textDY: 32 });
+  return !0;
 }
 
 function DLZMOD_confirmPairForget() {

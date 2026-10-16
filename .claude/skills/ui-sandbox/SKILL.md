@@ -45,7 +45,8 @@ All from the repo root in Git Bash; `S=.claude/skills/ui-sandbox/sandbox.sh`.
   Header hidden: `905,30` and `860,86` [PC: `905,60` with the header hidden lands on
   the Overview]
 - On the Mod tab, the sub-tabs (header hidden; shown: y `185`): `105,155` Display, `314,155`
-  Network, `513,155` Remote Control, `718,155` Mod
+  Network, `513,155` Remote, `718,155` Mod; on Remote: `859,281` the switch, `583,523` Random PIN,
+  `795,523` Own PIN... (its pad: keys at x `436/512/588`, y `240/312/384/456`, ✓ at `588,456`)
 - `DLZ_SHOT_EVAL='<js>'` runs JS in the page before the taps, for states the PC cannot produce,
   e.g. `Data.set("sd",1)` (SD card inserted); `DLZ_SHOT_WAIT=<ms>` after it, `DLZ_SHOT_AFTER=<ms>`
   after the last tap

@@ -57,7 +57,7 @@ the card, put it in the mixer and follow the screen. Step by step, with pictures
   and says so on the screen
 - The installer also saves a backup of the mixer's internal storage onto the card
 - On a network (cable or Wi-Fi), other devices can only control the mixer once you allow it
-  (Settings → DLZ Creator Modded → Remote Control, off by default) and pair them with the PIN shown
+  (Settings → DLZ Creator Modded → Remote, off by default) and pair them with the PIN shown
   there. The connection is not encrypted: only use it on networks you trust, not on an open café or
   venue Wi-Fi
 - It is still an alpha made by one person: see [DISCLAIMER.md](DISCLAIMER.md)
