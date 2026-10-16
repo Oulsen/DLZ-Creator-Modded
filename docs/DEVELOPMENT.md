@@ -49,9 +49,11 @@ backup the installer makes.
 2. **Mount it read-only**: `wsl -d Ubuntu -u root -e bash install/mount-ro.sh` (repo root) gives
    `/mnt/dlz`. An idle WSL drops the mount: keep `wsl -d Ubuntu -u root -e sleep 7000` running.
 3. **Run the tests that need no mixer**: `node install/server-mod/test-dlzmod-server.js` (Windows),
-   `bash tests/guards.sh` and `bash tests/cardcheck.sh` (WSL, as root); the rest:
-   [tests/README.md](../tests/README.md). GitHub runs the first two and a syntax check of every
-   script on each push and pull request (`.github/workflows/checks.yml`).
+   `bash tests/guards.sh`, `bash tests/cardcheck.sh` and `bash tests/patches.sh` (WSL, as root),
+   `tests/update-checks.sh` (as a normal user: in WSL as `nobody`, see tests/README.md); the rest,
+   and which to run for which change: [tests/README.md](../tests/README.md). GitHub runs the unit
+   tests, `guards.sh`, `update-checks.sh` and a syntax check of every script on each push and pull
+   request (`.github/workflows/checks.yml`).
 4. **Look at the UI on the PC**: `bash dev/ui-sandbox.sh` (Git Bash) serves the mixer's UI with the
    mod at http://127.0.0.1/ (the first start copies `/srv` from the mount). Always stop it with
    `bash .claude/skills/ui-sandbox/sandbox.sh stop`: it leaves Node on ports 80/89 and a mapped drive

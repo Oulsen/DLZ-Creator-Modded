@@ -28,9 +28,11 @@ jobs:
       - name: Key guards of the build tools
         run: bash tests/guards.sh
 
-      # every released updater must accept the new one (the checkout is shallow and has no tags)
+      # every released updater must accept the new one (the checkout is shallow and has no tags), and
+      # this one's checks in checks-only mode on a fixture tree (as the runner's normal user)
       - name: Updater checks
         run: |
+          command -v cpio > /dev/null || { sudo apt-get update -q && sudo apt-get install -yq cpio; }
           git fetch --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
           bash tests/update-checks.sh
 

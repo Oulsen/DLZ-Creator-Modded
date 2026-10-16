@@ -77,10 +77,19 @@ The card applies those in place at startup, without a rebuild from the eMMC.
 Not covered by the drop-in (installer only): boot visuals, the installer itself, the card layout,
 the guards. A package can declare `REINSTALL=yes` for such changes; the drop-in refuses it.
 
-Tested: `tests/update.sh` (power cut, failure after the patches, links, wrong model, older version,
-a weakened guard, an extra drop-in next to a guard, the sandbox walls, the signing cases), tested on the PC;
-installed and refused (one byte changed, original `.sig`) on the mixer, by the mixer's own OpenSSL
-3.0.2 [device].
+Tested: `tests/update.sh` on a card image (power cut, failure after the patches, the sandbox walls,
+placing and putting back, a card on v0.1.0's updater taking a new package) and `tests/update-checks.sh`
+without one (every released updater's gate for the new copy; the package and card checks: links,
+wrong model, older version, a weakened guard, the signing cases), on the PC; installed and refused (one
+byte changed, original `.sig`) on the mixer, by the mixer's own OpenSSL 3.0.2 [device].
+
+**Checks only** (`DLZMOD_CHECK_ONLY=1`, for `tests/update-checks.sh`): the updater runs steps 1 and 2
+on a rehearsal tree and stops before the snapshot with `CHECKS PASSED` or the usual `NOT INSTALLED:`
+reason. It writes nothing outside its own temp files: no README or report on DLZDATA, the package
+stays, no start-up repair, the try records in a temp copy of the state folder (so every run checks
+afresh). It only starts with `DLZMOD_ROOT` (not `/`) and `DLZMOD_DATA` both set to folders; any
+other value of the flag stops it. On the mixer nothing sets it (the unit's environment is clean, the
+sandbox's is empty), and if something did, it would only stop sooner.
 
 ### The popup after an update
 

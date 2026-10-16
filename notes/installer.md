@@ -222,7 +222,7 @@ What the time depends on:
 - Never rely on `set -e` inside a subshell or function whose status is tested (bash ignores it
   there: a failing step carried on and reported "installed")
 - Every function defined before any line uses it (a call before its definition is "command not
-  found" and the script carries on; `tests/update.sh` checks this statically)
+  found" and the script carries on; `tests/update-checks.sh` checks this statically for the updater)
 - busybox: every variable in a sh function is global; `wc -c` reads the whole file; no background
   jobs in the copy (a qemu-user signal race once crashed the emulated busybox)
 - No apostrophes inside the awk programs of `install-card.sh`: they sit in single quotes
