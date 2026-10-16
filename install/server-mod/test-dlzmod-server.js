@@ -1171,6 +1171,20 @@ test("files: a paired device deletes and renames recordings, presets and snapsho
     assert.strictEqual(cmdOk(HANDLERS, cmd, args, PAIRED, ROOTS), "", cmd + " " + JSON.stringify(args));
   }
 });
+test("pairing: installing a mod update stays on the mixer's own screen (#65), also for a paired device", () => {
+  assert.strictEqual(cmdOk(HANDLERS, "DLZMOD_UPDATE_APPROVE", { sum: SUM_A }, PAIRED, ROOTS), "only on the mixer's own screen");
+  assert.strictEqual(cmdOk(HANDLERS, "DLZMOD_UPDATE_APPROVE", { sum: SUM_A }, SCREEN, ROOTS), "");
+  // and the handler itself, should the command filter ever let it through
+  const dir = pendingDir();
+  const sent = [];
+  approve({ sum: SUM_A }, Object.assign((m) => sent.push(plain(m)), { dlzmodPaired: true }), dir);
+  assert.deepStrictEqual(sent.map((m) => [m.cmd, m.data.ok]), [["DLZMOD_UPDATE_APPROVED", false]]);
+  assert.ok(!fs.existsSync(path.join(dir, "approved")));
+  // a paired device loading the page gets the status, never the question
+  const loads = [];
+  noteSend(Object.assign((m) => loads.push(plain(m)), { dlzmodPaired: true }), dir);
+  assert.deepStrictEqual(loads.map((m) => m.cmd), ["DLZMOD_UPDATE_STATUS"]);
+});
 test("pairing: factory reset, restarting the screen and the System Lock PIN only from the mixer's screen", () => {
   for (const cmd of ["FACTORY_RESET", "RESET", "RESTART_GUI"]) {
     assert.strictEqual(cmdOk(HANDLERS, cmd, {}, PAIRED, ROOTS), "only on the mixer's own screen", cmd + " from a paired device");
