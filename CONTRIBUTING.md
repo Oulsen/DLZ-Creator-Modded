@@ -32,8 +32,8 @@ clone to a dump, the tests and the UI on your PC. Then:
 
 1. Pick or open an issue first, so the work is agreed before it is done.
 2. Fork, branch from `develop`, and open the pull request into `develop` with `Refs #N` (not
-   `Fixes #N`: issues close with the release). GitHub suggests `main`, the release branch: switch
-   the base to `develop`.
+   `Fixes #N`: the maintainer closes the issue after the merge). GitHub suggests `main`, the
+   release branch: switch the base to `develop`.
 3. Follow the rules in DEVELOPMENT.md, "Rules for notes and code": no Mackie code (describe it and
    point to it), nothing from a dump, confidence tags on observations, notes describe the current
    state.

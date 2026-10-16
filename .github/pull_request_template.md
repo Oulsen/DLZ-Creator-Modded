@@ -1,4 +1,4 @@
-<!-- Into `develop` (GitHub suggests `main`: switch the base). Use "Refs #N", not "Fixes #N": issues close with the release. -->
+<!-- Into `develop` (GitHub suggests `main`: switch the base). Use "Refs #N", not "Fixes #N": the maintainer closes the issue after the merge. -->
 
 Refs #
 
