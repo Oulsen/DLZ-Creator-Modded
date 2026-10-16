@@ -173,7 +173,7 @@ The repo is public, so what goes into it is limited by what the project may publ
 | Tool | Runs on | Purpose |
 |---|---|---|
 | `ui-sandbox.sh` | Git Bash + Node | Run the mixer UI on this PC at http://127.0.0.1/ in the on-device layout (copy of `/srv` in `dumps/sandbox`, shell commands blocked, localhost only); `DLZ_FULLSIZE=1` shows the full-size DLZ Creator's UI from its own copy (`dumps/sandbox-full`) |
-| `push.sh` | Git Bash + WSL | Build HEAD, push it over Wi-Fi to a dev card as a drop-in update, restart the mixer and show the update's report ("Dev card" below); settings in `dev/push.env` (git-ignored, from `push.env.example`) |
+| `push.sh` | Git Bash + WSL | Build HEAD, push it over Wi-Fi to a dev card as a drop-in update, wait for the mixer to be switched off and on (`--restart`: from software, #81) and show the update's report ("Dev card" below); settings in `dev/push.env` (git-ignored, from `push.env.example`) |
 | `ui-sandbox/shot.js` | Node + Chrome | Headless screenshot of the sandbox UI, optionally after taps |
 | `ui-sandbox/fake-vu-live.js` | browser | Moving fake meter levels that follow the faders, loaded into the sandbox page by the shim (off with `/?novu`) |
 | `installer-shot.py` | WSL (Pillow) | Render an installer screen (`ui.py`) as a PNG, upright, as it will look on the mixer |
@@ -251,7 +251,7 @@ ssh root@mackie-dlz-creator-xs.local   # an XS's name on the network
 
 ## Dev card: test builds over Wi-Fi
 
-A card that takes new builds of the mod without leaving the mixer: build, push, one restart, test.
+A card that takes new builds of the mod without leaving the mixer: build, push, switch off and on, test.
 The push only puts the package and its signature in `DLZDATA/dlzmod-update/`, so every build goes
 through the same signature check and sandbox as a user's drop-in update (`notes/updates.md`).
 
@@ -275,16 +275,18 @@ release image trusts only the release keys: use a second microSD for development
 
 ```bash
 git commit -m "WIP ..."   # only a committed tree is signed; WIP commits disappear in the squash merge
-bash dev/push.sh          # build in WSL, check, copy, restart, wait, print update-N-<version>.txt
+bash dev/push.sh          # build in WSL, check, copy; switch the mixer off and on; it prints update-N-<version>.txt
 ```
 
-The mixer restarts on every push: not during a recording. Before the restart, `push.sh` checks the
+Every push needs a new start of the mixer: not during a recording. `push.sh` asks for it and waits:
+switch it off and on with the switch on the back. `--restart` restarts it from software instead, but
+with the current Mackie software that often hangs on the loading screen (#81). Before that, `push.sh` checks the
 package the way the card will: the signature against the card's own `dev.pub` (a release card, or
 one built with another dev key, stops here), `CHANNEL=dev`, `REINSTALL=no`, not older than the
 card's version, and not a file the card refused before. The mixer software keeps DLZDATA mounted
 read-only and writable only while it records: `push.sh` stops when it finds it writable, else makes
 it writable for the copy and read-only again after it. Earlier packages in `dlzmod-update/` are
-removed (more than one is never installed). After the restart it waits for the new boot and the
+removed (more than one is never installed). After the new start it waits for the
 updater's report, prints it and says from the report whether the package was installed. Packages
 stay in `build/push/`.
 

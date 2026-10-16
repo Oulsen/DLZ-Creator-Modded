@@ -6,7 +6,7 @@
 # allowlist (the mod's own files, and boot.scr as a U-Boot script image). Not the boot visuals, the
 # installer, the card layout or the safety guards themselves: a package that changes those needs the
 # full install (REINSTALL=yes, or refused here) (notes/updates.md, "Drop-in update").
-# - success: the package is deleted, the report is DLZDATA/dlzmod-logs/update-N.txt
+# - success: the package is deleted, the report is DLZDATA/dlzmod-logs/update-N-<version>.txt
 # - refused or failed: nothing of it stays; what it placed is put back from the snapshot taken before
 #   it (files it added are removed), the package stays (to look at) and is not tried again until a
 #   different file is there

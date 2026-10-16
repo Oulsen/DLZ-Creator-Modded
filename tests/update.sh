@@ -112,8 +112,12 @@ NEWU=$(tar -xOf "$PKG" --wildcards '*/initrd.cpio.gz' | zcat | cpio -i --quiet -
 if [ -z "$OLDU" ] || [ -z "$NEWU" ]; then bad "no v0.1.0 tag here (git fetch --tags) or no updater in the package"
 else
   printf '%s\n' "$OLDU" > $R/usr/local/sbin/dlzmod-update
+  # v0.1.0 names its report update-N.txt with the lowest free N: not the highest, so found by the listing
+  before=$(ls $D/dlzmod-logs)
   put $(craft dlzmod-vfrom010 "printf '\n// from v0.1.0 test\n' >> mod/app-mod/dlzmod.js"); run
-  said "INSTALLED: " && grep -q "from v0.1.0 test" $R/srv/app.js && ok "installed by the v0.1.0 updater" || bad "the v0.1.0 updater did not install it"
+  rep=$(ls $D/dlzmod-logs | grep -vxF -f <(printf '%s\n' $before) | head -n 1)
+  [ -n "$rep" ] && grep -qF "INSTALLED: " "$D/dlzmod-logs/$rep" && grep -q "from v0.1.0 test" $R/srv/app.js \
+    && ok "installed by the v0.1.0 updater ($rep)" || bad "the v0.1.0 updater did not install it (report: ${rep:-none})"
   if [ "$(cat $R/usr/local/sbin/dlzmod-update)" = "$NEWU" ]; then ok "the card's updater is now the package's"
   else   # the cases below test the package's updater, not v0.1.0's
     bad "the card kept another updater (the package's put back for the cases below)"

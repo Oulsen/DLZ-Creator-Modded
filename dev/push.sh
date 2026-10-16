@@ -1,13 +1,16 @@
 #!/bin/bash
 # Push a dev build to a dev card over Wi-Fi (Git Bash): build the package in WSL, copy it into the
-# card's DLZDATA/dlzmod-update/ over SSH, restart the mixer and show the update's report. The card
-# applies it at startup like any drop-in update (notes/updates.md, "Drop-in update"): signature,
+# card's DLZDATA/dlzmod-update/ over SSH, wait for the mixer's next start and show the update's
+# report. The card applies it at startup like any drop-in update (notes/updates.md, "Drop-in update"): signature,
 # checks, sandbox. Nothing else on the mixer is changed (DLZDATA, read-only while the mixer runs, is
 # writable only for the copy).
 #
-# Usage: bash dev/push.sh                 build HEAD into build/push, push it, restart, show the result
-#        bash dev/push.sh <package>.tar   push a package built before (its .tar.sig next to it), e.g.
-#                                         an older build of the same version while bisecting
+# Usage: bash dev/push.sh [--restart]                 build HEAD into build/push, push it, wait for
+#                                                     the next start, show the result
+#        bash dev/push.sh [--restart] <package>.tar   push a package built before (its .tar.sig next to
+#                                                     it), e.g. an older build of the same version while bisecting
+# The mixer is switched off and on by hand (the switch on the back): a restart from software (--restart,
+# systemctl reboot) often hangs on the loading screen with the current Mackie software (#81).
 #
 # Needs a dev card (docs/DEVELOPMENT.md, "Dev card"): it trusts your dev key, Wi-Fi on, SSH kept on
 # after a restart, your SSH key in its authorized_keys. Settings in dev/push.env (git-ignored, see
@@ -42,6 +45,9 @@ if [ -n "$KEY" ]; then
   SSHOPTS+=(-o IdentitiesOnly=yes -i "$KEY")
 fi
 mixer() { ssh "${SSHOPTS[@]}" "root@$HOST" "$@"; }
+
+RESTART=no
+if [ "${1:-}" = --restart ]; then RESTART=yes; shift; fi
 
 # 1. the package: built now from HEAD, or one given on the command line
 if [ $# -ge 1 ]; then
@@ -144,17 +150,22 @@ SUMS=$(mixer "cd '$U' && sha256sum '$NAME.tar' '$NAME.tar.sig' && sync" | tr -d 
 [ "$SUMS" = "$(sha256sum "$TAR" "$SIG" | cut -d' ' -f1)" ] || die "copy on the mixer differs from $TAR"
 rodata
 
-# 4. restart and wait for the new boot and the updater's report
-echo "== restart"
-mixer 'systemctl reboot' || true
+# 4. the next start (switched off and on by hand, or --restart), then the updater's report
+if [ "$RESTART" = yes ]; then
+  echo "== restart"
+  mixer 'systemctl reboot' || true
+else
+  echo "== switch the mixer off and on now (the switch on the back); waiting for its next start"
+fi
 START=$(date +%s)
 sleep 15
 NOW=""
 until NOW=$(mixer 'cat /proc/sys/kernel/random/boot_id' 2>/dev/null | tr -d '\r') && [ -n "$NOW" ] && [ "$NOW" != "$BOOT" ]; do
-  [ $(( $(date +%s) - START )) -lt 300 ] || die "the mixer is not back on SSH after 5 minutes"
+  [ $(( $(date +%s) - START )) -lt 600 ] || die "the mixer is not back on SSH after 10 minutes"
   sleep 5
 done
 echo "   back on SSH after $(( $(date +%s) - START )) s"
+START=$(date +%s)   # the waits below count from the new start
 nolog() {
   echo "push: $1; the updater's own log:" >&2
   mixer 'journalctl -b -u dlzmod-update --no-pager | tail -n 30' >&2 || true
@@ -167,18 +178,18 @@ while :; do
   NEWREP=$(mixer 'echo "$(cat /var/lib/dlzmod-update/last-report 2>/dev/null) $(stat -c %i /var/lib/dlzmod-update/last-report 2>/dev/null)"' \
     | tr -d '\r' || true)
   [ -n "${NEWREP% *}" ] && [ "$NEWREP" != "$REPORT_BEFORE" ] && break
-  [ $(( $(date +%s) - START )) -lt 420 ] || nolog "no new update report"
+  [ $(( $(date +%s) - START )) -lt 360 ] || nolog "no new update report"
   sleep 5
 done
 REPORT=${NEWREP% *}
 # a plain name only: it goes into the command below
-[[ $REPORT =~ ^update-[0-9]+\.txt$ ]] || die "unexpected report name '$REPORT'"
+[[ $REPORT =~ ^update-[0-9]+(-[A-Za-z0-9._+-]+)?\.txt$ ]] || die "unexpected report name '$REPORT'"
 
 # 5. the result, from the report itself (DLZDATA may be mounted again only a little later)
 TEXT=""
 until TEXT=$(mixer "d=\$(findmnt -rno TARGET -S LABEL=DLZDATA | head -n 1); [ -n \"\$d\" ] && cat \"\$d/dlzmod-logs/$REPORT\"" \
     2>/dev/null | tr -d '\r') && [ -n "$TEXT" ]; do
-  [ $(( $(date +%s) - START )) -lt 480 ] || nolog "$REPORT could not be read (DLZDATA not mounted?)"
+  [ $(( $(date +%s) - START )) -lt 420 ] || nolog "$REPORT could not be read (DLZDATA not mounted?)"
   sleep 5
 done
 echo "== $REPORT"
