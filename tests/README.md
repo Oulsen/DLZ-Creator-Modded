@@ -34,14 +34,22 @@ logs go to `build/` (git-ignored); card images go to `/root` in WSL and are dele
 
 ## Which checks for which change
 
+The card rehearsals take minutes each: they are for what the mixer must not be the first to try (a
+failure, restore or power-cut path, a new write path, the brick angles: anything that could leave a card half-changed
+or not starting). What a normal run on the mixer shows (a name, a text, a screen, an update or
+install that goes through) is tested on the mixer itself (`dev/push.sh`, an install), after the fast
+checks, the sandbox and the device review. Say why before starting a rehearsal.
+
 | Change | Run |
 |---|---|
 | Notes, docs, issues | nothing (GitHub's checks run on the PR anyway) |
 | The server mod | `node install/server-mod/test-dlzmod-server.js`; the UI sandbox for what is visible |
-| The updater's checks (`dlzmod-update` before its snapshot), `package.env`, keys | `update-checks.sh` first (seconds); then `update.sh` on a card before the device |
+| The updater's checks (`dlzmod-update` before its snapshot), `package.env`, keys | `update-checks.sh` (seconds) |
 | The updater's apply, place or restore, the sandbox, `apply-mod.sh`, units | `update-checks.sh`, then `update.sh` (XS) and `QUICK=1` on the full-size, or `cardbind.sh` |
-| `patch.py` anchors, the app or server mod's JS | `patches.sh` first (seconds); the UI sandbox; `update.sh` before the device (patching runs in its sandbox) |
-| The installer, `card-core.sh`, `build-sd.sh` | `rehearse-install.sh`, `fullsize.sh`, `compare-negative.sh` as the write path asks, then `cardbind.sh` |
+| What the updater says or names (report texts, file names) | `update-checks.sh` for the checks' texts (it writes no report); the push to the mixer shows the report and its name |
+| `patch.py` anchors, the app or server mod's JS | `patches.sh` (seconds) and the UI sandbox |
+| The installer's write steps, `card-core.sh`, `build-sd.sh` | `rehearse-install.sh`, `fullsize.sh`, `compare-negative.sh` as the write path asks, then `cardbind.sh` |
+| The installer's texts, screens and log names | `dev/installer-mockup.py --check` (screens); the install on the mixer shows the rest |
 | The card's gate (`dlzmod-cardcheck`) | `cardcheck.sh`, `cardbind.sh` |
 
 `update-checks.sh` in WSL, where the default user is root: as `nobody`, from the repo root:

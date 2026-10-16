@@ -22,7 +22,7 @@ Found a security hole (a way into the mixer, or around the mod's safety locks)? 
 report it privately, see [SECURITY.md](SECURITY.md).
 
 Tested a microSD card? Open an issue with the card's exact name and size, the mod version, the
-install time (from `dlzmod-logs/install-N.txt`) and whether recording worked; it goes into the
+install time (from `dlzmod-logs/install-N-vX.Y.Z.txt`) and whether recording worked; it goes into the
 README's list of known good cards.
 
 ## Code and notes

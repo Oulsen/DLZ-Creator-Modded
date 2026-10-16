@@ -68,7 +68,7 @@ and how safely long multitrack recordings run.
 ### Known good cards
 
 Cards that installed and ran the mod on a real mixer. Tested a card? Open an issue with the exact
-name, size, mod version, install time (from `dlzmod-logs/install-N.txt` on the card) and whether
+name, size, mod version, install time (from `dlzmod-logs/install-N-vX.Y.Z.txt` on the card) and whether
 recording worked.
 
 | Card | Size | Mod version | Install time | Write speed during install | Recording |

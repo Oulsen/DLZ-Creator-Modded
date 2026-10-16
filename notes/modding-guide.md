@@ -184,9 +184,9 @@ The drop-in: build the package (`install/release/mkpackage.sh` in WSL; from a co
 signed with the dev key, a tree with changes gives an unsigned `+dirty` package that cards refuse),
 copy **both** `build/release/dlzmod-vX.Y.Z-*.tar` and its `.tar.sig` into `DLZDATA/dlzmod-update/`
 on the card (Explorer is fine), start the mixer with the card. The files are gone afterwards and
-`dlzmod-logs/update-N.txt` says what happened. A device review is still needed before it goes onto
+`dlzmod-logs/update-N-<version>.txt` says what happened. A device review is still needed before it goes onto
 the card: it changes what runs on the mixer. On a dev card the same drop-in goes over Wi-Fi without
-taking the card out: `bash dev/push.sh` builds, checks, copies, restarts and prints the report
+taking the card out: `bash dev/push.sh` builds, checks, copies, waits for the mixer to be switched off and on, and prints the report
 (`docs/DEVELOPMENT.md`, "Dev card").
 
 With SSH on, small iterations can be `scp` + `systemctl restart <unit>` instead of a package.

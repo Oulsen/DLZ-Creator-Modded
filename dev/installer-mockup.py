@@ -26,6 +26,11 @@ from PIL import Image, ImageChops, ImageSequence
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "install", "installer"))
 import ui  # noqa: E402
+sys.path.insert(0, os.path.join(REPO, "install"))
+from modversion import read_version  # noqa: E402
+
+# the log's name as a release installer writes it (init: install-N-<version>.txt)
+LOGF = "install-1-" + read_version() + ".txt"
 
 argv = sys.argv[1:]
 CHECK = "--check" in argv
@@ -106,14 +111,14 @@ SCREENS = [
         "Switch on again with this card in to start DLZ Creator Modded. Without the card the mixer starts its normal software.",
         "The backup is in DLZDATA/dlzmod-backup: copy it to a computer to keep it. It holds your settings, so keep it private.",
         "On a computer, Windows may offer to format a part of this card: never click Format."],
-        footer="Log: DLZDATA/dlzmod-logs/install-1.txt", **SAFE), None),
+        footer="Log: DLZDATA/dlzmod-logs/" + LOGF, **SAFE), None),
     ("10-stopped", args(title="Installation stopped", title_colour="red", line=[
         "fail|Building the modded system failed (see the log)",
         "info|step 4: MBR written, disk id 0xc79584c3 (eMMC: 9956aba0)",
         "info|card-core.sh: line 239: ... (exit 1)",
         "info|step 4: card-core.sh failed"], text=[
         "The mixer itself was not changed. This card cannot start anything yet, so the mixer starts normally even with it inserted. To try again, flash the installer onto the card again."],
-        footer="Log: DLZLOG/dlzmod-logs/install-1.txt", **SAFE), None),
+        footer="Log: DLZLOG/dlzmod-logs/" + LOGF, **SAFE), None),
 ]
 
 

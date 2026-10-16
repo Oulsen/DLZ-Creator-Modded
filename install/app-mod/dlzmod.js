@@ -232,17 +232,22 @@ function DLZMOD_showCardNote(text) {
   });
 }
 
-// "Installed: v0.1.0 (dev-b2f2852)" or "Last update not installed: ..." (dlzmod-server.js,
-// DLZMOD_updateStatusFrom); the Mod sub-page shows only the refusal (the rest repeats its version)
+// {installed: "v0.1.0 (dev-b2f2852)", failed: "Last update not installed: ..."} (dlzmod-server.js,
+// DLZMOD_updateStatusFrom), every start; either may be ""
 function DLZMOD_setUpdateStatus(s) {
-  DLZMOD_setUpdateStatus.text = s || "";
+  DLZMOD_setUpdateStatus.s = s && typeof s === "object" ? s : {};
   const page = DLZMOD_page();
   if (page && page.visible) page.about.update();
 }
 
 function DLZMOD_updateFailed() {
-  const s = DLZMOD_setUpdateStatus.text || "";
-  return s.startsWith("Last update not installed") ? s : "";
+  return (DLZMOD_setUpdateStatus.s || {}).failed || "";
+}
+
+// the installed build as the update popup names it ("v0.1.0" on a release card, the stamped VERSION
+// until the server has sent it)
+function DLZMOD_installed() {
+  return (DLZMOD_setUpdateStatus.s || {}).installed || DLZMOD_version();
 }
 
 function DLZMOD_page() {
@@ -405,7 +410,7 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
       t.drawText("Unofficial mod for the Mackie DLZ Creator", this.w / 2 | 0, 70,
         { color: "#888888", font: Font.font(500, "12pt"), align: "center", valign: "middle" });
       const max = this.w - 56;
-      DLZMOD_paintRow(t, 28, 136, "Version", DLZMOD_version(), max);
+      DLZMOD_paintRow(t, 28, 136, "Version", DLZMOD_installed(), max);
       const failed = DLZMOD_updateFailed();
       DLZMOD_paintRow(t, 28, 206, "Updates",
         failed || "Copy the update's .tar and .sig to DLZDATA/dlzmod-update", max, failed ? Color.red2 : null);

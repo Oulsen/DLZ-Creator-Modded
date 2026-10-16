@@ -27,6 +27,11 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   asks for (no agent where the tests and the sandbox fully show the change, 1 combined reviewer for
   other logic, up to 2 informed + 2 blind, all at once, for new write paths and boot routes; the
   brick angle is part of every review), claims verified, findings fixed or consciously accepted.
+- Card rehearsals (`tests/README.md`: card images, minutes each) only for what the mixer must not
+  be the first to try: failure, restore and power-cut paths, new write paths, the brick angles. What
+  a normal run on the mixer shows (a name, a text, a screen, an update or install that goes through)
+  is tested on the mixer itself, after the fast tests, the sandbox and the device review. Say why
+  before starting a rehearsal.
 - `VERSION` is the mod version shown on the boot screens and in Settings (`v0.1.0` .. `v9.99.99`);
   bump it only when functionality is added or changed, not for cosmetic tweaks.
 - The install guide (`docs/INSTALL.md`) shows the installer's screens (`docs/images/install/`, with

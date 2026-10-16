@@ -54,7 +54,7 @@ onto a card is checked by the `device-review` skill first.
    costs ~55 ms on the A40i [device]. `dev/installer-mockup.py` renders every screen for the guide.
 4. **Touch:** the Goodix `event*` device, found by name; no touch device = a countdown screen,
    nothing written.
-5. **Logs:** in RAM while the card is rewritten, then `DLZDATA/dlzmod-logs/install-N.txt` with
+5. **Logs:** in RAM while the card is rewritten, then `DLZDATA/dlzmod-logs/install-N-<version>.txt` with
    `dmesg-N.txt` and the last screen as `screen-N.png`. Before DLZDATA exists, a failure leaves its
    log on a small rescue partition, DLZLOG (Windows may give it no drive letter: Disk Management,
    Change Drive Letter). Every line carries the uptime; the card's maker, OEM, name and date are

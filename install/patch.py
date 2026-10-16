@@ -121,8 +121,8 @@ APP_PATCHES = [
     ),
     (
         # next to Mackie's firmware popups: the drop-in update's result (DLZMOD_UPDATE_NOTE, once,
-        # until its OK) and the status line for the Mod page (DLZMOD_UPDATE_STATUS), sent by the
-        # server mod when the screen has loaded
+        # until its OK) and the installed build and last refusal for the Mod page
+        # (DLZMOD_UPDATE_STATUS), sent by the server mod when the screen has loaded
         "update: popup after a drop-in update, status on the Mod page",
         "$NET.addCallback(E_CMD.FIRMWARE_UPDATE_SUCCESS,(()=>showFirmwareUpdateSuccessPopup())),",
         "$NET.addCallback(E_CMD.FIRMWARE_UPDATE_SUCCESS,(()=>showFirmwareUpdateSuccessPopup())),"

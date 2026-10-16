@@ -137,13 +137,13 @@ test("update note: a failure comes first, once per failed file", () => {
   assert.deepStrictEqual(plain(noteFrom(files({ ...f, "shown-failed": "abc" }))), { ok: true, version: "v0.1.0 (dev-b)" });
   assert.strictEqual(noteFrom(files({ ...f, shown: "v0.1.0 (dev-b)", "shown-failed": "abc" })), null);
 });
-test("update status line", () => {
-  assert.strictEqual(statusFrom(files({})), "");
-  assert.strictEqual(statusFrom(files({ installed: "v0.1.0 (dev-b)" })), "Installed: v0.1.0 (dev-b)");
-  assert.strictEqual(statusFrom(files({ installed: "v0.1.0", failed: "x", "last-report": "update-2.txt" })),
-    "Last update not installed: see dlzmod-logs/update-2.txt on the card");
-  assert.strictEqual(statusFrom(files({ installed: "v0.1.0", failed: "x" })),
-    "Last update not installed: see dlzmod-logs on the card");
+test("update status: the installed build, and the last refusal next to it", () => {
+  assert.deepStrictEqual(plain(statusFrom(files({}))), { installed: "", failed: "" });
+  assert.deepStrictEqual(plain(statusFrom(files({ installed: "v0.1.0 (dev-b)" }))), { installed: "v0.1.0 (dev-b)", failed: "" });
+  assert.deepStrictEqual(plain(statusFrom(files({ installed: "v0.1.0", failed: "x", "last-report": "update-2-unknown-version.txt" }))),
+    { installed: "v0.1.0", failed: "Last update not installed: see dlzmod-logs/update-2-unknown-version.txt on the card" });
+  assert.deepStrictEqual(plain(statusFrom(files({ installed: "v0.1.0", failed: "x" }))),
+    { installed: "v0.1.0", failed: "Last update not installed: see dlzmod-logs on the card" });
 });
 test("update note round trip: sent at every screen load until OK, then not again", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dlzupd-"));
@@ -217,7 +217,7 @@ test("update note: a missing folder sends only an empty status, OK does not thro
   const dir = path.join(os.tmpdir(), "dlzupd-missing-" + process.pid);
   const sent = [];
   noteSend((m) => sent.push(plain(m)), dir);
-  assert.deepStrictEqual(sent.map((m) => [m.cmd, m.data]), [["DLZMOD_UPDATE_STATUS", ""]]);
+  assert.deepStrictEqual(sent.map((m) => [m.cmd, m.data]), [["DLZMOD_UPDATE_STATUS", { installed: "", failed: "" }]]);
   noteSeen(dir);
   assert.ok(!fs.existsSync(dir));
 });
