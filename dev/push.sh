@@ -16,7 +16,7 @@
 # after a restart, your SSH key in its authorized_keys. Settings in dev/push.env (git-ignored, see
 # dev/push.env.example), read by name, never sourced. Only a committed tree is signed (mkpackage.sh):
 # commit first, WIP commits on the feature branch are fine (squashed in the PR).
-# Before the restart the package is checked here as the card will: the signature against the card's
+# Before the next start the package is checked here as the card will: the signature against the card's
 # own dev.pub, CHANNEL=dev, REINSTALL=no, not older than the card's version.
 set -euo pipefail
 
@@ -47,7 +47,12 @@ fi
 mixer() { ssh "${SSHOPTS[@]}" "root@$HOST" "$@"; }
 
 RESTART=no
-if [ "${1:-}" = --restart ]; then RESTART=yes; shift; fi
+ARGS=()
+for a in "$@"; do
+  case $a in --restart) RESTART=yes ;; -*) die "unknown option $a" ;; *) ARGS+=("$a") ;; esac
+done
+[ ${#ARGS[@]} -le 1 ] || die "one package at most"
+set -- "${ARGS[@]+"${ARGS[@]}"}"
 
 # 1. the package: built now from HEAD, or one given on the command line
 if [ $# -ge 1 ]; then
@@ -117,7 +122,7 @@ RW=0
 rodata() {
   RW=0
   mixer "sync; mount -o remount,ro '$DATA'" \
-    || echo "push: DLZDATA could not be made read-only again (a recording started?): restart the mixer" >&2
+    || { echo "push: DLZDATA could not be made read-only again (a recording started?)" >&2; return 1; }
 }
 trap '[ "$RW" = 0 ] || rodata' EXIT
 trap 'exit 130' INT TERM HUP
@@ -148,7 +153,8 @@ put "$SIG" "$NAME.tar.sig" || { mixer "rm -f '$U/$NAME.tar'" || true; die "copyi
 SUMS=$(mixer "cd '$U' && sha256sum '$NAME.tar' '$NAME.tar.sig' && sync" | tr -d '\r' | cut -d' ' -f1) \
   || die "the copy on the mixer could not be checked"
 [ "$SUMS" = "$(sha256sum "$TAR" "$SIG" | cut -d' ' -f1)" ] || die "copy on the mixer differs from $TAR"
-rodata
+# never ask for a power cut while DLZDATA is writable: a recording may be running
+rodata || die "do not switch the mixer off now; the package is in place and goes in at its next start (after the recording)"
 
 # 4. the next start (switched off and on by hand, or --restart), then the updater's report
 if [ "$RESTART" = yes ]; then
@@ -161,7 +167,7 @@ START=$(date +%s)
 sleep 15
 NOW=""
 until NOW=$(mixer 'cat /proc/sys/kernel/random/boot_id' 2>/dev/null | tr -d '\r') && [ -n "$NOW" ] && [ "$NOW" != "$BOOT" ]; do
-  [ $(( $(date +%s) - START )) -lt 600 ] || die "the mixer is not back on SSH after 10 minutes"
+  [ $(( $(date +%s) - START )) -lt 600 ] || die "the mixer is not back on SSH after 10 minutes (the package stays on the card and goes in at its next start: no need to push it again)"
   sleep 5
 done
 echo "   back on SSH after $(( $(date +%s) - START )) s"

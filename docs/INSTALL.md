@@ -128,7 +128,7 @@ mixer has no other way to switch off; this is normal.
   - `dlzmod-backup/`: the backup of your mixer's internal storage (about 1 GB).
     **Copy this folder to your computer and keep it.** It holds your settings (including the lock
     PIN), so don't post it anywhere.
-  - `dlzmod-logs/`: the install log (`install-1-v0.1.0.txt`: its number, then the mod version), a picture of the installer's last
+  - `dlzmod-logs/`: the install log (`install-1-vX.Y.Z.txt`: its number, then the mod version), a picture of the installer's last
     screen (`screen-1.png`) and start-up logs. Add these to a bug report.
   - Your recordings, when you record to the SD card.
 - Again: when the card is in your computer, **never click Format** in a Windows prompt.
@@ -153,8 +153,8 @@ What to do depends on the text under the red lines:
 | "This card cannot start anything yet, so the mixer starts normally even with it inserted" | Stopped while writing the card | Write the installer to the card again ([step 1](#1-write-the-installer-to-the-card)) and retry. If it stops again at the same point, try another card |
 | "Remove this card before switching on again" | Stopped at the very last step | **Take the card out before switching on.** Then write the installer to it again and retry |
 
-The log is named at the bottom of the screen: `DLZDATA/dlzmod-logs/install-1-v0.1.0.txt`, or
-`DLZLOG/dlzmod-logs/install-1-v0.1.0.txt` when it stopped before DLZDATA was made. Next to it the installer
+The log is named at the bottom of the screen: `DLZDATA/dlzmod-logs/install-1-vX.Y.Z.txt`, or
+`DLZLOG/dlzmod-logs/install-1-vX.Y.Z.txt` when it stopped before DLZDATA was made. Next to it the installer
 saves a picture of its last screen, `screen-1.png`. Put the card in your computer to read them (and
 **never click Format**). Only when the bottom of the screen says "Log: not saved" is there no log and
 no picture: then take a photo of the screen.
