@@ -126,8 +126,10 @@ rehearsal: `tests/update.sh` case 3a]:
 - The updater installs only when `approved` holds the record of the file it has just checked: a file
   replaced or changed after Install (another tar or another `.sig`) is asked about again. The approval
   is used up once the snapshot and progress marker are written; a fail before that removes it too,
-  and so does a start with another file (or none) in the folder: an Install never waits for its file
-  to come back. Only `later` (not the package's fault, e.g. the eMMC not seen yet) keeps it.
+  and so does a start that finds no file, or one other checked file, in the folder. `later` (not the
+  package's fault, e.g. the eMMC not seen yet) keeps it, and so do the starts that stop before the
+  checks (more than one file, a file without `.sig`, a file that failed before): accepted, the
+  approval names exactly one tar and `.sig`, so it can only ever install the file it was given for.
 - While a package waits and another file's try was cut off (that file removed since), the files from
   before that try go back right away, as step 4 would do before this one's try.
 - The approval check is one of the gates a new updater copy must keep.
