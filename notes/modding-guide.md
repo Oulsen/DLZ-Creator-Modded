@@ -248,7 +248,7 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
   closing one clears the whole foreground layer (`clearFgRect`) and asks for a frame
   (`needDrawFrame`), yet that frame still shows it; pages with meters draw all the time and hide it.
   The mod draws the Mod page right after every `PopupWindow` closes (`DLZMOD_hookPopups`) and after
-  the keyboard [guess: that this clears it at once].
+  the keyboard [device: gone at once after the SSH warning, keyboard, spinner and result message].
 - Screenshots without touching your own browser:
   `node dev/ui-sandbox/shot.js build/shots/x.png [x,y taps...]` (headless Chrome, `#INT`,
   taps in UI pixels, e.g. `905,60` = Settings gear).

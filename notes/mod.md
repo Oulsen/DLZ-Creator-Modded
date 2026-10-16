@@ -107,7 +107,7 @@ Sub-tabs Display / Network / Mod; layout and how to add a setting:
   While an on/off runs, the card says "Setting up…" or "Switching off…" in yellow and its controls
   wait, also once the spinner popup is tapped away (#67): from the tap on (the screen marks its own
   change until the outcome or the popup's time-out), and from the server's status (`sshBusy`,
-  `on`/`off`) after a reload.
+  `on`/`off`) after a reload. [device: on and off, popup tapped away, at once]
   Other devices' SSH card says "Only on the mixer's own screen", as Wi-Fi's does.
   **Off again after every restart** unless "Keep on after a restart": `ssh.service.d/dlzmod.conf`
   lets sshd start only while `/run/dlzmod-ssh-on` (written when SSH is turned on, gone after a
