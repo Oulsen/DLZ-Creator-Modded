@@ -170,10 +170,13 @@ SERVER_PATCHES = [
     ),
     (
         # each connection's send function says whether it comes from the mixer itself (127.0.0.1:
-        # the device's screen); DLZMOD_net only takes changes from those (DLZMOD_isLocal)
-        "network: socket.io connections marked local or not",
+        # the device's screen); DLZMOD_net only takes changes from those (DLZMOD_isLocal). #45:
+        # another device only when paired (stamped dlzmodPaired), else it is dropped before anything
+        # of it runs
+        "network: socket.io connections marked local or paired, others dropped",
         '};Xt(),e.on("message",(async e=>await la(e,t)))}',
         '};t.send.dlzmodLocal=DLZMOD_isLocal(e.handshake&&e.handshake.address);'
+        'if(!DLZMOD_remoteAdmit(e,t.send))return;'
         'Xt(),e.on("message",(async e=>await la(e,t)))}',
     ),
     (
@@ -211,7 +214,22 @@ SERVER_PATCHES = [
         # /srv is served as it is: the originals patch.py and apply-mod.sh keep there stay private
         "files: kept originals not served (DLZMOD_noOrig)",
         'a=e();return a.get("/app.js",',
-        'a=e();a.use(DLZMOD_noOrig);return a.get("/app.js",',
+        # #45: other devices only with "Control from other devices" on and paired, and then only the
+        # UI's own files (not srv_data.json or the presets)
+        'a=e();a.use(DLZMOD_noOrig);a.use(DLZMOD_remoteHttp);return a.get("/app.js",',
+    ),
+    (
+        # #45: the socket.io handshake of another device needs the pairing cookie and the mixer's
+        # own page as its origin (DLZMOD_allowRequest)
+        "network: socket.io handshakes from other devices only when paired",
+        "ct=new r(rt,{cookie:!1,allowEIO3:!0})",
+        "ct=new r(rt,{cookie:!1,allowEIO3:!0,allowRequest:DLZMOD_allowRequest})",
+    ),
+    (
+        # #45: port 89 is the screen's connection only: loopback, IPv4 and IPv6 (DLZMOD_listen89)
+        "network: port 89 on loopback only",
+        "pt&&pt.listen(89);",
+        "pt&&DLZMOD_listen89(pt,da);",
     ),
     (
         # About's "Device IP Address" (polled every 5 s): Ethernet first as stock, else the Wi-Fi stick

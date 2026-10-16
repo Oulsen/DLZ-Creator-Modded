@@ -296,7 +296,7 @@ function DLZMOD_settingsPage(parent, y) {
     paint: function () {},   // only the tabs and panels, the page's black between them
     _constructor: function () {
       this.sub = 0;
-      this.tabs = ["Display", "Network", "Mod"].map((text, i) => new ToggleButton(this, {
+      this.tabs = ["Display", "Network", "Remote Control", "Mod"].map((text, i) => new ToggleButton(this, {
         anchors: [i * 202, 0], w: 200, h: 44, text: text, opaque: !1,
         colors: [Color.buttonBg, DLZMOD_yellow()], textColor: Color.subNavButtonText, textColorON: Color.black,
         textStyle: { align: "left", valign: "middle", x: 7, y: 23, offsetX: 0, offsetY: 0, font: Font.font(600, "18px") },
@@ -305,19 +305,24 @@ function DLZMOD_settingsPage(parent, y) {
       this.screen = DLZMOD_screenPanel(this, 0, top, 290);
       this.meters = DLZMOD_metersPanel(this, 290 + 12, top, 914 - 290 - 12);
       this.network = DLZMOD_networkPanel(this, 0, top, 914);
+      this.pair = DLZMOD_pairPanel(this, 0, top, 914);
       this.about = DLZMOD_aboutPanel(this, 0, top, 914);
-      this.groups = [[this.screen, this.meters], [this.network], [this.about]];
+      this.groups = [[this.screen, this.meters], [this.network], [this.pair], [this.about]];
       this.setSub(0);
-      // the Network panel's status, every 3 s while it is on screen
-      setInterval(() => this.network.globalVisible() && $NET.cmd("DLZMOD_NET", { op: "status" }), 3000);
+      // the Network and Remote Control panels' status, every 3 s while one is on screen (the PIN
+      // changes after each pairing)
+      setInterval(() => (this.network.globalVisible() || this.pair.globalVisible()) &&
+        $NET.cmd("DLZMOD_NET", { op: "status" }), 3000);
     },
     setSub: function (i) {
       this.sub = i;
+      if (this.pair) this.pair.revealPin(!1);   // leaving or opening Remote Control hides the PIN
       this.groups.forEach((g, j) => g.forEach((p) => p.setVisible(j === i)));
-      if (i === 1) $NET.cmd("DLZMOD_NET", { op: "status" });
+      if (i === 1 || i === 2) $NET.cmd("DLZMOD_NET", { op: "status" });
       this.update();
     },
     onShow: function () {
+      this.pair.revealPin(!1);
       $NET.cmd("DLZMOD_NET", { op: "status" });
     },
   });
@@ -458,7 +463,10 @@ function DLZMOD_netState() {
 function DLZMOD_setNetState(s) {
   DLZMOD_netState.s = s;
   const page = DLZMOD_page();
-  if (page) page.network.update();
+  if (page) {
+    page.network.update();
+    page.pair.update();
+  }
 }
 
 // Wi-Fi status on the Wi-Fi card: two short lines and their colour
@@ -677,7 +685,153 @@ function DLZMOD_netResult(r) {
   showMessage(r.text, { title: "Network", textColor: r.ok ? Color.green : Color.red2,
     font: Font.font(500, "17pt"), textDY: 32 });
   const page = DLZMOD_page();
-  if (page) page.network.update();
+  if (page) {
+    page.network.update();
+    page.pair.update();
+  }
+}
+
+// Remote Control (#45): phones, tablets and computers in a web browser, run by the server mod
+// (DLZMOD_pair* in dlzmod-server.js). Off by default; on shows a PIN that pairs one device (then a
+// new one shows). The state comes with the Network status (pair: {on, pin, devices, wait, ips}),
+// which the server sends only to this screen; nothing of it is a hub key.
+function DLZMOD_pairPanel(parent, x, y, w) {
+  return new Widget(parent, {
+    anchors: [x, y],
+    size: [w, DLZMOD_panelH()],
+    bgColor: Color.bgDark,
+    _constructor: function () {
+      // as the SSH switch: the server's state; ON asks first, OFF switches off right away
+      this.on = new Switcher(this, {
+        anchors: [w - 24 - 72, 73], size: [72, 46], margin: 10,
+        bgColors: [Color.buttonBg, DLZMOD_yellow()], knobMargin: 0,
+        getState: function () {
+          const p = DLZMOD_netState().pair;
+          this.value = !!(p && p.on);
+          this.enabled = !!p;
+        },
+        setVal: function (v) {
+          this.value = v;
+        },
+        onToggleON: () => DLZMOD_confirmPair(),
+        onToggleOFF: () => {
+          DLZMOD_netBusy("Switching control from other devices off…", 30, $FA.lock);
+          $NET.cmd("DLZMOD_NET", { op: "pair", on: !1 });
+        },
+      });
+      this.forget = new E1Button(this, {
+        anchors: [24, 310], size: [280, 56], text: "Forget All Devices",
+        onPress: () => DLZMOD_confirmPairForget(),
+        getState: function () {
+          const p = DLZMOD_netState().pair;
+          this.enabled = !!(p && p.on);
+        },
+      });
+      // the owner's own PIN (stays until changed), or back to a random one (new after each pairing)
+      this.random = new E1Button(this, {
+        anchors: [w - 24 - 200 - 12 - 200, 310], size: [200, 56], text: "Random PIN",
+        onPress: () => {
+          DLZMOD_netBusy("Making a random PIN…", 30, $FA.lock);
+          $NET.cmd("DLZMOD_NET", { op: "pairPin" });
+        },
+        getState: function () {
+          const p = DLZMOD_netState().pair;
+          this.enabled = !!(p && p.on && p.own);
+        },
+      });
+      this.ownPin = new E1Button(this, {
+        anchors: [w - 24 - 200, 310], size: [200, 56], text: "Own PIN...",
+        onPress: () => DLZMOD_askOwnPin(),
+        getState: function () {
+          const p = DLZMOD_netState().pair;
+          this.enabled = !!(p && p.on);
+        },
+      });
+      // the PIN stays hidden (the screen is often on camera) until asked for, then for 30 s. Above
+      // Random PIN, same size, centred on the PIN's line
+      this.showPin = new E1Button(this, {
+        anchors: [w - 24 - 200 - 12 - 200, 210], size: [200, 56], text: "Show PIN",
+        onPress: () => this.revealPin(!this.shown),
+        getState: function () {
+          const p = DLZMOD_netState().pair;
+          this.visible = !!(p && p.on);
+          this.text = this.parent.shown ? "Hide PIN" : "Show PIN";
+        },
+      });
+      this.shown = !1;
+    },
+    revealPin: function (on) {
+      clearTimeout(this.hideTimer);
+      this.shown = !!on;
+      if (on) this.hideTimer = setTimeout(() => this.revealPin(!1), 30000);
+      this.update();
+    },
+    paint: function (t) {
+      DLZMOD_paintPanel(this, t, "Remote Control", Color.white, Font.font(500, "20pt"));
+      const s = DLZMOD_netState(), p = s.pair, max = this.w - 48;
+      DLZMOD_paintRow(t, 24, this.on.geomCenterY(), "Control from other devices",
+        "Phones, tablets and computers on the same network, in a web browser", this.w - 24 - 120);
+      const warn = { color: Color.red2, font: Font.font(500, "12pt"), align: "left", valign: "middle", max: max };
+      t.drawText("A paired device can change every setting and delete recordings, presets and snapshots.", 24, 140, warn);
+      t.drawText("Only on a network you trust: the connection is not encrypted.", 24, 160, warn);
+      const grey = { color: "#888888", font: Font.font(500, "14pt"), align: "left", valign: "middle", max: max };
+      if (s.remote) return t.drawText("Only on the mixer's own screen", 24, 220, grey);
+      if (!p) return t.drawText("…", 24, 220, grey);
+      if (!p.on) return t.drawText("Off: only this screen and the mixer's own controls work.", 24, 220, grey);
+      const addr = p.ips && p.ips.length ? p.ips.map((ip) => "http://" + ip).join("  or  ") : "the address in Settings, About";
+      DLZMOD_paintRow(t, 24, 222, "Open in a web browser", addr, this.w - 24 - 200 - 12 - 200 - 48);
+      t.drawText(p.devices === 1 ? "1 device paired" : p.devices ? p.devices + " devices paired" : "No devices paired yet",
+        24, 272, grey);
+      t.drawText(p.own ? "Your own PIN" : "PIN", this.w - 24, 200,
+        { color: "#888888", font: Font.font(500, "12pt"), align: "right", valign: "middle" });
+      t.drawText(this.shown ? p.pin.slice(0, 3) + " " + p.pin.slice(3) : "••• •••", this.w - 24, 238,
+        { color: DLZMOD_yellow(), font: Font.font(600, "34pt"), align: "right", valign: "middle" });
+      t.drawText(p.wait ? "Too many wrong PINs: wait " + p.wait + " s"
+        : p.own ? "Stays until you change it" : "A new one after each pairing", this.w - 24, 276,
+        { color: p.wait ? Color.red2 : "#888888", font: Font.font(500, "12pt"), align: "right", valign: "middle" });
+    },
+  });
+}
+
+// turning it on asks first, as SSH does; the switch goes back to the server's state meanwhile
+function DLZMOD_confirmPair() {
+  const page = DLZMOD_page();
+  if (page) page.pair.update();
+  new PopupConfirm(app, {
+    title: "Control from other devices",
+    text: "Phones, tablets and computers on this network can control\nthe mixer after entering the PIN shown here.\nOnly on a network you trust.",
+    buttons: [{ text: "Turn on", colors: [Color.deny, Color.red] }, { text: lang.CANCEL }],
+    icon: $FA.exclamation,
+    func: () => {
+      DLZMOD_netBusy("Switching control from other devices on…", 30, $FA.lock);
+      $NET.cmd("DLZMOD_NET", { op: "pair", on: !0 });
+    },
+  });
+}
+
+// on Mackie's keyboard, as the SSH password; the server checks it too (6 digits, not an obvious one)
+function DLZMOD_askOwnPin() {
+  DLZMOD_askPassword("Your own PIN for other devices (6 digits)", (pin) => {
+    pin = pin.trim();
+    if (!/^\d{6}$/.test(pin)) return DLZMOD_netResult({ ok: !1, text: "A PIN has 6 digits" });
+    DLZMOD_netBusy("Setting your PIN…", 30, $FA.lock);
+    $NET.cmd("DLZMOD_NET", { op: "pairPin", pin: pin });
+  });
+}
+
+function DLZMOD_confirmPairForget() {
+  const own = !!(DLZMOD_netState().pair || {}).own;
+  new PopupConfirm(app, {
+    title: "Forget all devices",
+    text: own ? "Every paired device is disconnected and needs your PIN again.\nChange the PIN too if others know it."
+      : "Every paired device is disconnected and needs the new PIN again.",
+    buttons: [{ text: "Forget", colors: [Color.deny, Color.red] }, { text: lang.CANCEL }],
+    icon: $FA.lock,
+    func: () => {
+      DLZMOD_netBusy("Forgetting all devices…", 30, $FA.lock);
+      $NET.cmd("DLZMOD_NET", { op: "pairForget" });
+    },
+  });
 }
 
 // Wi-Fi network list: a Mackie popup (modal: the page behind it takes no touches), up to 6
