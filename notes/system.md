@@ -52,12 +52,19 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
 - **Clock**: RTC drivers built in (`RTC_DRV_SUN6I`, `RTC_DRV_SUNXI`), but `fake-hwclock` is
   installed and chrony only syncs from internet pools. Offline every boot restarts at the dump's
   saved time, 2023-11-16 [device]: fake-hwclock has no periodic save, only one at a clean shutdown,
-  which the hard power switch never gives [static]. No backup battery [guess, strong] (open question 21).
+  which the hard power switch never gives [static].
   The only RTC in the Mackie DTB is the SoC's own `rtc@1c20400` (`allwinner,sun8i-r40-rtc`, external
   32.768 kHz crystal); no external RTC chip on i2c0 (PMIC) or i2c1 (GT911 only). Kernel has
   `RTC_HCTOSYS=y` and `RTC_SYSTOHC=y` (rtc0 is only written back after an NTP sync); fake-hwclock
-  runs without `FORCE`, so it only moves the clock forward [static]. A public teardown shows no
-  coin cell on the digital board's top side (see open question 21). Timezone is `Etc/UTC`
+  runs without `FORCE`, so it only moves the clock forward [static].
+  **The RTC keeps time over a software restart and loses it without power** [device, every boot in
+  the kept syslogs]: after a restart fake-hwclock logs "saved clock information is in the past" (rtc0
+  is ahead and wins); after the switch on the back systemd logs "System time before build time,
+  advancing clock" and fake-hwclock sets its saved time. So there is no backup battery (a public
+  teardown shows no coin cell on the digital board's top side either), and those two lines tell a
+  cold start from a warm one in any boot log. Online, chrony (`makestep 1 3`) then steps the clock
+  some 20-40 s into the boot: by the time since the last clean shutdown after a cold start, by about
+  a second after a warm one [device]. Timezone is `Etc/UTC`
   (`/etc/localtime`, `/etc/timezone`), so recording file times are UTC [static]
 - **Filesystems**: vfat built in; `exfat.ko` and `ntfs.ko` (rw) available as modules; CIFS and NFSD
   as modules [static]. Userland has `mkfs.vfat`/`mkfs.ext*` but no `mkfs.exfat`, no Samba, no NFS
@@ -75,7 +82,9 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   four SPI controllers disabled; no musb/OTG node [static]
 - UARTs: ttyS0 = uart0 (console, DEBUG header), ttyS1 = uart3 (Bluetooth module), ttyS2 = uart5 (GD32) [static]
 - Touch: Goodix GT911 on i2c1 @ 0x5d; calibration through libinput, matrix stored in
-  `/etc/udev/rules.d/touchscreen.rules` (written by `save-calibration.sh`) [static]
+  `/etc/udev/rules.d/touchscreen.rules` (written by `save-calibration.sh`) [static].
+  `Goodix-TS 1-0014: I2C communication failure` at boot is in practically every boot log and touch
+  works: a normal reading [device]
 - modprobe.d: `blacklist mali`, `g_ether use_eem=0`, 8189fs power option [static]
 - **Hardware watchdog unused**: `CONFIG_SUNXI_WATCHDOG=y` and the DTB's `watchdog@1c20c90` is enabled,
   but `RuntimeWatchdogSec` in `/etc/systemd/system.conf` is unset and nothing else opens
