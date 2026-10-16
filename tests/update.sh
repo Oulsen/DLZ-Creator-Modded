@@ -54,7 +54,7 @@ TK=$W/tk; mkdir -p $TK
 for k in release release2 dev other; do openssl genpkey -algorithm ed25519 -out $TK/$k.pem 2>/dev/null && openssl pkey -in $TK/$k.pem -pubout -out $TK/$k.pub; done
 sign() { openssl pkeyutl -sign -inkey $TK/${2:-dev}.pem -rawin -in "$1" -out "$1.sig"; }   # sign <tar> [key]
 put() { cp "$1" "$1.sig" $U/; }   # a package and its signature onto DLZDATA
-key() { cat "$1" "$1.sig" | sha256sum | cut -d' ' -f1; }   # the updater's record of a try
+key() { { cat "$1"; head -c 65 "$1.sig"; } | sha256sum | cut -d' ' -f1; }   # the updater's record of a try (its copy takes 65 bytes of the .sig)
 setchan() { sed -i "s/^CHANNEL=.*/CHANNEL=$1/" package.env; }   # in craft code: pkg/ and the outer folder
 
 # craft <name> <code in the unpacked pkg/ dir> [<code in the outer folder>]
@@ -73,6 +73,8 @@ refused() {   # refused <name> <expected text>: the package stays, the card is u
   [ -e $U/$1.tar ] && ok "$1: package kept" || bad "$1: package gone"
   said "NOT INSTALLED" && said "$2" && ok "$1: refused ($2)" || bad "$1: not refused with '$2'"
   [ "$(sha $R/srv/app.js)" = "$APP" ] && [ "$(sha $R/srv/server.js)" = "$SRV" ] && ok "$1: app/server unchanged" || bad "$1: app/server changed"
+  # #65: a refusal also ends that file's approval (run approves before every start; fail() removes it)
+  [ "$(cat $ST/approved 2>/dev/null)" != "$(key $U/$1.tar 2>/dev/null)" ] && ok "$1: no approval left for it" || bad "$1: its approval kept after the refusal"
   rm -f $U/$1.tar $U/$1.tar.sig
 }
 

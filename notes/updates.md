@@ -60,10 +60,12 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    trust boundary (below) covers it.
    The 8 guards: the drop-ins of `flash-gd32`, `flash-fpga`, `upgradedaemon` and `upgraderun`,
    `dlzmod-emmc-ro` with its unit and the udev rule `60-dlzmod-emmc-ro.rules`, and `dlzmod-cardcheck`.
-3b. **Ask** (#65): a package that passed every check is applied only after **Install** on the mixer's
-   own screen ("The question before an update" below). Without it the updater stops here: nothing
-   applied, no try counted, no report, the package stays, and `pending` tells the screen. A try that
-   was cut off goes on without a new Install (its progress marker carries it).
+
+   **Then the question** (#65): a package that passed every check is applied only after **Install**
+   on the mixer's own screen ("The question before an update" below). Without it the updater stops
+   here: nothing applied (its signed `check-rootfs.sh` has run, as above), no try counted, no report
+   (unless an earlier cut-off try was put back), the package stays, and `pending` tells the screen. A
+   try that was cut off goes on without a new Install (its progress marker carries it).
 4. **Snapshot** of every file an update may change (once per package: a retry after a power cut
    keeps the one from before the first try).
 5. **Stage and sandbox** (below): the package's own steps run on a copy, as an unused uid, and the updater
@@ -118,8 +120,8 @@ rehearsal: `tests/update.sh` case 3a]:
 - **Install** sends `DLZMOD_UPDATE_APPROVE {sum}`, a screen-only command (`DLZMOD_SCREEN_ONLY` and its
   own check). The server writes the pending record to `approved` (temp file, fsync, rename, folder
   fsync: the next thing the user does is cut the power) and answers "Ready to install vX.Y.Z. Switch
-  the mixer off and on."; the update installs while the logo shows (about 4 s of checks plus the
-  install [device]), then the popup below says how it went.
+  the mixer off and on."; the update installs while the logo shows (about 12 s in all, of
+  which 4 s checks [device]), then the popup below says how it went.
 - **Off and on, not a restart from software**: software restarts on the mod card often hang at the
   next start (#81, `notes/components/glesgui.md`), so the screen asks for the switch, as
   `dev/push.sh` does (#87).
@@ -132,7 +134,10 @@ rehearsal: `tests/update.sh` case 3a]:
   approval names exactly one tar and `.sig`, so it can only ever install the file it was given for.
 - While a package waits and another file's try was cut off (that file removed since), the files from
   before that try go back right away, as step 4 would do before this one's try.
-- The approval check is one of the gates a new updater copy must keep.
+- The approval check is one of the gates a new updater copy must keep (by its text, like the other
+  gates: it catches a mistake, not a hostile signer).
+- An unseen result popup and a new question can open at the same start, one over the other
+  (accepted: rare, both still work).
 - **Not shown during the install**: the screen keeps Weston's background (the logo) meanwhile.
   Weston and glesgui start in `basic.target`, before the updater (a `multi-user` service), so the
   kernel bootsplash and `/dev/fb0` are not on screen any more [static: the units in the dump]. A

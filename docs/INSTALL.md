@@ -137,7 +137,7 @@ mixer has no other way to switch off; this is normal.
   The screen asks whether to install it: tap **Install**, then switch the mixer off and on with the
   switch on the back. The update installs while the logo shows (about 15 seconds), then a message
   says whether it worked. **Later** keeps it on the card; the question comes back at the next start,
-  and the DLZ Creator Modded tab in Settings has an **Install Update...** button meanwhile. (An
+  and Settings → DLZ Creator Modded → **Mod** has an **Install Update...** button meanwhile. (An
   update from v0.1.0 installs at the first start without asking: the question comes with the update.)
   A release with only the installer image needs a full install (its notes say so): writing the
   installer to the card again erases the whole card, **recordings included**: copy them to your

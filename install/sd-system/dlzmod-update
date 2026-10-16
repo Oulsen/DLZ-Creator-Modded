@@ -458,9 +458,10 @@ guards_ok || later "the guards on this card are not as installed: install again 
 if [ -n "$CHECK_ONLY" ]; then log "CHECKS PASSED (checks only: nothing applied)"; exit 0; fi
 
 # #65: every check passed, but the mixer's own screen has not said Install for this file yet. Nothing
-# of it is applied: "pending" holds its record and checked version for the server mod, which asks on
-# the screen; after Install the next start finds "approved" and goes on. No try counted, no report
-# (the question on the screen is the news), and the package stays.
+# of it is applied (only its signed check-rootfs.sh has run, above, as at every start it waits):
+# "pending" holds its record and checked version for the server mod, which asks on the screen; after
+# Install the next start finds "approved" and goes on. No try counted, no report (the question on the
+# screen is the news; only an earlier cut-off try put back below writes one), the package stays.
 wait_for_approval() {
   local other label
   # a different file's try that was cut off (that file removed since) is not left half-placed while
