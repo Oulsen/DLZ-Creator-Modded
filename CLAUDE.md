@@ -51,7 +51,8 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   collapsed `<details>` block under "Technical notes"). There is no backlog file: to-dos are issues,
   progress is the board. A new
   roadmap item = a new issue (with `gh`, after the user agrees); when work starts or finishes, move
-  its card on the board. Never post Mackie code or dump secrets in issues. A defect found in what
+  its card on the board (Todo, Next version, In progress; after the merge close the issue with
+  "Fixed in develop, comes with vX.Y.Z." and move it to Fixed in develop; Released at the release). Never post Mackie code or dump secrets in issues. A defect found in what
   the release being worked on brings (not shipped yet) is simply fixed, without an issue; a defect
   in a released version, or in stock Mackie behaviour, gets a `MOD BUG` / `DLZ BUG` issue.
 - Never commit to `main` or `develop` directly: every change on its own branch from `develop`, a PR

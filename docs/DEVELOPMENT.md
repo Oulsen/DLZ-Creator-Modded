@@ -327,16 +327,19 @@ issue's technical notes point to the note section instead of copying it.
 - **Life cycle** (board Status):
 
   ```
-  Todo ──> In progress ──PR into develop (Refs #N)──> Device test ──tested on the mixer──>
-  Fixed in develop ──release PR develop → main (Fixes #N)──> Done (issue closed)
+  Todo ──planned for the next version──> Next version ──work starts──> In progress
+  ──PR into develop (Refs #N) merged, issue closed──> Fixed in develop ──release on main──> Released
   ```
 
-  Work PRs into `develop` say `Refs #N`, never `Fixes #N` (that would close the issue before it is
-  released). "Device test" is the list for the next session with the mixer; issues that the tests and
-  the sandbox fully cover (docs, a screen text) skip it. An issue closes only with the release: the
-  release PR's description lists `Fixes #N: <title>` for every released issue (one keyword per
-  issue; GitHub reads the PR description, not the commits), and what GitHub does not close when the
-  release is pushed is closed by hand ("Releases", step 4).
+  "Next version" holds the next milestone's issues that have not started; after a release the
+  following milestone's issues move into it. The mixer test is part of the work on the branch (the
+  dev card, `dev/push.sh`), before the PR. What can only be seen later (an install log on the next
+  install) is noted in the issue's "Done when". After the merge the issue is closed by hand with
+  "Fixed in develop, comes with vX.Y.Z." and its card goes to "Fixed in develop", so the milestone's
+  progress shows what is done; "Fixed in develop" = in `develop`, not on `main` yet, "Released" =
+  on `main`. Work PRs say `Refs #N`: `develop` is not the default branch, so `Fixes #N` would do
+  nothing there. The board's "Item closed" workflow is off (it would move a closed card past "Fixed
+  in develop").
 - **Branches**: `develop` for work and tests, `main` for releases only. Nothing is committed to
   either directly: every change gets its own branch from `develop` (`fix/...`, `feature/...`,
   `docs/...`) and a PR into `develop`, **squash-merged** (one commit per change).
@@ -350,7 +353,7 @@ issue's technical notes point to the note section instead of copying it.
   commits on the PR, or named in the PR description as accepted, before the merge; fixes that add
   new logic or touch other code get one more pass on the PR, wording and fixes that only do what a
   finding asked do not. The release PR `develop` → `main` only carries reviewed changes: its check
-  is the changelog section, the `Fixes #N` list and that the release files are the tested ones; it
+  is the changelog section, the list of released issues and that the release files are the tested ones; it
   is fast-forwarded, not merged with the button ("Releases"). A change that runs on the mixer still
   gets its device review, once per image (`.claude/skills/device-review`).
 - **Releases**: a PR `develop` → `main`, **fast-forwarded**, not merged with GitHub's button: its
@@ -364,8 +367,8 @@ issue's technical notes point to the note section instead of copying it.
      not a fast-forward). GitHub then shows the PR as merged, and `main` and `develop` are the same
      commit. The ruleset on `main` needs the maintainer on its bypass list in mode "Always" (not "Pull
      requests only") for this push; force pushes stay blocked.
-  4. Check that the milestone's issues closed (`gh issue list --milestone vX.Y.Z --state open`) and
-     close the ones the `Fixes #N` lines missed by hand.
+  4. Move the milestone's cards from "Fixed in develop" to "Released" and close the milestone (an
+     issue still open in it is either moved to the next milestone or a reason to wait).
   5. An annotated tag `vX.Y.Z` on that commit. Then a GitHub release with the `CHANGELOG.md` section as notes
   (grouped under the section headings of "`CHANGELOG.md`" below, without the title prefixes),
   followed by the GPL source note from the README's "Legal" (U-Boot and busybox versions and their
@@ -379,7 +382,7 @@ issue's technical notes point to the note section instead of copying it.
 - **`CHANGELOG.md`**: with every version bump a `## vX.Y.Z` section from the milestone's issues: their
   titles as bullets, ordered `DLZ FEATURE`, `DLZ BUG`, `MOD FEATURE`, `MOD BUG` (no `ANALYSIS`, no
   `release`): what changes on the mixer first, then the mod itself. Written by hand from the
-  milestone; the release PR (`Fixes #N: <title>` lines) and the release notes use the same order, as
+  milestone; the release PR (`#N: <title>` lines) and the release notes use the same order, as
   sections ("DLZ features", "DLZ bugs fixed", "Mod features", "Mod bugs fixed"; empty ones left out).
   The README's "What the mod does" follows: it describes the current mod, so a new feature or
   stock fix goes into its group there with the same bump.
