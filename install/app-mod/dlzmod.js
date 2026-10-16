@@ -296,8 +296,12 @@ function DLZMOD_settingsPage(parent, y) {
     paint: function () {},   // only the tabs and panels, the page's black between them
     _constructor: function () {
       this.sub = 0;
-      this.tabs = ["Display", "Network", "Remote", "Mod"].map((text, i) => new ToggleButton(this, {
-        anchors: [i * 202, 0], w: 200, h: 44, text: text, opaque: !1,
+      // in a browser no Network and Remote: only the mixer's own screen changes those (the server
+      // refuses them from other devices)
+      const names = ["Display", "Network", "Remote", "Mod"];
+      const shown = DLZMOD_external() ? [0, 3] : [0, 1, 2, 3];
+      this.tabs = shown.map((i, k) => new ToggleButton(this, {
+        anchors: [k * 202, 0], w: 200, h: 44, text: names[i], opaque: !1,
         colors: [Color.buttonBg, DLZMOD_yellow()], textColor: Color.subNavButtonText, textColorON: Color.black,
         textStyle: { align: "left", valign: "middle", x: 7, y: 23, offsetX: 0, offsetY: 0, font: Font.font(600, "18px") },
         onToggleON: () => this.setSub(i), getVal: () => this.sub === i,
@@ -871,11 +875,17 @@ function DLZMOD_pinPad(title, onDone, n = 6) {
   });
 }
 
-// in a browser (Mackie's EXTERNAL: not the mixer's own screen) what the server only takes from the
-// screen says so instead of acting as if it worked (System Lock, Factory Reset; patch.py); true:
-// stop there
+// in a browser (Mackie's EXTERNAL: not the mixer's own screen; set before startGUI builds the
+// pages, so widgets can be left out when they are made)
+function DLZMOD_external() {
+  return typeof EXTERNAL !== "undefined" && !!EXTERNAL;
+}
+
+// what the server only takes from the screen and the browser still offers (unlocking a locked
+// mixer, patch.py) says so instead of acting as if it worked; true: stop there. System Lock, Factory
+// Reset and the Network and Remote tabs are not shown in a browser at all
 function DLZMOD_screenOnly() {
-  if (typeof EXTERNAL === "undefined" || !EXTERNAL) return !1;
+  if (!DLZMOD_external()) return !1;
   showMessage("Only on the mixer's own screen", { title: DLZMOD_tabLabel(), font: Font.font(500, "17pt"), textDY: 32 });
   return !0;
 }

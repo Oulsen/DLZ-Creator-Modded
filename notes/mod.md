@@ -176,9 +176,11 @@ sandbox, not yet on the mixer]:
   off and Forget hold in memory at once, and when the card cannot save them the file is removed (no
   file = off at the next start); if even that fails the screen says the devices may come back after
   a restart.
-- **In the browser** (Mackie's `EXTERNAL`) System Lock (setting and unlocking) and Factory Reset say
-  "Only on the mixer's own screen" (`DLZMOD_screenOnly`, patch.py): the server refuses them, and
-  Mackie's web UI would otherwise lock or "reset" only itself. Setting an own PIN or a random one
+- **In the browser** (Mackie's `EXTERNAL`, known before the pages are built) the System Lock button,
+  both Factory Reset buttons and the mod's Network and Remote sub-tabs are not shown (patch.py,
+  `DLZMOD_external`): the server refuses them, and Mackie's web UI would otherwise lock or "reset"
+  only itself. A mixer locked on its screen shows the lock in the browser too; tapping it says
+  "Only on the mixer's own screen" (`DLZMOD_screenOnly`). Setting an own PIN or a random one
   shows no popup: the panel shows the new PIN.
 - **Port 89** listens on 127.0.0.1 and ::1 only (`DLZMOD_listen89`): its only client is the screen.
   That also ends the unbounded line buffer there as a network problem.

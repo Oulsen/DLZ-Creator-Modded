@@ -121,26 +121,29 @@ APP_PATCHES = [
     ),
     (
         # #45: the server refuses the System Lock PIN and a factory reset from other devices; in a
-        # browser Mackie's UI would lock or "reset" only itself, so there these say where they work
-        # (DLZMOD_screenOnly)
-        "remote: System Lock button only on the mixer's own screen",
-        "onPress:()=>new PopupLock(this.getDomain()),regKey:[",
-        "onPress:()=>DLZMOD_screenOnly()||new PopupLock(this.getDomain()),regKey:[",
+        # browser Mackie's UI would lock or "reset" only itself, so there the buttons are not shown
+        # (DLZMOD_external is known before the pages are built)
+        "remote: no System Lock button in a browser",
+        "text:lang.SYSTEM_LOCK,",
+        "text:lang.SYSTEM_LOCK,visible:!DLZMOD_external(),",
     ),
     (
+        # a mixer locked on its screen shows the lock in the browser too: tapping it says where to unlock
         "remote: unlocking only on the mixer's own screen",
         'ondown(){Data.get("lock")&&new PopupLock(app)}',
         'ondown(){Data.get("lock")&&(DLZMOD_screenOnly()||new PopupLock(app))}',
     ),
     (
-        "remote: Factory Reset (setup page) only on the mixer's own screen",
-        "dy:20},onPress:()=>{new PopupConfirm(this.getDomain(),{title:lang.FACTORY_RESET",
-        "dy:20},onPress:()=>{if(DLZMOD_screenOnly())return;new PopupConfirm(this.getDomain(),{title:lang.FACTORY_RESET",
+        "remote: no Factory Reset (setup page) in a browser",
+        "this.reset=new E1Button(this,{anchors:[30,null,30,i],w:e,text:wrapText(lang.FACTORY_RESET,30,15),",
+        "this.reset=new E1Button(this,{anchors:[30,null,30,i],w:e,visible:!DLZMOD_external(),"
+        "text:wrapText(lang.FACTORY_RESET,30,15),",
     ),
     (
-        "remote: Factory Reset (About) only on the mixer's own screen",
-        'textColor:"#bbb",onPress:()=>{new PopupConfirm(this.getDomain(),{title:lang.FACTORY_RESET',
-        'textColor:"#bbb",onPress:()=>{if(DLZMOD_screenOnly())return;new PopupConfirm(this.getDomain(),{title:lang.FACTORY_RESET',
+        "remote: no Factory Reset (About) in a browser",
+        "this.factoryReset=new E1Button(this,{anchors:[0,210,null,null,!0],text:lang.FACTORY_RESET,",
+        "this.factoryReset=new E1Button(this,{anchors:[0,210,null,null,!0],visible:!DLZMOD_external(),"
+        "text:lang.FACTORY_RESET,",
     ),
     (
         # next to Mackie's firmware popups: the drop-in update's result (DLZMOD_UPDATE_NOTE, once,
