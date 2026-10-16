@@ -60,6 +60,12 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    trust boundary (below) covers it.
    The 8 guards: the drop-ins of `flash-gd32`, `flash-fpga`, `upgradedaemon` and `upgraderun`,
    `dlzmod-emmc-ro` with its unit and the udev rule `60-dlzmod-emmc-ro.rules`, and `dlzmod-cardcheck`.
+
+   **Then the question** (#65): a package that passed every check is applied only after **Install**
+   on the mixer's own screen ("The question before an update" below). Without it the updater stops
+   here: nothing applied (its signed `check-rootfs.sh` has run, as above), no try counted, no report
+   (unless an earlier cut-off try was put back), the package stays, and `pending` tells the screen. A
+   try that was cut off goes on without a new Install (its progress marker carries it).
 4. **Snapshot** of every file an update may change (once per package: a retry after a power cut
    keeps the one from before the first try).
 5. **Stage and sandbox** (below): the package's own steps run on a copy, as an unused uid, and the updater
@@ -95,6 +101,55 @@ temp copy of the state folder (so every run checks afresh). It only starts with 
 nothing sets it (the unit's environment is clean, the sandbox's is empty), and if something did,
 the updater refuses it first thing ("Rehearsal settings" below).
 
+### The question before an update
+
+An update file is never installed without the person at the mixer agreeing (#65) [static, PC
+rehearsal: `tests/update.sh` case 3a]:
+
+- At every start the updater checks the package (steps 2 and 3). Without an approval it writes
+  `/var/lib/dlzmod-update/pending`: `<record> <version>`, where the record is the sha256 of the tar
+  and its `.sig` together (the same record as `failed` and `tries`) and the version is named as in
+  `installed` (`v0.2.0 (dev-c0e3084)`, a release just `v0.2.0`), from the checked `package.env`. Each
+  start removes it first, so it is only ever about the package that is there now. A package its
+  checks refuse is never offered: it gets the red popup below, as before.
+- The server mod sends it to the screen in `GUI_LOADED` (`DLZMOD_UPDATE_ASK`), **only to the mixer's
+  own screen** (`dlzmodLocal`), laid out as Mackie's firmware update question (current and new
+  version) with **Install** and **Later**. Later closes it; it comes back at every start, and the Mod
+  page's Updates row keeps an "Install Update..." button. Other devices see the row with "install it
+  on the mixer's own screen" and no button.
+- **Install** sends `DLZMOD_UPDATE_APPROVE {sum}`, a screen-only command (`DLZMOD_SCREEN_ONLY` and its
+  own check). The server writes the pending record to `approved` (temp file, fsync, rename, folder
+  fsync: the next thing the user does is cut the power) and answers "Ready to install vX.Y.Z. Switch
+  the mixer off and on."; the update installs while the logo shows (about 12 s in all, of
+  which 4 s checks [device]), then the popup below says how it went.
+- **Off and on, not a restart from software**: software restarts on the mod card often hang at the
+  next start (#81, `notes/components/glesgui.md`), so the screen asks for the switch, as
+  `dev/push.sh` does (#87).
+- The updater installs only when `approved` holds the record of the file it has just checked: a file
+  replaced or changed after Install (another tar or another `.sig`) is asked about again. The approval
+  is used up once the snapshot and progress marker are written; a fail before that removes it too,
+  and so does a start that finds no file, or one other checked file, in the folder. `later` (not the
+  package's fault, e.g. the eMMC not seen yet) keeps it, and so do the starts that stop before the
+  checks (more than one file, a file without `.sig`, a file that failed before): accepted, the
+  approval names exactly one tar and `.sig`, so it can only ever install the file it was given for.
+- While a package waits and another file's try was cut off (that file removed since), the files from
+  before that try go back right away, as step 4 would do before this one's try.
+- The approval check is one of the gates a new updater copy must keep (by its text, like the other
+  gates: it catches a mistake, not a hostile signer).
+- An unseen result popup and a new question can open at the same start, one over the other
+  (accepted: rare, both still work).
+- **Not shown during the install**: the screen keeps Weston's background (the logo) meanwhile.
+  Weston and glesgui start in `basic.target`, before the updater (a `multi-user` service), so the
+  kernel bootsplash and `/dev/fb0` are not on screen any more [static: the units in the dump]. A
+  message during the install: #96.
+
+Accepted: a file that someone else puts on the card still runs its package's `check-rootfs.sh` as
+root at every start while it waits, after the signature check (the signature is the trust boundary,
+as before); while a file waits, every start checks it again (signature, unpack, manifests: a few
+seconds before the mixer software starts) until Install or until it is removed; a file refused for
+the card it is on is reported once, as before. The update that brings
+this updater is installed the old way by the card's older one, without the question.
+
 ### The popup after an update
 
 After a start that installed or refused an update, the screen shows it once, in the style of
@@ -107,7 +162,8 @@ then is it marked shown. State in `/var/lib/dlzmod-update/`: `installed` (versio
 (written by the OK, fsynced with its folder: without that, a quick power-off after OK brought the
 popup back [device]; a fresh install writes it too), `failed` (sha256 of the refused file and its signature together: the same file with another
 `.sig` counts as a new try),
-`shown-failed`, `last-report`. Not shown: `later` and "more than one update file".
+`shown-failed`, `last-report`, and for the question before it `pending` and `approved` (above). Not
+shown: `later` and "more than one update file".
 Accepted: any hub client can send the OK (a few small writes in fixed files); the fsync pauses the
 hub for one card flush per tap (audio is dspserver).
 
@@ -213,8 +269,9 @@ build (`dev-<commit>`) is never compared. Newer and equal install, older is refu
 ## Signing keys
 
 Why: not to stop forks (anyone may build their own and install it with their own installer image, a
-deliberate act with screens and an accept button), but because a drop-in runs silently as root at
-the next start, and root can undo the eMMC lock. The signature is the only thing between a file on
+deliberate act with screens and an accept button), but because a drop-in runs as root at the next
+start (since #65 only after Install on the screen, but the person tapping it sees a version, not the
+code), and root can undo the eMMC lock. The signature is the only thing between a file on
 DLZDATA (a fake download, a card in someone else's reader, later the online update) and the mixer's
 internal storage.
 

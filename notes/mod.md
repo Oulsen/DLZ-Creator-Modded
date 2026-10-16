@@ -45,6 +45,8 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
     systemd's default start limit (5 in 10 s), so a few in a row leave the screen dark until a power
     cycle [static]
   - the System Lock PIN (key `lock`): set, changed or removed only from the screen
+  - installing a mod update (`DLZMOD_UPDATE_APPROVE`, #65) only from the screen, always (also not
+    from paired devices): [updates.md](updates.md), "The question before an update"
   - for everyone: preset folders only Mackie's own (`ch comp del ds eq gate rev snaps`), and names
     plain names (no `/`, `\`, NUL, `.` or `..`) where stock uses them raw; saving keeps stock's own
     clean-up, so "AC/DC" and "Vocals..." still save
@@ -88,7 +90,8 @@ Sub-tabs Display / Network / Remote / Mod; layout and how to add a setting:
 - **Network** (#12, #44): Wi-Fi and SSH, below.
 - **Remote Control** (#45, #48): control from a computer's web browser, off by default; below (phones
   and tablets: Mackie's web UI does not fit them and misses touches, #52).
-- **Mod**: version, update status, credits.
+- **Mod**: version, update status (an update waiting on the card, with "Install Update..." on the
+  mixer's own screen, #65), credits.
 
 ## Network panel: Wi-Fi and SSH
 

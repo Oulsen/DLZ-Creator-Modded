@@ -1,6 +1,7 @@
 #!/bin/bash
 # Drop-in ("light") update of the mod on this card, at startup before the mixer software: a package
-# (dlzmod-vX.Y.Z*.tar, the release's own file) in DLZDATA/dlzmod-update/ is checked, and its mod files
+# (dlzmod-vX.Y.Z*.tar, the release's own file) in DLZDATA/dlzmod-update/ is checked, and once the
+# mixer's own screen said Install (#65: "pending" for the screen, "approved" back from it), its mod files
 # are applied with the same code as the install (apply-mod.sh: guards and units, the app/server
 # patches, mod defaults): run in a sandbox on a copy (step 3), then placed by this script from its
 # allowlist (the mod's own files). Not boot.scr, the boot visuals, the installer, the card layout or
@@ -133,6 +134,10 @@ guards_ok() {   # checked by this installed script, never by the package's code
   [ "$ok" = yes ]
 }
 
+# the screen's question (#65) is about this start's package only: written again below while one
+# waits, so a start that stops before looking (no DLZDATA) leaves no question from an earlier one
+[ -n "$CHECK_ONLY" ] || rm -f "$STATE/pending"
+
 # DLZDATA: this card's p2 (or the rehearsal's mount), read-only unless something has to be written
 if [ -n "${DLZMOD_DATA:-}" ]; then
   DATA=$DLZMOD_DATA
@@ -161,6 +166,7 @@ UNS_OLD=""   # user namespaces are off while the sandbox runs (step 3); finish p
 # only this file's own try markers: a different file's cut-off try keeps its snapshot (step 3 puts it back)
 fail() {
   log "NOT INSTALLED: $*"; echo "$SUM" > "$STATE/failed"
+  [ "$(cat "$STATE/approved" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/approved"
   [ "$(cat "$STATE/inprogress" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/inprogress"
   [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/tries"
   sync; exit 0
@@ -241,10 +247,15 @@ on_term() { if [ "$APPLYING" = yes ]; then log "stopped while applying: putting 
 trap on_term TERM INT
 
 U=$DATA/dlzmod-update
-if [ ! -e "$U/README.txt" ]; then
-  writable && mkdir -p "$U" && printf '%s\r\n' "Updates for DLZ Creator Modded go here: copy both update files (dlzmod-vX.Y.Z.tar and" \
-    "dlzmod-vX.Y.Z.tar.sig) into this folder, then start the mixer with this card. It is installed at" \
-    "startup and then deleted; the result is in dlzmod-logs." > "$U/README.txt"
+# (the same text as the installer's, install-card.sh; an older one is replaced)
+readme() {
+  printf '%s\r\n' "Updates for DLZ Creator Modded go here: copy both update files (dlzmod-vX.Y.Z.tar and" \
+    "dlzmod-vX.Y.Z.tar.sig) into this folder, then start the mixer with this card. Its screen asks" \
+    "whether to install the update; after Install, switch the mixer off and on: it is installed at that" \
+    "start and then deleted. The result is in dlzmod-logs."
+}
+if ! readme | cmp -s - "$U/README.txt"; then
+  writable && mkdir -p "$U" && readme > "$U/README.txt"
 fi
 shopt -s nullglob
 if [ -n "$CHECK_ONLY" ]; then
@@ -265,7 +276,8 @@ if [ -z "$CHECK_ONLY" ] && [ -s "$STATE/inprogress" ] && [ -f "$STATE/previous.t
 fi
 pkgs=("$U"/dlzmod-*.tar)
 if [ ${#pkgs[@]} = 0 ]; then   # nothing to do (every normal start)
-  rm -f "$STATE/unsigned" "$STATE/multiple"
+  # an Install for a file that is gone does not wait for that file to come back (#65)
+  rm -f "$STATE/unsigned" "$STATE/multiple" "$STATE/approved"
   # a try cut off while placing, and its file removed since (the guards may be fine, so the repair
   # above did not run): the files from before it go back, or the card keeps a half-placed update
   if [ -z "$CHECK_ONLY" ] && [ -s "$STATE/inprogress" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ]; then
@@ -318,22 +330,32 @@ if [ "$(cat "$STATE/failed" 2>/dev/null)" = "$SUM" ]; then
   : > "$REPORT"   # no new report for the same failure at every start
   exit 0
 fi
-t=$(cat "$STATE/tries" 2>/dev/null)
-if [ "${t% *}" = "$SUM" ]; then tries=$(( ${t#* } + 1 )); else tries=1; fi
-if [ "$tries" -gt 3 ]; then
-  log "stopped 3 times before it finished"
-  if [ "$(cat "$STATE/inprogress" 2>/dev/null)" = "$SUM" ]; then
-    log "putting the previous files back"
-    if ! { restore && guards_ok; }; then
-      log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"
-      log "NOT INSTALLED: it never finished (the next start tries to put the files back again)"
-      echo "$SUM" > "$STATE/failed"; rm -f "$STATE/tries"; sync   # inprogress stays for the start-up repair
-      exit 0
-    fi
-  fi
-  fail "it never finished"
+# #65: installed only after Install on the mixer's own screen: the server mod writes this file's
+# record (SUM, from "pending" below) to "approved". A try of this file that was cut off goes on
+# without a new one: its progress marker carries the approval (step 3 uses "approved" up)
+APPROVED=no
+if [ "$(cat "$STATE/approved" 2>/dev/null)" = "$SUM" ] || [ "$(cat "$STATE/inprogress" 2>/dev/null)" = "$SUM" ]; then
+  APPROVED=yes
 fi
-echo "$SUM $tries" > "$STATE/tries.new" && sync && mv -f "$STATE/tries.new" "$STATE/tries" && sync
+# only an approved start is a try: waiting for the screen uses up none of the 3
+if [ "$APPROVED" = yes ]; then
+  t=$(cat "$STATE/tries" 2>/dev/null)
+  if [ "${t% *}" = "$SUM" ]; then tries=$(( ${t#* } + 1 )); else tries=1; fi
+  if [ "$tries" -gt 3 ]; then
+    log "stopped 3 times before it finished"
+    if [ "$(cat "$STATE/inprogress" 2>/dev/null)" = "$SUM" ]; then
+      log "putting the previous files back"
+      if ! { restore && guards_ok; }; then
+        log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"
+        log "NOT INSTALLED: it never finished (the next start tries to put the files back again)"
+        echo "$SUM" > "$STATE/failed"; rm -f "$STATE/tries"; sync   # inprogress stays for the start-up repair
+        exit 0
+      fi
+    fi
+    fail "it never finished"
+  fi
+  echo "$SUM $tries" > "$STATE/tries.new" && sync && mv -f "$STATE/tries.new" "$STATE/tries" && sync
+fi
 
 # 1. the package: size and signature before anything reads its contents, then only plain files and
 # folders under one top folder (tar and the initramfs inside it), both manifests, and the manifest
@@ -435,6 +457,38 @@ bash -n "$T/apply-mod.sh" && bash -n "$T/sd-system/dlzmod-update" || fail "its s
 guards_ok || later "the guards on this card are not as installed: install again with the installer image"
 if [ -n "$CHECK_ONLY" ]; then log "CHECKS PASSED (checks only: nothing applied)"; exit 0; fi
 
+# #65: every check passed, but the mixer's own screen has not said Install for this file yet. Nothing
+# of it is applied (only its signed check-rootfs.sh has run, above, as at every start it waits):
+# "pending" holds its record and checked version for the server mod, which asks on the screen; after
+# Install the next start finds "approved" and goes on. No try counted, no report (the question on the
+# screen is the news; only an earlier cut-off try put back below writes one), the package stays.
+wait_for_approval() {
+  local other label
+  # a different file's try that was cut off (that file removed since) is not left half-placed while
+  # this one waits: the files from before it go back now, as step 3 would before this one's try
+  other=$(cat "$STATE/inprogress" 2>/dev/null)
+  if [ -n "$other" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ]; then
+    log "an earlier update file was cut off while applying: putting the files from before it back"
+    { restore && guards_ok; } || later "the files from before an earlier cut-off update could not be put back"
+    rm -f "$STATE/inprogress"; sync
+    log "previous files restored"
+    log "NOT INSTALLED yet: ${SRC##*/} waits for Install on the mixer's screen"
+  else
+    : > "$REPORT"
+  fi
+  # an Install for another file (one replaced since) does not carry over to a later one
+  rm -f "$STATE/approved"
+  # named as the installed file names a build ("v0.2.0 (dev-c0e3084)"; a release: "v0.2.0")
+  label=$NEWV
+  case $(penv BUILD) in ''|release) ;; *) label="$NEWV ($(penv BUILD))" ;; esac
+  label=$(printf '%s' "$label" | tr -cd 'A-Za-z0-9._+() -' | cut -c1-60)
+  { echo "$SUM $label" > "$STATE/pending.dlzmod-new" && mv -f "$STATE/pending.dlzmod-new" "$STATE/pending"; } \
+    || { rm -f "$STATE/pending.dlzmod-new"; echo "dlzmod-update: the question for the screen could not be written"; }
+  echo "dlzmod-update: ${SRC##*/} ($label) waits for Install on the mixer's screen"
+  exit 0
+}
+[ "$APPROVED" = yes ] || wait_for_approval
+
 # 3. snapshot of everything it may change (once per package: a retry after a power cut keeps the one
 # from before the first try), then apply in a subshell run as a plain command (bash ignores set -e
 # inside a subshell whose status is tested), then the guard check with this script's own list
@@ -460,6 +514,9 @@ else
   sync
   log "snapshot of the current files taken"
 fi
+# the approval is used up: from here a cut-off try goes on by its progress marker, and a finished one,
+# installed or not, needs a new Install for the next file
+rm -f "$STATE/approved"
 # The package's own steps (apply-mod.sh: install_sd_system, apply_patches, set_mod_defaults,
 # record_version, the new copy of this script) run on a STAGE, a copy of every file an update may
 # touch, inside a sandbox: their own mount, pid and network namespaces, every mount read-only but the
@@ -653,7 +710,8 @@ if grep -qx usr/local/sbin/dlzmod-update <<< "$changed"; then
       skip && /^fi$/ { skip = 0 }' "$new")
   for g in 'openssl pkeyutl -verify -pubin' '--bounding-set=-all' '--reuid=65533' 'max_user_namespaces' \
       'remount,bind,ro' 'blockdev --getro' '/device/type" 2>/dev/null)" = SD' \
-      'refuse "the update changes /$p, which an update may not' '[ "$(key_sums)" = "$keys_before" ]'; do
+      'refuse "the update changes /$p, which an update may not' '[ "$(key_sums)" = "$keys_before" ]' \
+      'if [ "$(cat "$STATE/approved" 2>/dev/null)" = "$SUM" ]' '[ "$APPROVED" = yes ] || wait_for_approval'; do
     grep -qF -- "$g" <<< "$code" || refuse "its new update script lacks a check ($g): needs a full install"
   done
 fi

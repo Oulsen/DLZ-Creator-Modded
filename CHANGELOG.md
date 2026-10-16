@@ -4,6 +4,7 @@
 
 - (DLZ BUG) Anyone on the same network can control the mixer, without a PIN or password
 - (MOD FEATURE) Quicker and broader automatic checks for every change to the mod
+- (MOD FEATURE) Ask before installing an update
 - (MOD FEATURE) A development card that takes new test builds over Wi-Fi
 - (MOD FEATURE) The Mod page and the logs on the card show which build is installed
 - (MOD BUG) Recordings, presets and snapshots can only be deleted or renamed on the mixer's own screen

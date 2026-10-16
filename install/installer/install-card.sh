@@ -172,9 +172,11 @@ ic_data() {
   chroot "$CH" /usr/sbin/mkfs.vfat -F 32 -n DLZDATA "${SD}p2" >> "$LOG" 2>&1 || { log "step 1: mkfs.vfat failed"; return 1; }
   mkdir -p "$CH$IC_BK" && mount -t vfat -o iocharset=ascii,flush "${SD}p2" "$CH$IC_BK" \
     && mkdir -p "$CH$IC_BK/dlzmod-backup" "$CH$IC_BK/dlzmod-update" || { log "step 1: DLZDATA could not be mounted"; return 1; }
+  # (the same text as the updater's, sd-system/dlzmod-update, which replaces any other)
   printf '%s\r\n' "Updates for DLZ Creator Modded go here: copy both update files (dlzmod-vX.Y.Z.tar and" \
-    "dlzmod-vX.Y.Z.tar.sig) into this folder, then start the mixer with this card. It is installed at" \
-    "startup and then deleted; the result is in dlzmod-logs." > "$CH$IC_BK/dlzmod-update/README.txt" || { log "step 1: dlzmod-update/README.txt not written"; return 1; }
+    "dlzmod-vX.Y.Z.tar.sig) into this folder, then start the mixer with this card. Its screen asks" \
+    "whether to install the update; after Install, switch the mixer off and on: it is installed at that" \
+    "start and then deleted. The result is in dlzmod-logs." > "$CH$IC_BK/dlzmod-update/README.txt" || { log "step 1: dlzmod-update/README.txt not written"; return 1; }
   log "step 1: DLZDATA made: p2 at sector $_start, $((_size / 2048)) MiB, disk id 0x$_id (eMMC: $_old)"
   ic_zst "$EMMC" 1048576 0 4 "$IC_BK/dlzmod-backup/emmc-user.img.zst.part" || return 1
   log "backup: the first 4 MiB of the eMMC saved"

@@ -223,6 +223,42 @@ function DLZMOD_showUpdateNote(n) {
   });
 }
 
+// #65: an update file on the card passed the updater's checks and waits for Install (dlzmod-server.js,
+// DLZMOD_updatePendingFrom; sent to the mixer's own screen only). Laid out as Mackie's firmware update
+// question (askConfirm: current and new version, an arrow on top), Install and Later. Later only
+// closes it: the question comes back at the next start and the Mod page keeps an Install button.
+function DLZMOD_askUpdate(p) {
+  if (!p || !p.sum) return;
+  askConfirm("", {
+    title: DLZMOD_tabLabel() + " update", font: Font.font(500, "17pt"), textDY: 32,
+    paintCustom: function (t) {
+      const x = this.w / 2 | 0, y = (this.h / 2 + 35 | 0) - 26;
+      t.drawText(lang.CURRENT_VERSION, x, y - 60, { color: Color.white, font: Font.font(500, "18pt"), align: "center", valign: "middle" });
+      t.drawText(DLZMOD_installed(), x, y - 20, { color: Color.main, font: Font.font(500, "18pt"), align: "center", valign: "middle" });
+      t.drawText(lang.UPDATE_VERSION, x, y + 20, { color: Color.white, font: Font.font(500, "18pt"), align: "center", valign: "middle" });
+      t.drawText(p.version, x, y + 60, { color: Color.main, font: Font.font(500, "18pt"), align: "center", valign: "middle" });
+      t.drawText($FA.arrow_to_top, x, 92, { font: Font.fa("36px"), color: Color.main, align: "center" });
+    },
+    buttons: [
+      { text: "Install", textStyle: { font: Font.font(600, "16pt") }, textColors: [Color.main, Color.white], colors: [Color.confirm, Color.main] },
+      { text: "Later", textStyle: { font: Font.font(600, "16pt") } },
+    ],
+  }, () => DLZMOD_approveUpdate(p.sum));
+}
+
+function DLZMOD_approveUpdate(sum) {
+  $NET.cmd("DLZMOD_UPDATE_APPROVE", { sum: sum });
+}
+
+// Install's answer: what to do now (switch off and on), or why not
+function DLZMOD_updateApproved(r) {
+  if (!r) return;
+  showMessage(r.text, {
+    title: DLZMOD_tabLabel() + " update", textColor: r.ok ? Color.green : Color.red2,
+    font: Font.font(500, "17pt"), textDY: 32,
+  });
+}
+
 // The card's check before the FPGA loader failed (sd-system/dlzmod-cardcheck): no audio this start.
 // Shown at every start while it fails, red as Mackie's failure popups; text from the check itself.
 function DLZMOD_showCardNote(text) {
@@ -232,16 +268,35 @@ function DLZMOD_showCardNote(text) {
   });
 }
 
-// {installed: "v0.1.0 (dev-b2f2852)", failed: "Last update not installed: ..."} (dlzmod-server.js,
-// DLZMOD_updateStatusFrom), every start; either may be ""
+// {installed: "v0.1.0 (dev-b2f2852)", failed: "Last update not installed: ...", pending: {sum, version,
+// approved} or null, local} (dlzmod-server.js, DLZMOD_updateStatusFrom), every start and after Install;
+// installed and failed may be ""
 function DLZMOD_setUpdateStatus(s) {
   DLZMOD_setUpdateStatus.s = s && typeof s === "object" ? s : {};
   const page = DLZMOD_page();
+  if (page) page.about.syncInstall();
   if (page && page.visible) page.about.update();
 }
 
 function DLZMOD_updateFailed() {
   return (DLZMOD_setUpdateStatus.s || {}).failed || "";
+}
+
+// the update waiting for Install, or null
+function DLZMOD_updatePending() {
+  const p = (DLZMOD_setUpdateStatus.s || {}).pending;
+  return p && p.sum ? p : null;
+}
+
+// the Mod page's Updates row: [text, colour or null for grey]
+function DLZMOD_updateRow() {
+  const p = DLZMOD_updatePending();
+  if (p && p.approved) return [p.version + " installs at the next start: switch the mixer off and on", DLZMOD_yellow()];
+  if (p && (DLZMOD_setUpdateStatus.s || {}).local) return ["Update " + p.version + " is on the card", DLZMOD_yellow()];
+  if (p) return ["Update " + p.version + " is on the card: install it on the mixer's own screen", DLZMOD_yellow()];
+  const failed = DLZMOD_updateFailed();
+  if (failed) return [failed, Color.red2];
+  return ["Copy the update's .tar and .sig to DLZDATA/dlzmod-update", null];
 }
 
 // the installed build as the update popup names it ("v0.1.0" on a release card, the stamped VERSION
@@ -431,21 +486,32 @@ function DLZMOD_metersPanel(parent, x, y, w) {
   });
 }
 
-// Mod: what is installed and how to update it
+// Mod: what is installed and how to update it; Install for an update waiting on the card (#65), on
+// the mixer's own screen only
 function DLZMOD_aboutPanel(parent, x, y, w) {
   return new Widget(parent, {
     anchors: [x, y],
     size: [w, DLZMOD_panelH()],
     bgColor: Color.bgDark,
+    _constructor: function () {
+      this.install = new E1Button(this, {
+        anchors: [0, 252, null, null, !0], size: [300, 56], text: "Install Update...",
+        onPress: () => DLZMOD_askUpdate(DLZMOD_updatePending()),
+      });
+      this.syncInstall();
+    },
+    syncInstall: function () {
+      const p = DLZMOD_updatePending();
+      this.install.setVisible(!!p && !p.approved && !!(DLZMOD_setUpdateStatus.s || {}).local);
+    },
     paint: function (t) {
       DLZMOD_paintPanel(this, t, DLZMOD_tabLabel(), DLZMOD_yellow(), Font.font(600, "24pt"));
       t.drawText("Unofficial mod for the Mackie DLZ Creator", this.w / 2 | 0, 70,
         { color: "#888888", font: Font.font(500, "12pt"), align: "center", valign: "middle" });
       const max = this.w - 56;
       DLZMOD_paintRow(t, 28, 136, "Version", DLZMOD_installed(), max);
-      const failed = DLZMOD_updateFailed();
-      DLZMOD_paintRow(t, 28, 206, "Updates",
-        failed || "Copy the update's .tar and .sig to DLZDATA/dlzmod-update", max, failed ? Color.red2 : null);
+      const [text, color] = DLZMOD_updateRow();
+      DLZMOD_paintRow(t, 28, 206, "Updates", text, max, color);
       t.drawText("by Oulsen · github.com/Oulsen/DLZ-Creator-Modded", this.w / 2 | 0, this.h - 24,
         { color: "#666666", font: Font.font(500, "12pt"), align: "center", max: max });
     },
