@@ -691,7 +691,8 @@ function DLZMOD_netResult(r) {
   }
 }
 
-// Remote Control (#45): phones, tablets and computers in a web browser, run by the server mod
+// Remote Control (#45): a computer's web browser (phones and tablets: Mackie's web UI does not fit
+// them and misses touches yet, #52), run by the server mod
 // (DLZMOD_pair* in dlzmod-server.js). Off by default; on shows a PIN that pairs one device (then a
 // new one shows). The state comes with the Network status (pair: {on, pin, devices, wait, ips}),
 // which the server sends only to this screen; nothing of it is a hub key.
@@ -770,7 +771,7 @@ function DLZMOD_pairPanel(parent, x, y, w) {
       DLZMOD_paintPanel(this, t, "Remote Control", Color.white, Font.font(500, "20pt"));
       const s = DLZMOD_netState(), p = s.pair, max = this.w - 48;
       DLZMOD_paintRow(t, 24, this.on.geomCenterY(), "Control from other devices",
-        "Phones, tablets and computers on the same network, in a web browser", this.w - 24 - 120);
+        "A computer on the same network, in a web browser", this.w - 24 - 120);
       const warn = { color: Color.red2, font: Font.font(500, "12pt"), align: "left", valign: "middle", max: max };
       t.drawText("A paired device can change every setting and delete recordings, presets and snapshots.", 24, 140, warn);
       t.drawText("Only on a network you trust: the connection is not encrypted.", 24, 160, warn);
@@ -799,7 +800,7 @@ function DLZMOD_confirmPair() {
   if (page) page.pair.update();
   new PopupConfirm(app, {
     title: "Control from other devices",
-    text: "Phones, tablets and computers on this network can control\nthe mixer after entering the PIN shown here.\nOnly on a network you trust.",
+    text: "Computers on this network can control the mixer\nin a web browser after entering the PIN shown here.\nOnly on a network you trust.",
     buttons: [{ text: "Turn on", colors: [Color.deny, Color.red] }, { text: lang.CANCEL }],
     icon: $FA.exclamation,
     func: () => {

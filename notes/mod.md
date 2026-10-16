@@ -39,8 +39,12 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
   - deleting and renaming (recordings, presets, snapshots): from the screen, and from devices paired
     with the PIN (#48, `DLZMOD_PAIRED_FILES`); for those, recordings only inside the recordings
     folders (`DLZ_Creator_Recordings`, `DLZ_Creator_XS_Recordings`) on the SD card or the USB stick
-  - loading samples from a path and formatting the USB stick: only from the screen
-    (`DLZMOD_SCREEN_ONLY`)
+  - loading samples from a path, formatting the USB stick, a factory reset (`FACTORY_RESET`,
+    `RESET`) and restarting the screen (`RESTART_GUI`): only from the screen (`DLZMOD_SCREEN_ONLY`).
+    `RESTART_GUI` runs `systemctl restart evolve-app`; `evolve-app.service` has `Restart=always` and
+    systemd's default start limit (5 in 10 s), so a few in a row leave the screen dark until a power
+    cycle [static]
+  - the System Lock PIN (key `lock`): set, changed or removed only from the screen
   - for everyone: preset folders only Mackie's own (`ch comp del ds eq gate rev snaps`), and names
     plain names (no `/`, `\`, NUL, `.` or `..`) where stock uses them raw; saving keeps stock's own
     clean-up, so "AC/DC" and "Vocals..." still save
@@ -82,7 +86,8 @@ Sub-tabs Display / Network / Remote Control / Mod; layout and how to add a setti
   wrapping the LR fader's `paint`); off = Mackie's plain meters. The scale is dB-linear over 80 dB with
   0 dBFS at the top [device: test tones at -6 and -30 dBFS].
 - **Network** (#12, #44): Wi-Fi and SSH, below.
-- **Remote Control** (#45, #48): control from phones, tablets and computers, off by default; below.
+- **Remote Control** (#45, #48): control from a computer's web browser, off by default; below (phones
+  and tablets: Mackie's web UI does not fit them and misses touches, #52).
 - **Mod**: version, update status, credits.
 
 ## Network panel: Wi-Fi and SSH
@@ -148,8 +153,8 @@ sandbox, not yet on the mixer]:
   is often on camera). A browser without a pairing gets the mod's PIN page;
   the right PIN sets a random 32-byte token as cookie `dlzmod_pair` (`HttpOnly`, `SameSite=Strict`,
   400 days). A random PIN pairs one device: a new PIN shows after each pairing. Or the owner's own
-  PIN ("Own PIN...", 6 digits; one digit six times and straight runs like 123456 or 987654 are
-  refused): it stays, for pairing several devices without the screen, until "Random PIN", a new own
+  PIN ("Own PIN...", 6 digits; at most two different digits, straight runs like 123456 or 987654,
+  repeated blocks like 123123 and doubled digits like 112233 are refused): it stays, for pairing several devices without the screen, until "Random PIN", a new own
   PIN or switching off. Wrong PINs, counted for all devices together: after 5 a pause of 60 s,
   doubling up to 15 min, on the panel too.
 - **Paired**: the browser loads only the UI's own files (`/`, `index.html`, `app.js`, `style.css`,
@@ -164,15 +169,26 @@ sandbox, not yet on the mixer]:
   drops an own PIN (on again starts random); Forget makes a random PIN new and keeps an own one (the
   popup says to change it if others know it).
 - **On the card**: `/var/lib/dlzmod-remote/state.json` (folder 700, file 600, durable write): on, the
-  PIN, whether it is the owner's own, and the sha256 of each token (at most 16). An update keeps it. The PIN goes only to the screen
-  (the Network status), never into a hub key or a log line.
+  PIN, whether it is the owner's own, and the sha256 of each token (at most 16: the 17th pairing
+  drops the oldest). An update keeps it. The PIN goes only to the screen (the Network status), never
+  into a hub key or a log line. Every change goes to the card first and into memory after
+  (`DLZMOD_pairCommit`): a change that opens up (on, a pairing, an own PIN) only happens once saved;
+  off and Forget hold in memory at once, and when the card cannot save them the file is removed (no
+  file = off at the next start); if even that fails the screen says the devices may come back after
+  a restart.
 - **Port 89** listens on 127.0.0.1 and ::1 only (`DLZMOD_listen89`): its only client is the screen.
   That also ends the unbounded line buffer there as a network problem.
-- **Accepted**: plain HTTP, so a token can be sniffed on the same network (the panel says "only on a
-  network you trust"); a paired device gets the whole live state over socket.io, as stock's browser UI
-  needs it (the System Lock PIN included); stock's preset and snapshot commands have no size or count
-  limit, also for paired devices; someone on the network can keep the pairing paused with wrong PINs
-  (15 min at most per round).
+- **For a computer, not yet for phones and tablets**: Mackie's web UI does not fit a phone and misses
+  touches (#52); the PIN page itself works on a phone.
+- **Accepted** (device review of v0.2.0): plain HTTP, so a token can be sniffed on the same network
+  and replayed for its 400 days (the panel says "only on a network you trust"); a paired device gets
+  the whole live state over socket.io, as stock's browser UI needs it (the System Lock PIN included,
+  read only); stock's preset and snapshot commands have no size or count limit, also for paired
+  devices; someone on the network can keep the pairing paused with wrong PINs (15 min at most per
+  round; paired devices keep working); the #48 path check is textual, so a symlink in a recordings
+  folder on an ext4 USB stick could point a paired device's delete elsewhere on the card (needs
+  physical access; FAT and exFAT have no symlinks; the screen could do so before); the ::1 listener on
+  port 89 is not retried when it fails to bind (the kernel has IPv6, `/etc/hosts` maps ::1).
 
 ## The card gate (`dlzmod-cardcheck`)
 

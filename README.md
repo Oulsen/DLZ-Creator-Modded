@@ -12,7 +12,8 @@ Alpha, at your own risk: read [DISCLAIMER.md](DISCLAIMER.md) first.
 - **Screen**: the header bar can be hidden for more room; a "DLZ Creator Modded" tab in Settings;
   its own startup screens and a startup log for bug reports
 - **Network**: Wi-Fi from the screen (with a USB Wi-Fi stick), remote login (SSH), and control from
-  phones, tablets and computers in a web browser after pairing with a PIN; all off by default
+  a computer's web browser after pairing with a PIN (phones and tablets not yet,
+  [#52](https://github.com/Oulsen/DLZ-Creator-Modded/issues/52)); all off by default
 - **Safety**: no firmware updates from the card, the mixer's internal storage is never changed
 - **Updates** of the mod without losing recordings or settings
 - **Fixes for stock bugs**: the recording crash after take 9,999; new recordings overwriting old

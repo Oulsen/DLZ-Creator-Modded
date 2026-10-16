@@ -226,11 +226,13 @@ function DLZMOD_isLocal(address) {
 // - deleting and renaming (recordings, presets, snapshots): from the mixer's own screen (the
 //   dlzmodLocal stamp) and from paired devices (dlzmodPaired, #48), recordings only inside the
 //   recordings folders
-// - loading samples from a path and formatting the USB stick: only from the mixer's own screen
+// - loading samples from a path, formatting the USB stick, a factory reset and restarting the screen
+//   (RESTART_GUI: a few in a row run evolve-app into systemd's start limit, the screen stays dark
+//   until a power cycle): only from the mixer's own screen
 // - for everyone: preset folders only Mackie's own, names only plain names (no folder in them)
 // - from other devices: a track to play only from the SD card or the USB stick
 const DLZMOD_SCREEN_ONLY = ["MEDIA_DELETE", "MEDIA_RENAME", "PRESET_DELETE", "PRESET_RENAME", "SNAP_DELETE",
-  "SNAP_RENAME", "SAMPLE_LOAD", "SAMPLE_PREVIEW_START", "FORMAT_USB"];
+  "SNAP_RENAME", "SAMPLE_LOAD", "SAMPLE_PREVIEW_START", "FORMAT_USB", "FACTORY_RESET", "RESET", "RESTART_GUI"];
 const DLZMOD_PAIRED_FILES = ["MEDIA_DELETE", "MEDIA_RENAME", "PRESET_DELETE", "PRESET_RENAME", "SNAP_DELETE", "SNAP_RENAME"];
 // server.js's recordings folders (full-size, XS), on the SD card and the USB stick
 const DLZMOD_REC_DIRS = ["DLZ_Creator_Recordings", "DLZ_Creator_XS_Recordings"];
@@ -292,12 +294,14 @@ function DLZMOD_cmdAllowed(handlers, cmd, args, send, roots) {
 }
 
 // plain key/value messages (stock stores and relays every key): no prototype keys; keys with a file
-// path dspserver opens or records to only from the screen; track names (multitrack file names) from
-// other devices plain
+// path dspserver opens or records to only from the screen; the System Lock PIN (`lock`: setting,
+// changing or removing it) only from the screen (#45: other devices still receive it, Mackie's web
+// UI needs it for its own lock screen); track names (multitrack file names) from other devices plain
 function DLZMOD_keyAllowed(key, value, send) {
   if (key === "__proto__" || key === "constructor" || key === "prototype") return false;
   const local = !!(send && send.dlzmodLocal === true);
   if (!local && /(^|\.)(file|recFile|currentFileName)$/i.test(key)) return false;
+  if (!local && key === "lock") return false;
   // from other devices only: the screen keeps stock's names ("Mic 1/2" typed on the mixer stays as is)
   if (!local && /^[ip]\.[^.]+\.name$/.test(key) && typeof value === "string" && value !== "" && !DLZMOD_plainName(value)) {
     return false;
@@ -373,14 +377,42 @@ function DLZMOD_pair() {
   return p;
 }
 
-function DLZMOD_pairSave(p) {
+function DLZMOD_pairSave(dir, s) {
   try {
-    require("fs").mkdirSync(p.dir, { recursive: true, mode: 0o700 });
-    DLZMOD_writeDurable(p.dir + "/state.json", JSON.stringify({ on: p.on, pin: p.pin, own: p.own, tokens: p.tokens }) + "\n", 0o600);
+    require("fs").mkdirSync(dir, { recursive: true, mode: 0o700 });
+    DLZMOD_writeDurable(dir + "/state.json", JSON.stringify({ on: s.on, pin: s.pin, own: s.own, tokens: s.tokens }) + "\n", 0o600);
     return true;
   } catch (e) {
     console.error("dlzmod: pairing state not saved:", e.message);
     return false;
+  }
+}
+
+// a change of {on, pin, own, tokens}: to the card first, into memory after, so the card never says
+// more than memory (after a restart the card counts). safer (off, forget): in memory even when the
+// card cannot take it; then the file goes (no file = off at the next start). Returns "saved",
+// "removed" (off now, the file is gone) or "" (not saved: an opening change did not happen; a safer
+// one holds until a restart only)
+function DLZMOD_pairCommit(next, safer) {
+  const p = DLZMOD_pair();
+  if (DLZMOD_pairSave(p.dir, next)) {
+    Object.assign(p, next);
+    return "saved";
+  }
+  if (!safer) return "";
+  try {
+    require("fs").unlinkSync(p.dir + "/state.json");
+    DLZMOD_syncDir(p.dir);
+    Object.assign(p, { on: false, pin: "", own: false, tokens: [] });
+    return "removed";
+  } catch (e) {
+    if (e.code === "ENOENT") {
+      Object.assign(p, { on: false, pin: "", own: false, tokens: [] });
+      return "removed";
+    }
+    console.error("dlzmod: pairing state not removed:", e.message);
+    Object.assign(p, next);
+    return "";
   }
 }
 
@@ -424,46 +456,47 @@ function DLZMOD_pairTry(pin, now = Date.now()) {
     }
     return { ok: false, wait: now < p.until ? Math.ceil((p.until - now) / 1000) : 0 };
   }
+  const token = crypto.randomBytes(32).toString("hex");
+  // a pairing the card did not take is not given out (it would be gone after a restart)
+  if (!DLZMOD_pairCommit({ on: true, pin: p.own ? p.pin : DLZMOD_newPin(), own: p.own,
+    tokens: p.tokens.concat(DLZMOD_pairHash(token)).slice(-16) }, false)) return { ok: false, wait: 0, failed: true };
   p.fails = 0;
   p.pauses = 0;
-  const token = crypto.randomBytes(32).toString("hex");
-  p.tokens = p.tokens.concat(DLZMOD_pairHash(token)).slice(-16);
-  if (!p.own) p.pin = DLZMOD_newPin();
-  DLZMOD_pairSave(p);
   console.log("dlzmod: a device was paired");
   return { ok: true, token: token };
 }
 
-// on: a new random PIN, no devices yet; off: PIN (an own one too) and devices gone. Either way
-// paired connections drop.
+// on: a new random PIN, no devices yet; off: PIN (an own one too) and devices gone; off drops paired
+// connections right away. DLZMOD_pairCommit's answer
 function DLZMOD_pairSet(on) {
   const p = DLZMOD_pair();
-  p.on = !!on;
-  p.pin = p.on ? DLZMOD_newPin() : "";
-  p.own = false;
-  p.tokens = [];
-  p.fails = 0;
-  p.pauses = 0;
-  p.until = 0;
-  DLZMOD_pairDrop();
-  return DLZMOD_pairSave(p);
+  const r = DLZMOD_pairCommit(on ? { on: true, pin: DLZMOD_newPin(), own: false, tokens: [] }
+    : { on: false, pin: "", own: false, tokens: [] }, !on);
+  if (r || !on) {
+    p.fails = 0;
+    p.pauses = 0;
+    p.until = 0;
+    DLZMOD_pairDrop();
+  }
+  return r;
 }
 
 // "Forget all devices": a random PIN is new as well (it may have been seen); an own PIN stays
-// (the owner changes it when it has leaked)
+// (the owner changes it when it has leaked). Paired connections drop. DLZMOD_pairCommit's answer
 function DLZMOD_pairForget() {
   const p = DLZMOD_pair();
-  if (!p.on) return true;
-  if (!p.own) p.pin = DLZMOD_newPin();
-  p.tokens = [];
+  if (!p.on) return "saved";
+  const r = DLZMOD_pairCommit({ on: true, pin: p.own ? p.pin : DLZMOD_newPin(), own: p.own, tokens: [] }, true);
   DLZMOD_pairDrop();
-  return DLZMOD_pairSave(p);
+  return r;
 }
 
-// an own PIN the first guesses would find: one digit six times, or a straight run up or down
-// (123456, 987654, 012345)
+// an own PIN the first guesses would find: at most two different digits (000000, 121212, 112211),
+// a straight run up or down (123456, 987654, 012345), a repeated block (123123, 120120) or three
+// doubled digits (112233)
 function DLZMOD_pinWeak(pin) {
-  if (/^(\d)\1{5}$/.test(pin)) return true;
+  if (new Set(pin).size <= 2) return true;
+  if (/^(\d{3})\1$/.test(pin) || /^(\d)\1(\d)\2(\d)\3$/.test(pin)) return true;
   const d = [...pin].map(Number);
   const steps = new Set(d.slice(1).map((v, i) => v - d[i]));
   return steps.size === 1 && (steps.has(1) || steps.has(-1));
@@ -474,16 +507,13 @@ function DLZMOD_pinWeak(pin) {
 function DLZMOD_pairSetPin(pin) {
   const p = DLZMOD_pair();
   if (!p.on) return "Turn control from other devices on first";
-  if (pin === "") {
-    p.pin = DLZMOD_newPin();
-    p.own = false;
-  } else {
+  if (pin !== "") {
     if (typeof pin !== "string" || !/^\d{6}$/.test(pin)) return "A PIN has 6 digits";
     if (DLZMOD_pinWeak(pin)) return "Too easy to guess.\nPick another PIN.";
-    p.pin = pin;
-    p.own = true;
   }
-  return DLZMOD_pairSave(p) ? "" : "Could not save the PIN";
+  const own = pin !== "";
+  return DLZMOD_pairCommit({ on: true, pin: own ? pin : DLZMOD_newPin(), own: own, tokens: p.tokens }, false)
+    ? "" : "Could not save the PIN";
 }
 
 // for the screen only (DLZMOD_net's status): never sent to another device
@@ -605,6 +635,7 @@ function DLZMOD_pairPost(req, res) {
       return res.end();
     }
     if (r.off) return DLZMOD_remotePage(res, 403, "Control from other devices is off.");
+    if (r.failed) return DLZMOD_remotePage(res, 503, "The mixer could not save the pairing. Try again.", true);
     DLZMOD_remotePage(res, 200, r.wait ? "Too many wrong PINs. Try again in " + r.wait + " seconds." : "Wrong PIN, try again.", true);
   });
 }
@@ -896,14 +927,19 @@ async function DLZMOD_net(args, send, opts = {}) {
         DLZMOD_net.sshBusy = a.on ? "on" : "off";
         await DLZMOD_sshSet(a, run, result, opts.sshdDir, paths);
       } else if (a.op === "sshKeep") await DLZMOD_sshKeep(a, run, result, paths);
-      else if (a.op === "pair") {
-        const ok = DLZMOD_pairSet(!!a.on);
-        result(ok, !ok ? "Could not save the setting" : a.on ? "Control from other devices is on"
-          : "Control from other devices is off.\nAll devices are forgotten.");
+      else if (a.op === "pair" && a.on) {
+        const r = DLZMOD_pairSet(true);
+        result(!!r, r ? "Control from other devices is on" : "Could not save the setting");
+      } else if (a.op === "pair") {
+        const r = DLZMOD_pairSet(false);
+        result(!!r, r ? "Control from other devices is off.\nAll devices are forgotten."
+          : "Off now, but the card could not save it:\npaired devices may come back after a restart.");
       } else if (a.op === "pairForget") {
-        const ok = DLZMOD_pairForget();
-        result(ok, !ok ? "Could not save the setting" : DLZMOD_pair().own
-          ? "All devices are forgotten.\nYour own PIN stays." : "All devices are forgotten.\nThe PIN is new.");
+        const r = DLZMOD_pairForget();
+        result(r === "saved", r === "removed"
+          ? "All devices are forgotten.\nThe card could not save the setting, so control\nfrom other devices is off."
+          : !r ? "Forgotten now, but the card could not save it:\nthey may come back after a restart."
+          : DLZMOD_pair().own ? "All devices are forgotten.\nYour own PIN stays." : "All devices are forgotten.\nThe PIN is new.");
       } else if (a.op === "pairPin") {
         const pin = typeof a.pin === "string" ? a.pin.trim() : "";
         const why = DLZMOD_pairSetPin(pin);

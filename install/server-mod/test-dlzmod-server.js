@@ -563,7 +563,7 @@ test("net: from another device on the network only the status, nothing changed o
 const { DLZMOD_cmdAllowed: cmdOk, DLZMOD_keyAllowed: keyOk, DLZMOD_inMedia: inMedia, DLZMOD_noOrig: noOrig } = ctx;
 const HANDLERS = Object.fromEntries(["MEDIA_DELETE", "MEDIA_RENAME", "MEDIA_SWITCH_TRACK", "MEDIA_DIR", "PRESET_WRITE",
   "PRESET_READ", "PRESET_LIST", "PRESET_DELETE", "PRESET_RENAME", "SNAP_SAVE", "SNAP_LOAD", "SNAP_DELETE", "SNAP_RENAME",
-  "SAMPLE_LOAD", "SAMPLE_PREVIEW_START", "FORMAT_USB", "REC_START", "DLZMOD_NET"].map((c) => [c, () => {}]));
+  "SAMPLE_LOAD", "SAMPLE_PREVIEW_START", "FORMAT_USB", "REC_START", "DLZMOD_NET", "FACTORY_RESET", "RESET", "RESTART_GUI"].map((c) => [c, () => {}]));
 const ROOTS = ["/media/sd", "-"];
 const SCREEN = local(() => {}), PHONE = () => {};
 test("files: the screen keeps every file command, with names as stock uses them", () => {
@@ -732,7 +732,7 @@ test("pairing: off on a fresh card; the mixer itself always gets in, other devic
 });
 test("pairing: the right PIN gives a token once; the PIN changes after each pairing", () => {
   const dir = pairIn("pin");
-  assert.strictEqual(pairSet(true), true);
+  assert.strictEqual(pairSet(true), "saved");
   const pin = pairStatus().pin;
   assert.match(pin, /^\d{6}$/);
   const r = pairTry(" " + pin + " ");
@@ -799,7 +799,7 @@ test("pairing: off and Forget all devices end every pairing and drop paired conn
   const s1 = fakeSocket("192.168.1.50", { cookie: cookie(t1) });
   assert.strictEqual(admit(s1, {}), true);
   const pin = pairStatus().pin;
-  assert.strictEqual(pairForget(), true);
+  assert.strictEqual(pairForget(), "saved");
   assert.strictEqual(s1.dropped, 1, "connection dropped");
   assert.ok(!pairValid(cookie(t1)) && !pairValid(cookie(t2)));
   assert.notStrictEqual(pairStatus().pin, pin, "a new PIN");
@@ -807,11 +807,11 @@ test("pairing: off and Forget all devices end every pairing and drop paired conn
   const t3 = pairOne();
   const s2 = fakeSocket("192.168.1.51", { cookie: cookie(t3) });
   admit(s2, {});
-  assert.strictEqual(pairSet(false), true);
+  assert.strictEqual(pairSet(false), "saved");
   assert.strictEqual(s2.dropped, 1);
   assert.strictEqual(pairStatus().pin, "");
   assert.strictEqual(allowed(handshake("192.168.1.51", { cookie: cookie(t3) })), false);
-  assert.strictEqual(pairSet(true), true);
+  assert.strictEqual(pairSet(true), "saved");
   assert.strictEqual(allowed(handshake("192.168.1.51", { cookie: cookie(t3) })), false, "on again: paired anew");
 });
 test("pairing: socket.io from other devices only paired and from the mixer's own page", () => {
@@ -845,11 +845,11 @@ test("pairing: an own PIN pairs several devices, stays until changed or switched
   const { DLZMOD_pairSetPin: setPin, DLZMOD_pinWeak: weak } = ctx;
   assert.strictEqual(setPin("482915"), "Turn control from other devices on first");
   pairSet(true);
-  for (const w of ["000000", "999999", "123456", "234567", "456789", "012345", "987654", "654321", "543210"]) {
+  for (const w of ["000000", "999999", "123456", "234567", "456789", "012345", "987654", "654321", "543210", "121212", "112233", "696969", "123123", "120120", "100001"]) {
     assert.ok(weak(w), w);
     assert.strictEqual(setPin(w), "Too easy to guess.\nPick another PIN.", w);
   }
-  for (const ok of ["482915", "121212", "135790", "123457", "112233"]) assert.ok(!weak(ok), ok);
+  for (const ok of ["482915", "135790", "123457", "120934", "855777"]) assert.ok(!weak(ok), ok);
   for (const bad of ["12345", "1234567", "48291a", " 48291", undefined, 482915]) assert.strictEqual(setPin(bad), "A PIN has 6 digits", String(bad));
   const t1 = pairOne();
   assert.strictEqual(setPin("482915"), "");
@@ -863,7 +863,7 @@ test("pairing: an own PIN pairs several devices, stays until changed or switched
   ctx.DLZMOD_pairDir = () => dir + "-x";
   ctx.DLZMOD_pairDir = () => dir;   // read again, as after a restart
   assert.strictEqual(pairStatus().own, true);
-  assert.strictEqual(pairForget(), true);
+  assert.strictEqual(pairForget(), "saved");
   assert.ok(!pairValid(cookie(t2)));
   assert.strictEqual(pairStatus().pin, "482915", "Forget keeps an own PIN");
   const s1 = [];
@@ -884,6 +884,55 @@ test("pairing: an own PIN pairs several devices, stays until changed or switched
   pairSet(true);
   assert.strictEqual(pairStatus().own, false, "off forgets an own PIN");
   assert.notStrictEqual(pairStatus().pin, "482915");
+});
+test("pairing: a card that cannot save never ends up more open after a restart than the screen says", async () => {
+  const dir = pairIn("nosave");
+  const restart = () => {
+    ctx.DLZMOD_pairDir = () => dir + "-elsewhere";
+    pairState();
+    ctx.DLZMOD_pairDir = () => dir;
+  };
+  // a folder where the temp file goes: every save fails, as on a full or read-only card
+  const block = () => fs.mkdirSync(path.join(dir, "state.json.dlzmod-new"));
+  const unblock = () => fs.rmdirSync(path.join(dir, "state.json.dlzmod-new"));
+  block();
+  assert.strictEqual(pairSet(true), "", "on is not saved");
+  assert.strictEqual(pairStatus().on, false, "so it stays off");
+  unblock();
+  pairSet(true);
+  const token = pairOne(), pin = pairStatus().pin;
+  block();
+  assert.deepStrictEqual(plain(pairTry(pin)), { ok: false, wait: 0, failed: true }, "a pairing the card did not take");
+  assert.strictEqual(pairStatus().pin, pin, "the PIN stays usable");
+  assert.strictEqual(ctx.DLZMOD_pairSetPin("482915"), "Could not save the PIN");
+  assert.strictEqual(pairStatus().own, false);
+  const sock = fakeSocket("192.168.1.50", { cookie: cookie(token) });
+  admit(sock, {});
+  assert.strictEqual(pairForget(), "removed", "Forget not saved: the file goes, so off");
+  assert.strictEqual(sock.dropped, 1);
+  assert.strictEqual(pairStatus().on, false);
+  restart();
+  assert.ok(!pairValid(cookie(token)) && pairStatus().on === false, "after a restart: off, the device forgotten");
+  unblock();
+  pairSet(true);
+  const t2 = pairOne();
+  block();
+  assert.strictEqual(pairSet(false), "removed", "off not saved: the file goes");
+  restart();
+  assert.ok(!pairValid(cookie(t2)) && pairStatus().on === false, "after a restart: off");
+  unblock();
+  pairSet(true);
+  pairOne();
+  // neither saved nor removed (the state file cannot go): off holds in memory, and the screen says so
+  fs.unlinkSync(path.join(dir, "state.json"));
+  fs.mkdirSync(path.join(dir, "state.json", "x"), { recursive: true });
+  block();
+  assert.strictEqual(pairSet(false), "");
+  assert.strictEqual(pairStatus().on, false, "off in memory all the same");
+  const s1 = [];
+  await net({ op: "pair", on: false }, sendTo(s1), fakeNet());
+  assert.deepStrictEqual(result(s1), [{ ok: false,
+    text: "Off now, but the card could not save it:\npaired devices may come back after a restart." }]);
 });
 // express-like request and response for the HTTP gate
 const httpReq = (address, p, o = {}) => Object.assign(new (require("events"))(), { socket: { remoteAddress: address }, path: p,
@@ -990,6 +1039,17 @@ test("files: a paired device deletes and renames recordings, presets and snapsho
     ["SNAP_DELETE", { name: "Show 1" }], ["SNAP_RENAME", { name: "Show 1", newName: "Show 2" }]]) {
     assert.strictEqual(cmdOk(HANDLERS, cmd, args, PAIRED, ROOTS), "", cmd + " " + JSON.stringify(args));
   }
+});
+test("pairing: factory reset, restarting the screen and the System Lock PIN only from the mixer's screen", () => {
+  for (const cmd of ["FACTORY_RESET", "RESET", "RESTART_GUI"]) {
+    assert.strictEqual(cmdOk(HANDLERS, cmd, {}, PAIRED, ROOTS), "only on the mixer's own screen", cmd + " from a paired device");
+    assert.strictEqual(cmdOk(HANDLERS, cmd, {}, SCREEN, ROOTS), "", cmd + " from the screen");
+  }
+  for (const v of ["1234", "", 0, null]) {
+    assert.ok(!keyOk("lock", v, PAIRED), "a paired device cannot set or remove the lock PIN: " + JSON.stringify(v));
+    assert.ok(keyOk("lock", v, SCREEN), "the screen can: " + JSON.stringify(v));
+  }
+  assert.ok(keyOk("i.0.lock", 1, PAIRED), "a channel's lock (mute groups) is another key");
 });
 test("files: a paired device changes nothing outside those folders, and no sample paths or formatting", () => {
   for (const p of ["sd:/notes.txt", "sd:/DLZ_Creator_XS_Recordings", "sd:/DLZ_Creator_XS_Recordings/", "sd:/",
