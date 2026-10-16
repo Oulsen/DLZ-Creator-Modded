@@ -63,10 +63,13 @@ likely FEL (unconfirmed, [hardware.md](hardware.md)).
 ## Version and boot visuals
 
 - `VERSION` (repo root) is the mod version: `vMAJOR.MINOR.PATCH`, max `v9.99.99` (enforced by
-  `install/modversion.py`; longer strings collide with the logo on the boot screens). Bump it only when
-  functionality is added or changed, not for cosmetic tweaks; it shows on the kernel splash, the
-  Weston background and the Settings → DLZ Creator Modded page. Always write the full form
+  `install/modversion.py`; longer strings collide with the logo on the installer's screens). Bump it
+  only when functionality is added or changed, not for cosmetic tweaks; it shows on the installer's
+  screens, the Settings → DLZ Creator Modded page and the update popup. Always write the full form
   (`v0.1.0`, not `v0.1`).
+- **Not on the card's start screens** (kernel splash, Weston background; #97): those are made only
+  when a card is built, and a drop-in update cannot change them (`notes/updates.md`, "Drop-in
+  update"), so an updated card would keep showing the version it was installed with.
 - What each version changed: [CHANGELOG.md](../CHANGELOG.md).
 - `build-sd.sh` regenerates both boot images from the image's own originals on every build, in two
   steps: `mklayers.py` renders our parts (one shared layout for both images, Pillow, PC only) and
@@ -169,7 +172,7 @@ bash $B/install/build-sd.sh /root/dlz/orig.img $B/build/dlz-sd-$(cat $B/VERSION)
 
 Name images after the version (`build/dlz-sd-v0.1.0.img`), never a generic `sd.img`: balenaEtcher
 remembers the last file, so an unversioned name makes it easy to flash an old build. Check
-the version on the boot screen and the Mod page before testing. An older version is rebuilt from a
+the version on the Mod page before testing. An older version is rebuilt from a
 detached worktree of its commit (`git worktree add --detach build/wt-vX.Y.Z <commit>`) with that
 worktree's own `install/build-sd.sh`.
 

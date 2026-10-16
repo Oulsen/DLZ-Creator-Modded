@@ -1,5 +1,6 @@
-"""Render our MODDED sticker with the version under it, as on the boot screens (mklayers.py; no
-Mackie logo), for the installer screens. ui.py has no Pillow on the device, so it gets ready pixels.
+"""Render our MODDED sticker with the version under it, laid out as the sticker on the card's start
+screens (mklayers.py, which no longer draws the version there, #97; no Mackie logo), for the installer
+screens: an installer image is always made fresh, so its version is always right. ui.py has no Pillow on the device, so it gets ready pixels.
 
 Format: b"DLZL1\\n", one JSON line {"sizes": [{"for_h": screen height, "w", "h", "offset"}, ...]},
 then per size w*h pixels BGRX (straight on the black screen background), row-major.

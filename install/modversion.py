@@ -1,8 +1,9 @@
-"""The mod version, from the VERSION file in the repo root (shown on the boot screens and in Settings).
+"""The mod version, from the VERSION file in the repo root (shown on the installer's screens and in
+Settings; not on the card's start screens, #97).
 
 Format vMAJOR.MINOR.PATCH with a one-digit major and at most two-digit minor/patch (v0.1.0 .. v9.99.99):
-on the boot screens the version sits tilted under the MODDED sticker, and anything longer runs into
-the logo's "Z".
+on the installer's screens the version sits tilted under the MODDED sticker, and anything longer runs
+into the logo's "Z".
 """
 import re
 from pathlib import Path
