@@ -753,9 +753,11 @@ function DLZMOD_pairPanel(parent, x, y, w) {
       this.showPin = new E1Button(this, {
         anchors: [w - 24 - 200 - 12 - 200, 210], size: [200, 56], text: "Show PIN",
         onPress: () => this.revealPin(!this.shown),
+        // enabled, never hidden: Mackie's widgets only run getState while visible, so a button that
+        // hides itself here stays hidden after the switch goes on [device]
         getState: function () {
           const p = DLZMOD_netState().pair;
-          this.visible = !!(p && p.on);
+          this.enabled = !!(p && p.on);
           this.text = this.parent.shown ? "Hide PIN" : "Show PIN";
         },
       });

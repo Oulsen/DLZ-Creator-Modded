@@ -284,6 +284,12 @@ Useful service restarts:
 
 ## Things that will bite you
 
+- **A widget that hides itself in `getState` never comes back.** Mackie's `internalUpdate` runs
+  `getState` only while the widget is visible, so `this.visible = ...` there works for the state the
+  page was built in and not after a change (the "Show PIN" button stayed away after Remote Control was
+  switched on) [device]. Toggle `enabled` in `getState`, or call `setVisible` from code that runs
+  anyway (the panel's paint, a `Data.regWidget` callback). The sandbox only shows it when the test
+  starts in the other state.
 - **The mixer is switched off by cutting the power**, and the card's root is ext4 in writeback mode
   with `commit=10`: anything mod code writes is lost (or left empty after a rename) when the mixer is
   switched off within seconds. Flush every state file the moment it matters: write a temp file,
