@@ -117,9 +117,9 @@ rehearsal: `tests/update.sh` case 3a]:
   on the mixer's own screen" and no button.
 - **Install** sends `DLZMOD_UPDATE_APPROVE {sum}`, a screen-only command (`DLZMOD_SCREEN_ONLY` and its
   own check). The server writes the pending record to `approved` (temp file, fsync, rename, folder
-  fsync: the next thing the user does is cut the power) and answers: switch the mixer off and on with
-  the switch on the back; the update installs while the logo shows (about 15 s), then the popup
-  below says how it went.
+  fsync: the next thing the user does is cut the power) and answers "Ready to install vX.Y.Z. Switch
+  the mixer off and on."; the update installs while the logo shows (about 4 s of checks plus the
+  install [device]), then the popup below says how it went.
 - **Off and on, not a restart from software**: software restarts on the mod card often hang at the
   next start (#81, `notes/components/glesgui.md`), so the screen asks for the switch, as
   `dev/push.sh` does (#87).

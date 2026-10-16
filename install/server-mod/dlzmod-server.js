@@ -163,8 +163,7 @@ function DLZMOD_updateApprove(args, send, dir = "/var/lib/dlzmod-update") {
     return result(false, "The choice could not be saved on the card.\nTry again.");
   }
   console.log("dlzmod: update " + p.version + " approved on the screen");
-  result(true, "Now switch the mixer off and on\nwith the switch on the back.\n" + p.version +
-    " installs while the logo shows (about 15 s),\nthen a message says whether it worked.");
+  result(true, "Ready to install " + p.version + ".\nSwitch the mixer off and on.");
   reply("DLZMOD_UPDATE_STATUS", DLZMOD_updateStatusFrom(f, local));
 }
 

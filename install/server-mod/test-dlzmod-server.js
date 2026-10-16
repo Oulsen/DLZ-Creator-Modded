@@ -273,8 +273,7 @@ test("update approve: from the screen writes this record, flushed; then no more 
   assert.ok(!fs.existsSync(path.join(dir, "approved.dlzmod-new")));
   assert.deepStrictEqual(sent.map((m) => m.cmd), ["DLZMOD_UPDATE_APPROVED", "DLZMOD_UPDATE_STATUS"]);
   assert.strictEqual(sent[0].data.ok, true);
-  assert.match(sent[0].data.text, /switch the mixer off and on/);
-  assert.match(sent[0].data.text, /v0\.2\.0 \(dev-c0e3084\) installs/);
+  assert.strictEqual(sent[0].data.text, "Ready to install v0.2.0 (dev-c0e3084).\nSwitch the mixer off and on.");
   assert.strictEqual(sent[1].data.pending.approved, true);
   const again = [];
   noteSend(onScreen(again), dir);
