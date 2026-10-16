@@ -90,9 +90,10 @@ updater runs steps 2 and 3 (find, check) on a rehearsal tree and stops before st
 with `CHECKS PASSED` or the usual `NOT INSTALLED:` reason. Apart from the package's own
 `check-rootfs.sh`, which runs as in step 3 and only reads, it writes nothing outside its own temp
 files: no README or report on DLZDATA, the package stays, no start-up repair, the try records in a
-temp copy of the state folder (so every run checks afresh). It only starts with `DLZMOD_ROOT` (not `/`) and `DLZMOD_DATA` both set to folders; any
-other value of the flag stops it. On the mixer nothing sets it (the unit's environment is clean, the
-sandbox's is empty), and if something did, it would only stop sooner.
+temp copy of the state folder (so every run checks afresh). It only starts with `DLZMOD_ROOT` (not
+`/`) and `DLZMOD_DATA` both set to folders; any other value of the flag stops it. On the mixer
+nothing sets it (the unit's environment is clean, the sandbox's is empty), and if something did,
+the updater refuses it first thing ("Rehearsal settings" below).
 
 ### The popup after an update
 
@@ -142,21 +143,37 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   `srv/{app.js,server.js,srv_data.json}`, `var/lib/dlzmod-update/{version,installed}`,
   `usr/local/sbin/dlzmod-*`, `etc/udev/rules.d/*dlzmod*.rules`, `etc/systemd/system/dlzmod-*.service`,
   `ssh.socket`, the `dlzmod.conf` drop-ins of flash-gd32, flash-fpga, upgradedaemon, upgraderun,
-  dspserver and ssh, `dlzmod-*.service` links in `multi-user.target.wants`, only
-  `dlzmod-emmc-ro.service` in `sysinit.target.wants`, and `boot/boot.scr` (only as a U-Boot script
-  image). Also refused: names with a space, newline, quote or glob character; special files; wrongly
-  shaped links; units with `DefaultDependencies=no` (only the eMMC lock's own unit has it); udev rules
-  with `setrw` or `force_ro=0`; setuid, setgid, sticky or other-writable modes; a `boot.scr` that
-  writes the eMMC or the environment (`mmc write/erase`, `saveenv`, `gpt`, `ums`, `fastboot`, ...).
+  dspserver and ssh, `dlzmod-*.service` links in `multi-user.target.wants`, and only
+  `dlzmod-emmc-ro.service` in `sysinit.target.wants`. Not `boot/boot.scr` (below). Also refused: names
+  with a space, newline, quote or glob character; special files; wrongly shaped links; units with
+  `DefaultDependencies=no` (only the eMMC lock's own unit has it); udev rules with `setrw` or
+  `force_ro=0`; setuid, setgid, sticky or other-writable modes.
   A later version that needs a path outside this list needs a full install, or first an update that
   only brings the newer updater (its own list applies from the next update).
 - **The new updater copy** must keep the installed one's `GUARDS` list exactly and contain its gates
-  (signature check, the sandbox's uid, capability drop, user namespaces off, read-only remount, eMMC check,
-  allowlist, key check). A text check: it catches a mistake, not a hostile signer.
-- **`boot.scr`**: the card keeps Armbian's stock `boot.scr`; a signed later package may replace it
-  through the allowlist, atomically and in the snapshot. That is the door for later boot logic (a
-  boot flag, a boot counter) without shipping untested boot code now. U-Boot runs `boot.scr` before
-  any guard, so a signed one could write the eMMC: no worse than a signed root unit.
+  (signature check, the sandbox's uid, capability drop, user namespaces off, read-only remount, eMMC check, the refusal
+  of rehearsal settings on the card, allowlist, key check). A text check: it catches a mistake, not a
+  hostile signer. The strings are looked for outside the new copy's own gate block (that block lists
+  them all, so before #93 a check dropped from the code was still found there; v0.1.0 cards check
+  the update that brings this with their old copy), and a
+  copy without that block is refused [static; tests/update-checks.sh, also with the card's mawk].
+- **`boot.scr`**: the card keeps Armbian's stock `boot.scr`, and an update cannot place, change or
+  remove anything under `boot/` (nothing there is on the allowlist: `boot.scr`, `armbianEnv.txt`,
+  the kernel, initrd, DTBs and overlays it loads): a new one comes only with a full install, where
+  the installer is reviewed as a boot route. U-Boot runs `boot.scr` before any guard, and a text
+  check of a script cannot find every way it could write the eMMC or the PMIC (U-Boot's `mmc`,
+  `i2c`, `mw`, `fatwrite`, ...), so the updater no longer places it at all. Like the other checks
+  this stops a mistake, not a hostile signer: a signed root script could still rewrite `/boot` after
+  the start (the signature is the trust boundary). It holds from the second update on: the update
+  that brings this updater is still checked by the card's older one (whose list allowed
+  `boot.scr`; no package changes it). Later boot logic (a boot flag, a boot counter) needs a full
+  install, or first an update that brings an updater whose own list allows it. The snapshot still
+  covers `boot/boot.scr`, so a try that an older updater cut off is put back whole.
+- **Rehearsal settings** (`DLZMOD_ROOT`, `DLZMOD_DATA`, `DLZMOD_CHECK_ONLY`) skip the eMMC-lock
+  check: the updater refuses them first thing when `/` is on an SD card (the mixer's own system),
+  exit 2, nothing done [device: all three set by hand over SSH]. Where the root disk cannot be determined (a rehearsal chroot without `/sys`, a PC) it
+  lets them through: the rehearsals need that, and on the mixer the same lookup already finds the
+  card for the live path; the eMMC lock itself is a separate guard that runs first.
 - **What the eMMC lock is** [static, kernel 5.10 sources]: read-only blocks `write()` on the device
   node and read-write mounts, which is what a bug in our code or Mackie's would do; root can undo it
   (`blockdev --setrw`), and discard/zero-out ioctls and raw MMC commands may not check it. It protects
@@ -248,8 +265,8 @@ refused file is copied and hashed at every start until it is removed (a few seco
   using a stick (our files never look like a Mackie `.upd`); the download and check code gets a
   security review.
 - **Full update and undo** (#56), for what the drop-in cannot do (boot visuals, card layout):
-  "Install" on the Mod page sets a one-shot flag on DLZDATA and restarts; the card's `boot.scr` sees
-  it and boots the installer path (Mackie's kernel from the eMMC + the package's initramfs) in update
+  "Install" on the Mod page sets a one-shot flag on DLZDATA and restarts; the card's `boot.scr` (one
+  that comes with a full install: an update cannot change it) sees it and boots the installer path (Mackie's kernel from the eMMC + the package's initramfs) in update
   mode: rebuild the system partition from the eMMC, carry over the state (`srv_data.json`, presets,
   NDI config, Wi-Fi, SSH keys, mod settings), leave DLZDATA untouched. Undo: the previous package
   stays in `dlzmod-update/previous/`; "Revert" rebuilds with it; `boot.scr` counts start attempts on
