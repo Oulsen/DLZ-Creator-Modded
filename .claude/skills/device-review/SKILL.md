@@ -51,8 +51,11 @@ matching row wins. Tell the user which tier and why before starting.
 
 ## Procedure
 
-1. **Tests first**, on the build that will be flashed: the unit tests, `tests/guards.sh`, and the
-   rehearsals that cover the change (`tests/README.md`). Tier 1 ends here: report and go.
+1. **Tests first**, on the build that will be flashed: the unit tests, `tests/guards.sh`, the fast
+   checks for the change (`tests/README.md`, "Which checks for which change"), and card rehearsals
+   only for what the mixer must not be the first to try (failure, restore and power-cut paths, new
+   write paths, the brick angles); what a normal run on the mixer shows is tested there. Tier 1
+   ends here: report and go.
 2. **Prepare once** in `build/review/<build name>/` (git-ignored):
    - `diff.txt`: the diff against the last version that passed on the device, new files included
      (from Git Bash: WSL's git reads the Windows line endings of the notes as changes)
