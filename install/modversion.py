@@ -2,8 +2,9 @@
 Settings; not on the card's start screens, #97).
 
 Format vMAJOR.MINOR.PATCH with a one-digit major and at most two-digit minor/patch (v0.1.0 .. v9.99.99):
-on the installer's screens the version sits tilted under the MODDED sticker, and anything longer runs
-into the logo's "Z".
+the installer's screens show it tilted under the MODDED sticker, in the top right corner: a longer
+version widens that picture and shortens the screen's title line (the limit comes from the start
+screens' old layout, where it ran into the logo's "Z").
 """
 import re
 from pathlib import Path

@@ -116,7 +116,7 @@ mixer has no other way to switch off; this is normal.
 ## 4. After the install
 
 - **Switch on with the card in** to start DLZ Creator Modded. The start-up screens show the
-  **MODDED** sticker with the version.
+  **MODDED** sticker.
 - In **Settings** you find the mod's own page with its options and the version.
 - **The card stays in the mixer.** Taking it out and switching on starts the normal Mackie software.
 - **The card belongs to this mixer.** In another mixer (also another DLZ Creator of the same model) it

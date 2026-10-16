@@ -21,11 +21,12 @@ from mklayers import (BOX_H, BOX_W, STICKER_CX, STICKER_TOP, VERSION_RIGHT, VERS
                       _rotate_about, _sticker, _version)
 from modversion import VERSION_FILE, read_version  # noqa: E402
 
-SCALES = {600: 0.85, 480: 0.7}   # screen height -> scale (1.0 = the boot screens' size)
+SCALES = {600: 0.85, 480: 0.7}   # screen height -> scale (1.0 = the start screens' layout size)
 
 
 def group(version):
-    """Sticker + version at their boot-screen positions, on black, cropped to what is drawn."""
+    """Sticker + version at their positions in the start-screen layout (mklayers.py), on black,
+    cropped to what is drawn."""
     canvas = Image.new("RGB", (BOX_W, BOX_H), (0, 0, 0))
     st = _sticker()
     rot, _ = _rotate_about(st, (st.width / 2, st.height / 2))

@@ -63,7 +63,8 @@ likely FEL (unconfirmed, [hardware.md](hardware.md)).
 ## Version and boot visuals
 
 - `VERSION` (repo root) is the mod version: `vMAJOR.MINOR.PATCH`, max `v9.99.99` (enforced by
-  `install/modversion.py`; longer strings collide with the logo on the installer's screens). It is
+  `install/modversion.py`; a longer one widens the sticker picture on the installer's screens and
+  shortens their title line). It is
   bumped in `develop` right after a release ([updates.md](updates.md), "Versions and channels"), and
   a new version is released only when functionality is added or changed, not for cosmetic tweaks;
   it shows on the installer's screens, the Settings → DLZ Creator Modded page and the update popup.
