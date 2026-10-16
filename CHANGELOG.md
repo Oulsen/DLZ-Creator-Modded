@@ -3,6 +3,7 @@
 ## v0.2.0
 
 - (MOD FEATURE) Quicker and broader automatic checks for every change to the mod
+- (MOD FEATURE) Ask before installing an update
 - (MOD FEATURE) A development card that takes new test builds over Wi-Fi
 - (MOD FEATURE) The Mod page and the logs on the card show which build is installed
 - (MOD BUG) Install time estimate far too high at the start of a step

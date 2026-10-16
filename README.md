@@ -13,7 +13,8 @@ Alpha, at your own risk: read [DISCLAIMER.md](DISCLAIMER.md) first.
   its own startup screens and a startup log for bug reports
 - **Network**: Wi-Fi from the screen (with a USB Wi-Fi stick) and remote login (SSH), off by default
 - **Safety**: no firmware updates from the card, the mixer's internal storage is never changed
-- **Updates** of the mod without losing recordings or settings
+- **Updates** of the mod without losing recordings or settings, installed only after you tap
+  Install on the mixer's own screen
 - **Fixes for stock bugs**: the recording crash after take 9,999; new recordings overwriting old
   ones; anyone on the network (or a prepared SD card or USB stick) changing files on the mixer
 
