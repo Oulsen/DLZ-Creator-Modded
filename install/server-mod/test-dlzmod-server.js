@@ -388,7 +388,8 @@ test("net status: stick, network, address, SSH", async () => {
   const sent = [];
   await net({ op: "status" }, sendTo(sent), fakeNet({ ssh: true }));
   assert.deepStrictEqual(sent, [{ cmd: "DLZMOD_NET_STATE", id: 0, data:
-    { stick: true, wifi: "connected", ssid: "Home:Net", signal: 74, ip: "192.168.1.42", ssh: true, sshKeep: false } }]);
+    { stick: true, wifi: "connected", ssid: "Home:Net", signal: 74, ip: "192.168.1.42", ssh: true, sshKeep: false,
+      sshBusy: "" } }]);
   const s2 = plain(await netState(fakeNet({ nostick: true }).run));
   assert.strictEqual(s2.stick, false);
   assert.strictEqual(plain(await netState(fakeNet({ state: "connecting (getting IP configuration)" }).run)).wifi, "connecting");
@@ -534,6 +535,31 @@ test("net ssh on: a failed start takes the run marker back", async () => {
   await net({ op: "ssh", on: true, password: "longenough" }, sendTo(sent), f);
   assert.deepStrictEqual(result(sent), [{ ok: false, text: "Could not start SSH" }]);
   assert.ok(!fs.existsSync(marks.sshOnFlag));
+});
+test("net ssh: a status while SSH is being set up or switched off says so, and not after it is done", async () => {
+  for (const [a, step, busy] of [[{ op: "ssh", on: true, password: "longenough" }, "-A", "on"],
+    [{ op: "ssh", on: false }, "disable --now ssh", "off"]]) {
+    let release;
+    const f = Object.assign(fakeNet(), sshMarks());
+    const run0 = f.run;
+    f.run = (file, args, input, timeout) => (args.join(" ") === step
+      ? new Promise((r) => (release = () => r(run0(file, args, input, timeout)))) : run0(file, args, input, timeout));
+    const s1 = [], s2 = [], s3 = [];
+    const change = net(a, sendTo(s1), f);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.ok(release, "the change reached " + step);
+    await net({ op: "status" }, sendTo(s2), f);
+    assert.strictEqual(s2[0].data.sshBusy, busy, a.on ? "setting up" : "switching off");
+    release();
+    await change;
+    const states = s1.filter((m) => m.cmd === "DLZMOD_NET_STATE");
+    assert.strictEqual(states[states.length - 1].data.sshBusy, "", "the state after the change is not busy");
+    await net({ op: "status" }, sendTo(s3), f);
+    assert.strictEqual(s3[0].data.sshBusy, "");
+  }
+  const s4 = [];
+  await net({ op: "ssh", on: true, password: "short" }, sendTo(s4), Object.assign(fakeNet(), sshMarks()));
+  assert.strictEqual(s4.find((m) => m.cmd === "DLZMOD_NET_STATE").data.sshBusy, "", "a refused change leaves nothing busy");
 });
 test("net ssh keep off: also while SSH is not running (a marker left behind), and fine without one", async () => {
   const marks = sshMarks();
