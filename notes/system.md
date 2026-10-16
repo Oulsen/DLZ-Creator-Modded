@@ -57,14 +57,14 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   32.768 kHz crystal); no external RTC chip on i2c0 (PMIC) or i2c1 (GT911 only). Kernel has
   `RTC_HCTOSYS=y` and `RTC_SYSTOHC=y` (rtc0 is only written back after an NTP sync); fake-hwclock
   runs without `FORCE`, so it only moves the clock forward [static].
-  **The RTC keeps time over a software restart and loses it without power** [device, every boot in
-  the kept syslogs]: after a restart fake-hwclock logs "saved clock information is in the past" (rtc0
+  **The RTC keeps time over a software restart and loses it without power** [device]: in every
+  kept boot log, after a restart fake-hwclock logs "saved clock information is in the past" (rtc0
   is ahead and wins); after the switch on the back systemd logs "System time before build time,
-  advancing clock" and fake-hwclock sets its saved time. So there is no backup battery (a public
-  teardown shows no coin cell on the digital board's top side either), and those two lines tell a
-  cold start from a warm one in any boot log. Online, chrony (`makestep 1 3`) then steps the clock
-  some 20-40 s into the boot: by the time since the last clean shutdown after a cold start, by about
-  a second after a warm one [device]. Timezone is `Etc/UTC`
+  advancing clock" and fake-hwclock sets its saved time. Those two lines tell a cold start from a
+  warm one in any boot log. So there is no backup battery [guess, strong; a public teardown shows
+  no coin cell on the digital board's top side either]. Online, chrony (`makestep 1 3`) then steps
+  the clock some 20-40 s into the boot: by the time since the last clean shutdown after a cold
+  start, by about a second after a warm one [device]. Timezone is `Etc/UTC`
   (`/etc/localtime`, `/etc/timezone`), so recording file times are UTC [static]
 - **Filesystems**: vfat built in; `exfat.ko` and `ntfs.ko` (rw) available as modules; CIFS and NFSD
   as modules [static]. Userland has `mkfs.vfat`/`mkfs.ext*` but no `mkfs.exfat`, no Samba, no NFS
@@ -83,8 +83,9 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
 - UARTs: ttyS0 = uart0 (console, DEBUG header), ttyS1 = uart3 (Bluetooth module), ttyS2 = uart5 (GD32) [static]
 - Touch: Goodix GT911 on i2c1 @ 0x5d; calibration through libinput, matrix stored in
   `/etc/udev/rules.d/touchscreen.rules` (written by `save-calibration.sh`) [static].
-  `Goodix-TS 1-0014: I2C communication failure` at boot is in practically every boot log and touch
-  works: a normal reading [device]
+  The DTB declares the GT911 twice, at its two possible addresses 0x14 and 0x5d; only 0x5d answers
+  and binds `Goodix-TS`, so every boot logs `Goodix-TS 1-0014: I2C communication failure: -6` (no
+  device at 0x14): a normal reading [device]
 - modprobe.d: `blacklist mali`, `g_ether use_eem=0`, 8189fs power option [static]
 - **Hardware watchdog unused**: `CONFIG_SUNXI_WATCHDOG=y` and the DTB's `watchdog@1c20c90` is enabled,
   but `RuntimeWatchdogSec` in `/etc/systemd/system.conf` is unset and nothing else opens

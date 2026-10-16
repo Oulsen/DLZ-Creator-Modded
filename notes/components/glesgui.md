@@ -38,15 +38,15 @@ A **dumb Canvas2D renderer**: the UI logic lives in `/srv/app.js`, glesgui only 
 After a software restart the start often goes wrong; after the switch on the back rarely. Two
 shapes, maybe one cause; why is not known.
 
-- **Counts** on the mod card [device] (cold vs warm read from the clock lines, see system.md, Clock):
+- **Counts** on the mod card [device] (cold vs warm from the clock lines, system.md, Clock):
   software restarts 6: 2 fine, 1 GUI stall, 3 frozen. Starts with the switch ~15 (incl. 4 with
   Wi-Fi off and 9 older boot logs): 1 GUI stall, 1 frozen, the rest fine. Stock from the eMMC,
-  started with the switch: once or twice in two years of use [user report].
-- **Frozen**: the syslog stops mid-boot (~18-40 s in, cut mid-line, NUL bytes after it) although
-  the mixer runs on for minutes: ping answers, sshd accepts but drops logins during the key
-  exchange, the screen shows the spinner or a UI without touch, then the spinner stops. Nothing
-  reaches the card any more, so the cause is not in the log. The SD card is set up the same on
-  warm and cold starts ("high speed SDXC", no UHS); no MMC or I/O errors before the cut.
+  started with the switch: once or twice in two years of use, by the user's account.
+- **Frozen** [device]: the syslog stops mid-boot (~18-40 s in, cut mid-line, NUL bytes after it)
+  although the mixer runs on for minutes: ping answers, sshd accepts but drops logins during the key
+  exchange, the screen shows the spinner or a UI without touch, then the spinner stops. The SD card
+  is set up the same on warm and cold starts ("high speed SDXC", no UHS); no MMC or I/O errors
+  before the cut. Nothing reaches the card after it, so the cause is probably not in the log [guess].
 - **GUI stall** [device]: between glesgui's "Graphics initialised. Opening GUI..." and "Context
   renderer string" (GLFW creating its X11 window and GL context through XWayland). Normally 1-3 s
   apart; in a stall 90 s (then it went on by itself and the UI came up) or more than 2.5 min.
@@ -58,9 +58,9 @@ shapes, maybe one cause; why is not known.
 - **Lead** [guess]: a software restart leaves the GPU/display, touch, the USB Wi-Fi, the USB audio
   chip and the FPGA side powered, so something starts in a state a cold start never gives it. The
   rare cold-start cases say it is not only that.
-- **Ruled out as the trigger** [device]: chrony stepping the clock while glesgui opens its window.
-  Both GUI stalls had a step in that window, but a cold start with a +234 s step in the same window
-  went through normally.
+- **Not the trigger on its own** [device]: chrony stepping the clock while glesgui opens its
+  window. Both GUI stalls had a step in that window, but a cold start with a +234 s step in the same
+  window went through normally; a step adding to it is not ruled out.
 - **Next**: a log that survives a freeze (the card's log stops, so over the network or kept in
   RAM over a restart), or a series of software restarts with single parts reset first.
 

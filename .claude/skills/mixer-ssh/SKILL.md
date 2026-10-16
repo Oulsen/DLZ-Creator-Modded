@@ -110,7 +110,8 @@ Check `notes/system.md` before calling a reading odd; the ones that come up ever
   together ~590/s, so the load sample keeps catching them runnable. Real load: per-core
   `/proc/stat` over a few seconds (cores 0-2 measured ~8 % busy each)
 - the eMMC (`mmcblk1`, its boot0/boot1) shows `RO 1`: the mod's read-only lock (`dlzmod-emmc-ro`)
-- `Goodix-TS 1-0014: I2C communication failure` at boot: in practically every boot log, touch works
+- `Goodix-TS 1-0014: I2C communication failure: -6` at boot: the DTB also declares the touch chip at
+  0x14, where nothing answers; the real one at 0x5d binds and touch works
 - `/var/log/syslog` of 100+ MB with NUL bytes in it: many boots in one file, and a switch-off while
   it was being written; read it with `grep -a` and line ranges, never whole
 - installer files on DLZDATA dated 1 Jan 1980: FAT's earliest date (the installer sets no clock);

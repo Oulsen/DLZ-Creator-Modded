@@ -34,13 +34,14 @@ The board, Mackie's device tree, the boot chain, the eMMC layout and the SD slot
 - External USB-A port: Linux USB host, used for USB drives and the Wi-Fi stick [device]; a Wi-Fi
   stick while connected caused no over-current or disconnects [device]; its power budget is unknown.
   The USB port to the PC is not Linux (no OTG in the DTB)
-- USB audio to the PC: normally `0A73:003A` with LOUD's driver (`loudusbaudio`, 14 channels) [device].
-  Once, after a software restart with the cable plugged in, it came up as `0A4A:AC1E` rev 1.30, also
-  named "DLZ Creator XS", class 01 / protocol 0x20 (standard USB Audio 2.0), which Windows' own
-  driver could not start (code 10); replugging the cable gave `0A73:003A` again [device]. Neither ID
-  is in any file on the rootfs, the FPGA bitstreams or the GD32 firmware [static], so the USB audio
-  chip most likely has its own firmware (open question 8). Not seen again in 7 starts with the cable
-  plugged in (6 with the switch, 1 software restart), with a watcher on the PC [device] (#88)
+- USB audio to the PC: normally `0A73:003A` with LOUD's driver (`loudusbaudio`, 14 channels)
+  [device]. Once, after a software restart with the cable plugged in, it came up as `0A4A:AC1E` rev
+  1.30, also named "DLZ Creator XS", class 01 / protocol 0x20 (standard USB Audio 2.0), which
+  Windows' own driver could not start (code 10); replugging the cable gave `0A73:003A` again
+  [device]. Neither ID is in any file on the rootfs, the FPGA bitstreams or the GD32 firmware
+  [static], so the USB audio chip most likely has its own firmware [guess] (open question 8). Not
+  seen again in 7 starts with the cable plugged in (6 with the switch, 1 software restart), with a
+  watcher on the PC [device] (#88)
 
 ## Mackie's device tree
 

@@ -35,9 +35,9 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
 7. Which codec chips are on the XS board (AKM, Everest, ESS Sabre)?
 8. Which chip does USB audio to the PC: the FPGA or a separate bridge? (`lsusb -v` on the PC.)
    Known: it can show up under two identities, `0A73:003A` (normal, LOUD's driver) and once
-   `0A4A:AC1E` (a standard USB Audio 2.0 device); neither ID is in any file on the rootfs, the FPGA
-   bitstreams or the GD32 firmware, so it is most likely a chip with its own firmware [device]
-   [static] (hardware.md). `lsusb -v` of both identities would name it.
+   `0A4A:AC1E` (a standard USB Audio 2.0 device) [device]; neither ID is in any file on the rootfs,
+   the FPGA bitstreams or the GD32 firmware [static], so most likely a chip with its own firmware
+   [guess] (hardware.md). `lsusb -v` of both identities would name it.
 9. Stock's media scan filters out `/` by lsblk's `mountpoint` column: is that column still in
    `lsblk -O` on the mod card? (Which `mmcblk` is which is answered: hardware.md, Storage.)
 10. GD32 UART protocol and baud rate on ttyS2.
@@ -97,6 +97,9 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
 31. What does a "frozen on the logo" crash look like from inside? Kill glesgui 6 times in 10 s on the
     SD system and confirm the logo stays while audio keeps running; after a real freeze, read
     `/var/log/syslog` and `kern.log` (persist on disk) for the cause (OOM, segfault, kernel oops).
+    Known: in the freezes during a start (components/glesgui.md, "Bad starts after a software
+    restart") the syslog stops before the cause, so a freeze needs a log that does not go through
+    the card [device].
 
 ## Installer boot
 
