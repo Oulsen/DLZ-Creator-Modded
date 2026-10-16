@@ -191,9 +191,12 @@ build (`dev-<commit>`) is never compared. Newer and equal install, older is refu
 
 - **Equal stays allowed**, so an older build of the same version can go back on (bisecting a
   regression); there is no build counter.
-- **`VERSION` is bumped with the first functional change after a release**, not at the end of the
-  cycle: dev builds then read "v0.2.0 dev-…" on the way to 0.2.0, never the released number on
-  different code. Bumping again before the release (0.1.1 → 0.2.0) is fine.
+- **`VERSION` is bumped in `develop` right after a release**, as its own small PR (`docs/vX.Y.Z-bump`),
+  before any other change of the new cycle: dev builds then read "v0.2.0 dev-…" on the way to 0.2.0,
+  never the released number on different code, and every branch builds the same version. A feature
+  or fix branch never bumps: with the bump on one unmerged branch, the dev card took that branch's
+  builds and refused every other branch's as older (seen in the v0.2.0 cycle). Bumping again before the
+  release (0.1.1 → 0.2.0) is fine, also as its own PR into `develop`.
 - **No `-rc` suffix**: `sort -V` ranks `v0.2.0-rc1` above `v0.2.0`, so the release would be refused as
   older. `VERSION_RE` (`modversion.py`) blocks it.
 - **A release candidate is the `RELEASE=1` build itself.** Its test: a fresh install from the
