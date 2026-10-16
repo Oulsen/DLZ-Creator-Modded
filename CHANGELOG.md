@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.0
+
+- (MOD FEATURE) Quicker and broader automatic checks for every change to the mod
+- (MOD FEATURE) A development card that takes new test builds over Wi-Fi
+- (MOD FEATURE) The Mod page and the logs on the card show which build is installed
+- (MOD BUG) Install time estimate far too high at the start of a step
+- (MOD BUG) SSH card shows nothing while SSH is being set up
+- (MOD BUG) Update: a few rare failure paths are not handled carefully enough
+- (MOD BUG) Update: the check that the internal storage is locked can be skipped with the test settings
+- (MOD BUG) Update: the check of a new startup script misses some ways to write the internal storage or the power chip
+- (MOD BUG) Update: the check that a new updater keeps its safety checks can be fooled by its own list
+
 ## v0.1.0
 
 - (DLZ FEATURE) Recordings go to the SD card by default

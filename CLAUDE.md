@@ -64,10 +64,13 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   including changes made after a device review; findings fixed as new commits on the PR or named in
   the PR description, before the merge; fixes that add new logic get one more pass
   (`docs/DEVELOPMENT.md`, "Review").
-- With every version bump, write a `## vX.Y.Z` section in `CHANGELOG.md` (newest version first)
-  from the milestone's issues: their titles as bullets, in the order DLZ FEATURE, DLZ BUG, MOD
-  FEATURE, MOD BUG (the release PR and the release notes use the same order, as sections). Update the README's "What the mod does" (the current mod, by
-  group) in the same bump.
+- Right after a release, bump `VERSION` in `develop` as its own PR (`docs/vX.Y.Z-bump`), before any
+  other change of the new cycle; a feature or fix branch never bumps (`docs/DEVELOPMENT.md`,
+  "Version bump"). The bump PR opens a `## vX.Y.Z` section in `CHANGELOG.md` (newest version first);
+  every PR that finishes a milestone issue adds its title there as a bullet, in the order DLZ
+  FEATURE, DLZ BUG, MOD FEATURE, MOD BUG (the release PR and the release notes use the same order,
+  as sections), and updates the README's "What the mod does" (the current mod, by group) when it
+  changes what the mod does.
 - `dumps/` and `build/` are private and git-ignored. Never commit Mackie binaries, dumps or `.upd`
   files; in notes, describe Mackie code and point to it (file, function, search string), never paste
   it. Names, paths, settings, message fields and `patch.py`'s anchors are fine; copied code lines are not.
