@@ -89,7 +89,7 @@ organised: "GitHub workflow" below and [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 | File | Contents |
 |---|---|
-| `CHANGELOG.md` | Plain-language changelog, updated every version. The roadmap is on GitHub: [issues](https://github.com/Oulsen/DLZ-Creator-Modded/issues) and the [board](https://github.com/users/Oulsen/projects/2) |
+| `CHANGELOG.md` | Plain-language changelog: each PR that finishes a milestone issue adds its bullet. The roadmap is on GitHub: [issues](https://github.com/Oulsen/DLZ-Creator-Modded/issues) and the [board](https://github.com/users/Oulsen/projects/2) |
 | `notes/architecture.md` | Processes, IPC, message protocol, data model: start here |
 | `notes/system.md` | OS layer: boot, network, ports, security, persistence, package ownership |
 | `notes/components/` | One page per component: Node backend, glesgui, dspserver, mixer graph, faderlink, firmware update |
@@ -232,8 +232,8 @@ else. Before writing to the image it checks that every tool and mod file it need
 build deletes the half-built image.
 `DLZMOD_UUID=<uuid> SOURCE_DATE_EPOCH=<seconds>` make two builds of the same dump identical. It generates the boot visuals
 from the image's own originals and applies the UI mods; the
-version shown on the boot screens and in Settings comes from `VERSION` (bumped when functionality
-is added or changed, not for cosmetic tweaks). Flash `build/dlz-sd-vX.Y.Z.img` with balenaEtcher (re-select the file
+version shown on the boot screens and in Settings comes from `VERSION` (bumped in `develop` right
+after a release: "Version bump" below). Flash `build/dlz-sd-vX.Y.Z.img` with balenaEtcher (re-select the file
 after a rebuild, and never rebuild while a flash is running; cancel Windows' format prompt). Card out = stock firmware. Power off before pulling the card.
 
 ### SSH key (optional, test cards only)
@@ -370,8 +370,9 @@ issue's technical notes point to the note section instead of copying it.
   4. Check the milestone: `gh issue list --milestone vX.Y.Z --state open` is empty (an open one
      moves to the next milestone or holds the release), and the "Done when" items noted for later
      on its closed issues (an install log seen at the next install) are seen on the release
-     candidate and ticked. Then move its cards from "Fixed in develop" to "Released" and close the
-     milestone.
+     candidate and ticked; the `## vX.Y.Z` section of `CHANGELOG.md` lists exactly its closed issues
+     (`--state closed`), and the bullet of an issue moved to the next milestone moves with it. Then
+     move its cards from "Fixed in develop" to "Released" and close the milestone.
   5. An annotated tag `vX.Y.Z` on that commit. Then a GitHub release with the `CHANGELOG.md` section as notes
   (grouped under the section headings of "`CHANGELOG.md`" below, without the title prefixes),
   followed by the GPL source note from the README's "Legal" (U-Boot and busybox versions and their
@@ -382,13 +383,18 @@ issue's technical notes point to the note section instead of copying it.
   "Update from vX.Y.Z: copy the update files" or "Full install with the installer image (copy your
   recordings off the card first)". Check the release by downloading its files again
   (`gh release download`) and running `sha256sum -c SHA256SUMS`.
-- **`CHANGELOG.md`**: with every version bump a `## vX.Y.Z` section from the milestone's issues: their
-  titles as bullets, ordered `DLZ FEATURE`, `DLZ BUG`, `MOD FEATURE`, `MOD BUG` (no `ANALYSIS`, no
-  `release`): what changes on the mixer first, then the mod itself. Written by hand from the
-  milestone; the release PR (`#N: <title>` lines) and the release notes use the same order, as
-  sections ("DLZ features", "DLZ bugs fixed", "Mod features", "Mod bugs fixed"; empty ones left out).
-  The README's "What the mod does" follows: it describes the current mod, so a new feature or
-  stock fix goes into its group there with the same bump.
+- **Version bump**: right after a release, `VERSION` goes to the next version in `develop` as its own
+  PR (`docs/vX.Y.Z-bump`), before any other change of the new cycle, so every branch builds the same
+  version and the dev card takes any of them. Feature and fix branches never bump
+  ([notes/updates.md](../notes/updates.md), "Versions and channels").
+- **`CHANGELOG.md`**: the bump PR opens a `## vX.Y.Z` section (with the milestone's issues already
+  in `develop`, if any); every PR that finishes a milestone issue adds its title as a bullet there,
+  and the release PR checks the section against the milestone. Bullets ordered `DLZ FEATURE`,
+  `DLZ BUG`, `MOD FEATURE`, `MOD BUG` (no `ANALYSIS`, no `release`): what changes on the mixer first,
+  then the mod itself. The release PR (`#N: <title>` lines) and the release notes use the same
+  order, as sections ("DLZ features", "DLZ bugs fixed", "Mod features", "Mod bugs fixed"; empty
+  ones left out). The README's "What the mod does" follows: it describes the current mod, so the PR
+  that brings a new feature or stock fix puts it into its group there.
 - **Community**: questions, bug reports and support go through issues, with templates for a bug,
   a feature and help with an install (GitHub Discussions are off); anyone can file, the maintainer sets labels, milestones and board columns. Triage of a report:
   accept (`triage` off, `roadmap` on, a milestone), need more (`needs-info`), no (closed as "not
