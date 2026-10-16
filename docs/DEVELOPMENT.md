@@ -327,16 +327,16 @@ issue's technical notes point to the note section instead of copying it.
 - **Life cycle** (board Status):
 
   ```
-  Todo ──planned for the next version──> Next version ──work starts──> In progress
-  ──PR into develop (Refs #N) merged, issue closed──> Fixed in develop ──release on main──> Released
+  Todo ──planned for the next version──> Next Version ──work starts──> In progress
+  ──PR merged (Refs #N), issue closed──> Fixed in develop ──release on main──> Released
   ```
 
-  "Next version" holds the next milestone's issues that have not started; after a release the
+  "Next Version" holds the next milestone's issues that have not started; after a release the
   following milestone's issues move into it. The mixer test is part of the work on the branch (the
   dev card, `dev/push.sh`), before the PR. What can only be seen later (an install log on the next
-  install) is noted in the issue's "Done when". After the merge the issue is closed by hand with
-  "Fixed in develop, comes with vX.Y.Z." and its card goes to "Fixed in develop", so the milestone's
-  progress shows what is done; "Fixed in develop" = in `develop`, not on `main` yet, "Released" =
+  install) is noted in the issue's "Done when" and checked at the release ("Releases", step 4).
+  After the merge the issue is closed by hand with "Fixed in develop, comes with vX.Y.Z." and its
+  card goes to "Fixed in develop", so the milestone's progress shows what is done; "Fixed in develop" = in `develop`, not on `main` yet, "Released" =
   on `main`. Work PRs say `Refs #N`: `develop` is not the default branch, so `Fixes #N` would do
   nothing there. The board's "Item closed" workflow is off (it would move a closed card past "Fixed
   in develop").
@@ -353,8 +353,8 @@ issue's technical notes point to the note section instead of copying it.
   commits on the PR, or named in the PR description as accepted, before the merge; fixes that add
   new logic or touch other code get one more pass on the PR, wording and fixes that only do what a
   finding asked do not. The release PR `develop` → `main` only carries reviewed changes: its check
-  is the changelog section, the list of released issues and that the release files are the tested ones; it
-  is fast-forwarded, not merged with the button ("Releases"). A change that runs on the mixer still
+  is the changelog section, the list of released issues and that the release files are the tested
+  ones; it is fast-forwarded, not merged with the button ("Releases"). A change that runs on the mixer still
   gets its device review, once per image (`.claude/skills/device-review`).
 - **Releases**: a PR `develop` → `main`, **fast-forwarded**, not merged with GitHub's button: its
   merge methods all add commits (a merge commit, or rewritten copies), which would leave `develop`
@@ -367,8 +367,11 @@ issue's technical notes point to the note section instead of copying it.
      not a fast-forward). GitHub then shows the PR as merged, and `main` and `develop` are the same
      commit. The ruleset on `main` needs the maintainer on its bypass list in mode "Always" (not "Pull
      requests only") for this push; force pushes stay blocked.
-  4. Move the milestone's cards from "Fixed in develop" to "Released" and close the milestone (an
-     issue still open in it is either moved to the next milestone or a reason to wait).
+  4. Check the milestone: `gh issue list --milestone vX.Y.Z --state open` is empty (an open one
+     moves to the next milestone or holds the release), and the "Done when" items noted for later
+     on its closed issues (an install log seen at the next install) are seen on the release
+     candidate and ticked. Then move its cards from "Fixed in develop" to "Released" and close the
+     milestone.
   5. An annotated tag `vX.Y.Z` on that commit. Then a GitHub release with the `CHANGELOG.md` section as notes
   (grouped under the section headings of "`CHANGELOG.md`" below, without the title prefixes),
   followed by the GPL source note from the README's "Legal" (U-Boot and busybox versions and their

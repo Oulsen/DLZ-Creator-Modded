@@ -24,7 +24,7 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 What is planned and what is being worked on, all on GitHub:
 
 - **[The board](https://github.com/users/Oulsen/projects/2)**: the planned bugs and features, from
-  "to do" to "done"
+  "to do" to "released"
 - **[Milestones](https://github.com/Oulsen/DLZ-Creator-Modded/milestones)**: what goes into which
   version
 - **[Issues](https://github.com/Oulsen/DLZ-Creator-Modded/issues)**: the details of each one, and new
