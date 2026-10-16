@@ -147,7 +147,7 @@ The repo is public, so what goes into it is limited by what the project may publ
 | Tool | Runs on | Purpose |
 |---|---|---|
 | `bootsplash.py` | any (PNG frames: Pillow) | Unpack / pack kernel bootsplash files (byte-exact roundtrip); `--raw` frames need no Pillow |
-| `mklayers.py` | WSL | Layout of the boot visuals (MODDED sticker, version, status lines, logo position); renders our layers (no Mackie logo) as RGBA PNGs + `layout.env` |
+| `mklayers.py` | WSL | Layout of the boot visuals (MODDED sticker, status lines, logo position; no version, #97); renders our layers (no Mackie logo) as RGBA PNGs + `layout.env` |
 | `logobbox.py` | WSL / device | Find Mackie's logo in the device's own `/etc/dlz.png` (stdlib + ffmpeg) |
 | `mkvisuals.sh` | WSL / device | Compose `/etc/dlz.png` and the kernel bootsplash from the device's originals + our layers (ffmpeg) |
 | `modversion.py` | any | Reads and checks the mod version from `VERSION` (`v0.1.0` .. `v9.99.99`) |
@@ -232,8 +232,8 @@ else. Before writing to the image it checks that every tool and mod file it need
 build deletes the half-built image.
 `DLZMOD_UUID=<uuid> SOURCE_DATE_EPOCH=<seconds>` make two builds of the same dump identical. It generates the boot visuals
 from the image's own originals and applies the UI mods; the
-version shown on the boot screens and in Settings comes from `VERSION` (bumped in `develop` right
-after a release: "Version bump" below). Flash `build/dlz-sd-vX.Y.Z.img` with balenaEtcher (re-select the file
+version shown in Settings (and on the installer's screens) comes from `VERSION` (bumped in `develop`
+right after a release: "Version bump" below). Flash `build/dlz-sd-vX.Y.Z.img` with balenaEtcher (re-select the file
 after a rebuild, and never rebuild while a flash is running; cancel Windows' format prompt). Card out = stock firmware. Power off before pulling the card.
 
 ### SSH key (optional, test cards only)
