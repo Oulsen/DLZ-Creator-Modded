@@ -936,10 +936,15 @@ test("pairing: a card that cannot save never ends up more open after a restart t
 });
 // express-like request and response for the HTTP gate
 const httpReq = (address, p, o = {}) => Object.assign(new (require("events"))(), { socket: { remoteAddress: address }, path: p,
-  method: o.method || "GET", headers: Object.assign({ host: HOST }, o.headers || {}), setEncoding() {}, destroy() {
+  method: o.method || "GET", headers: Object.assign({ host: HOST }, o.headers || {}), setEncoding() {}, resume() {
+    this.resumed = true;
+  }, destroy() {
     this.destroyed = true;
   } });
 const httpRes = () => ({ status: 0, headers: {}, body: "",
+  setHeader(name, value) {
+    this.headers[name] = value;
+  },
   writeHead(status, headers) {
     this.status = status;
     Object.assign(this.headers, headers);
@@ -1027,6 +1032,42 @@ test("pairing: HTTP: the PIN form sets an HttpOnly, same-site cookie; wrong PINs
   assert.ok(pairValid(cookie(m[1])));
   const big = await post("pin=" + "1".repeat(300));
   assert.strictEqual(big.status, 413);
+  assert.strictEqual(big.headers.Connection, "close", "the answer goes out, then the connection closes");
+  // DNS rebinding: a web page's own name pointed at the mixer, Host and Origin matching each other
+  const before = pairStatus().pin;
+  const rebound = await post("pin=" + before, { host: "evil.example", origin: "http://evil.example" });
+  assert.strictEqual(rebound.status, 421);
+  assert.strictEqual(rebound.headers["Set-Cookie"], undefined);
+  assert.strictEqual(pairStatus().pin, before, "refused before the PIN is tried");
+});
+test("pairing: only by the mixer's IP address, its .local name or localhost (DNS rebinding)", () => {
+  pairIn("host");
+  pairSet(true);
+  const token = pairOne();
+  const hostOk = ctx.DLZMOD_hostOk;
+  for (const h of ["192.168.1.30", "192.168.1.30:80", "[fe80::1]", "[::1]:80", "localhost", "mackie-dlz-creator-xs.local",
+    "Mackie-DLZ-Creator-XS.local:80"]) assert.strictEqual(hostOk(h), true, h);
+  for (const h of ["evil.example", "192.168.1.30.evil.example", "mixer.lan", "mixer.fritz.box", "mixer", "local",
+    "evil.local.example", "192.168.1.30:8080", "", undefined]) assert.strictEqual(hostOk(h), false, String(h));
+  const asHost = (host, origin) => ({ cookie: cookie(token), host, origin });
+  assert.strictEqual(gate(httpReq("192.168.1.50", "/", { headers: { host: "evil.example" } })).status, 421);
+  assert.strictEqual(gate(httpReq("192.168.1.50", "/app.js", { headers: asHost("evil.example") })).status, 421,
+    "a paired cookie does not help (and a rebound page has none)");
+  assert.strictEqual(gate(httpReq("127.0.0.1", "/", { headers: { host: "evil.example" } })), "next", "the mixer itself: as stock");
+  assert.strictEqual(allowed(handshake("192.168.1.50", asHost("evil.example", "http://evil.example"))), false);
+  assert.strictEqual(allowed(handshake("192.168.1.50", asHost("mackie-dlz-creator-xs.local", "http://mackie-dlz-creator-xs.local"))),
+    true);
+  assert.strictEqual(allowed(handshake("192.168.1.50", asHost(undefined, "http://" + HOST))), false, "no Host, but an Origin");
+  assert.strictEqual(admit(fakeSocket("192.168.1.50", asHost("evil.example", "http://evil.example")), {}), false);
+});
+test("pairing: at most 16 devices, the oldest goes first", () => {
+  pairIn("cap");
+  pairSet(true);
+  const tokens = [];
+  for (let i = 0; i < 17; i++) tokens.push(pairOne());
+  assert.strictEqual(pairValid(cookie(tokens[0])), false, "the first one paired");
+  for (const t of tokens.slice(1)) assert.strictEqual(pairValid(cookie(t)), true);
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(ctx.DLZMOD_pairDir(), "state.json"), "utf8")).tokens.length, 16);
 });
 // #48: paired devices delete and rename again, recordings only in the recordings folders
 const PAIRED = Object.assign(() => {}, { dlzmodPaired: true });

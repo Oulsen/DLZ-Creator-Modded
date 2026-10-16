@@ -389,7 +389,8 @@ function DLZMOD_pairSave(dir, s) {
 }
 
 // a change of {on, pin, own, tokens}: to the card first, into memory after, so the card never says
-// more than memory (after a restart the card counts). safer (off, forget): in memory even when the
+// more than memory (after a restart the card counts; only when a safer change can be neither saved
+// nor removed does the card keep the old state, until a restart). safer (off, forget): in memory even when the
 // card cannot take it; then the file goes (no file = off at the next start). Returns "saved",
 // "removed" (off now, the file is gone) or "" (not saved: an opening change did not happen; a safer
 // one holds until a restart only)
@@ -431,10 +432,20 @@ function DLZMOD_pairValid(cookie) {
   return p.on && token !== "" && p.tokens.includes(DLZMOD_pairHash(token));
 }
 
+// the name a browser used for the mixer: an IP address, a .local name or localhost. A web page
+// elsewhere can point a name of its own at the mixer (DNS rebinding); Host and Origin then both carry
+// that name and match each other
+function DLZMOD_hostOk(host) {
+  const h = String(host || "").toLowerCase().replace(/:80$/, "");
+  return /^(\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:.]+\]|localhost|([a-z0-9-]+\.)+local)$/.test(h);
+}
+
 // a browser names the page a request comes from: only the mixer's own pages (a web page elsewhere,
-// open in a browser on the network, must not drive the mixer). No Origin: not a browser
+// open in a browser on the network, must not drive the mixer), by a name of the mixer's own
+// (DLZMOD_hostOk). No Origin: not a browser
 function DLZMOD_originOk(headers) {
   const h = headers || {};
+  if (!DLZMOD_hostOk(h.host)) return false;
   if (!h.origin) return true;
   return h.origin === "http://" + h.host;
 }
@@ -587,6 +598,9 @@ function DLZMOD_loginFileOk(p) {
 // parameters: express takes a function with four for an error handler
 function DLZMOD_remoteHttp(req, res, next) {
   if (DLZMOD_isLocal(req.socket && req.socket.remoteAddress)) return next();
+  if (!DLZMOD_hostOk(req.headers && req.headers.host)) {
+    return DLZMOD_remotePage(res, 421, "Open the mixer by its IP address or its .local name.");
+  }
   const p = DLZMOD_pair();
   let path = String(req.path || "");
   try {
@@ -622,8 +636,11 @@ function DLZMOD_pairPost(req, res) {
     body += c;
     if (body.length > 200 && !tooBig) {
       tooBig = true;
+      // the answer first, then the connection closes (destroying the request would cut the answer off)
+      req.removeAllListeners("data");
+      req.resume();
+      res.setHeader("Connection", "close");
       DLZMOD_remotePage(res, 413, "");
-      req.destroy();
     }
   });
   req.on("end", () => {

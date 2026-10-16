@@ -168,8 +168,10 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
 - dspserver and faderlink are socket.io clients on `localhost:80`, so port 80 itself must stay open:
   the mod tells the mixer's own connections (127.0.0.1 / ::1) from other devices per connection
   [static]
-- The "System Lock" password lives in state key `lock` in `srv_data.json` (plain); whether it
-  gates the web UI is unknown [static] / [guess]
+- The "System Lock" password lives in state key `lock` in `srv_data.json` (plain) [static]. It
+  does not gate the web UI's commands: the server reads `lock` only in the hardware handlers `HWREC`,
+  `PADPRSD` and `ALT`; a browser shows the lock overlay of a locked mixer, but its socket.io commands
+  go through [static]. Since #45 only paired browsers get that far (`notes/mod.md`)
 
 Implication: keep the mixer on a trusted LAN, and never port-forward it.
 

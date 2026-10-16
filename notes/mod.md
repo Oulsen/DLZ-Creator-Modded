@@ -158,7 +158,7 @@ screen, Forget and Off locking the browser out; the screen, faders and audio unc
   PIN ("Own PIN...", 6 digits on a PIN pad in the layout of Mackie's System Lock; at most two different digits, straight runs like 123456 or 987654,
   repeated blocks like 123123 and doubled digits like 112233 are refused): it stays, for pairing several devices without the screen, until "Random PIN", a new own
   PIN or switching off. Wrong PINs, counted for all devices together: after 5 a pause of 60 s,
-  doubling up to 15 min, on the panel too.
+  doubling up to 15 min, on the panel too; a successful pairing starts the doubling at 60 s again.
 - **Paired**: the browser loads only the UI's own files (`/`, `index.html`, `app.js`, `style.css`,
   `favicon.ico`, `libs/`, `fonts/`, `img1x/`), not `srv_data.json`, the presets or anything else in
   `/srv`. Before pairing only the PIN page's own files: the model's logo (`img1x/DLZ_XS.png` /
@@ -167,6 +167,11 @@ screen, Forget and Off locking the browser out; the screen, faders and audio unc
   `Origin` (a web page elsewhere cannot drive the mixer). The connection is checked once more when it
   opens and stamped `dlzmodPaired`: deleting and renaming come back (#48), the Network panel's changes
   do not.
+- **Only by the mixer's own name**: other devices get in only by an IP address, a `.local` name or
+  `localhost` as `Host` (`DLZMOD_hostOk`), else 421 "Open the mixer by its IP address or its .local
+  name". Without it a web page could point a name of its own at the mixer (DNS rebinding): `Host`
+  and `Origin` then match, and a browser on the network would send PIN guesses for it. A router's
+  name for the mixer (`mixer.lan`, `mixer.fritz.box`) is refused for the same reason.
 - **Off and "Forget all devices"** forget every pairing and drop paired connections at once. Off also
   drops an own PIN (on again starts random); Forget makes a random PIN new and keeps an own one (the
   popup says to change it if others know it).
@@ -196,7 +201,10 @@ screen, Forget and Off locking the browser out; the screen, faders and audio unc
   round; paired devices keep working); the #48 path check is textual, so a symlink in a recordings
   folder on an ext4 USB stick could point a paired device's delete elsewhere on the card (needs
   physical access; FAT and exFAT have no symlinks; the screen could do so before); the ::1 listener on
-  port 89 is not retried when it fails to bind (the kernel has IPv6, `/etc/hosts` maps ::1).
+  port 89 is not retried when it fails to bind (the kernel has IPv6, `/etc/hosts` maps ::1); the
+  System Lock is a screen overlay plus a block on the hardware buttons (stock's server reads `lock`
+  only in `HWREC`, `PADPRSD` and `ALT`), so a paired browser still controls a mixer locked on its
+  screen, as stock's open web UI did [static].
 
 ## The card gate (`dlzmod-cardcheck`)
 
