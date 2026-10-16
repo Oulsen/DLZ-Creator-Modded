@@ -3,9 +3,9 @@
 # (dlzmod-vX.Y.Z*.tar, the release's own file) in DLZDATA/dlzmod-update/ is checked, and its mod files
 # are applied with the same code as the install (apply-mod.sh: guards and units, the app/server
 # patches, mod defaults): run in a sandbox on a copy (step 3), then placed by this script from its
-# allowlist (the mod's own files, and boot.scr as a U-Boot script image). Not the boot visuals, the
-# installer, the card layout or the safety guards themselves: a package that changes those needs the
-# full install (REINSTALL=yes, or refused here) (notes/updates.md, "Drop-in update").
+# allowlist (the mod's own files). Not boot.scr, the boot visuals, the installer, the card layout or
+# the safety guards themselves: a package that changes those needs the full install (REINSTALL=yes,
+# or refused here) (notes/updates.md, "Drop-in update").
 # - success: the package is deleted, the report is DLZDATA/dlzmod-logs/update-N-<version>.txt
 # - refused or failed: nothing of it stays; what it placed is put back from the snapshot taken before
 #   it (files it added are removed), the package stays (to look at) and is not tried again until a
@@ -26,6 +26,15 @@ set -u
 PATH=/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C   # one sort order for every list compared here (comm, the snapshot list)
 ROOT=${DLZMOD_ROOT:-}
+# the rehearsal settings skip the eMMC-lock check (step 1): never on a system running from an SD card,
+# the mixer's own (a PC's / is not on one; a rehearsal chroot has no /sys, so its disk type is unknown)
+if [ -n "$ROOT" ] || [ -n "${DLZMOD_DATA:-}" ] || [ -n "${DLZMOD_CHECK_ONLY:-}" ]; then
+  rdisk=$(lsblk -no PKNAME "$(findmnt -no SOURCE / 2>/dev/null)" 2>/dev/null | head -n 1)
+  if [ -n "$rdisk" ] && [ "$(cat "/sys/block/$rdisk/device/type" 2>/dev/null)" = SD ]; then
+    echo "dlzmod-update: DLZMOD_ROOT, DLZMOD_DATA and DLZMOD_CHECK_ONLY are for PC rehearsals: refused on a system running from an SD card, nothing done"
+    exit 2
+  fi
+fi
 # checks only (tests/update-checks.sh, on a PC): every check of steps 1 and 2 on a rehearsal tree, then
 # stop before the snapshot. Nothing is written but its own temp files: no report on DLZDATA, the
 # package stays, the try records go to a temp copy of the state folder. Only with both rehearsal
@@ -571,7 +580,7 @@ allowed() {
     var/lib/dlzmod-update) case $b in version|installed) return 0 ;; esac ;;
     usr/local/sbin) case $b in dlzmod-*) return 0 ;; esac ;;
     etc/udev/rules.d) case $b in *dlzmod*.rules) return 0 ;; esac ;;
-    boot) [ "$b" = boot.scr ] && return 0 ;;
+    # not boot/boot.scr: U-Boot runs it before the eMMC lock, so a new one needs a full install
     etc/systemd/system) case $b in dlzmod-*.service|ssh.socket) return 0 ;; esac ;;
     etc/systemd/system/*)
       rest=${d#etc/systemd/system/}
@@ -584,9 +593,7 @@ allowed() {
   esac
   return 1
 }
-# links only where systemd expects them, pointing where install_sd_system puts them; boot.scr only as
-# a U-Boot script image (magic 27051956): a bad one would only stop the card from starting, but that
-# must still be a deliberate, built file
+# links only where systemd expects them, pointing where install_sd_system puts them
 shape_ok() {
   local p=$1
   if [ -L "$S/$p" ]; then
@@ -601,9 +608,6 @@ shape_ok() {
     # the checks below catch a mistake, not a hostile signer (see the notes: the signature is the
     # trust boundary): nothing that runs before or undoes the eMMC lock
     case $p in
-      boot/boot.scr)
-        [ "$(od -An -tx1 -N4 "$S/$p" | tr -d ' \n')" = 27051956 ] \
-          && ! tail -c +65 "$S/$p" | grep -qaiE 'mmc +(write|erase|swrite|partconf|bootbus|hwpartition|rst-function)|saveenv|env +save|(^|[^a-z])(gpt|ums|fastboot)([^a-z]|$)' ;;
       etc/systemd/system/ssh.socket|etc/systemd/system/*.wants/*) return 1 ;;
       etc/systemd/system/dlzmod-emmc-ro.service) return 0 ;;   # a guard: its hash is checked
       etc/systemd/system/*.service) ! grep -qiE '^[[:space:]]*DefaultDependencies[[:space:]]*=[[:space:]]*(no|false|0)' "$S/$p" ;;

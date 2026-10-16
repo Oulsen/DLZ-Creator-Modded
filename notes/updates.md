@@ -142,21 +142,25 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   `srv/{app.js,server.js,srv_data.json}`, `var/lib/dlzmod-update/{version,installed}`,
   `usr/local/sbin/dlzmod-*`, `etc/udev/rules.d/*dlzmod*.rules`, `etc/systemd/system/dlzmod-*.service`,
   `ssh.socket`, the `dlzmod.conf` drop-ins of flash-gd32, flash-fpga, upgradedaemon, upgraderun,
-  dspserver and ssh, `dlzmod-*.service` links in `multi-user.target.wants`, only
-  `dlzmod-emmc-ro.service` in `sysinit.target.wants`, and `boot/boot.scr` (only as a U-Boot script
-  image). Also refused: names with a space, newline, quote or glob character; special files; wrongly
-  shaped links; units with `DefaultDependencies=no` (only the eMMC lock's own unit has it); udev rules
-  with `setrw` or `force_ro=0`; setuid, setgid, sticky or other-writable modes; a `boot.scr` that
-  writes the eMMC or the environment (`mmc write/erase`, `saveenv`, `gpt`, `ums`, `fastboot`, ...).
+  dspserver and ssh, `dlzmod-*.service` links in `multi-user.target.wants`, and only
+  `dlzmod-emmc-ro.service` in `sysinit.target.wants`. Not `boot/boot.scr` (below). Also refused: names
+  with a space, newline, quote or glob character; special files; wrongly shaped links; units with
+  `DefaultDependencies=no` (only the eMMC lock's own unit has it); udev rules with `setrw` or
+  `force_ro=0`; setuid, setgid, sticky or other-writable modes.
   A later version that needs a path outside this list needs a full install, or first an update that
   only brings the newer updater (its own list applies from the next update).
 - **The new updater copy** must keep the installed one's `GUARDS` list exactly and contain its gates
   (signature check, the sandbox's uid, capability drop, user namespaces off, read-only remount, eMMC check,
   allowlist, key check). A text check: it catches a mistake, not a hostile signer.
-- **`boot.scr`**: the card keeps Armbian's stock `boot.scr`; a signed later package may replace it
-  through the allowlist, atomically and in the snapshot. That is the door for later boot logic (a
-  boot flag, a boot counter) without shipping untested boot code now. U-Boot runs `boot.scr` before
-  any guard, so a signed one could write the eMMC: no worse than a signed root unit.
+- **`boot.scr`**: the card keeps Armbian's stock `boot.scr`, and an update cannot change or remove
+  it: a new one comes only with a full install, where the installer is reviewed as a boot route.
+  U-Boot runs `boot.scr` before any guard, and a text check of a script cannot find every way it
+  could write the eMMC or the PMIC (U-Boot's `mmc`, `i2c`, `mw`, `fatwrite`, ...), so the door is
+  shut rather than guarded. Later boot logic (a boot flag, a boot counter) needs a full install, or
+  first an update that brings an updater whose own list allows it. The snapshot still covers
+  `boot/boot.scr`, so a try that an older updater cut off is put back whole.
+- **Rehearsal settings** (`DLZMOD_ROOT`, `DLZMOD_DATA`) skip the eMMC-lock check: the updater
+  refuses them when `/` is on an SD card (the mixer's own system), before anything else [static].
 - **What the eMMC lock is** [static, kernel 5.10 sources]: read-only blocks `write()` on the device
   node and read-write mounts, which is what a bug in our code or Mackie's would do; root can undo it
   (`blockdev --setrw`), and discard/zero-out ioctls and raw MMC commands may not check it. It protects
@@ -248,8 +252,8 @@ refused file is copied and hashed at every start until it is removed (a few seco
   using a stick (our files never look like a Mackie `.upd`); the download and check code gets a
   security review.
 - **Full update and undo** (#56), for what the drop-in cannot do (boot visuals, card layout):
-  "Install" on the Mod page sets a one-shot flag on DLZDATA and restarts; the card's `boot.scr` sees
-  it and boots the installer path (Mackie's kernel from the eMMC + the package's initramfs) in update
+  "Install" on the Mod page sets a one-shot flag on DLZDATA and restarts; the card's `boot.scr` (one
+  that comes with a full install: an update cannot change it) sees it and boots the installer path (Mackie's kernel from the eMMC + the package's initramfs) in update
   mode: rebuild the system partition from the eMMC, carry over the state (`srv_data.json`, presets,
   NDI config, Wi-Fi, SSH keys, mod settings), leave DLZDATA untouched. Undo: the previous package
   stays in `dlzmod-update/previous/`; "Revert" rebuilds with it; `boot.scr` counts start attempts on

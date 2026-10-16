@@ -343,17 +343,21 @@ sleep 6
 [ ! -e $R/srv/late.txt ] && [ ! -e $R/tmp/dlzmod-late ] && ! pgrep -f "sleep 4" > /dev/null && ok "no leftover process, nothing written late" || bad "A LEFTOVER PROCESS RAN"
 APP=$(sha $R/srv/app.js)
 
-echo "== 43: a new boot.scr (U-Boot script image): placed atomically, then put back by the test"
+echo "== 43: a new boot.scr, even a proper U-Boot script image: refused (only a full install brings one)"
 cp -p $R/boot/boot.scr $W/boot.scr.kept
 printf '\x27\x05\x19\x56test boot script' > $W/new-boot.scr
 put $(craft dlzmod-vbootscr "cp $W/new-boot.scr mod/new-boot.scr; printf 'cp \"\$TOOLS/new-boot.scr\" \"\$MNT/boot/boot.scr\"\n' >> mod/apply-mod.sh"); run
-said "INSTALLED: " && cmp -s $R/boot/boot.scr $W/new-boot.scr && ok "boot.scr placed" || bad "boot.scr not placed"
-cp -p $W/boot.scr.kept $R/boot/boot.scr
-APP=$(sha $R/srv/app.js)   # the base package's app.js again (42's comment gone)
+refused dlzmod-vbootscr "the update changes /boot/boot.scr, which an update may not"
+cmp -s $R/boot/boot.scr $W/boot.scr.kept && ok "boot.scr as before" || bad "BOOT.SCR CHANGED"
 
 echo "== 44: a boot.scr that is not a U-Boot script image: refused"
 put $(craft dlzmod-vbadscr "printf 'cp /etc/hostname \"\$MNT/boot/boot.scr\"\n' >> mod/apply-mod.sh"); run
-refused dlzmod-vbadscr "puts something unexpected at /boot/boot.scr"
+refused dlzmod-vbadscr "the update changes /boot/boot.scr, which an update may not"
+cmp -s $R/boot/boot.scr $W/boot.scr.kept && ok "boot.scr as before" || bad "BOOT.SCR CHANGED"
+
+echo "== 44b: boot.scr removed: refused"
+put $(craft dlzmod-vnoscr "printf 'rm -f \"\$MNT/boot/boot.scr\"\n' >> mod/apply-mod.sh"); run
+refused dlzmod-vnoscr "the update changes /boot/boot.scr, which an update may not"
 cmp -s $R/boot/boot.scr $W/boot.scr.kept && ok "boot.scr as before" || bad "BOOT.SCR CHANGED"
 
 echo "== 45: a new update script with another guard list: refused"
@@ -440,7 +444,7 @@ with() { echo "cp $W/$1 mod/$1; printf '. \"\$TOOLS/$1\"\n' >> mod/apply-mod.sh"
 
 echo "== 56: a boot.scr that writes the eMMC: refused"
 put $(craft dlzmod-vmmcw "$(with x-mmcw.sh)"); run
-refused dlzmod-vmmcw "puts something unexpected at /boot/boot.scr"
+refused dlzmod-vmmcw "the update changes /boot/boot.scr, which an update may not"
 
 echo "== 57: a new unit that starts before the eMMC lock (DefaultDependencies=no): refused"
 put $(craft dlzmod-vearlyunit "$(with x-early.sh)"); run
