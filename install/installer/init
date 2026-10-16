@@ -132,7 +132,7 @@ fail() {  # reason; what it says depends on how far the real install got (STAGE)
   # (the 3 lines before the FAIL line just logged, which the red line above already says), taken
   # now, before saving the log adds lines of its own
   printf 'fail|%s\n' "$1" > /emmc/tmp/fail-lines 2>/dev/null
-  [ -n "$STAGE" ] && grep -v '^\[[0-9.]*\] progress: ' "$LOG" | tail -n 4 | head -n 3 | sed 's/^/info|/' >> /emmc/tmp/fail-lines 2>/dev/null
+  [ -n "$STAGE" ] && grep -v '^\[[0-9.]*] progress: ' "$LOG" | tail -n 4 | head -n 3 | sed 's/^/info|/' >> /emmc/tmp/fail-lines 2>/dev/null
   [ "$STAGE" = dump ] && pr_dump_abort   # an unfinished backup holds the mixer's settings
   [ -n "$STAGE" ] && ic_snap_down    # the copy's snapshot of the eMMC (RAM store, read-only loop), if any
   [ -n "$STAGE" ] && ic_bk_release   # DLZDATA mounted for the backup: free for the log below (ic_guard)

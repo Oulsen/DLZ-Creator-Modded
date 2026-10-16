@@ -242,8 +242,10 @@ function alltxt(l) {
 # the blocks in use sit near their start)
 function blend(p, t, m) { if (p < 0) p = 0; if (p > 1) p = 1; if (m < 0) return t * (1 - p); return (1 - p) * t * (1 - p) + p * m }
 # every 15th round (~30-40 s) the line with its time into the install log, for comparing the
-# estimates with the real times afterwards (lg: the log, n: the round). Last in a round, and lg only
-# when the log is writable: busybox awk ends when it cannot open a file, the round with it
+# estimates with the real times afterwards (lg: the log, n: the round). Always last in a round:
+# busybox awk ends when it cannot open a file (a read-only DLZDATA after an error, say), and only the
+# lines printed before that reach the screen. The [ -w ] check in the shell catches a missing log only
+# (for root it passes on any file that exists)
 function logline(lg, n, now, s) { if (lg != "" && n % 15 == 1) { printf "[%.2f] progress: %s\n", now, s >> lg; close(lg) } }
 '
 # ic_copy_tick [final]: the copy step's line: what has reached the card (its sectors-written count,
