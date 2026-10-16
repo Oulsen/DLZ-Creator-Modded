@@ -147,7 +147,7 @@ The repo is public, so what goes into it is limited by what the project may publ
 | Tool | Runs on | Purpose |
 |---|---|---|
 | `bootsplash.py` | any (PNG frames: Pillow) | Unpack / pack kernel bootsplash files (byte-exact roundtrip); `--raw` frames need no Pillow |
-| `mklayers.py` | WSL | Layout of the boot visuals (MODDED sticker, version, status lines, logo position); renders our layers (no Mackie logo) as RGBA PNGs + `layout.env` |
+| `mklayers.py` | WSL | Layout of the boot visuals (MODDED sticker, status lines, logo position; no version, #97); renders our layers (no Mackie logo) as RGBA PNGs + `layout.env` |
 | `logobbox.py` | WSL / device | Find Mackie's logo in the device's own `/etc/dlz.png` (stdlib + ffmpeg) |
 | `mkvisuals.sh` | WSL / device | Compose `/etc/dlz.png` and the kernel bootsplash from the device's originals + our layers (ffmpeg) |
 | `modversion.py` | any | Reads and checks the mod version from `VERSION` (`v0.1.0` .. `v9.99.99`) |
@@ -165,8 +165,8 @@ The repo is public, so what goes into it is limited by what the project may publ
 | `apply-mod.sh` | WSL / device | The mod's own changes to a rootfs (guards and units, app/server patches, mod defaults, Mackie's factory Wi-Fi network and SSH access removed once), shared by `card-core.sh` and the drop-in update so both apply the same files; every file written atomically and only when it differs |
 | `sd-system/` | device | Installed by `card-core.sh`: eMMC read-only unit (and a udev rule that locks it whenever it appears), first-boot `DLZDATA` grower, boot log copy to `DLZDATA/dlzmod-logs/`, dspserver start guard (waits for server.js), drop-ins that stop GD32 flashing and Mackie updates, the card bound to its mixer (`dlzmod-cardcheck` before Mackie's FPGA loader: the flag matches the GD32 marker, both match the eMMC's own (read-only), and the eMMC's CID hash matches `/etc/dlzmod/mixer-id`, else no FPGA load, faderlink or dspserver and a red popup), the drop-in update (`dlzmod-update`: a package in `DLZDATA/dlzmod-update/` is checked and applied at startup, only with a valid signature from a key the card trusts; its steps run in a sandbox on a copy, then only allowlisted files are placed), USB Wi-Fi ids the stock driver lacks, an eject rule for Realtek sticks that start as a driver CD, and an SSH drop-in that gives each card its own host keys, slows down password guessing and starts SSH only when turned on from the screen (off again after a restart unless kept on) |
 | `mount-ro.sh` | WSL (root) | Mount a dump's rootfs read-only |
-| `patch.py` | any | `patch.py app <app.js>`: our UI mods (`app-mod/dlzmod.js` + anchor patches). `patch.py server <server.js>`: our server mods (`server-mod/dlzmod-server.js` + anchor patches): FORMAT SD and firmware updates refused, free and unique recording names, the update popup, Wi-Fi and SSH for the Mod page's Network panel, and Mackie's file commands checked (deleting and renaming only from the mixer's own screen, preset folders and names checked, no shell for file names, the kept `*.orig` originals not served) |
-| `server-mod/test-dlzmod-server.js` | Node | Unit tests for the server mod: recording names, update popup, Network panel, file command checks (`node install/server-mod/test-dlzmod-server.js`) |
+| `patch.py` | any | `patch.py app <app.js>`: our UI mods (`app-mod/dlzmod.js` + anchor patches). `patch.py server <server.js>`: our server mods (`server-mod/dlzmod-server.js` + anchor patches): FORMAT SD and firmware updates refused, free and unique recording names, the update popup, Wi-Fi and SSH for the Mod page's Network panel, control from other devices only when switched on and paired with a PIN (HTTP, socket.io and port 89 on loopback; the Remote Control panel), and Mackie's file commands checked (deleting and renaming only from the mixer's own screen and paired devices, recordings only in their folders, preset folders and names checked, no shell for file names, the kept `*.orig` originals not served) |
+| `server-mod/test-dlzmod-server.js` | Node | Unit tests for the server mod: recording names, update popup, Network panel, pairing (PIN, pause, cookie, Origin, which files other devices get), file command checks (`node install/server-mod/test-dlzmod-server.js`) |
 
 ### `dev/`: develop mods on a PC
 
@@ -232,8 +232,8 @@ else. Before writing to the image it checks that every tool and mod file it need
 build deletes the half-built image.
 `DLZMOD_UUID=<uuid> SOURCE_DATE_EPOCH=<seconds>` make two builds of the same dump identical. It generates the boot visuals
 from the image's own originals and applies the UI mods; the
-version shown on the boot screens and in Settings comes from `VERSION` (bumped in `develop` right
-after a release: "Version bump" below). Flash `build/dlz-sd-vX.Y.Z.img` with balenaEtcher (re-select the file
+version shown in Settings (and on the installer's screens) comes from `VERSION` (bumped in `develop`
+right after a release: "Version bump" below). Flash `build/dlz-sd-vX.Y.Z.img` with balenaEtcher (re-select the file
 after a rebuild, and never rebuild while a flash is running; cancel Windows' format prompt). Card out = stock firmware. Power off before pulling the card.
 
 ### SSH key (optional, test cards only)

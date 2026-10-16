@@ -6,27 +6,30 @@ Writes to <out dir>:
 - layout.env: sizes and logo positions for mkvisuals.sh (sourced by sh)
 
 Layout: the kernel splash and the Weston marker (/etc/dlz.png) draw the same group (Mackie logo,
-MODDED sticker, version, status lines) in the kernel splash's picture box: 640x260, centred on the
+MODDED sticker, status lines) in the kernel splash's picture box: 640x260, centred on the
 1024x600 screen. The splash can only draw inside that box; the marker draws the identical group at
 the identical place, so nothing moves between the two. Coordinates match the approved HTML mockup
 (CSS px = image px). Mackie's logo is never drawn here: mkvisuals.sh puts the device's own logo
 underneath (logobbox.py finds it in /etc/dlz.png).
+
+No version on these two (#97): they are made only when a card is built, and a drop-in update cannot
+change them (boot/ and /etc/dlz.png are not on the updater's allowlist), so an updated card would
+show the version it was installed with. The version is in Settings and in the update popup. The
+installer's screens keep theirs (release/mklogo.py, from _version and VERSION_RIGHT/TOP here): an
+installer image is always made fresh.
 
 Each layer is drawn twice, on black and on white, and colour + alpha are recovered from the
 difference; this is exact for Pillow's linear blending, so layer-over-logo equals drawing the logo
 first (tested pixel-exact against the old all-Pillow pipeline). Runs on the PC (needs Pillow); the
 device only composes.
 
-Usage: python3 mklayers.py <out dir> [--version-file VERSION]
+Usage: python3 mklayers.py <out dir>
 """
 import argparse
 import math
 import os
-from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
-
-from modversion import VERSION_FILE, read_version
 
 W, H = 1024, 600
 BOX_W, BOX_H = 640, 260
@@ -41,7 +44,7 @@ MONO_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
 
 LOGO_W, LOGO_TOP = 390, 40
 STICKER_CX, STICKER_TOP = BOX_W // 2 + 219, 14   # centre x / top of the unrotated sticker
-VERSION_RIGHT, VERSION_TOP = BOX_W - 39, 47      # top-right corner of the unrotated version text
+VERSION_RIGHT, VERSION_TOP = BOX_W - 39, 47      # top-right corner of the unrotated version text (installer only)
 TILT = 12                                        # degrees, counter-clockwise
 LINES_TOP, LINE_H = 206, 36
 
@@ -70,7 +73,7 @@ def _sticker() -> Image.Image:
     return img
 
 
-def _version(text: str) -> Image.Image:
+def _version(text: str) -> Image.Image:   # the installer's screens (release/mklogo.py)
     font = ImageFont.truetype(MONO_BOLD, 18)
     w = math.ceil(font.getlength(text))
     img = Image.new("RGBA", (w, 22), (0, 0, 0, 0))
@@ -83,7 +86,7 @@ def logo_xy(ox: int, oy: int) -> tuple:
     return ox + (BOX_W - LOGO_W) // 2, oy + LOGO_TOP
 
 
-def draw_group(canvas: Image.Image, ox: int, oy: int, version: str, lines: list) -> None:
+def draw_group(canvas: Image.Image, ox: int, oy: int, lines: list) -> None:
     """Draw the group without the logo, with the picture box's top-left corner at (ox, oy)."""
     d = ImageDraw.Draw(canvas)
 
@@ -91,10 +94,6 @@ def draw_group(canvas: Image.Image, ox: int, oy: int, version: str, lines: list)
     rot, _ = _rotate_about(st, (st.width / 2, st.height / 2))
     cx, cy = ox + STICKER_CX, oy + STICKER_TOP + st.height / 2
     canvas.paste(rot, (round(cx - rot.width / 2), round(cy - rot.height / 2)), rot)
-
-    ver = _version(version)
-    rot, (ax, ay) = _rotate_about(ver, (ver.width, 0))
-    canvas.paste(rot, (round(ox + VERSION_RIGHT - ax), round(oy + VERSION_TOP - ay)), rot)
 
     # left-aligned block, centred on its widest line; line 1 is the widest in both images
     font = ImageFont.truetype(MONO, 24)
@@ -107,17 +106,17 @@ def draw_group(canvas: Image.Image, ox: int, oy: int, version: str, lines: list)
         d.text((x + prefix_w, y), text, font=font, anchor="lm", fill=DONE_GREEN if state == "done" else GREEN)
 
 
-def splash_picture(version: str, bg: tuple) -> Image.Image:
+def splash_picture(bg: tuple) -> Image.Image:
     """The kernel splash's picture without the logo (upright; mkvisuals.sh rotates it)."""
     img = Image.new("RGB", (BOX_W, BOX_H), bg)
-    draw_group(img, 0, 0, version, SPLASH_LINES)
+    draw_group(img, 0, 0, SPLASH_LINES)
     return img
 
 
-def marker_screen(version: str, bg: tuple) -> Image.Image:
+def marker_screen(bg: tuple) -> Image.Image:
     """The full-screen Weston background without the logo."""
     img = Image.new("RGB", (W, H), bg)
-    draw_group(img, BOX_X, BOX_Y, version, MARKER_LINES)
+    draw_group(img, BOX_X, BOX_Y, MARKER_LINES)
     font = ImageFont.truetype(MONO, 15)
     ImageDraw.Draw(img).text((W / 2, H - 22), HINT, font=font, anchor="md", fill=HINT_GRAY)
     return img
@@ -137,15 +136,13 @@ def matte(on_black: Image.Image, on_white: Image.Image) -> Image.Image:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out_dir")
-    ap.add_argument("--version-file", type=Path, default=VERSION_FILE)
     args = ap.parse_args()
 
-    version = read_version(args.version_file)
     os.makedirs(args.out_dir, exist_ok=True)
     black, white = (0, 0, 0), (255, 255, 255)
-    matte(marker_screen(version, black), marker_screen(version, white)).save(
+    matte(marker_screen(black), marker_screen(white)).save(
         os.path.join(args.out_dir, "marker.png"))
-    matte(splash_picture(version, black), splash_picture(version, white)).save(
+    matte(splash_picture(black), splash_picture(white)).save(
         os.path.join(args.out_dir, "splash.png"))
 
     marker_x, marker_y = logo_xy(BOX_X, BOX_Y)
@@ -154,7 +151,7 @@ def main() -> None:
         f.write(f"W={W}\nH={H}\nBOX_W={BOX_W}\nBOX_H={BOX_H}\nLOGO_W={LOGO_W}\n"
                 f"MARKER_X={marker_x}\nMARKER_Y={marker_y}\nSPLASH_X={splash_x}\nSPLASH_Y={splash_y}\n"
                 f"GREEN_R={GREEN[0]}\nGREEN_G={GREEN[1]}\nGREEN_B={GREEN[2]}\n")
-    print(f"{args.out_dir}: layers {version}")
+    print(f"{args.out_dir}: layers")
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@
 # - refuses any source other than the firmware our patches are made for, on the DLZ Creator or XS
 #   (check-rootfs.sh, before copying)
 # - copies the dump to <output.img> and attaches it as a loop device
-# - renders our boot-visual layers from the repo's VERSION (mklayers.py, Pillow)
+# - renders our boot-visual layers (mklayers.py, Pillow; no version on them, #97)
 # - card-core.sh does the rest: DLZDATA partition, new rootfs UUID, visuals, brick guards, UI and
 #   server mods, optional Wi-Fi/SSH from a config file (see sd.env.example)
 #

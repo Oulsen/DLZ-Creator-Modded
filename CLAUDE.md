@@ -32,7 +32,7 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   a normal run on the mixer shows (a name, a text, a screen, an update or install that goes through)
   is tested on the mixer itself, after the fast tests, the sandbox and the device review. Say why
   before starting a rehearsal.
-- `VERSION` is the mod version shown on the boot screens and in Settings (`v0.1.0` .. `v9.99.99`);
+- `VERSION` is the mod version shown in Settings and on the installer's screens (`v0.1.0` .. `v9.99.99`);
   bumped in `develop` right after a release (below); a new version is released only when
   functionality is added or changed, not for cosmetic tweaks.
 - The install guide (`docs/INSTALL.md`) shows the installer's screens (`docs/images/install/`, with

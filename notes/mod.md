@@ -36,11 +36,17 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
 - **File commands only from the mixer's own screen** (#47): stock's file commands take paths and
   names from any client and use them as root without a check [static], so any device on the network
   could delete, move, write or read any file, including the mod's own guards. Now:
-  - deleting and renaming (recordings, presets, snapshots), loading samples from a path and
-    formatting the USB stick only from the screen (`DLZMOD_SCREEN_ONLY`); phones and tablets get them
-    back with #45's pairing (#48)
+  - deleting and renaming (recordings, presets, snapshots): from the screen, and from devices paired
+    with the PIN (#48, `DLZMOD_PAIRED_FILES`); for those, recordings only inside the recordings
+    folders (`DLZ_Creator_Recordings`, `DLZ_Creator_XS_Recordings`) on the SD card or the USB stick
+  - loading samples from a path, formatting the USB stick, a factory reset (`FACTORY_RESET`,
+    `RESET`) and restarting the screen (`RESTART_GUI`): only from the screen (`DLZMOD_SCREEN_ONLY`).
+    `RESTART_GUI` runs `systemctl restart evolve-app`; `evolve-app.service` has `Restart=always` and
+    systemd's default start limit (5 in 10 s), so a few in a row leave the screen dark until a power
+    cycle [static]
+  - the System Lock PIN (key `lock`): set, changed or removed only from the screen
   - installing a mod update (`DLZMOD_UPDATE_APPROVE`, #65) only from the screen, always (also not
-    after pairing): [updates.md](updates.md), "The question before an update"
+    from paired devices): [updates.md](updates.md), "The question before an update"
   - for everyone: preset folders only Mackie's own (`ch comp del ds eq gate rev snaps`), and names
     plain names (no `/`, `\`, NUL, `.` or `..`) where stock uses them raw; saving keeps stock's own
     clean-up, so "AC/DC" and "Vocals..." still save
@@ -51,8 +57,9 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
     command, so a name with `;` ran as root); names with spaces now get finalized too
   - HTTP refuses `*.orig` (the unpatched originals `patch.py` keeps in `/srv`) and the atomic-write
     temp files; unknown commands get `data:false` instead of silence
-  Accepted: `srv_data.json` (live state, lock PIN included) stays served as on stock until #45;
-  snapshots are not filtered on load (snapshots saved on the mixer may hold pad sample files).
+  Accepted: snapshots are not filtered on load (snapshots saved on the mixer may hold pad sample
+  files). `srv_data.json` and the presets are no longer served to other devices (#45, below).
+- **Control from other devices** (#45): below, "Remote Control".
 - **Recording names** (#27, #34, #35): `REC_<number>_<animal>.wav`, e.g. `REC_0042_otter`. The
   number counts above every `REC_<n>` file or folder, in any letter case, in the recordings folders
   of both media (SD card and USB stick; reading the other medium gives up after 2 s, so a hung stick
@@ -69,7 +76,7 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
 
 ## Mod settings (Settings → DLZ Creator Modded)
 
-Sub-tabs Display / Network / Mod; layout and how to add a setting:
+Sub-tabs Display / Network / Remote / Mod; layout and how to add a setting:
 [modding-guide.md](modding-guide.md), "Mod settings". Every default on these tabs equals stock.
 
 - **Hide header** (#31): more room; also hides the toasts, the red pad indicators and "DEMO MODE".
@@ -81,6 +88,8 @@ Sub-tabs Display / Network / Mod; layout and how to add a setting:
   wrapping the LR fader's `paint`); off = Mackie's plain meters. The scale is dB-linear over 80 dB with
   0 dBFS at the top [device: test tones at -6 and -30 dBFS].
 - **Network** (#12, #44): Wi-Fi and SSH, below.
+- **Remote Control** (#45, #48): control from a computer's web browser, off by default; below (phones
+  and tablets: Mackie's web UI does not fit them and misses touches, #52).
 - **Mod**: version, update status (an update waiting on the card, with "Install Update..." on the
   mixer's own screen, #65), credits.
 
@@ -88,8 +97,8 @@ Sub-tabs Display / Network / Mod; layout and how to add a setting:
 
 - One command `DLZMOD_NET {op}` (`status`, `scan`, `connect`, `forget`, `ssh`, `sshKeep`); answers go
   to that screen only. One change at a time.
-- **Changes only from the mixer itself**: the hub has no login, so any device on the network, or a
-  web page in a browser on it, could otherwise set the root password. server.js's socket.io and TCP
+- **Changes only from the mixer itself**, also for paired devices (#45): a phone must not set the
+  root password or pair more devices. server.js's socket.io and TCP
   connections stamp their send function with `dlzmodLocal` (peer 127.0.0.1 or ::1); the screen
   (app.js in jsdom) connects to 127.0.0.1. Other devices get an empty status (no network name,
   address or SSH state; the Mod page there says "on the mixer's own screen") and nothing is run
@@ -130,6 +139,75 @@ Sub-tabs Display / Network / Mod; layout and how to add a setting:
   `70-dlzmod-wifi-zerocd.rules` → `dlzmod-zerocd-eject`, started through `systemd-run --no-block`
   because udevd holds the device open during its event and the kernel refuses the eject until then;
   it retries for 10 s [static: no such stick tried yet]. Ethernet works as on stock.
+
+## Remote Control: control from other devices (#45, #48)
+
+Stock lets anyone on the network control the mixer over both ports, without a login: every setting,
+factory reset, formatting, and `srv_data.json` (the System Lock PIN) and the presets as files. The mod
+keeps the mixer itself as stock and lets other devices in only when asked [device: off by default,
+pairing from a computer's browser with a random and an own PIN, the PIN hidden as dots until Show
+PIN, deleting and renaming a recording from the browser, System Lock and Factory Reset only on the
+screen, Forget and Off locking the browser out; the screen, faders and audio unchanged]:
+
+- **Who is the mixer itself**: connections from 127.0.0.1 / ::1 (the screen on port 89; dspserver and
+  faderlink over socket.io on port 80). Nothing changes for them.
+- **Off by default** (a fresh card has no state file): another device gets a page saying where to turn
+  it on, socket.io refuses its handshake (`allowRequest`).
+- **On** (Settings → DLZ Creator Modded → Remote, asks first; only from the screen): the panel
+  shows the address(es) to open and a 6-digit PIN, hidden as dots until "Show PIN" (30 s; the screen
+  is often on camera). A browser without a pairing gets the mod's PIN page;
+  the right PIN sets a random 32-byte token as cookie `dlzmod_pair` (`HttpOnly`, `SameSite=Strict`,
+  400 days). A random PIN pairs one device: a new PIN shows after each pairing. Or the owner's own
+  PIN ("Own PIN...", 6 digits on a PIN pad in the layout of Mackie's System Lock; at most two different digits, straight runs like 123456 or 987654,
+  repeated blocks like 123123 and doubled digits like 112233 are refused): it stays, for pairing several devices without the screen, until "Random PIN", a new own
+  PIN or switching off. Wrong PINs, counted for all devices together: after 5 a pause of 60 s,
+  doubling up to 15 min, on the panel too; a successful pairing starts the doubling at 60 s again.
+- **Paired**: the browser loads only the UI's own files (`/`, `index.html`, `app.js`, `style.css`,
+  `favicon.ico`, `libs/`, `fonts/`, `img1x/`), not `srv_data.json`, the presets or anything else in
+  `/srv`. Before pairing only the PIN page's own files: the model's logo (`img1x/DLZ_XS.png` /
+  `DLZ_Creator.png`) and Proxima Nova Regular and Semibold (`DLZMOD_loginFileOk`); the page is in
+  Mackie's look with the mod's yellow marker at the bottom; socket.io takes it with the cookie and, from a browser, only with the mixer's own page as
+  `Origin` (a web page elsewhere cannot drive the mixer). The connection is checked once more when it
+  opens and stamped `dlzmodPaired`: deleting and renaming come back (#48), the Network panel's changes
+  do not.
+- **Only by the mixer's own name**: other devices get in only by an IP address, a `.local` name or
+  `localhost` as `Host` (`DLZMOD_hostOk`), else 421 "Open the mixer by its IP address or its .local
+  name". Without it a web page could point a name of its own at the mixer (DNS rebinding): `Host`
+  and `Origin` then match, and a browser on the network would send PIN guesses for it. A router's
+  name for the mixer (`mixer.lan`, `mixer.fritz.box`) is refused for the same reason.
+- **Off and "Forget all devices"** forget every pairing and drop paired connections at once. Off also
+  drops an own PIN (on again starts random); Forget makes a random PIN new and keeps an own one (the
+  popup says to change it if others know it).
+- **On the card**: `/var/lib/dlzmod-remote/state.json` (folder 700, file 600, durable write): on, the
+  PIN, whether it is the owner's own, and the sha256 of each token (at most 16: the 17th pairing
+  drops the oldest). An update keeps it. The PIN goes only to the screen (the Network status), never
+  into a hub key or a log line. Every change goes to the card first and into memory after
+  (`DLZMOD_pairCommit`): a change that opens up (on, a pairing, an own PIN) only happens once saved;
+  off and Forget hold in memory at once, and when the card cannot save them the file is removed (no
+  file = off at the next start); if even that fails the screen says the devices may come back after
+  a restart.
+- **In the browser** (Mackie's `EXTERNAL`, known before the pages are built) the System Lock button,
+  both Factory Reset buttons and the mod's Network and Remote sub-tabs are not shown (patch.py,
+  `DLZMOD_external`): the server refuses them, and Mackie's web UI would otherwise lock or "reset"
+  only itself. A mixer locked on its screen shows the lock in the browser too; tapping it says
+  "Only on the mixer's own screen" (`DLZMOD_screenOnly`). Setting an own PIN or a random one
+  shows no popup: the panel shows the new PIN.
+- **Port 89** listens on 127.0.0.1 and ::1 only (`DLZMOD_listen89`): its only client is the screen.
+  That also ends the unbounded line buffer there as a network problem.
+- **For a computer, not yet for phones and tablets**: Mackie's web UI does not fit a phone and misses
+  touches (#52); the PIN page itself works on a phone.
+- **Accepted** (device review of v0.2.0): plain HTTP, so a token can be sniffed on the same network
+  and replayed for its 400 days (the panel says "only on a network you trust"); a paired device gets
+  the whole live state over socket.io, as stock's browser UI needs it (the System Lock PIN included,
+  read only); stock's preset and snapshot commands have no size or count limit, also for paired
+  devices; someone on the network can keep the pairing paused with wrong PINs (15 min at most per
+  round; paired devices keep working); the #48 path check is textual, so a symlink in a recordings
+  folder on an ext4 USB stick could point a paired device's delete elsewhere on the card (needs
+  physical access; FAT and exFAT have no symlinks; the screen could do so before); the ::1 listener on
+  port 89 is not retried when it fails to bind (the kernel has IPv6, `/etc/hosts` maps ::1); the
+  System Lock is a screen overlay plus a block on the hardware buttons (stock's server reads `lock`
+  only in `HWREC`, `PADPRSD` and `ALT`), so a paired browser still controls a mixer locked on its
+  screen, as stock's open web UI did [static].
 
 ## The card gate (`dlzmod-cardcheck`)
 
