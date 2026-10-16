@@ -11,6 +11,7 @@
 - (MOD BUG) Update: the check that the internal storage is locked can be skipped with the test settings
 - (MOD BUG) Update: the check of a new startup script misses some ways to write the internal storage or the power chip
 - (MOD BUG) Update: the check that a new updater keeps its safety checks can be fooled by its own list
+- (MOD BUG) After an update the start screens still show the old version
 
 ## v0.1.0
 
