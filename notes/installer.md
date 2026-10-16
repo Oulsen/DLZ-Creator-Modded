@@ -201,6 +201,10 @@ On a SanDisk Ultra 128 GB (A1, U1) in an XS, times from the first write [device]
 |---|---|---|---|---|
 | Current | **526 s** | **277 s** for 2322 MiB in use, 978 MiB backup | **210 s** | 38 s |
 
+The same installer on a Gigastone 4K UHD Video 64 GB (U3) [device]: 553 s in all, the copy 302 s
+(+9 %), the compare 212 s: writing is a little slower, reading the same. The installs before the
+current one ran on the SanDisk only (the timings below).
+
 What the time depends on:
 - Copying only the blocks in use (#49): the whole p1 (7293 MiB) took 555 s for the copy and 931 s
   in all, and 1262 s with the backup. Reading the eMMC alone runs at 44 MB/s (7297 MiB in 167 s)
