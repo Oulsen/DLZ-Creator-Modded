@@ -33,7 +33,8 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   is tested on the mixer itself, after the fast tests, the sandbox and the device review. Say why
   before starting a rehearsal.
 - `VERSION` is the mod version shown on the boot screens and in Settings (`v0.1.0` .. `v9.99.99`);
-  bump it only when functionality is added or changed, not for cosmetic tweaks.
+  bumped in `develop` right after a release (below); a new version is released only when
+  functionality is added or changed, not for cosmetic tweaks.
 - The install guide (`docs/INSTALL.md`) shows the installer's screens (`docs/images/install/`, with
   the version sticker). When an installer text, its look or `VERSION` changes: copy changed texts
   into `dev/installer-mockup.py`, re-render with `--no-sheet docs/images/install`, and read the guide
@@ -69,8 +70,8 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   "Version bump"). The bump PR opens a `## vX.Y.Z` section in `CHANGELOG.md` (newest version first);
   every PR that finishes a milestone issue adds its title there as a bullet, in the order DLZ
   FEATURE, DLZ BUG, MOD FEATURE, MOD BUG (the release PR and the release notes use the same order,
-  as sections), and updates the README's "What the mod does" (the current mod, by group) when it
-  changes what the mod does.
+  as sections). The same PR updates the README's "What the mod does" (the current mod, by group)
+  when it changes what the mod does.
 - `dumps/` and `build/` are private and git-ignored. Never commit Mackie binaries, dumps or `.upd`
   files; in notes, describe Mackie code and point to it (file, function, search string), never paste
   it. Names, paths, settings, message fields and `patch.py`'s anchors are fine; copied code lines are not.

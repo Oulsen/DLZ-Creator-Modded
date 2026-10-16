@@ -89,7 +89,7 @@ organised: "GitHub workflow" below and [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 | File | Contents |
 |---|---|
-| `CHANGELOG.md` | Plain-language changelog, updated every version. The roadmap is on GitHub: [issues](https://github.com/Oulsen/DLZ-Creator-Modded/issues) and the [board](https://github.com/users/Oulsen/projects/2) |
+| `CHANGELOG.md` | Plain-language changelog: each PR that finishes a milestone issue adds its bullet. The roadmap is on GitHub: [issues](https://github.com/Oulsen/DLZ-Creator-Modded/issues) and the [board](https://github.com/users/Oulsen/projects/2) |
 | `notes/architecture.md` | Processes, IPC, message protocol, data model: start here |
 | `notes/system.md` | OS layer: boot, network, ports, security, persistence, package ownership |
 | `notes/components/` | One page per component: Node backend, glesgui, dspserver, mixer graph, faderlink, firmware update |
@@ -232,8 +232,8 @@ else. Before writing to the image it checks that every tool and mod file it need
 build deletes the half-built image.
 `DLZMOD_UUID=<uuid> SOURCE_DATE_EPOCH=<seconds>` make two builds of the same dump identical. It generates the boot visuals
 from the image's own originals and applies the UI mods; the
-version shown on the boot screens and in Settings comes from `VERSION` (bumped when functionality
-is added or changed, not for cosmetic tweaks). Flash `build/dlz-sd-vX.Y.Z.img` with balenaEtcher (re-select the file
+version shown on the boot screens and in Settings comes from `VERSION` (bumped in `develop` right
+after a release: "Version bump" below). Flash `build/dlz-sd-vX.Y.Z.img` with balenaEtcher (re-select the file
 after a rebuild, and never rebuild while a flash is running; cancel Windows' format prompt). Card out = stock firmware. Power off before pulling the card.
 
 ### SSH key (optional, test cards only)
@@ -370,8 +370,9 @@ issue's technical notes point to the note section instead of copying it.
   4. Check the milestone: `gh issue list --milestone vX.Y.Z --state open` is empty (an open one
      moves to the next milestone or holds the release), and the "Done when" items noted for later
      on its closed issues (an install log seen at the next install) are seen on the release
-     candidate and ticked. Then move its cards from "Fixed in develop" to "Released" and close the
-     milestone.
+     candidate and ticked; the `## vX.Y.Z` section of `CHANGELOG.md` lists exactly its closed issues
+     (`--state closed`), and the bullet of an issue moved to the next milestone moves with it. Then
+     move its cards from "Fixed in develop" to "Released" and close the milestone.
   5. An annotated tag `vX.Y.Z` on that commit. Then a GitHub release with the `CHANGELOG.md` section as notes
   (grouped under the section headings of "`CHANGELOG.md`" below, without the title prefixes),
   followed by the GPL source note from the README's "Legal" (U-Boot and busybox versions and their
