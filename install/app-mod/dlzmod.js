@@ -424,7 +424,8 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
 // dlzmod-server.js). The status comes from the server (DLZMOD_NET_STATE); the SSH switch shows it
 // and is no hub key, so nothing about it is sent to other clients or saved in srv_data.json.
 function DLZMOD_netState() {
-  return DLZMOD_netState.s || { stick: false, wifi: "", ssid: "", signal: 0, ip: "", ssh: false, sshKeep: false, unknown: true };
+  return DLZMOD_netState.s || { stick: false, wifi: "", ssid: "", signal: 0, ip: "", ssh: false, sshKeep: false, sshBusy: "",
+    unknown: true };
 }
 
 function DLZMOD_setNetState(s) {
@@ -443,6 +444,22 @@ function DLZMOD_wifiStatusText(s) {
   if (s.wifi === "connecting") return ["Connecting…", "", DLZMOD_yellow()];
   if (s.wifi === "unavailable") return ["Wi-Fi stick not ready", "", "#888888"];
   return ["Not connected", "", "#888888"];
+}
+
+// SSH status under "Remote login" and its colour. Other devices get no SSH state (DLZMOD_net), and a
+// change still running (sshBusy) shows as Wi-Fi's "Connecting…" does
+function DLZMOD_sshStatusText(s) {
+  if (s.remote) return ["Only on the mixer's own screen", "#888888"];
+  if (s.unknown) return ["…", "#888888"];
+  if (s.sshBusy === "on") return ["Setting up…", DLZMOD_yellow()];
+  if (s.sshBusy === "off") return ["Switching off…", DLZMOD_yellow()];
+  if (s.ssh) return ["On", "#888888"];
+  return [s.sshKeep ? "Off now, back on at the next start" : "Off", "#888888"];
+}
+
+// the SSH controls: not on another device, and not while a change runs
+function DLZMOD_sshIdle(s) {
+  return !s.remote && !s.sshBusy;
 }
 
 // Network page: two cards, Wi-Fi and SSH, in a container without paint of its own, so that
@@ -504,7 +521,9 @@ function DLZMOD_sshCard(parent, x, w) {
         anchors: [w - 24 - 72, 73], size: [72, 46], margin: 10,
         bgColors: [Color.buttonBg, DLZMOD_yellow()], knobMargin: 0,
         getState: function () {
-          this.value = !!DLZMOD_netState().ssh;
+          const s = DLZMOD_netState();
+          this.value = !!s.ssh;
+          this.enabled = DLZMOD_sshIdle(s);
         },
         setVal: function (v) {
           this.value = v;
@@ -521,7 +540,7 @@ function DLZMOD_sshCard(parent, x, w) {
         getState: function () {
           const s = DLZMOD_netState();
           this.value = !!s.sshKeep;
-          this.enabled = !!s.ssh || !!s.sshKeep;   // a marker left behind can always go
+          this.enabled = DLZMOD_sshIdle(s) && (!!s.ssh || !!s.sshKeep);   // a marker left behind can always go
         },
         setVal: function (v) {
           this.value = v;
@@ -533,14 +552,16 @@ function DLZMOD_sshCard(parent, x, w) {
         anchors: [0, 300, null, null, !0], size: [w - 48, 56], text: "SSH Password...",
         onPress: () => DLZMOD_askSshPassword(),
         getState: function () {
-          this.enabled = !!DLZMOD_netState().ssh;
+          const s = DLZMOD_netState();
+          this.enabled = DLZMOD_sshIdle(s) && !!s.ssh;
         },
       });
     },
     paint: function (t) {
       DLZMOD_paintPanel(this, t, "SSH", Color.white, Font.font(500, "20pt"));
       const s = DLZMOD_netState(), max = this.w - 48;
-      DLZMOD_paintRow(t, 24, this.ssh.geomCenterY(), "Remote login", s.ssh ? "On" : s.sshKeep ? "Off now, back on at the next start" : "Off", this.w - 24 - 120);
+      const [status, color] = DLZMOD_sshStatusText(s);
+      DLZMOD_paintRow(t, 24, this.ssh.geomCenterY(), "Remote login", status, this.w - 24 - 120, color);
       const warn = { color: Color.red2, font: Font.font(500, "12pt"), align: "left", valign: "middle", max: max };
       t.drawText("Gives full root access to the mixer over the network.", 24, 140, warn);
       t.drawText("Only on a network you trust; normal use does not need it.", 24, 160, warn);

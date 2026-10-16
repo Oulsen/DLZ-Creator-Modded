@@ -472,9 +472,11 @@ function DLZMOD_wifiSaved(dir = DLZMOD_nmDir()) {
   return saved;
 }
 
-// status for the Network panel: stick present, Wi-Fi state, network name, address, SSH on
+// status for the Network panel: stick present, Wi-Fi state, network name, address, SSH on, and an SSH
+// change still running ("on"/"off", DLZMOD_net), so the card says so after its popup was closed
 async function DLZMOD_netState(run = DLZMOD_run, paths = DLZMOD_sshPaths()) {
-  const st = { stick: false, wifi: "", ssid: "", signal: 0, ip: "", ssh: false, sshKeep: false };
+  const st = { stick: false, wifi: "", ssid: "", signal: 0, ip: "", ssh: false, sshKeep: false,
+    sshBusy: DLZMOD_net.sshBusy || "" };
   const dev = await run("/usr/bin/nmcli", ["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"]);
   let wdev = "";
   for (const line of dev.out.split("\n")) {
@@ -543,11 +545,14 @@ async function DLZMOD_net(args, send, opts = {}) {
     try {
       if (a.op === "connect") await DLZMOD_wifiConnect(a, run, dir, result);
       else if (a.op === "forget") await DLZMOD_wifiForget(String(a.ssid || ""), run, dir, result);
-      else if (a.op === "ssh") await DLZMOD_sshSet(a, run, result, opts.sshdDir, paths);
-      else if (a.op === "sshKeep") await DLZMOD_sshKeep(a, run, result, paths);
+      else if (a.op === "ssh") {
+        DLZMOD_net.sshBusy = a.on ? "on" : "off";
+        await DLZMOD_sshSet(a, run, result, opts.sshdDir, paths);
+      } else if (a.op === "sshKeep") await DLZMOD_sshKeep(a, run, result, paths);
       else result(false, "Unknown network action");
     } finally {
       DLZMOD_net.busy = false;
+      DLZMOD_net.sshBusy = "";
     }
     reply("DLZMOD_NET_STATE", await DLZMOD_netState(run, paths));
   } catch (e) {
