@@ -134,6 +134,10 @@ guards_ok() {   # checked by this installed script, never by the package's code
   [ "$ok" = yes ]
 }
 
+# the screen's question (#65) is about this start's package only: written again below while one
+# waits, so a start that stops before looking (no DLZDATA) leaves no question from an earlier one
+[ -n "$CHECK_ONLY" ] || rm -f "$STATE/pending"
+
 # DLZDATA: this card's p2 (or the rehearsal's mount), read-only unless something has to be written
 if [ -n "${DLZMOD_DATA:-}" ]; then
   DATA=$DLZMOD_DATA
@@ -264,8 +268,6 @@ if [ -n "$CHECK_ONLY" ]; then
   STATE=$CHECK_STATE
 fi
 mkdir -p "$STATE"
-# the screen's question (#65) is about this start's package only: written again below while one waits
-rm -f "$STATE/pending"
 [ -n "$CHECK_ONLY" ] || clean_new
 if [ -z "$CHECK_ONLY" ] && [ -s "$STATE/inprogress" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ] && ! guards_ok > /dev/null; then
   log "the guards are not as installed after a try that was cut off: putting the files from before it back"
@@ -274,7 +276,8 @@ if [ -z "$CHECK_ONLY" ] && [ -s "$STATE/inprogress" ] && [ -f "$STATE/previous.t
 fi
 pkgs=("$U"/dlzmod-*.tar)
 if [ ${#pkgs[@]} = 0 ]; then   # nothing to do (every normal start)
-  rm -f "$STATE/unsigned" "$STATE/multiple"
+  # an Install for a file that is gone does not wait for that file to come back (#65)
+  rm -f "$STATE/unsigned" "$STATE/multiple" "$STATE/approved"
   # a try cut off while placing, and its file removed since (the guards may be fine, so the repair
   # above did not run): the files from before it go back, or the card keeps a half-placed update
   if [ -z "$CHECK_ONLY" ] && [ -s "$STATE/inprogress" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ]; then
@@ -468,9 +471,12 @@ wait_for_approval() {
     { restore && guards_ok; } || later "the files from before an earlier cut-off update could not be put back"
     rm -f "$STATE/inprogress"; sync
     log "previous files restored"
+    log "NOT INSTALLED yet: ${SRC##*/} waits for Install on the mixer's screen"
   else
     : > "$REPORT"
   fi
+  # an Install for another file (one replaced since) does not carry over to a later one
+  rm -f "$STATE/approved"
   # named as the installed file names a build ("v0.2.0 (dev-c0e3084)"; a release: "v0.2.0")
   label=$NEWV
   case $(penv BUILD) in ''|release) ;; *) label="$NEWV ($(penv BUILD))" ;; esac

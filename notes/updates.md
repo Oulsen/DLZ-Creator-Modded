@@ -125,7 +125,9 @@ rehearsal: `tests/update.sh` case 3a]:
   `dev/push.sh` does (#87).
 - The updater installs only when `approved` holds the record of the file it has just checked: a file
   replaced or changed after Install (another tar or another `.sig`) is asked about again. The approval
-  is used up once the snapshot and progress marker are written; a fail before that removes it too.
+  is used up once the snapshot and progress marker are written; a fail before that removes it too,
+  and so does a start with another file (or none) in the folder: an Install never waits for its file
+  to come back. Only `later` (not the package's fault, e.g. the eMMC not seen yet) keeps it.
 - While a package waits and another file's try was cut off (that file removed since), the files from
   before that try go back right away, as step 4 would do before this one's try.
 - The approval check is one of the gates a new updater copy must keep.
@@ -136,7 +138,9 @@ rehearsal: `tests/update.sh` case 3a]:
 
 Accepted: a file that someone else puts on the card still runs its package's `check-rootfs.sh` as
 root at every start while it waits, after the signature check (the signature is the trust boundary,
-as before); a file refused for the card it is on is reported once, as before. The update that brings
+as before); while a file waits, every start checks it again (signature, unpack, manifests: a few
+seconds before the mixer software starts) until Install or until it is removed; a file refused for
+the card it is on is reported once, as before. The update that brings
 this updater is installed the old way by the card's older one, without the question.
 
 ### The popup after an update

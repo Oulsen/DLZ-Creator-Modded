@@ -132,15 +132,18 @@ rm -f $ST/approved; n0=$(reports)
 run_asking; waits "no Install" $P
 run_asking; waits "Later: the next start asks again" $P
 printf '%064d\n' 0 > $ST/approved; run_asking; waits "Install for another file" $P
-[ "$(cat $ST/approved)" = "$(printf '%064d' 0)" ] && ok "another file's approval left alone" || bad "another file's approval changed"
+[ ! -e $ST/approved ] && ok "another file's approval removed" || bad "another file's approval kept"
 key $P > $ST/approved; rm -f $U/dlzmod-vask.tar $U/dlzmod-vask.tar.sig
 P2=$(craft dlzmod-vask2 "printf '\n// ask test 2\n' >> mod/app-mod/dlzmod.js"); put $P2
 run_asking; waits "replaced by another file after Install" $P2
+[ ! -e $ST/approved ] && ok "the replaced file's approval removed" || bad "the replaced file's approval kept"
 key $P2 > $ST/approved; run_asking
 said "INSTALLED: " && grep -q "ask test 2" $R/srv/app.js && [ ! -e $U/dlzmod-vask2.tar ] && ok "installed after Install for this file" || bad "not installed after Install"
 [ ! -e $ST/approved ] && [ ! -e $ST/pending ] && ok "approval used up, no question left" || bad "approval or question left: $(ls $ST)"
 APP=$(sha $R/srv/app.js)
+key $P > $ST/approved   # an Install whose file was removed before the next start
 n0=$(reports); run_asking; [ "$(reports)" = "$n0" ] && [ ! -e $ST/pending ] && ok "the start after: nothing to ask" || bad "a question or report without a package"
+[ ! -e $ST/approved ] && ok "an Install for a file that is gone does not wait for it" || bad "approval kept without its file"
 # a package its checks refuse is reported as before (the red popup), never offered
 put $(craft dlzmod-vaskbad "sed -i 's/^REINSTALL=.*/REINSTALL=yes/' package.env" "sed -i 's/^REINSTALL=.*/REINSTALL=yes/' package.env") $U/; rm -f $ST/approved; run_asking
 [ ! -e $ST/pending ] && ok "refused package: no question" || bad "refused package offered: $(cat $ST/pending)"
@@ -335,7 +338,7 @@ P=$(craft dlzmod-vearly ":"); echo x >> $P.sig; put $P; run; refused dlzmod-vear
 
 echo "== 34: then a good file, not yet approved (#65): the cut-off file's leftovers go while it waits; then Install"
 P=$(craft dlzmod-vafterother "printf '\n// after other test\n' >> mod/app-mod/dlzmod.js"); put $P; rm -f $ST/approved; run_asking
-said "an earlier update file was cut off" && said "previous files restored" && ! said "INSTALLED: " && ok "rolled back while it waits, not installed" || bad "not rolled back, or installed without Install"
+said "an earlier update file was cut off" && said "previous files restored" && said "waits for Install" && ! said "INSTALLED: " && ok "rolled back while it waits, not installed" || bad "not rolled back, or installed without Install"
 [ ! -e $R/etc/udev/rules.d/99-dlzmod-halfa.rules ] && ok "the cut-off file's leftover removed" || bad "LEFTOVER KEPT"
 [ ! -e $ST/inprogress ] && [ "$(cut -d' ' -f1 $ST/pending 2>/dev/null)" = "$(key $P)" ] && ok "marker cleared, the new file asked about" || bad "marker left or no question"
 run
