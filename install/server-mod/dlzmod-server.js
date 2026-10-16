@@ -114,14 +114,58 @@ function DLZMOD_updateNoteFrom(f) {
   return null;
 }
 
-// for the Mod page, every start: the installed build ("" before the first install wrote it) and the
-// last refusal ("" when the last update went in)
-function DLZMOD_updateStatusFrom(f) {
+// for the Mod page, every start: the installed build ("" before the first install wrote it), the
+// last refusal ("" when the last update went in) and the update waiting for Install (null: none);
+// local: the mixer's own screen, the only one that can install it
+function DLZMOD_updateStatusFrom(f, local = false) {
   const report = f("last-report") ? "dlzmod-logs/" + f("last-report") : "dlzmod-logs";
   return {
     installed: f("installed"),
     failed: f("failed") ? "Last update not installed: see " + report + " on the card" : "",
+    pending: DLZMOD_updatePendingFrom(f),
+    local: local,
   };
+}
+
+// #65: an update is installed only after Install on the mixer's own screen. At every start the
+// updater checks a package in DLZDATA/dlzmod-update and, without an approval, leaves it and writes
+// "pending": "<record> <version>" (record: sha256 of the tar and its .sig together; version as in
+// "installed", checked). Install writes that record to "approved" (DLZMOD_updateApprove); the
+// updater installs at the next start only when the file is still the same. Pure part: {sum, version,
+// approved} or null.
+function DLZMOD_updatePendingFrom(f) {
+  const m = /^([0-9a-f]{64}) (\S.*)$/.exec(f("pending"));
+  return m ? { sum: m[1], version: m[2], approved: f("approved") === m[1] } : null;
+}
+
+// Install, from the mixer's own screen only (also in DLZMOD_SCREEN_ONLY): any device on the network
+// could otherwise start an update file someone else put on the card. args.sum must be the pending
+// record the screen asked about. Flushed to the card (DLZMOD_writeDurable): the next step is
+// switching the mixer off. Then off and on by the switch on the back, not a restart from software,
+// which often hangs at the next start (#81). The answer and the new status go to this screen.
+function DLZMOD_updateApprove(args, send, dir = "/var/lib/dlzmod-update") {
+  const reply = (cmd, data) => {
+    try {
+      send({ cmd: cmd, id: 0, data: data });
+    } catch (e) {}
+  };
+  const result = (ok, text) => reply("DLZMOD_UPDATE_APPROVED", { ok: ok, text: text });
+  const local = !!(send && send.dlzmodLocal === true);
+  if (!local) return result(false, "Updates can only be installed\non the mixer's own screen.");
+  const f = DLZMOD_updateFile(dir);
+  const p = DLZMOD_updatePendingFrom(f);
+  const a = args && typeof args === "object" ? args : {};
+  if (!p || a.sum !== p.sum) return result(false, "This update is no longer waiting on the card.");
+  try {
+    if (!p.approved) DLZMOD_writeDurable(dir + "/approved", p.sum + "\n", 0o644);
+  } catch (e) {
+    console.error("dlzmod: update approval not saved:", e.message);
+    return result(false, "The choice could not be saved on the card.\nTry again.");
+  }
+  console.log("dlzmod: update " + p.version + " approved on the screen");
+  result(true, "Now switch the mixer off and on\nwith the switch on the back.\n" + p.version +
+    " installs while the logo shows (about 15 s),\nthen a message says whether it worked.");
+  reply("DLZMOD_UPDATE_STATUS", DLZMOD_updateStatusFrom(f, local));
 }
 
 function DLZMOD_updateFile(dir) {
@@ -136,7 +180,9 @@ function DLZMOD_updateFile(dir) {
 }
 
 // called first thing in GUI_LOADED; send is the loading screen's own channel. Also the card check's
-// failure (sd-system/dlzmod-cardcheck, before the FPGA loader): its screen text in /run, every start
+// failure (sd-system/dlzmod-cardcheck, before the FPGA loader): its screen text in /run, every start;
+// and the question for an update that waits for Install (DLZMOD_UPDATE_ASK), on the mixer's own
+// screen only, every time it loads until Install (Later only closes it)
 function DLZMOD_updateNoteSend(send, dir = "/var/lib/dlzmod-update", cardNote = "/run/dlzmod-cardcheck") {
   try {
     const card = DLZMOD_updateFile(require("path").dirname(cardNote))(require("path").basename(cardNote));
@@ -146,9 +192,14 @@ function DLZMOD_updateNoteSend(send, dir = "/var/lib/dlzmod-update", cardNote = 
   }
   try {
     const f = DLZMOD_updateFile(dir);
-    send({ cmd: "DLZMOD_UPDATE_STATUS", id: 0, data: DLZMOD_updateStatusFrom(f) });
+    const local = !!(send && send.dlzmodLocal === true);
+    const status = DLZMOD_updateStatusFrom(f, local);
+    send({ cmd: "DLZMOD_UPDATE_STATUS", id: 0, data: status });
     const note = DLZMOD_updateNoteFrom(f);
     if (note) send({ cmd: "DLZMOD_UPDATE_NOTE", id: 0, data: note });
+    if (local && status.pending && !status.pending.approved) {
+      send({ cmd: "DLZMOD_UPDATE_ASK", id: 0, data: status.pending });
+    }
   } catch (e) {
     console.error("dlzmod: update note:", e.message);
   }
@@ -226,10 +277,11 @@ function DLZMOD_isLocal(address) {
 // - deleting and renaming (recordings, presets, snapshots), loading samples from a path and
 //   formatting the USB stick: only from the mixer's own screen (the dlzmodLocal stamp); phones and
 //   tablets get them back with #45's pairing (#48)
+// - installing a mod update (#65): only from the mixer's own screen, always
 // - for everyone: preset folders only Mackie's own, names only plain names (no folder in them)
 // - from other devices: a track to play only from the SD card or the USB stick
 const DLZMOD_SCREEN_ONLY = ["MEDIA_DELETE", "MEDIA_RENAME", "PRESET_DELETE", "PRESET_RENAME", "SNAP_DELETE",
-  "SNAP_RENAME", "SAMPLE_LOAD", "SAMPLE_PREVIEW_START", "FORMAT_USB"];
+  "SNAP_RENAME", "SAMPLE_LOAD", "SAMPLE_PREVIEW_START", "FORMAT_USB", "DLZMOD_UPDATE_APPROVE"];
 const DLZMOD_PRESET_TYPES = ["ch", "comp", "del", "ds", "eq", "gate", "rev", "snaps"];
 const DLZMOD_RAW_NAME = ["PRESET_READ", "PRESET_DELETE", "PRESET_RENAME", "SNAP_LOAD", "SNAP_DELETE", "SNAP_RENAME"];
 const DLZMOD_RAW_NEW_NAME = ["PRESET_RENAME", "MEDIA_RENAME"];

@@ -3,7 +3,8 @@
 # card's DLZDATA/dlzmod-update/ over SSH, wait for the mixer's next start and show the update's
 # report. The card applies it at startup like any drop-in update (notes/updates.md, "Drop-in update"): signature,
 # checks, sandbox. Nothing else on the mixer is changed (DLZDATA, read-only while the mixer runs, is
-# writable only for the copy).
+# writable only for the copy) but the approval the screen's Install would write (#65), so a push needs
+# no tap on the screen.
 #
 # Usage: bash dev/push.sh [--restart]                 build HEAD into build/push, push it, wait for
 #                                                     the next start, show the result
@@ -153,6 +154,13 @@ put "$SIG" "$NAME.tar.sig" || { mixer "rm -f '$U/$NAME.tar'" || true; die "copyi
 SUMS=$(mixer "cd '$U' && sha256sum '$NAME.tar' '$NAME.tar.sig' && sync" | tr -d '\r' | cut -d' ' -f1) \
   || die "the copy on the mixer could not be checked"
 [ "$SUMS" = "$(sha256sum "$TAR" "$SIG" | cut -d' ' -f1)" ] || die "copy on the mixer differs from $TAR"
+# Install on the screen, done here (#65): the updater installs a file only when "approved" holds its
+# record (the SUM above), which the screen's Install writes; root over SSH is the person at the mixer
+# for a push, so the next start installs it without the question. On the card's root, flushed:
+# the next thing is a power cut
+[[ $SUM =~ ^[0-9a-f]{64}$ ]] || die "no record of the package"
+mixer "d=/var/lib/dlzmod-update && mkdir -p \$d && echo $SUM > \$d/approved.dlzmod-new && sync \$d/approved.dlzmod-new \
+  && mv -f \$d/approved.dlzmod-new \$d/approved && sync -f \$d" || die "the approval could not be written on the mixer"
 # never ask for a power cut while DLZDATA is writable: a recording may be running
 rodata || die "do not switch the mixer off now; the package is in place and goes in at its next start (after the recording)"
 

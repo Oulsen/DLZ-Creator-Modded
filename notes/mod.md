@@ -39,6 +39,8 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
   - deleting and renaming (recordings, presets, snapshots), loading samples from a path and
     formatting the USB stick only from the screen (`DLZMOD_SCREEN_ONLY`); phones and tablets get them
     back with #45's pairing (#48)
+  - installing a mod update (`DLZMOD_UPDATE_APPROVE`, #65) only from the screen, always (also not
+    after pairing): [updates.md](updates.md), "The question before an update"
   - for everyone: preset folders only Mackie's own (`ch comp del ds eq gate rev snaps`), and names
     plain names (no `/`, `\`, NUL, `.` or `..`) where stock uses them raw; saving keeps stock's own
     clean-up, so "AC/DC" and "Vocals..." still save
@@ -79,7 +81,8 @@ Sub-tabs Display / Network / Mod; layout and how to add a setting:
   wrapping the LR fader's `paint`); off = Mackie's plain meters. The scale is dB-linear over 80 dB with
   0 dBFS at the top [device: test tones at -6 and -30 dBFS].
 - **Network** (#12, #44): Wi-Fi and SSH, below.
-- **Mod**: version, update status, credits.
+- **Mod**: version, update status (an update waiting on the card, with "Install Update..." on the
+  mixer's own screen, #65), credits.
 
 ## Network panel: Wi-Fi and SSH
 

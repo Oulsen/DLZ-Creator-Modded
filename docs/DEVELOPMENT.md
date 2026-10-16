@@ -253,7 +253,9 @@ ssh root@mackie-dlz-creator-xs.local   # an XS's name on the network
 
 A card that takes new builds of the mod without leaving the mixer: build, push, switch off and on, test.
 The push only puts the package and its signature in `DLZDATA/dlzmod-update/`, so every build goes
-through the same signature check and sandbox as a user's drop-in update (`notes/updates.md`).
+through the same signature check and sandbox as a user's drop-in update (`notes/updates.md`). It
+also writes the approval that the screen's **Install** would (#65, over root SSH), so the next start
+installs it without the question.
 
 **Once per card.** A card trusts the keys it was installed with for life, and a card from the
 release image trusts only the release keys: use a second microSD for development.

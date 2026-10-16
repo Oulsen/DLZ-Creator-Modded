@@ -32,9 +32,16 @@ trap cleanup EXIT
 # restore folders)
 # (the chroot has no /sys: the refusal of the rehearsal settings on an SD card, #84, never fires
 # here; it is shown on the mixer, notes/updates.md "Rehearsal settings")
-run() {
+# run: a start after Install on the screen (#65): the one package with its .sig approved, as the server
+# mod writes it (the cases below test what comes after); run_asking: a start without it
+run() { approve; run_asking; }
+run_asking() {
   chroot $R /usr/bin/env DLZMOD_DATA=/mnt/dlzdata /usr/local/sbin/dlzmod-update > $W/run.out 2>&1; echo "rc=$?" >> $W/run.out; sed 's/^/    | /' $W/run.out
   ls $R/tmp | grep -q '^dlzmod-' && { bad "temp files left in /tmp: $(ls $R/tmp | grep '^dlzmod-' | tr '\n' ' ')"; rm -rf $R/tmp/dlzmod-*; }
+}
+approve() {
+  local t=($U/dlzmod-*.tar)
+  if [ ${#t[@]} = 1 ] && [ -f "$t" ] && [ -f "$t.sig" ]; then key "$t" > $ST/approved; else rm -f $ST/approved; fi
 }
 U=$D/dlzmod-update
 reports() { ls $D/dlzmod-logs/ 2>/dev/null | grep -c '^update-'; }
@@ -107,6 +114,37 @@ P=$(craft dlzmod-vchanged "printf '\n// dlzmod update test\n' >> mod/app-mod/dlz
 said "INSTALLED: " && [ ! -e $U/dlzmod-vchanged.tar ] && ok "installed, package deleted" || bad "not installed"
 grep -q "dlzmod update test" $R/srv/app.js && ok "app.js has the new code" || bad "app.js without the new code"
 APP=$(sha $R/srv/app.js)
+
+echo "== 3a: asked first (#65): no Install, Later, Install for another file, a file replaced after Install, then Install"
+label() {   # the version as "pending" names it, from the package's package.env
+  local v b
+  v=$(tar -xOf "$1" --wildcards '*/package.env' | sed -n 's/^DLZMOD_VERSION=//p'); b=$(tar -xOf "$1" --wildcards '*/package.env' | sed -n 's/^BUILD=//p')
+  case $b in ''|release) echo "$v" ;; *) echo "$v ($b)" ;; esac
+}
+waits() {   # waits <what> <tar>: nothing applied, no report, no try, the question for the screen written
+  [ -e $U/${2##*/} ] && [ "$(sha $R/srv/app.js)" = "$APP" ] && [ "$(reports)" = "$n0" ] && ok "$1: nothing applied, package kept, no report" || bad "$1: applied or reported"
+  [ ! -e $ST/tries ] && [ ! -e $ST/inprogress ] && ok "$1: no try counted" || bad "$1: a try was counted"
+  [ "$(cat $ST/pending 2>/dev/null)" = "$(key $2) $(label $2)" ] && ok "$1: pending: $(cut -c1-12 $ST/pending)... $(cut -d' ' -f2- $ST/pending)" \
+    || bad "$1: pending is '$(cat $ST/pending 2>/dev/null)', expected '$(key $2) $(label $2)'"
+}
+P=$(craft dlzmod-vask "printf '\n// ask test\n' >> mod/app-mod/dlzmod.js"); put $P
+rm -f $ST/approved; n0=$(reports)
+run_asking; waits "no Install" $P
+run_asking; waits "Later: the next start asks again" $P
+printf '%064d\n' 0 > $ST/approved; run_asking; waits "Install for another file" $P
+[ "$(cat $ST/approved)" = "$(printf '%064d' 0)" ] && ok "another file's approval left alone" || bad "another file's approval changed"
+key $P > $ST/approved; rm -f $U/dlzmod-vask.tar $U/dlzmod-vask.tar.sig
+P2=$(craft dlzmod-vask2 "printf '\n// ask test 2\n' >> mod/app-mod/dlzmod.js"); put $P2
+run_asking; waits "replaced by another file after Install" $P2
+key $P2 > $ST/approved; run_asking
+said "INSTALLED: " && grep -q "ask test 2" $R/srv/app.js && [ ! -e $U/dlzmod-vask2.tar ] && ok "installed after Install for this file" || bad "not installed after Install"
+[ ! -e $ST/approved ] && [ ! -e $ST/pending ] && ok "approval used up, no question left" || bad "approval or question left: $(ls $ST)"
+APP=$(sha $R/srv/app.js)
+n0=$(reports); run_asking; [ "$(reports)" = "$n0" ] && [ ! -e $ST/pending ] && ok "the start after: nothing to ask" || bad "a question or report without a package"
+# a package its checks refuse is reported as before (the red popup), never offered
+put $(craft dlzmod-vaskbad "sed -i 's/^REINSTALL=.*/REINSTALL=yes/' package.env" "sed -i 's/^REINSTALL=.*/REINSTALL=yes/' package.env") $U/; rm -f $ST/approved; run_asking
+[ ! -e $ST/pending ] && ok "refused package: no question" || bad "refused package offered: $(cat $ST/pending)"
+refused dlzmod-vaskbad "needs a full install"
 
 echo "== 3b: a card on v0.1.0's updater takes this package (by its own gate and sandbox), then the new one takes the next"
 OLDU=$(git -C $REPO -c safe.directory=$REPO show v0.1.0:install/sd-system/dlzmod-update 2>/dev/null)
@@ -183,7 +221,7 @@ sed -n '/^SNAP_GLOBS=/,/dlzmod-keys\/\*"$/p;/^snap_list() {/,/^}/p' $R/usr/local
 chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
 echo "$S" > $ST/inprogress
 echo "// half written" >> $R/srv/app.js
-put $P; run
+put $P; rm -f $ST/approved; run_asking   # no new Install (#65): the cut-off try's marker carries it
 said "was interrupted: keeping the snapshot" && ok "kept the first snapshot" || bad "took a new snapshot"
 [ "$(sha $R/srv/app.js)" = "$APP" ] && ok "app.js as before the cut-off try" || bad "app.js NOT as before"
 rm -f $U/dlzmod-vcut.tar $U/dlzmod-vcut.tar.sig
@@ -206,7 +244,7 @@ P=$(craft dlzmod-vhang "printf '\n// hang test\n' >> mod/app-mod/dlzmod.js"); S=
 chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
 echo "$S" > $ST/inprogress; echo "$S 3" > $ST/tries
 echo "// half written" >> $R/srv/app.js
-put $P; run
+put $P; rm -f $ST/approved; run_asking
 said "stopped 3 times" && said "it never finished" && ok "given up" || bad "not given up"
 [ "$(sha $R/srv/app.js)" = "$APP" ] && ok "app.js as before" || bad "app.js NOT restored"
 [ ! -e $ST/tries ] && [ ! -e $ST/inprogress ] && ok "counters cleared" || bad "counters left"
@@ -295,10 +333,13 @@ echo "# half applied by the cut-off file" > $R/etc/udev/rules.d/99-dlzmod-halfa.
 P=$(craft dlzmod-vearly ":"); echo x >> $P.sig; put $P; run; refused dlzmod-vearly "not an ed25519 signature"
 [ "$(cat $ST/inprogress 2>/dev/null)" = other-package ] && ok "the other file's marker kept" || bad "OTHER FILE'S MARKER CLEARED"
 
-echo "== 34: then a good file: the cut-off file's leftovers go first, then the new snapshot and the install"
-P=$(craft dlzmod-vafterother "printf '\n// after other test\n' >> mod/app-mod/dlzmod.js"); put $P; run
-said "an earlier update file was cut off" && said "INSTALLED: " && ok "rolled back first, then installed" || bad "not rolled back or not installed"
+echo "== 34: then a good file, not yet approved (#65): the cut-off file's leftovers go while it waits; then Install"
+P=$(craft dlzmod-vafterother "printf '\n// after other test\n' >> mod/app-mod/dlzmod.js"); put $P; rm -f $ST/approved; run_asking
+said "an earlier update file was cut off" && said "previous files restored" && ! said "INSTALLED: " && ok "rolled back while it waits, not installed" || bad "not rolled back, or installed without Install"
 [ ! -e $R/etc/udev/rules.d/99-dlzmod-halfa.rules ] && ok "the cut-off file's leftover removed" || bad "LEFTOVER KEPT"
+[ ! -e $ST/inprogress ] && [ "$(cut -d' ' -f1 $ST/pending 2>/dev/null)" = "$(key $P)" ] && ok "marker cleared, the new file asked about" || bad "marker left or no question"
+run
+said "INSTALLED: " && grep -q "after other test" $R/srv/app.js && ok "installed after Install" || bad "not installed after Install"
 [ ! -e $ST/inprogress ] && ok "marker cleared" || bad "marker left: $(cat $ST/inprogress)"
 tar -tf $ST/previous.tar 2>/dev/null | grep -q halfa && bad "LEFTOVER IN THE NEW SNAPSHOT" || ok "new snapshot without the leftover"
 APP=$(sha $R/srv/app.js)

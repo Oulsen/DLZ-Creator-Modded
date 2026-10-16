@@ -51,6 +51,10 @@ grep -qF -- '--reuid=65533' "$TMP/no-gate" && grep -c -- '--reuid=65533' "$TMP/n
 out=$(gate "$cur" "$TMP/no-gate"); [ $? = 1 ] && ok "a copy that drops a check from its code (its gate list unchanged) is refused: $out" || bad "a copy that drops a check from its code: not refused ($out)"
 codesub '/device/type" 2>/dev/null)" = SD' '/device/type" 2>/dev/null)" = XX' > "$TMP/no-sd"
 out=$(gate "$cur" "$TMP/no-sd"); [ $? = 1 ] && ok "a copy without the rehearsal-settings refusal (#84) is refused: $out" || bad "a copy without the #84 refusal: not refused ($out)"
+codesub '[ "$APPROVED" = yes ] || wait_for_approval' '[ "$APPROVED" = yes ] || true' > "$TMP/no-ask"
+out=$(gate "$cur" "$TMP/no-ask"); [ $? = 1 ] && ok "a copy that installs without Install on the screen (#65) is refused: $out" || bad "a copy without the approval gate: not refused ($out)"
+codesub 'if [ "$(cat "$STATE/approved" 2>/dev/null)" = "$SUM" ]' 'if true' > "$TMP/any-ok"
+out=$(gate "$cur" "$TMP/any-ok"); [ $? = 1 ] && ok "a copy that takes any approval (#65) is refused: $out" || bad "a copy that takes any approval: not refused ($out)"
 sed 's/^if grep -qx usr\/local\/sbin\/dlzmod-update <<< "\$changed"; then$/if true; then/' "$NEW" > "$TMP/no-block"
 out=$(gate "$cur" "$TMP/no-block"); [ $? = 1 ] && ok "a copy without the check of its own next copy is refused: $out" || bad "a copy without the check of its next copy: not refused ($out)"
 sed '/^GUARDS="/s/^GUARDS="./GUARDS="0/' "$NEW" > "$TMP/guards"
@@ -216,5 +220,11 @@ fresh; mkdir -p "$R/etc/systemd/system/flash-gd32.service.d"; echo "[Service]" >
 check "the guards on this card are not as installed" "a card with an extra drop-in next to a guard"
 fresh; printf 'nothing\n' > "$R/srv/server.js"; put good; check "the guards on this card are not as installed" "a server.js without its refusals"
 fresh; rm "$R/root/.dlzlite"; put good; check "does not pass the package's check" "a full-size card with the XS marker"
+
+# DLZDATA/dlzmod-update/README.txt: the installer writes it and the updater replaces any other text, so
+# a difference would rewrite it on DLZDATA at the first start of every new card
+ru=$(sed -n '/^readme() {/,/^}/p' "$NEW" | grep -o '"[^"]*"')
+ri=$(sed -n '/"Updates for DLZ Creator Modded go here/,/README.txt"/p' install/installer/install-card.sh | grep -o '"[^"]*"' | grep -v '\$\|step 1')
+[ -n "$ru" ] && [ "$ru" = "$ri" ] && ok "dlzmod-update/README.txt: the installer's text is the updater's" || bad "dlzmod-update/README.txt differs between install-card.sh and the updater"
 
 [ $fail = 0 ] && echo "ALL OK" || { echo "SOME FAILED"; exit 1; }

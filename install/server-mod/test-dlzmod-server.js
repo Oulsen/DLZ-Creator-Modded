@@ -138,12 +138,12 @@ test("update note: a failure comes first, once per failed file", () => {
   assert.strictEqual(noteFrom(files({ ...f, shown: "v0.1.0 (dev-b)", "shown-failed": "abc" })), null);
 });
 test("update status: the installed build, and the last refusal next to it", () => {
-  assert.deepStrictEqual(plain(statusFrom(files({}))), { installed: "", failed: "" });
-  assert.deepStrictEqual(plain(statusFrom(files({ installed: "v0.1.0 (dev-b)" }))), { installed: "v0.1.0 (dev-b)", failed: "" });
+  assert.deepStrictEqual(plain(statusFrom(files({}))), { installed: "", failed: "", pending: null, local: false });
+  assert.deepStrictEqual(plain(statusFrom(files({ installed: "v0.1.0 (dev-b)" }))), { installed: "v0.1.0 (dev-b)", failed: "", pending: null, local: false });
   assert.deepStrictEqual(plain(statusFrom(files({ installed: "v0.1.0", failed: "x", "last-report": "update-2-unknown-version.txt" }))),
-    { installed: "v0.1.0", failed: "Last update not installed: see dlzmod-logs/update-2-unknown-version.txt on the card" });
+    { installed: "v0.1.0", failed: "Last update not installed: see dlzmod-logs/update-2-unknown-version.txt on the card", pending: null, local: false });
   assert.deepStrictEqual(plain(statusFrom(files({ installed: "v0.1.0", failed: "x" }))),
-    { installed: "v0.1.0", failed: "Last update not installed: see dlzmod-logs on the card" });
+    { installed: "v0.1.0", failed: "Last update not installed: see dlzmod-logs on the card", pending: null, local: false });
 });
 test("update note round trip: sent at every screen load until OK, then not again", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dlzupd-"));
@@ -217,7 +217,7 @@ test("update note: a missing folder sends only an empty status, OK does not thro
   const dir = path.join(os.tmpdir(), "dlzupd-missing-" + process.pid);
   const sent = [];
   noteSend((m) => sent.push(plain(m)), dir);
-  assert.deepStrictEqual(sent.map((m) => [m.cmd, m.data]), [["DLZMOD_UPDATE_STATUS", { installed: "", failed: "" }]]);
+  assert.deepStrictEqual(sent.map((m) => [m.cmd, m.data]), [["DLZMOD_UPDATE_STATUS", { installed: "", failed: "", pending: null, local: false }]]);
   noteSeen(dir);
   assert.ok(!fs.existsSync(dir));
 });
@@ -225,6 +225,95 @@ test("update note: a send that throws is caught", () => {
   noteSend(() => {
     throw new Error("socket closed");
   }, os.tmpdir());
+});
+
+// #65: an update waits for Install on the mixer's own screen. The updater writes "pending"; Install
+// writes "approved" (DLZMOD_updateApprove)
+const { DLZMOD_updatePendingFrom: pendingFrom, DLZMOD_updateApprove: approve } = ctx;
+const SUM_A = "a".repeat(64), SUM_B = "b".repeat(64);
+const onScreen = (sent) => Object.assign((m) => sent.push(plain(m)), { dlzmodLocal: true });
+const pendingDir = (sum = SUM_A, version = "v0.2.0 (dev-c0e3084)") => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dlzupd-"));
+  fs.writeFileSync(path.join(dir, "installed"), "v0.1.0\n");
+  fs.writeFileSync(path.join(dir, "shown"), "v0.1.0\n");
+  fs.writeFileSync(path.join(dir, "pending"), sum + " " + version + "\n");
+  return dir;
+};
+test("update pending: the record and the checked version; anything else is no update", () => {
+  assert.deepStrictEqual(plain(pendingFrom(files({ pending: SUM_A + " v0.2.0 (dev-c0e3084)" }))),
+    { sum: SUM_A, version: "v0.2.0 (dev-c0e3084)", approved: false });
+  assert.deepStrictEqual(plain(pendingFrom(files({ pending: SUM_A + " v0.2.0", approved: SUM_A }))),
+    { sum: SUM_A, version: "v0.2.0", approved: true });
+  assert.strictEqual(pendingFrom(files({ pending: SUM_A + " v0.2.0", approved: SUM_B })).approved, false);
+  for (const bad of ["", SUM_A, SUM_A + " ", "xyz v0.2.0", SUM_A.slice(1) + " v0.2.0", SUM_A.toUpperCase() + " v0.2.0"]) {
+    assert.strictEqual(pendingFrom(files({ pending: bad })), null, JSON.stringify(bad));
+  }
+  assert.strictEqual(plain(statusFrom(files({ pending: SUM_A + " v0.2.0" }), true)).pending.version, "v0.2.0");
+});
+test("update ask: on the mixer's own screen at every load until Install; other devices only see the status", () => {
+  const dir = pendingDir();
+  for (let i = 0; i < 2; i++) {   // Later: asked again
+    const sent = [];
+    noteSend(onScreen(sent), dir);
+    assert.deepStrictEqual(sent.map((m) => m.cmd), ["DLZMOD_UPDATE_STATUS", "DLZMOD_UPDATE_ASK"]);
+    assert.deepStrictEqual(sent[1].data, { sum: SUM_A, version: "v0.2.0 (dev-c0e3084)", approved: false });
+    assert.strictEqual(sent[0].data.local, true);
+  }
+  const phone = [];
+  noteSend((m) => phone.push(plain(m)), dir);
+  assert.deepStrictEqual(phone.map((m) => m.cmd), ["DLZMOD_UPDATE_STATUS"]);
+  assert.strictEqual(phone[0].data.local, false);
+  assert.strictEqual(phone[0].data.pending.version, "v0.2.0 (dev-c0e3084)");
+});
+test("update approve: from the screen writes this record, flushed; then no more question", () => {
+  const dir = pendingDir();
+  const sent = [];
+  approve({ sum: SUM_A }, onScreen(sent), dir);
+  assert.strictEqual(fs.readFileSync(path.join(dir, "approved"), "utf8"), SUM_A + "\n");
+  assert.ok(!fs.existsSync(path.join(dir, "approved.dlzmod-new")));
+  assert.deepStrictEqual(sent.map((m) => m.cmd), ["DLZMOD_UPDATE_APPROVED", "DLZMOD_UPDATE_STATUS"]);
+  assert.strictEqual(sent[0].data.ok, true);
+  assert.match(sent[0].data.text, /switch the mixer off and on/);
+  assert.match(sent[0].data.text, /v0\.2\.0 \(dev-c0e3084\) installs/);
+  assert.strictEqual(sent[1].data.pending.approved, true);
+  const again = [];
+  noteSend(onScreen(again), dir);
+  assert.deepStrictEqual(again.map((m) => m.cmd), ["DLZMOD_UPDATE_STATUS"]);
+  // a second Install (the Mod page, a double tap) answers the same and does not write again
+  const old = new Date(2000, 0, 1);
+  fs.utimesSync(path.join(dir, "approved"), old, old);
+  const twice = [];
+  approve({ sum: SUM_A }, onScreen(twice), dir);
+  assert.strictEqual(twice[0].data.ok, true);
+  assert.strictEqual(fs.statSync(path.join(dir, "approved")).mtimeMs, old.getTime());
+});
+test("update approve: never from another device, nor for a record that is not the waiting one", () => {
+  const dir = pendingDir();
+  const phone = [];
+  approve({ sum: SUM_A }, (m) => phone.push(plain(m)), dir);
+  approve({ sum: SUM_A }, Object.assign((m) => phone.push(plain(m)), { dlzmodLocal: "yes" }), dir);
+  assert.deepStrictEqual(phone.map((m) => [m.cmd, m.data.ok]), [["DLZMOD_UPDATE_APPROVED", false], ["DLZMOD_UPDATE_APPROVED", false]]);
+  assert.match(phone[0].data.text, /mixer's own screen/);
+  const sent = [];
+  for (const args of [{ sum: SUM_B }, {}, null, { sum: [SUM_A] }, "x"]) approve(args, onScreen(sent), dir);
+  assert.ok(sent.every((m) => m.cmd === "DLZMOD_UPDATE_APPROVED" && m.data.ok === false));
+  assert.ok(!fs.existsSync(path.join(dir, "approved")));
+  // no update waiting (installed since, or the file removed): nothing written
+  const none = fs.mkdtempSync(path.join(os.tmpdir(), "dlzupd-"));
+  const s2 = [];
+  approve({ sum: SUM_A }, onScreen(s2), none);
+  assert.strictEqual(s2[0].data.ok, false);
+  assert.deepStrictEqual(fs.readdirSync(none), []);
+});
+test("update approve: a write that fails says so, and a send that throws is caught", () => {
+  const dir = pendingDir();
+  fs.mkdirSync(path.join(dir, "approved"));   // where the file should go: the rename fails
+  const sent = [];
+  approve({ sum: SUM_A }, onScreen(sent), dir);
+  assert.deepStrictEqual(sent.map((m) => [m.cmd, m.data.ok]), [["DLZMOD_UPDATE_APPROVED", false]]);
+  approve({ sum: SUM_A }, Object.assign(() => {
+    throw new Error("socket closed");
+  }, { dlzmodLocal: true }), pendingDir());
 });
 
 // Network panel. fakeNet: a pretend nmcli/systemctl that records every call (program, args, stdin)
@@ -527,7 +616,7 @@ test("net: from another device on the network only the status, nothing changed o
 const { DLZMOD_cmdAllowed: cmdOk, DLZMOD_keyAllowed: keyOk, DLZMOD_inMedia: inMedia, DLZMOD_noOrig: noOrig } = ctx;
 const HANDLERS = Object.fromEntries(["MEDIA_DELETE", "MEDIA_RENAME", "MEDIA_SWITCH_TRACK", "MEDIA_DIR", "PRESET_WRITE",
   "PRESET_READ", "PRESET_LIST", "PRESET_DELETE", "PRESET_RENAME", "SNAP_SAVE", "SNAP_LOAD", "SNAP_DELETE", "SNAP_RENAME",
-  "SAMPLE_LOAD", "SAMPLE_PREVIEW_START", "FORMAT_USB", "REC_START", "DLZMOD_NET"].map((c) => [c, () => {}]));
+  "SAMPLE_LOAD", "SAMPLE_PREVIEW_START", "FORMAT_USB", "REC_START", "DLZMOD_NET", "DLZMOD_UPDATE_APPROVE"].map((c) => [c, () => {}]));
 const ROOTS = ["/media/sd", "-"];
 const SCREEN = local(() => {}), PHONE = () => {};
 test("files: the screen keeps every file command, with names as stock uses them", () => {
@@ -536,13 +625,14 @@ test("files: the screen keeps every file command, with names as stock uses them"
     ["PRESET_WRITE", { type: "eq", name: "AC/DC", data: {} }], ["PRESET_READ", { type: "eq", name: "AC_DC" }],
     ["PRESET_RENAME", { type: "rev", name: "Hall", newName: "Big hall" }], ["SNAP_SAVE", { name: "a/b" }],
     ["SNAP_RENAME", { name: "Show 1", newName: "Show/2" }], ["SAMPLE_LOAD", { path: "\\srv\\bankPlayer\\default\\x.wav" }],
-    ["PRESET_LIST", { type: "snaps" }], ["REC_START", undefined], ["DLZMOD_NET", { op: "status" }]]) {
+    ["PRESET_LIST", { type: "snaps" }], ["REC_START", undefined], ["DLZMOD_NET", { op: "status" }],
+    ["DLZMOD_UPDATE_APPROVE", { sum: "a".repeat(64) }]]) {
     assert.strictEqual(cmdOk(HANDLERS, cmd, args, SCREEN, ROOTS), "", cmd);
   }
 });
 test("files: other devices keep mixing and presets, but no delete, rename, sample path or format", () => {
   for (const cmd of ["MEDIA_DELETE", "MEDIA_RENAME", "PRESET_DELETE", "PRESET_RENAME", "SNAP_DELETE", "SNAP_RENAME",
-    "SAMPLE_LOAD", "SAMPLE_PREVIEW_START", "FORMAT_USB"]) {
+    "SAMPLE_LOAD", "SAMPLE_PREVIEW_START", "FORMAT_USB", "DLZMOD_UPDATE_APPROVE"]) {
     assert.strictEqual(cmdOk(HANDLERS, cmd, { type: "eq", name: "a", newName: "b", path: "sd:/x.wav" }, PHONE, ROOTS),
       "only on the mixer's own screen", cmd);
   }
