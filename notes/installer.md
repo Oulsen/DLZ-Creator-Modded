@@ -129,10 +129,12 @@ onto a card is checked by the `device-review` skill first.
   22 min for a step of under 5, the whole install jumping back to 9 min at step 2 [device]. Each step's
   time left is now its measured one blended with the device's own times (130 ms per MiB in use for the
   copy, the compare 81 % of the copy's real time), the measured one weighing more as the step goes on;
-  the backup's part follows its reads of the data, then the zero tail at its own speed. Every ~30 s a
-  progress line goes into the install log (`progress: step N, ...`); the rehearsal checks every shown
-  time against the real one (within twice plus a minute) [guess for the mixer until an install's
-  log lines say otherwise]
+  the backup's part follows its reads of the data, then the zero tail at its own speed. The compare
+  still goes by its stream position (its zeros cost time on the mixer too). Every ~30-40 s a progress
+  line goes into the install log (`progress: step N, ...`; left out of the failure screen's last
+  lines); the rehearsal checks every shown time against the real one (shown at most twice the real
+  plus a minute, real at most twice the shown plus two) [guess for the mixer until an install's log
+  lines say otherwise]
 
 ## Endings and power
 
