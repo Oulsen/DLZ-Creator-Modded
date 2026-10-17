@@ -85,7 +85,9 @@ seg_ok() {
     # a program that neither runs anything nor writes: only print/printf write (print > "file"), so a
     # > after a print is refused, a comparison before it ($3>1) is not; no program files
     awk) for a; do case $a in -F*|-v) ;; -*|*system*|*getline*|*'|'*|*@*|*print*'>'*) return 1 ;; esac; done ;;
+    # -H/-M (another host or container) take a value, so opts_ok refuses them; --host=/--machine= too
     systemctl)
+      case "$*" in *--host=*|*--machine=*) return 1 ;; esac
       opts_ok '-a --all -l --full -q --quiet -r --recursive --no-pager --no-legend --plain --value --failed --show-types --reverse --after --before --system' "$@" || return 1
       v=; for a; do case $a in -*) ;; *) v=$a; break ;; esac; done
       case $v in
@@ -247,12 +249,16 @@ case ${1:-} in
       exit 3
     fi
     gethost; askpass
-    # a command that never ends (tail -f, journalctl -f, vmstat 1) must not hang the session
+    # a read that never ends (tail -f, journalctl -f, vmstat 1) must not hang the session; a confirmed
+    # write is never cut off halfway (the mixer could stop it with a file half written)
     t=${DLZ_SSH_TIMEOUT:-120}
+    case $t in ''|*[!0-9]*|0) echo "DLZ_SSH_TIMEOUT must be a number of seconds: $t" >&2; exit 2 ;; esac
+    to=(timeout "$t")
+    [ "${DLZ_SSH_WRITE:-0}" != 1 ] || to=()
     # shellcheck disable=SC2046
-    SSH_ASKPASS=$ASK SSH_ASKPASS_REQUIRE=force DISPLAY=: timeout "$t" ssh $(sshopts) "root@$host" "$cmd" < /dev/null
+    SSH_ASKPASS=$ASK SSH_ASKPASS_REQUIRE=force DISPLAY=: "${to[@]}" ssh $(sshopts) "root@$host" "$cmd" < /dev/null
     rc=$?
-    [ $rc != 124 ] || echo "stopped after $t s (DLZ_SSH_TIMEOUT); a follow (-f, -w) or a count-less vmstat does not end" >&2
+    [ ${#to[@]} = 0 ] || [ $rc != 124 ] || echo "stopped after $t s (DLZ_SSH_TIMEOUT); a follow (-f, -w) or a count-less vmstat does not end" >&2
     exit $rc ;;
   get)
     remote=${2:?remote file}; local=${3:?local file}

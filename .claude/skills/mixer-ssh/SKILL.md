@@ -74,8 +74,8 @@ without `system`/`getline`/`|`/program files/a `>` after `print`, `mount` withou
 `blkid`/`sort`/`uniq`/`date`/`hostname`/`ss`/`journalctl` without their writing options; these
 checked programs take no unquoted `*` `?` `[` (quote the pattern). Refused outright: `$(`, backticks,
 `( )`, `{ }`, a `$variable` outside single quotes, an unquoted `<` or `>` (except `>` to `/dev/null`
-and `2>&1`), a lone `&`. `run` stops after 120 s (`DLZ_SSH_TIMEOUT`), so `-f`/`-w` follows end
-there. `get` takes remote names of `A-Z a-z 0-9 _ . / + ~ -` only, and overwrites the local file
+and `2>&1`), a lone `&`. A read stops after 120 s (`DLZ_SSH_TIMEOUT`), so `-f`/`-w` follows end
+there; a confirmed write (`DLZ_SSH_WRITE=1`) has no limit, so it is never cut off halfway. `get` takes remote names of `A-Z a-z 0-9 _ . / + ~ -` only, and overwrites the local file
 without asking. A refusal is a stop sign, not an obstacle: do not rephrase the
 command to get past it. A refused *read* is a false positive in the wrapper: widen the list, add the
 case to `test-guard.sh` (offline, never connects; CI runs it), run it until ALL OK, then rerun the

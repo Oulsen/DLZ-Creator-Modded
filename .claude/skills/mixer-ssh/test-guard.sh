@@ -167,6 +167,23 @@ t REFUSED 'cat /x 2>/dev/null&rm y'
 t REFUSED 'mount -o remount,rw /'
 t REFUSED 'cat x>y'
 t REFUSED 'cat x<y'
+# the second pass: the glob flag is per simple command; awk's other output forms; what can still
+# stand before a verb
+t allowed 'ls /tmp/*; sort -n /tmp/x'
+t REFUSED 'sort -n /tmp/x; uniq /tmp/a*'
+t REFUSED "awk '{print>\"/x\"}' /y"
+t REFUSED "awk '{printf(\"%s\",\$0)>\"/x\"}' /y"
+t REFUSED "awk '{print | \"sh\"}' /y"
+t REFUSED "awk -vx=1 -W exec /tmp/p"
+t allowed "awk -v x=1 '\$1 > x' /proc/loadavg"
+t REFUSED 'systemctl -- reboot'
+t REFUSED 'systemctl - reboot'
+t REFUSED 'systemctl --property ActiveState reboot'
+t REFUSED 'systemctl --host=other status'
+t REFUSED 'systemctl -M c status'
+t allowed 'systemctl --no-pager --full status ssh'
+t allowed 'who; last -n 5; pgrep -l node; pidof dspserver'
+t allowed 'grep "a > b" /x; grep "<" /x'
 # get: the remote name goes through the mixer's shell with the old scp protocol
 t REFUSED get '/tmp/x;reboot' build/device-logs/x
 t REFUSED get '/tmp/$(reboot)' build/device-logs/x
