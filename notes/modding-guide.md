@@ -201,7 +201,9 @@ Reading the card's logs without SSH: at every boot, before server.js mounts DLZD
 `dlzmod-bootlog` (install/sd-system) copies the syslog of the last 3 SD-system boots to
 `DLZDATA/dlzmod-logs/syslog-last-boots.txt` (the previous copy as `.prev.txt`), so a failed boot is
 readable in any card reader after the next boot. It costs ~2.2 s of boot time; it cannot move after
-the start, because server.js holds DLZDATA mounted read-only (open-questions Q28). Only boots of the
+the start, because server.js holds DLZDATA mounted read-only and remounts it read-write only while
+it writes itself (stock leaves it writable once a recordings folder exists; the mod puts it back,
+#98; open-questions Q28). Only boots of the
 SD system are copied (sections with `dlzmod-grow-data`, which runs at every boot), not the dump's
 own history. Always on.
 

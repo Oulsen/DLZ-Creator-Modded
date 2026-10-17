@@ -44,5 +44,39 @@ t REFUSED 'sh -c "echo"'
 t REFUSED 'sed -i s/a/b/ f'
 t REFUSED 'kill 1'
 t REFUSED 'free -m; swapon --show'
+# the key login, offline too: stored as a private copy, shown, refused when it is no usable key, forgotten
+k() {   # k <description> <expected text in the output> <command...>
+  out=$("${@:3}" 2>&1)
+  case $out in *"$2"*) m=ok ;; *) m=WRONG; fail=1 ;; esac
+  printf '%-5s %-8s %s\n' "$m" key "$1"
+}
+ssh-keygen -q -t ed25519 -N '' -f "$HOME/id" && ssh-keygen -q -t ed25519 -N 'secret' -f "$HOME/id-pp" && echo x > "$HOME/notakey"
+chmod 777 "$HOME/id"   # as a key on a Windows drive shows in WSL; ssh-keygen refuses such a file itself
+k "no key file"                  "no key file at"                 bash "$S" key "$HOME/missing"
+k "not a key"                    "not a private key"              bash "$S" key "$HOME/notakey"
+k "a key with a passphrase"      "not a private key"              bash "$S" key "$HOME/id-pp"
+k "no refused copy left behind"  "nothing"                        bash -c "ls \$(cat '$HOME/.config/dlz-mixer-ssh/tmpdir')/key* 2>/dev/null || echo nothing"
+k "no dev/push.env here"         "usage: dlz-ssh.sh key"          bash -c "cd '$HOME' && bash '$S' key"
+k "stored"                       "key stored in /tmp/dlz-ssh."    bash "$S" key "$HOME/id"
+D=$(cat "$HOME/.config/dlz-mixer-ssh/tmpdir")
+[ "$(stat -c %a "$D/key")" = 600 ] && cmp -s "$D/key" "$HOME/id" && m=ok || { m=WRONG; fail=1; }
+printf '%-5s %-8s %s\n' "$m" key "a private copy (mode 600)"
+k "shown"                        "login: key stored"              bash "$S" show
+# the last SSH_KEY line wins, as in dev/push.sh
+mkdir -p "$HOME/repo/dev" && printf 'MIXER_HOST=x\nSSH_KEY=%s\nSSH_KEY=%s\r\n' "$HOME/missing" "$HOME/id" > "$HOME/repo/dev/push.env"
+k "from dev/push.env (CRLF, last line)" "key stored in /tmp/dlz-ssh." bash -c "cd '$HOME/repo' && bash '$S' key"
+k "a Git Bash path (/x/...)"     "no key file at /mnt/x/no/such"  bash "$S" key /x/no/such
+k "a Git Bash path (/X/...)"     "no key file at /mnt/x/no/such"  bash "$S" key /X/no/such
+# one way to log in at a time: a password replaces the key, a key the password
+k "a password replaces the key"  "password: stored"               bash -c "printf 'pw\n' | bash '$S' pass >/dev/null && bash '$S' show"
+[ ! -e "$D/key" ] && m=ok || { m=WRONG; fail=1; }
+printf '%-5s %-8s %s\n' "$m" key "the key copy is gone"
+: > "$D/askpass"   # as a run with the password leaves it
+k "a key replaces the password"  "login: key stored"              bash -c "bash '$S' key '$HOME/id' >/dev/null && bash '$S' show"
+[ ! -e "$D/pass" ] && [ ! -e "$D/askpass" ] && m=ok || { m=WRONG; fail=1; }
+printf '%-5s %-8s %s\n' "$m" key "the password is gone"
+k "forgotten"                    "password, key, askpass"         bash "$S" forget
+[ ! -e "$D" ] && m=ok || { m=WRONG; fail=1; }
+printf '%-5s %-8s %s\n' "$m" key "the private folder is gone"
 rm -rf "$HOME"
 [ $fail = 0 ] && echo "ALL OK" || echo "SOME WRONG"

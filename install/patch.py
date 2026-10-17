@@ -239,6 +239,44 @@ SERVER_PATCHES = [
         'try{await b("wavfinalizer "+t+"/"+e+" "+t+"/"+a)}',
         'try{await DLZMOD_wavfinalize(t+"/"+e,t+"/"+a)}',
     ),
+    # #98: stock remounts a medium read-write to record, rename, delete or finish half-written
+    # recordings at the start, but never back read-only (fe() only logs it), so a card with a
+    # recordings folder stayed writable until switched off. DLZMOD_roLater does the remount once
+    # nothing writes; every remount runs through one queue (DLZMOD_rw), so the last one asked wins
+    (
+        # de(): read-write "permanently" (recording, sample recorder, the start's finalizer)
+        "media: read-write remounts queued (recording)",
+        'v("Changing  mount "+e+" to  RW (Perm)"),await R("mount -o remount,rw "+e)',
+        'v("Changing  mount "+e+" to  RW (Perm)"),await DLZMOD_rw((()=>R("mount -o remount,rw "+e)))',
+    ),
+    (
+        # me(): read-write for 60 s around a rename or delete. Stock skips the remount while its own
+        # flag says the medium is writable; that flag knows nothing of DLZMOD_roLater, so always remount
+        # (each rename or delete then has its own 60 s timer: a few DLZMOD_roLater(0) calls, harmless)
+        "media: read-write remounts queued, every time (rename, delete)",
+        "async function me(e){(e==q&&0==H||e==M&&0==W)&&(!async function(e){H=e==q?1:H,W=e==M?1:W,"
+        'v("Changing  mount "+e+" to  RW (TEMP)"),await R("mount -o remount,rw "+e)',
+        "async function me(e){(!async function(e){H=e==q?1:H,W=e==M?1:W,"
+        'v("Changing  mount "+e+" to  RW (TEMP)"),await DLZMOD_rw((()=>R("mount -o remount,rw "+e)))',
+    ),
+    (
+        # fe(): the end of a rename/delete's 60 s and of the start's finalizer
+        "media: back to read-only for real (DLZMOD_roLater)",
+        'v("Changing  mount "+e+" back to  RO1"),v("DONE RO")',
+        'v("Changing  mount "+e+" back to  RO1"),DLZMOD_roLater(0),v("DONE RO")',
+    ),
+    (
+        # P(): every end of a recording (stop, a full or removed medium)
+        "media: read-only after a recording (DLZMOD_roLater)",
+        'async function P(){T("recState",k.READY),await S(50),T("recFile",""),T("hw_rec",0),await S(500)}',
+        'async function P(){T("recState",k.READY),await S(50),T("recFile",""),T("hw_rec",0),await S(500),DLZMOD_roLater()}',
+    ),
+    (
+        # the sample recorder stops into its keep/discard question; DLZMOD_roLater waits for the answer
+        "media: read-only after the sample recorder (DLZMOD_roLater)",
+        'async SAMPLE_REC_STOP(e){globalThis.setDataKey("sample.rec.state",ze.DECISION)}',
+        'async SAMPLE_REC_STOP(e){globalThis.setDataKey("sample.rec.state",ze.DECISION),DLZMOD_roLater()}',
+    ),
     (
         # /srv is served as it is: the originals patch.py and apply-mod.sh keep there stay private
         "files: kept originals not served (DLZMOD_noOrig)",

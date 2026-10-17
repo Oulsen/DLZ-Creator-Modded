@@ -265,10 +265,14 @@ release image trusts only the release keys: use a second microSD for development
    SSH key in `sd.env` (above).
 2. On the mixer's screen (Settings, DLZ Creator Modded, Network): connect Wi-Fi, turn SSH on with
    "Keep on after a restart".
-3. Add your key once (Git Bash): `ssh-copy-id -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519.pub
-   root@<mixer>` with the SSH password from step 2 (`IdentitiesOnly`: the mixer allows 3 tries, and
-   an SSH agent with several keys uses them up before the password). Not needed for a `build-sd.sh`
-   card with an SSH key.
+3. Make a key only for the dev card, without a passphrase, and add it once (Git Bash):
+   `ssh-keygen -t ed25519 -N '' -C dlz-dev-card -f ~/.ssh/dlz-dev`, then `ssh-copy-id -o
+   IdentitiesOnly=yes -i ~/.ssh/dlz-dev.pub root@<mixer>` with the SSH password from step 2
+   (`IdentitiesOnly`: the mixer allows 3 tries, and an SSH agent with several keys uses them up
+   before the password). Without a passphrase `push.sh` and the `mixer-ssh` skill (`dlz-ssh.sh key`)
+   log in unattended, also from Claude Code; the file gives root on the dev card, so it stays on
+   your PC and the card is a development card only. Not needed for a `build-sd.sh` card with an SSH
+   key.
 4. `cp dev/push.env.example dev/push.env` and fill in the mixer's address and your key. The script
    never asks for anything: a key with a passphrase goes into `ssh-agent` first, and the dev key is
    used as `mkkeys.sh` makes it (without a passphrase).
@@ -354,16 +358,20 @@ issue's technical notes point to the note section instead of copying it.
   correctness; for code: bugs, failure paths, what the tests cannot see). Findings are fixed as new
   commits on the PR, or named in the PR description as accepted, before the merge; fixes that add
   new logic or touch other code get one more pass on the PR, wording and fixes that only do what a
-  finding asked do not. The release PR `develop` → `main` only carries reviewed changes: its check
-  is the changelog section, the list of released issues and that the release files are the tested
-  ones; it is fast-forwarded, not merged with the button ("Releases"). A change that runs on the mixer still
+  finding asked do not. The release PR `develop` → `main` only carries reviewed changes, and still
+  gets one final `/cr` pass on the whole release diff before the fast-forward (how the PRs fit
+  together); besides that its check is the changelog section, the list of released issues and that
+  the release files are the tested ones; it is fast-forwarded, not merged with the button
+  ("Releases"). A change that runs on the mixer still
   gets its device review, once per image (`.claude/skills/device-review`).
 - **Releases**: a PR `develop` → `main`, **fast-forwarded**, not merged with GitHub's button: its
   merge methods all add commits (a merge commit, or rewritten copies), which would leave `develop`
   behind `main`. Nothing is merged into `develop` from the release build until the push, so the built
   commit, `develop`'s tip and the PR's head are one commit. In order:
   1. Make the release build from `develop`'s tip and test it (its `package.env` names that commit).
-  2. Open the release PR `develop` → `main` and review it.
+  2. Open the release PR `develop` → `main` and review it: a final `/cr` (or `/code-review`) on
+     the PR, findings fixed (a fix PR into `develop`, then back to step 1) or named in the PR as
+     accepted, before step 3.
   3. The maintainer moves `main` to the PR's head commit:
      `git fetch origin && git push origin <commit>:main` (no `--force`: git refuses anything that is
      not a fast-forward). GitHub then shows the PR as merged, and `main` and `develop` are the same

@@ -1247,6 +1247,183 @@ test("pairing: the switch and Forget only from the mixer's screen; the PIN only 
   assert.strictEqual(s4.find((m) => m.cmd === "DLZMOD_NET_STATE").data.pair.on, false);
 });
 
+// #98: media back to read-only. A /proc/mounts of its own, fake mount calls and data keys
+const MOUNTS = [
+  "/dev/mmcblk0p1 / ext4 rw,noatime 0 0",
+  "/dev/mmcblk0p2 /tmp/mnt/mmcblk0p2 vfat rw,noatime,flush,fmask=0022 0 0",
+  "/dev/sda1 /tmp/mnt/sda1 vfat ro,noatime,flush 0 0",
+  "/dev/sdb1 /tmp/mnt/my\\040stick vfat rw,noatime 0 0",
+  "/dev/sdc1 /media/other vfat rw 0 0",
+  "/dev/sdd1 /tmp/mnt/sdd1 exfat rw 0 0",
+].join("\n") + "\n";
+const roRig = (keys = {}, fail = () => "") => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "dlzro-")), "mounts");
+  fs.writeFileSync(file, MOUNTS);
+  const calls = [];
+  // these tests run last; nothing after them needs the real DLZMOD_run
+  ctx.DLZMOD_run = async (f, args) => {
+    calls.push([f].concat(args).join(" "));
+    const err = fail(args[args.length - 1]);
+    return { ok: !err, out: "", err };
+  };
+  ctx.getDataKey = (k) => keys[k];
+  ctx.DLZMOD_roLater.lastRw = 0;
+  ctx.DLZMOD_roLater.failLogged = false;
+  return { file, calls, keys };
+};
+const tick = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test("read-only: only the writable FAT media under /tmp/mnt", () => {
+  assert.deepStrictEqual(plain(ctx.DLZMOD_rwMedia(MOUNTS)), ["/tmp/mnt/mmcblk0p2", "/tmp/mnt/my stick"]);
+  assert.deepStrictEqual(plain(ctx.DLZMOD_rwMedia("")), []);
+});
+test("read-only: not while recording, paused, saving or a sample take is recorded, to keep or being stored", () => {
+  const busy = (k) => ctx.DLZMOD_recBusy((x) => k[x]);
+  assert.strictEqual(busy({}), false);
+  assert.strictEqual(busy({ recState: 0, hw_rec: 0, "sample.rec.state": 0, "sample.rec.file": "" }), false);
+  assert.strictEqual(busy({ recState: 4 }), false, "saved");
+  assert.strictEqual(busy({ "sample.rec.state": 2, "sample.rec.file": "" }), false, "stored: the state stays at keep/discard");
+  for (const k of [{ recState: 1 }, { recState: 2 }, { recState: 3 }, { hw_rec: 1 }, { "sample.rec.state": 1 },
+    { "sample.rec.state": 2, "sample.rec.file": "/tmp/mnt/mmcblk0p2/x/bank_recorder.wav" },
+    { "sample.rec.state": 2, "sample.rec.file": "/tmp/mnt/mmcblk0p2/x/RS_0001.wav" }]) {
+    assert.strictEqual(busy(k), true, JSON.stringify(k));
+  }
+});
+test("read-only: a remount that hangs holds the queue up for the limit only", async () => {
+  ctx.DLZMOD_mountQueue(() => new Promise(() => {}), 50);
+  const t = Date.now();
+  assert.strictEqual(await ctx.DLZMOD_mountQueue(async () => "next"), "next");
+  assert.ok(Date.now() - t >= 40, "waited for the limit");
+});
+test("read-only: a read-write remount counts from when it is done; finalizing a file counts too", async () => {
+  let release;
+  const block = ctx.DLZMOD_mountQueue(() => new Promise((r) => (release = r)));
+  const rw = ctx.DLZMOD_rw(async () => "rw");
+  ctx.DLZMOD_roLater.lastRw = 0;   // as if it had waited longer than 10 s in the queue
+  while (!release) await tick(1);   // the queue starts it a few ticks later
+  release();
+  await block;
+  await rw;
+  await tick(0);
+  assert.ok(Date.now() - ctx.DLZMOD_roLater.lastRw < 1000);
+  ctx.DLZMOD_roLater.lastRw = 0;
+  await assert.rejects(ctx.DLZMOD_wavfinalize("/nonexistent/a.wav.unfinished", "/nonexistent/a.wav"));
+  assert.ok(Date.now() - ctx.DLZMOD_roLater.lastRw < 1000, "noted after wavfinalizer (here: not found)");
+});
+test("read-only: every writable medium remounted; nothing left: done", async () => {
+  const r = roRig({ recState: 0 });
+  assert.strictEqual(await ctx.DLZMOD_roNow(r.file), true);
+  assert.deepStrictEqual(r.calls, ["/usr/bin/mount -o remount,ro /tmp/mnt/mmcblk0p2", "/usr/bin/mount -o remount,ro /tmp/mnt/my stick"]);
+  fs.writeFileSync(r.file, "/dev/mmcblk0p2 /tmp/mnt/mmcblk0p2 vfat ro,noatime 0 0\n");
+  r.calls.length = 0;
+  assert.strictEqual(await ctx.DLZMOD_roNow(r.file), true);
+  assert.deepStrictEqual(r.calls, []);
+});
+test("read-only: waits while recording and for 10 s after a read-write remount", async () => {
+  const r = roRig({ recState: 1 });
+  assert.strictEqual(await ctx.DLZMOD_roNow(r.file), false);
+  r.keys.recState = 0;
+  ctx.DLZMOD_roLater.lastRw = Date.now() - 5000;
+  assert.strictEqual(await ctx.DLZMOD_roNow(r.file), false, "a recording starts with the remount, before it shows as recording");
+  assert.deepStrictEqual(r.calls, []);
+  ctx.DLZMOD_roLater.lastRw = Date.now() - 11000;
+  assert.strictEqual(await ctx.DLZMOD_roNow(r.file), true);
+  assert.strictEqual(r.calls.length, 2);
+});
+test("read-only: a refused remount (file open for writing) is tried again, the others still go", async () => {
+  const r = roRig({}, (m) => (m === "/tmp/mnt/mmcblk0p2" ? "mount point busy" : ""));
+  assert.strictEqual(await ctx.DLZMOD_roNow(r.file), false);
+  assert.strictEqual(r.calls.length, 2);
+  assert.strictEqual(ctx.DLZMOD_roLater.failLogged, true);
+  assert.strictEqual(await ctx.DLZMOD_roNow("/nonexistent/mounts"), false, "an unreadable mount list: later");
+});
+test("read-only: a remount stuck in the kernel (pulled stick) counts as not done after the limit, the others still go", async () => {
+  const r = roRig({});
+  const run = ctx.DLZMOD_run;
+  let stuck = 0;
+  ctx.DLZMOD_run = (f, args) => (args[args.length - 1] === "/tmp/mnt/mmcblk0p2" ? (stuck++, new Promise(() => {})) : run(f, args));
+  try {
+    const t = Date.now();
+    assert.strictEqual(await ctx.DLZMOD_roNow(r.file, 50), false, "looked at again later");
+    assert.ok(Date.now() - t < 1000, "did not wait for the stuck one");
+    assert.deepStrictEqual(r.calls, ["/usr/bin/mount -o remount,ro /tmp/mnt/my stick"]);
+    assert.strictEqual(await ctx.DLZMOD_roNow(r.file, 50), false);
+    assert.strictEqual(stuck, 1, "no second mount behind the stuck one");
+  } finally {
+    ctx.DLZMOD_run = run;
+    delete ctx.DLZMOD_roLater.pending;
+  }
+});
+test("read-only: the limit is for the whole call, also with two stuck media (under the queue's 40 s)", async () => {
+  const r = roRig({});
+  const run = ctx.DLZMOD_run;
+  let started = 0;
+  ctx.DLZMOD_run = () => (started++, new Promise(() => {}));
+  try {
+    const t = Date.now();
+    const pr = ctx.DLZMOD_roNow(r.file, 200);
+    assert.strictEqual(started, 2, "both media started before any wait, side by side");
+    assert.strictEqual(await pr, false);
+    const took = Date.now() - t;
+    assert.ok(took >= 190 && took < 350, "about one limit, not one per medium: " + took + " ms");
+  } finally {
+    ctx.DLZMOD_run = run;
+    delete ctx.DLZMOD_roLater.pending;
+  }
+});
+test("read-only: a remount that finishes after the limit frees its medium for the next try", async () => {
+  const r = roRig({});
+  const run = ctx.DLZMOD_run;
+  let release, started = 0;
+  ctx.DLZMOD_run = (f, args) => (args[args.length - 1] === "/tmp/mnt/mmcblk0p2"
+    ? (started++, new Promise((res) => (release = res))) : run(f, args));
+  try {
+    assert.strictEqual(await ctx.DLZMOD_roNow(r.file, 30), false);
+    release({ ok: false, out: "", err: "busy" });
+    await tick(0);
+    assert.strictEqual(await ctx.DLZMOD_roNow(r.file, 30), false);
+    assert.strictEqual(started, 2, "a new remount once the old one has ended");
+  } finally {
+    ctx.DLZMOD_run = run;
+    delete ctx.DLZMOD_roLater.pending;
+  }
+});
+test("read-only: remounts one after the other; read-write asked during read-only comes after it, errors stay the caller's", async () => {
+  const order = [];
+  let release;
+  const ro = ctx.DLZMOD_mountQueue(() => new Promise((r) => (release = r)).then(() => order.push("ro")));
+  const rw = ctx.DLZMOD_rw(async () => order.push("rw"));
+  assert.ok(Date.now() - ctx.DLZMOD_roLater.lastRw < 1000, "read-write noted");
+  while (!release) await tick(1);
+  await tick(10);
+  assert.deepStrictEqual(order, [], "read-write waits for the running read-only");
+  release();
+  await ro;
+  await rw;
+  assert.deepStrictEqual(order, ["ro", "rw"]);
+  await assert.rejects(ctx.DLZMOD_rw(() => Promise.reject(new Error("mount failed"))), /mount failed/);
+  assert.strictEqual(await ctx.DLZMOD_mountQueue(async () => "next"), "next", "a failed remount does not block the queue");
+});
+test("read-only: the timer remounts once idle and looks again while busy", async () => {
+  const r = roRig({ recState: 1 });
+  const roNow = ctx.DLZMOD_roNow;
+  ctx.DLZMOD_roNow = () => roNow(r.file);
+  try {
+    ctx.DLZMOD_roLater(0);
+    await tick(30);
+    assert.deepStrictEqual(r.calls, []);
+    assert.ok(ctx.DLZMOD_roLater.timer, "looks again later");
+    r.keys.recState = 0;
+    ctx.DLZMOD_roLater(0);
+    await tick(30);
+    assert.strictEqual(r.calls.length, 2);
+    assert.strictEqual(ctx.DLZMOD_roLater.timer, null, "done: no more looking");
+  } finally {
+    clearTimeout(ctx.DLZMOD_roLater.timer);
+    ctx.DLZMOD_roNow = roNow;
+  }
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {

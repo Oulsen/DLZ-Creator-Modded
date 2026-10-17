@@ -60,6 +60,31 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
   Accepted: snapshots are not filtered on load (snapshots saved on the mixer may hold pad sample
   files). `srv_data.json` and the presets are no longer served to other devices (#45, below).
 - **Control from other devices** (#45): below, "Remote Control".
+- **Media back to read-only** (#98): stock remounts the SD card's DLZDATA or a USB stick `rw` to
+  record, rename, delete or finish half-written recordings, and never back
+  ([node-backend.md](components/node-backend.md), "Read-write remounts"), so a switch-off could
+  damage the card. The mod (`DLZMOD_roLater`, patched into the end of a recording, the sample
+  recorder's stop and stock's back-to-read-only function) remounts every writable FAT medium under
+  `/tmp/mnt` read-only about 10 s later (a rename or delete: after stock's 60 s), once nothing
+  records, is paused or has a sample take still to keep or store (`sample.rec.file` set: the sample
+  recorder's state stays at keep/discard after a store) and nothing was remounted `rw` or finalized
+  in the last 10 s (counted from when the remount is done); otherwise, and when the kernel refuses
+  because a file is still open for writing (EBUSY), it looks again every 10 s. Every remount runs
+  through one queue (`DLZMOD_rw`), so a recording that starts during a read-only remount waits for
+  it and gets its `rw`; a remount that hangs (a pulled stick) holds the queue up for 40 s at most
+  and counts as not done after 35 s for all media together, so the looking goes on without a second
+  mount for that medium while the first still hangs. A rename or delete always remounts
+  `rw` (stock skipped it while its own flag said writable) [static]. No stock write needs the old
+  always-writable state: server.js writes to the media only through those remounts (record, sample,
+  rename, delete, the start's finalizer) and in the multitrack renames 2 s after a stop; its other
+  writes go to the system (`/srv` presets, `srv_data.json`, the bank player's defaults) and `/tmp`
+  [static, the dump's server.js]. Measured on the XS dev card [device]: read-only again 12-13 s after the start's
+  remount, 10.3 s after a recording stopped, 10.2 s after a sample was kept, exactly 60 s after a
+  rename or delete (also a rename while already read-only); after a recording and a switch-off the
+  next start finds the FAT volume clean (state byte `00`, no warning). Side effect: Mackie's 500 ms
+  wait after a rename's remount can, at worst, run out behind a read-only remount; the rename then
+  fails and can be repeated. Not covered: a card already marked dirty stays marked until an fsck
+  ([node-backend.md](components/node-backend.md), "FAT's dirty mark is sticky").
 - **Recording names** (#27, #34, #35): `REC_<number>_<animal>.wav`, e.g. `REC_0042_otter`. The
   number counts above every `REC_<n>` file or folder, in any letter case, in the recordings folders
   of both media (SD card and USB stick; reading the other medium gives up after 2 s, so a hung stick

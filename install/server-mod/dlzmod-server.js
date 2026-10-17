@@ -363,10 +363,136 @@ function DLZMOD_keyAllowed(key, value, send) {
 
 // stock runs "wavfinalizer <unfinished> <final>" through a shell, built from file names on the card
 // or stick: a name with ";" or "$(...)" would run as root. Same program, same arguments, no shell.
+// #98: each file counts as a read-write use, so DLZMOD_roNow leaves the medium writable between files
 function DLZMOD_wavfinalize(src, dst) {
+  DLZMOD_roLater.lastRw = Date.now();
   return new Promise((resolve, reject) => {
-    require("child_process").execFile("wavfinalizer", [src, dst], (e, out) => (e ? reject(e) : resolve(out)));
+    require("child_process").execFile("wavfinalizer", [src, dst], (e, out) => {
+      DLZMOD_roLater.lastRw = Date.now();
+      e ? reject(e) : resolve(out);
+    });
   });
+}
+
+// #98: media back to read-only once nothing writes. Stock remounts a medium read-write to record,
+// rename, delete or finish half-written recordings at the start, and never back (its fe() only logs
+// "back to RO1"), so a card with a recordings folder stayed writable until switched off: "Volume was
+// not properly unmounted", damaged files. Called (patched) at the end of a recording, when the
+// sample recorder stops and from fe(). After `delay` ms every writable FAT medium under /tmp/mnt
+// (server.js's mounts) is remounted read-only, unless something records, is paused, has a sample
+// take still to keep or store, or was remounted read-write (or finalized a file) in the last 10 s (a
+// recording starts with the remount and only then shows as recording); then it looks again every
+// 10 s. A file still open for writing makes the kernel refuse (EBUSY): also again in 10 s. A new
+// call restarts the wait.
+function DLZMOD_roLater(delay = 10000) {
+  const s = DLZMOD_roLater;
+  clearTimeout(s.timer);
+  s.timer = setTimeout(async () => {
+    s.timer = null;
+    // node 18 ends the whole server on an unhandled rejection
+    const done = await DLZMOD_mountQueue(() => DLZMOD_roNow()).catch((e) => {
+      console.error("dlzmod: read-only remount:", e.message);
+      return false;
+    });
+    if (!done) DLZMOD_roLater();
+  }, delay);
+}
+
+// every remount of the media, one after the other: a read-write remount asked for while the
+// read-only one runs comes after it, so the medium ends up writable. The next one waits `limit` ms
+// at most: a mount that hangs (a pulled stick) must not hold up every later recording start
+function DLZMOD_mountQueue(fn, limit = 40000) {
+  const s = DLZMOD_mountQueue;
+  const run = (s.last || Promise.resolve()).then(() => fn());
+  let timer;
+  s.last = Promise.race([run.catch(() => {}), new Promise((resolve) => {
+    timer = setTimeout(() => {
+      console.error("dlzmod: a remount still runs after " + limit / 1000 + " s, the next ones go ahead");
+      resolve();
+    }, limit);
+  })]).then(() => clearTimeout(timer));
+  return run;
+}
+
+// stock's read-write remounts (patched); remount: the stock call, its result and errors as before.
+// Noted when asked and again when done: one that waited in the queue still gets its 10 s
+function DLZMOD_rw(remount) {
+  const s = DLZMOD_roLater;
+  s.lastRw = Date.now();
+  const run = DLZMOD_mountQueue(remount);
+  run.then(() => (s.lastRw = Date.now()), () => (s.lastRw = Date.now()));
+  return run;
+}
+
+// true when no medium is left writable; false: look again later. The remounts get `limit` ms in all
+// (under the queue's 40 s, so the queue does not move on during this call); one not finished by then
+// counts as not done: a mount stuck in the kernel (a pulled stick) ignores DLZMOD_run's timeout, and
+// waiting for it would end the looking again for good. While it is stuck no second one is started
+// for the same mount point (each would hang behind it, with its own process and pipes); accepted: a
+// new medium mounted at that very point while the old mount still hangs stays writable, as stock
+async function DLZMOD_roNow(mounts = "/proc/mounts", limit = 35000) {
+  const s = DLZMOD_roLater;
+  const get = (k) => globalThis.getDataKey(k);
+  if (Date.now() - (s.lastRw || 0) < 10000 || DLZMOD_recBusy(get)) return false;
+  let rw;
+  try {
+    rw = DLZMOD_rwMedia(require("fs").readFileSync(mounts, "utf8"));
+  } catch (e) {
+    console.error("dlzmod: cannot read " + mounts + ":", e.message);
+    return false;
+  }
+  // all media at once (one stuck medium does not keep the others from their turn), one deadline
+  s.pending = s.pending || new Map();
+  const runs = rw.map((m) => {
+    let p = s.pending.get(m);
+    if (!p) {
+      const q = DLZMOD_run("/usr/bin/mount", ["-o", "remount,ro", m]);
+      s.pending.set(m, q);
+      q.then(() => s.pending.get(m) === q && s.pending.delete(m));   // DLZMOD_run never rejects
+      p = q;
+    }
+    return [m, p];
+  });
+  let timer;
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ ok: false, err: "the remount has not finished yet" }), limit);
+  });
+  let done = true;
+  for (const [m, p] of runs) {
+    const r = await Promise.race([p, late]);
+    if (r.ok) {
+      console.log("dlzmod: " + m + " read-only again");
+    } else {
+      done = false;
+      // once per series: a writer holding a file open would log every 10 s
+      if (!s.failLogged) console.error("dlzmod: " + m + " stays writable for now:", r.err.trim());
+      s.failLogged = true;
+    }
+  }
+  clearTimeout(timer);
+  if (done) s.failLogged = false;
+  return done;
+}
+
+// get: server.js's data keys. Recording, paused or saving; the sample recorder recording, or a take
+// waiting for keep/discard or being stored: sample.rec.file is set from its start until dspserver
+// has stored it (SAMPLE_REC_STORE waits for that) or it is discarded (SAMPLE_REC_RESET). Its state
+// stays at keep/discard after a store, so the state alone would keep the medium writable
+function DLZMOD_recBusy(get) {
+  return !!get("hw_rec") || [1, 2, 3].includes(get("recState")) || get("sample.rec.state") === 1 ||
+    !!get("sample.rec.file");
+}
+
+// mount points of the writable FAT media under /tmp/mnt in a /proc/mounts text
+function DLZMOD_rwMedia(text) {
+  const out = [];
+  for (const line of text.split("\n")) {
+    const f = line.split(" ");
+    if (f.length < 4 || f[2] !== "vfat" || !f[3].split(",").includes("rw")) continue;
+    const m = f[1].replace(/\\([0-7]{3})/g, (x, o) => String.fromCharCode(parseInt(o, 8)));
+    if (m.startsWith("/tmp/mnt/")) out.push(m);
+  }
+  return out;
 }
 
 // express middleware in front of the static /srv: the originals kept next to the patched files

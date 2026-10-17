@@ -3,15 +3,19 @@
 #
 #   bash dlz-ssh.sh host <ip or name>       store the mixer's address (WSL ~/.config, kept)
 #   bash dlz-ssh.sh pass                    store the session's password, read from stdin (WSL /tmp only)
+#   bash dlz-ssh.sh key [<private key>]     use an SSH key instead (a dev card's, as dev/push.sh does);
+#                                           default: SSH_KEY from dev/push.env in the current folder
 #   bash dlz-ssh.sh run '<command>'         run a read-only command on the mixer
 #   bash dlz-ssh.sh get <remote> <local>    copy a file from the mixer to the PC
-#   bash dlz-ssh.sh show                    the stored address, and whether a password is stored
-#   bash dlz-ssh.sh forget [--all]          remove password, askpass, known hosts (--all: the address too)
+#   bash dlz-ssh.sh show                    the stored address, and how this session logs in
+#   bash dlz-ssh.sh forget [--all]          remove password, key, askpass, known hosts (--all: the address too)
 #
 # The address lives in ~/.config/dlz-mixer-ssh/host (WSL, outside the repo; another mixer or network:
-# store the new one). The password, the askpass helper and the host keys live in a private folder from
-# mktemp -d in /tmp (mode 700, its path in ~/.config/dlz-mixer-ssh/tmpdir); the password never goes on
-# a command line, not even this script's. Host keys: every install makes a new card with new keys.
+# store the new one). The password or a copy of the key, the askpass helper and the host keys live in
+# a private folder from mktemp -d in /tmp (mode 700, its path in ~/.config/dlz-mixer-ssh/tmpdir); the
+# password never goes on a command line, not even this script's. The key is copied because WSL's ssh
+# refuses a key file on a Windows drive (its mode shows as 777); a stored key is used before a
+# password. Host keys: every install makes a new card with new keys.
 # "run" refuses commands that look like writes (see WRITE_RE) unless DLZ_SSH_WRITE=1 is set, which is
 # only done after the user confirmed that exact command in the current turn (SKILL.md).
 set -u
@@ -43,15 +47,33 @@ privdir() {   # privdir [new]
       || { echo "no private folder could be made in /tmp" >&2; exit 2; }
   else D=; return 1
   fi
-  PASS=$D/pass ASK=$D/askpass KNOWN=$D/known-hosts
+  PASS=$D/pass ASK=$D/askpass KNOWN=$D/known-hosts KEY=$D/key
 }
 askpass() {
-  privdir && [ -s "$PASS" ] || { echo "no password stored: bash dlz-ssh.sh pass (password on stdin)" >&2; exit 2; }
-  printf '#!/bin/sh\ncat %s\n' "$PASS" > "$ASK" && chmod 700 "$ASK"
+  privdir && { [ -s "$KEY" ] || [ -s "$PASS" ]; } \
+    || { echo "no password or key stored: bash dlz-ssh.sh pass (password on stdin) or bash dlz-ssh.sh key" >&2; exit 2; }
+  [ -s "$KEY" ] || { printf '#!/bin/sh\ncat %s\n' "$PASS" > "$ASK" && chmod 700 "$ASK"; }
 }
 sshopts() {
-  echo -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$KNOWN -o ConnectTimeout=10 \
-    -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1
+  echo -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$KNOWN -o ConnectTimeout=10
+  if [ -s "$KEY" ]; then
+    # only this key (sshd's MaxAuthTries counts every key an agent offers), never a prompt
+    echo -o IdentitiesOnly=yes -i $KEY -o PreferredAuthentications=publickey -o BatchMode=yes
+  else
+    echo -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1
+  fi
+}
+# a key path as dev/push.env or the user writes it: ~ is the Windows user folder (Git Bash's home),
+# C:\... or C:/... a Windows path, /c/... a Git Bash path; all mapped into WSL
+keypath() {
+  case $1 in
+    "~"/*) prof=$(cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r')
+           [ -n "$prof" ] || { echo "the Windows user folder for $1 is unknown" >&2; exit 2; }
+           wslpath -u "$prof${1#\~}" ;;
+    [A-Za-z]:[\\/]*) wslpath -u "$1" ;;
+    /[A-Za-z]/*) printf '/mnt/%s%s\n' "$(printf '%s' "${1:1:1}" | tr 'A-Z' 'a-z')" "${1:2}" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
 }
 
 case ${1:-} in
@@ -65,10 +87,34 @@ case ${1:-} in
     if [ -t 0 ]; then IFS= read -rsp "mixer password: " pw; echo >&2; else IFS= read -r pw || [ -n "$pw" ]; fi
     [ -n "$pw" ] || { echo "no password read" >&2; exit 2; }
     privdir new
+    # the password replaces a stored key (a key is used first, so a key the mixer refuses would stay)
+    rm -f "$KEY"
     umask 077; printf '%s' "$pw" > "$PASS" && echo "password stored in $D (WSL /tmp only)" ;;
+  key)
+    src=${2:-}
+    if [ -z "$src" ]; then
+      [ -f dev/push.env ] || { echo "usage: dlz-ssh.sh key <private key> (or run it where dev/push.env is)" >&2; exit 2; }
+      # read as dev/push.sh reads it: the last line wins
+      src=$(sed -n 's/^SSH_KEY=//p' dev/push.env | tail -n 1 | tr -d '\r')
+      [ -n "$src" ] || { echo "no SSH_KEY in dev/push.env" >&2; exit 2; }
+    fi
+    src=$(keypath "$src")
+    [ -f "$src" ] || { echo "no key file at $src" >&2; exit 2; }
+    privdir new
+    # checked on the private copy: ssh-keygen refuses the original on a Windows drive (mode 777).
+    # A private key without a passphrase (BatchMode cannot ask for one); nothing of it is printed
+    umask 077; cat "$src" > "$KEY.new" || exit 2
+    if ssh-keygen -y -P '' -f "$KEY.new" > /dev/null 2>&1; then
+      # the key replaces a stored password
+      mv -f "$KEY.new" "$KEY" && rm -f "$PASS" "$ASK" && echo "key stored in $D (a copy of $src, WSL /tmp only)"
+    else
+      rm -f "$KEY.new"; echo "not a private key without a passphrase: $src" >&2; exit 2
+    fi ;;
   show)
     echo "address: $(cat "$HOSTF" 2>/dev/null || echo none)"
-    privdir && [ -s "$PASS" ] && echo "password: stored for this session" || echo "password: none" ;;
+    if privdir && [ -s "$KEY" ]; then echo "login: key stored for this session"
+    elif privdir && [ -s "$PASS" ]; then echo "password: stored for this session"
+    else echo "password: none"; fi ;;
   run)
     cmd=${2:?command}
     if [ "${DLZ_SSH_WRITE:-0}" != 1 ]; then
@@ -96,12 +142,12 @@ case ${1:-} in
     case $D in
       /tmp/dlz-ssh.*/*|*..*) echo "not removed: the recorded folder $D is not one of ours" >&2 ;;
       /tmp/dlz-ssh.?*) if [ -d "$D" ] && [ ! -L "$D" ] && [ -O "$D" ] && rm -rf "$D"; then
-          echo "password, askpass and known hosts removed"
+          echo "password, key, askpass and known hosts removed"
         else echo "nothing removed (no folder of ours at $D)"; fi ;;
       *) echo "nothing to remove" ;;
     esac
     rm -f "$TMPF"
     [ "${2:-}" = --all ] && rm -f "$HOSTF" && echo "address removed" ;;
   *)
-    sed -n '2,16p' "$0"; exit 2 ;;
+    sed -n '2,20p' "$0"; exit 2 ;;
 esac

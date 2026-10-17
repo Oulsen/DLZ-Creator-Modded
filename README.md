@@ -19,7 +19,8 @@ Alpha, at your own risk: read [DISCLAIMER.md](DISCLAIMER.md) first.
   Install on the mixer's own screen
 - **Fixes for stock bugs**: the recording crash after take 9,999; new recordings overwriting old
   ones; anyone on the network (or a prepared SD card or USB stick) changing files on the mixer;
-  anyone on the network controlling the mixer without a PIN
+  anyone on the network controlling the mixer without a PIN; the SD card or USB stick staying
+  writable once it holds recordings, so switching off could damage it
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
@@ -69,6 +70,13 @@ The installer copies the mixer's software onto the card (about 7.7 GB); the rest
 your recordings. **Minimum 16 GB** (smaller cards are refused before anything is written), **32 GB
 or more to work with recordings, 64 GB or more preferred**. The card's speed sets the install time
 and how safely long multitrack recordings run.
+
+The mod keeps the card's recordings part read-only except while it records, renames or deletes, so
+switching off is safe then. A card that was switched off while writable (during a recording, or with
+older versions and the stock software whenever it held recordings) stays marked as "not properly
+unmounted". The mixer works with it as before; to clear the mark, put the card in a computer, **copy
+your recordings off first**, then let the computer scan and fix it (a repair can shorten a recording
+that was cut off).
 
 ### Known good cards
 
