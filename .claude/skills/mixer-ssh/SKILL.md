@@ -16,9 +16,10 @@ root, with `MSYS_NO_PATHCONV=1` in Git Bash:
 
 ```bash
 W="MSYS_NO_PATHCONV=1 wsl -d Ubuntu -e bash .claude/skills/mixer-ssh/dlz-ssh.sh"
-$W show                                    # stored address? password this session?
+$W show                                    # stored address? key or password this session?
 $W host <ip or name>                       # when none is stored or the user gives a new one
-printf '%s\n' '<password>' | $W pass        # once per session, on stdin (WSL /tmp only)
+$W key                                     # dev card: the key from dev/push.env (or $W key <file>)
+printf '%s\n' '<password>' | $W pass        # otherwise: once per session, on stdin (WSL /tmp only)
 $W run 'uptime; findmnt -no SOURCE /'      # read-only command; prints [mixer: root@<address>]
 $W get <remote file> build/device-logs/<name>   # copy to the PC (git-ignored)
 $W forget                                  # at the end of the session (--all: the address too)
@@ -29,6 +30,13 @@ $W forget                                  # at the end of the session (--all: t
   different mixer or network: ask the user for the address (IP, or the network name such as
   `mackie-dlz-creator-xs.local`) and store it with `host`. Say which address is used when it was
   stored in an earlier session. User `root`.
+- **Key first**: a dev card trusts the key `dev/push.sh` uses (`SSH_KEY` in `dev/push.env`, a
+  private key without a passphrase). `key` copies it into the session's private folder (mode 600;
+  WSL's ssh refuses a key on a Windows drive) and logs in with only that key, before any password.
+  In a worktree (no `dev/push.env`) give the path: `$W key '~/.ssh/<file>'` (`~` = the Windows user
+  folder) or `C:/...`. No key file, a key with a passphrase (`key` refuses it; the dev card's own key
+  is made without one, `docs/DEVELOPMENT.md` "Dev card"), or a mixer that does not take it: ask for
+  the password.
 - **Password**: only from the user, in this conversation, for this session; never write it into
   the repo, notes, memory or any command line. It goes to `pass` on stdin, through the shell's own
   `printf` (a builtin, so it is on no command line in WSL: not `wsl`'s, not `ssh`'s, not

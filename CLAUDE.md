@@ -64,7 +64,8 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   start `/cr` (or `/code-review`) on the opened PR, docs-only PRs too, so the whole diff is read,
   including changes made after a device review; findings fixed as new commits on the PR or named in
   the PR description, before the merge; fixes that add new logic get one more pass
-  (`docs/DEVELOPMENT.md`, "Review").
+  (`docs/DEVELOPMENT.md`, "Review"). The release PR `develop` → `main` too: once the milestone's
+  issues are done, one final `/cr` on it before the fast-forward ("Releases", step 2).
 - Right after a release, bump `VERSION` in `develop` as its own PR (`docs/vX.Y.Z-bump`), before any
   other change of the new cycle; a feature or fix branch never bumps (`docs/DEVELOPMENT.md`,
   "Version bump"). The bump PR opens a `## vX.Y.Z` section in `CHANGELOG.md` (newest version first);

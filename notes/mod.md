@@ -73,8 +73,13 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
   through one queue (`DLZMOD_rw`), so a recording that starts during a read-only remount waits for
   it and gets its `rw`; a remount that hangs (a pulled stick) holds the queue up for 40 s at most. A
   rename or delete always remounts `rw` (stock skipped it while its own flag said writable)
-  [static; device: next test]. Side effect: Mackie's 500 ms wait after a rename's remount can, at
-  worst, run out behind a read-only remount; the rename then fails and can be repeated.
+  [static]. Measured on the XS dev card [device]: read-only again 12-13 s after the start's
+  remount, 10.3 s after a recording stopped, 10.2 s after a sample was kept, exactly 60 s after a
+  rename or delete (also a rename while already read-only); after a recording and a switch-off the
+  next start finds the FAT volume clean (state byte `00`, no warning). Side effect: Mackie's 500 ms
+  wait after a rename's remount can, at worst, run out behind a read-only remount; the rename then
+  fails and can be repeated. Not covered: a card already marked dirty stays marked until an fsck
+  ([node-backend.md](components/node-backend.md), "FAT's dirty mark is sticky").
 - **Recording names** (#27, #34, #35): `REC_<number>_<animal>.wav`, e.g. `REC_0042_otter`. The
   number counts above every `REC_<n>` file or folder, in any letter case, in the recordings folders
   of both media (SD card and USB stick; reading the other medium gives up after 2 s, so a hung stick

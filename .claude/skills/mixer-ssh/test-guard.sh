@@ -44,5 +44,28 @@ t REFUSED 'sh -c "echo"'
 t REFUSED 'sed -i s/a/b/ f'
 t REFUSED 'kill 1'
 t REFUSED 'free -m; swapon --show'
+# the key login, offline too: stored as a private copy, shown, refused when it is no usable key, forgotten
+k() {   # k <description> <expected text in the output> <command...>
+  out=$("${@:3}" 2>&1)
+  case $out in *"$2"*) m=ok ;; *) m=WRONG; fail=1 ;; esac
+  printf '%-5s %-8s %s\n' "$m" key "$1"
+}
+ssh-keygen -q -t ed25519 -N '' -f "$HOME/id" && ssh-keygen -q -t ed25519 -N 'secret' -f "$HOME/id-pp" && echo x > "$HOME/notakey"
+chmod 777 "$HOME/id"   # as a key on a Windows drive shows in WSL; ssh-keygen refuses such a file itself
+k "no key file"                  "no key file at"                 bash "$S" key "$HOME/missing"
+k "not a key"                    "not a private key"              bash "$S" key "$HOME/notakey"
+k "a key with a passphrase"      "not a private key"              bash "$S" key "$HOME/id-pp"
+k "no refused copy left behind"  "nothing"                        bash -c "ls \$(cat '$HOME/.config/dlz-mixer-ssh/tmpdir')/key* 2>/dev/null || echo nothing"
+k "no dev/push.env here"         "usage: dlz-ssh.sh key"          bash -c "cd '$HOME' && bash '$S' key"
+k "stored"                       "key stored in /tmp/dlz-ssh."    bash "$S" key "$HOME/id"
+D=$(cat "$HOME/.config/dlz-mixer-ssh/tmpdir")
+[ "$(stat -c %a "$D/key")" = 600 ] && cmp -s "$D/key" "$HOME/id" && m=ok || { m=WRONG; fail=1; }
+printf '%-5s %-8s %s\n' "$m" key "a private copy (mode 600)"
+k "shown"                        "login: key stored"              bash "$S" show
+mkdir -p "$HOME/repo/dev" && printf 'MIXER_HOST=x\nSSH_KEY=%s\r\n' "$HOME/id" > "$HOME/repo/dev/push.env"
+k "from dev/push.env (CRLF)"     "key stored in /tmp/dlz-ssh."    bash -c "cd '$HOME/repo' && bash '$S' key"
+k "forgotten"                    "password, key, askpass"         bash "$S" forget
+[ ! -e "$D" ] && m=ok || { m=WRONG; fail=1; }
+printf '%-5s %-8s %s\n' "$m" key "the private folder is gone"
 rm -rf "$HOME"
 [ $fail = 0 ] && echo "ALL OK" || echo "SOME WRONG"

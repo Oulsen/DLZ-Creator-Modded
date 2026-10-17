@@ -70,6 +70,13 @@ All [static].
   switched off, so the next start finds the FAT volume "not properly unmounted" [device]. Its
   "permanent" flag compares a mount point with a device path and so never matches. The mod
   remounts read-only itself (#98; [mod.md](../mod.md), "Media back to read-only").
+- **FAT's dirty mark is sticky**: the FAT32 boot sector's state byte (offset 0x41, read with
+  `od -An -tx1 -j65 -N1 /dev/mmcblk0p2`) is `01` after an unclean switch-off. Linux 5.10 sets it at
+  every mount or remount `rw` and clears it at a remount `ro` or unmount, but leaves a volume that
+  was already dirty at mount as it is (`fs/fat/inode.c`, `fat_set_state`), and warns "Volume was not
+  properly unmounted" at each mount or `rw` remount. So once marked, a card keeps the mark and the
+  warning until an fsck (a PC's "Scan and fix") clears it, however cleanly it is used afterwards
+  [device: `01` across clean read-only switch-offs, `00` after a Windows scan and from then on].
 - **Scan details**: a rescan runs when `/dev/disk/by-id` changes. Skipped (with their children):
   names starting with `mmcblk1`, mountpoint `/` or `/boot`, EFI partitions. Every other node with an
   `fstype` is a candidate; SD vs USB comes from lsblk `subsystems` (first `:mmc_host:platform` = SD,
