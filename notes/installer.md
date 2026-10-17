@@ -179,7 +179,10 @@ and the package directory. Pinned downloads (`vendor.sh`, sha256 as in Debian's 
 `u-boot-sunxi` 2025.01-3+deb13u1 (Banana Pi M2 Ultra build: same R40 and DRAM setup) and
 `busybox-static` 1.37.0-6+b9. Reproducible with `SOURCE_DATE_EPOCH` (default: the last commit time):
 the package `.tar` is byte-identical across builds; the image's FAT entries carry the build time, so
-each release publishes the image's sha256. `RELEASE=1` refuses a tree with changes.
+each release publishes the image's sha256. `RELEASE=1` refuses a tree with changes; the image takes
+its boot route (`boot.txt`, `mkscr`/`mkenv`/`mksdimg`, the safe U-Boot) from the tree at image time,
+so `mkinstaller.sh` builds a release package's image only from a clean tree at the package's
+`COMMIT`.
 
 **Safe U-Boot** (`uboot-safe.py`, same-length patches, both uImage CRCs recalculated, the result
 pinned by sha256; 48 bytes differ from Debian's binary):

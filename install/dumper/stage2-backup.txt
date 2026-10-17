@@ -25,17 +25,6 @@ while mmc read ${buf} ${blk} 0x800; do
   setexpr blk ${blk} + 0x800
   mmc dev 1
 done
-for hp in 1 2; do
-  if mmc dev 1 ${hp}; then
-    setenv b 0
-    while mmc read ${buf} ${b} 0x800; do
-      fatwrite mmc 0:1 ${buf} emmcboot${hp}_${b}.bin 0x100000
-      setexpr b ${b} + 0x800
-      mmc dev 1 ${hp}
-    done
-  fi
-done
-mmc dev 1 0
 setenv msg "stage2 finished, end block ${blk}"
 env export -t ${ramdisk_addr_r} msg
 fatwrite mmc 0:1 ${ramdisk_addr_r} done2.txt ${filesize}
