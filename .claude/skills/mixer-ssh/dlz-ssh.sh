@@ -27,10 +27,26 @@ TMPF=$CONF/tmpdir
 # The command is split as the shell splits it (quotes, backslashes) into simple commands at ; | && ||
 # and newlines; each must be a program from READ_CMDS, or one of the programs seg_ok checks the
 # arguments of, by its bare name or from /bin, /sbin, /usr/bin or /usr/sbin. Refused outright: a
-# command inside another or a group (` $( ( ) { }), a variable or $'..' outside single quotes, any < or
-# >, except > to /dev/null and 2>&1, and a single & (background). A refused read is a false positive:
-# widen the list, with a case in test-guard.sh.
-READ_CMDS=' cat head tail tac nl ls stat grep egrep fgrep zcat wc md5sum sha1sum sha256sum cmp diff strings od hexdump base64 cut paste tr fold rev basename dirname readlink realpath which uptime uname nproc id whoami pwd free df du ps vmstat lsblk findmnt blkid lsusb lsmod lsof getconf echo printf true false sleep cd test [ '
+# command inside another or a group (` $( ( ) { }), a variable or $'..' outside single quotes, an
+# unquoted < or >, except > to /dev/null and 2>&1, and a single & (background). The checked programs
+# also refuse unquoted * ? [ (a glob can expand to more names or to an option). A refused read is a
+# false positive: widen the list, with a case in test-guard.sh.
+# READ_CMDS have no option that writes a file or runs a program
+READ_CMDS=' cat head tail tac nl ls stat grep egrep fgrep zcat wc md5sum sha1sum sha256sum cmp diff strings od hexdump base64 cut paste tr fold rev basename dirname readlink realpath which uptime uname nproc id whoami who last pwd free df du ps pgrep pidof vmstat lsblk findmnt lsusb lsmod lsof getconf dpkg-query echo printf true false sleep cd test [ '
+
+# opts_ok <no-value flags> <word>...: every option is a flag from the list or --name=value, so no
+# option takes the next word as its value and hides the real verb behind it (-p status reboot; also
+# not -pX: in a cluster like -ap the p takes the next word)
+opts_ok() {
+  local flags=" $1 " a
+  shift
+  for a; do
+    case $a in
+      --*=*) ;;
+      -*) case $flags in *" $a "*) ;; *) return 1 ;; esac ;;
+    esac
+  done
+}
 
 # shortflag <arg> <letters>: arg is a short option cluster (-x, -abc) holding one of the letters
 shortflag() {
@@ -43,7 +59,12 @@ seg_ok() {
   shift
   case $c in */*) [[ $c =~ ^(/usr)?/s?bin/[A-Za-z0-9._-]+$ ]] || return 1; c=${c##*/} ;; esac
   case $READ_CMDS in *" $c "*) return 0 ;; esac
+  [ -z "$glob" ] || return 1
   case $c in
+    # -c names a cache file, which is written
+    blkid) for a; do shortflag "$a" c && return 1; case $a in --c*) return 1 ;; esac; done ;;
+    # without arguments it lists the mounts
+    mount) [ $# = 0 ] || return 1 ;;
     find) for a; do case $a in -delete|-exec|-execdir|-ok|-okdir|-fprint|-fprint0|-fprintf|-fls) return 1 ;; esac; done ;;
     # -C compiles a magic file into the current folder
     file) for a; do shortflag "$a" C && return 1; case $a in --c*) return 1 ;; esac; done ;;
@@ -61,9 +82,11 @@ seg_ok() {
     # line ranges only: sed -n 'N,Mp' [file...] (sed's w and e commands write and run)
     sed) [ "${1:-}" = -n ] && [[ ${2:-} =~ ^([0-9]+|\$)(,([0-9]+|\$))?p$ ]] || return 1
          shift 2; for a; do case $a in -*) return 1 ;; esac; done ;;
-    # a program that neither runs anything nor writes (> is refused before); no program files
-    awk) for a; do case $a in -F*|-v) ;; -*|*system*|*getline*|*'|'*|*@*) return 1 ;; esac; done ;;
+    # a program that neither runs anything nor writes: only print/printf write (print > "file"), so a
+    # > after a print is refused, a comparison before it ($3>1) is not; no program files
+    awk) for a; do case $a in -F*|-v) ;; -*|*system*|*getline*|*'|'*|*@*|*print*'>'*) return 1 ;; esac; done ;;
     systemctl)
+      opts_ok '-a --all -l --full -q --quiet -r --recursive --no-pager --no-legend --plain --value --failed --show-types --reverse --after --before --system' "$@" || return 1
       v=; for a; do case $a in -*) ;; *) v=$a; break ;; esac; done
       case $v in
         ''|status|show|cat|help|is-active|is-enabled|is-failed|is-system-running|list-units|list-unit-files) ;;
@@ -72,6 +95,7 @@ seg_ok() {
       esac ;;
     # not log-level/log-target/service-watchdogs: with an argument they set it
     systemd-analyze)
+      opts_ok '-q --quiet --no-pager --system --order --require' "$@" || return 1
       v=; for a; do case $a in -*) ;; *) v=$a; break ;; esac; done
       case $v in ''|time|blame|critical-chain|plot|dot|dump|cat-config|unit-paths|calendar|timespan|timestamp) ;; *) return 1 ;; esac ;;
     # long options also work abbreviated: --rot is --rotate
@@ -89,12 +113,13 @@ seg_ok() {
 }
 # guard <command>: 0 when every simple command in it is on the read-only list
 endword() { if [ -n "$inw" ]; then words+=("$w"); fi; w= inw=; }
-endseg() { if [ ${#words[@]} -gt 0 ]; then seg_ok "${words[@]}" || return 1; fi; words=(); }
+endseg() { if [ ${#words[@]} -gt 0 ]; then seg_ok "${words[@]}" || return 1; fi; words=() glob=; }
 guard() {
-  local s ch q= w= inw= i=0 n words=()
-  # harmless redirections out first: to /dev/null (2>, >>, &>), and fd duplication like 2>&1
-  s=$(printf '%s' "$1" | sed -E 's#[0-9]*&?>>?[[:space:]]*/dev/null([[:space:];&|]|$)# \1#g; s#[0-9]*>&[0-9]+##g')
-  case $s in *'>'*|*'<'*|*'`'*|*'$('*) return 1 ;; esac
+  local s ch q= w= inw= glob= i=0 n words=()
+  # harmless redirections out first: to /dev/null (2>, >>, &>), and fd duplication like 2>&1; both
+  # only as a whole word
+  s=$(printf '%s' "$1" | sed -E 's#[0-9]*&?>>?[[:space:]]*/dev/null([[:space:];&|]|$)# \1#g; s#[0-9]*>&[0-9]+([[:space:];&|]|$)# \1#g')
+  case $s in *'`'*|*'$('*) return 1 ;; esac
   n=${#s}
   while [ $i -lt $n ]; do
     ch=${s:i:1}; i=$((i + 1))
@@ -121,7 +146,8 @@ guard() {
           if [ "$ch" = '|' ] && [ "${s:i:1}" = '|' ]; then i=$((i + 1)); fi
           endword; endseg || return 1 ;;
         ' '|$'\t'|$'\r') endword ;;
-        '('|')'|'{'|'}') return 1 ;;
+        '('|')'|'{'|'}'|'<'|'>') return 1 ;;
+        '*'|'?'|'[') glob=1; w+=$ch; inw=1 ;;
         *) w+=$ch; inw=1 ;;
       esac
     fi
@@ -221,8 +247,13 @@ case ${1:-} in
       exit 3
     fi
     gethost; askpass
+    # a command that never ends (tail -f, journalctl -f, vmstat 1) must not hang the session
+    t=${DLZ_SSH_TIMEOUT:-120}
     # shellcheck disable=SC2046
-    SSH_ASKPASS=$ASK SSH_ASKPASS_REQUIRE=force DISPLAY=: ssh $(sshopts) "root@$host" "$cmd" < /dev/null ;;
+    SSH_ASKPASS=$ASK SSH_ASKPASS_REQUIRE=force DISPLAY=: timeout "$t" ssh $(sshopts) "root@$host" "$cmd" < /dev/null
+    rc=$?
+    [ $rc != 124 ] || echo "stopped after $t s (DLZ_SSH_TIMEOUT); a follow (-f, -w) or a count-less vmstat does not end" >&2
+    exit $rc ;;
   get)
     remote=${2:?remote file}; local=${3:?local file}
     # the remote name goes through the mixer's shell with the old scp protocol (OpenSSH before 9.0),

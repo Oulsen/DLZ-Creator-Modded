@@ -41,6 +41,10 @@ t allowed '/usr/bin/cat /etc/hostname'
 t allowed 'grep -a "x$" /var/log/syslog | tail -5'
 t allowed 'systemd-analyze critical-chain evolve-node.service'
 t allowed 'ls /tmp >> /dev/null 2>&1; echo done'
+t allowed 'grep "<error>" /var/log/syslog; awk '"'"'$3>1'"'"' /proc/loadavg'
+t allowed 'ls /var/log/*.log; cat /proc/[0-9]/stat'
+t allowed 'blkid -p /dev/mmcblk0p1; mount; pgrep -a node; dpkg-query -W openssh-server'
+t allowed 'systemctl show --property=ActiveState --value dspserver; systemctl status --lines=5 ssh'
 t allowed get /var/log/syslog build/device-logs/syslog
 t allowed get '~/install-3.txt' build/device-logs/install3.txt
 # writes and launchers
@@ -96,6 +100,8 @@ t REFUSED "awk 'BEGIN{system(\"reboot\")}'"
 t REFUSED "awk 'BEGIN{\"reboot\" | getline}'"
 t REFUSED "awk 'BEGIN{print 1 > \"/etc/fstab\"}'"
 t REFUSED 'awk -f /tmp/prog'
+t REFUSED "awk '{printf \"%s\", \$0 >> \"/etc/fstab\"}' /x"
+t REFUSED "awk '\$3>1 {print \$1 > \"/x\"}' /y"
 t REFUSED '{ rm -rf /x; }'
 t REFUSED 'case a in a) rm x;; esac'
 t REFUSED 'if false; then :; elif true; then rm x; fi'
@@ -143,6 +149,24 @@ t REFUSED 'xargs rm < /tmp/x'
 t REFUSED 'tee /x'
 t REFUSED 'cp /a /b'
 t REFUSED $'cat /x\nrm /y'
+# the review of #113: a cache file, globs bash expands before the program sees them, an option value
+# taken as the verb, text behind an fd duplication
+t REFUSED 'blkid -c /etc/fstab'
+t REFUSED 'blkid --cache-file=/etc/fstab'
+t REFUSED 'uniq /tmp/log*'
+t REFUSED 'sort /tmp/[ab]'
+t REFUSED 'find /tmp/? -name x'
+t REFUSED 'systemctl -p status reboot'
+t REFUSED 'systemctl -H status reboot'
+t REFUSED 'systemctl -ap status reboot'
+t REFUSED 'systemctl -pActiveState show'
+t REFUSED 'systemd-analyze -M blame log-level debug'
+t REFUSED 'cat /etc/hostname 2>&1marker bar'
+t REFUSED 'cat /x >/dev/null>y'
+t REFUSED 'cat /x 2>/dev/null&rm y'
+t REFUSED 'mount -o remount,rw /'
+t REFUSED 'cat x>y'
+t REFUSED 'cat x<y'
 # get: the remote name goes through the mixer's shell with the old scp protocol
 t REFUSED get '/tmp/x;reboot' build/device-logs/x
 t REFUSED get '/tmp/$(reboot)' build/device-logs/x

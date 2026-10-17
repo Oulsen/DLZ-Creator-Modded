@@ -67,12 +67,16 @@ Reading files and state, small outputs:
 The wrapper only lets reads through, as an allowlist (`READ_CMDS` and `seg_ok` in the script): every
 command between `;`, `|`, `&&`, `||` must be a reading program by its bare name (or from `/bin`,
 `/sbin`, `/usr/bin`, `/usr/sbin`). Some are only allowed with reading arguments: `systemctl` and
-`systemd-analyze` with the verbs above, `ip` with `show`/`list`/`get`, `find` without
+`systemd-analyze` with the verbs above and options as `--name=value` (`--property=ActiveState`,
+`--lines=5`, not `-p X`/`-n 5`), `ip` with `show`/`list`/`get`, `find` without
 `-exec`/`-delete`/`-fprint*`, `dmesg` without clearing, `top -b`, `sed -n 'N,Mp'` only, `awk`
-without `system`/`getline`/`|`/program files, `sort`/`uniq`/`date`/`hostname`/`ss`/`journalctl`
-without their writing options. Refused outright: `$(`, backticks, `( )`, `{ }`, a `$variable` outside
-single quotes, `<`, a lone `&`, and any `>` except to `/dev/null` and `2>&1`. `get` takes remote names
-of `A-Z a-z 0-9 _ . / + ~ -` only. A refusal is a stop sign, not an obstacle: do not rephrase the
+without `system`/`getline`/`|`/program files/a `>` after `print`, `mount` without arguments,
+`blkid`/`sort`/`uniq`/`date`/`hostname`/`ss`/`journalctl` without their writing options; these
+checked programs take no unquoted `*` `?` `[` (quote the pattern). Refused outright: `$(`, backticks,
+`( )`, `{ }`, a `$variable` outside single quotes, an unquoted `<` or `>` (except `>` to `/dev/null`
+and `2>&1`), a lone `&`. `run` stops after 120 s (`DLZ_SSH_TIMEOUT`), so `-f`/`-w` follows end
+there. `get` takes remote names of `A-Z a-z 0-9 _ . / + ~ -` only, and overwrites the local file
+without asking. A refusal is a stop sign, not an obstacle: do not rephrase the
 command to get past it. A refused *read* is a false positive in the wrapper: widen the list, add the
 case to `test-guard.sh` (offline, never connects; CI runs it), run it until ALL OK, then rerun the
 same command.
