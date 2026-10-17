@@ -66,10 +66,12 @@ k "shown"                        "login: key stored"              bash "$S" show
 mkdir -p "$HOME/repo/dev" && printf 'MIXER_HOST=x\nSSH_KEY=%s\nSSH_KEY=%s\r\n' "$HOME/missing" "$HOME/id" > "$HOME/repo/dev/push.env"
 k "from dev/push.env (CRLF, last line)" "key stored in /tmp/dlz-ssh." bash -c "cd '$HOME/repo' && bash '$S' key"
 k "a Git Bash path (/x/...)"     "no key file at /mnt/x/no/such"  bash "$S" key /x/no/such
+k "a Git Bash path (/X/...)"     "no key file at /mnt/x/no/such"  bash "$S" key /X/no/such
 # one way to log in at a time: a password replaces the key, a key the password
 k "a password replaces the key"  "password: stored"               bash -c "printf 'pw\n' | bash '$S' pass >/dev/null && bash '$S' show"
 [ ! -e "$D/key" ] && m=ok || { m=WRONG; fail=1; }
 printf '%-5s %-8s %s\n' "$m" key "the key copy is gone"
+: > "$D/askpass"   # as a run with the password leaves it
 k "a key replaces the password"  "login: key stored"              bash -c "bash '$S' key '$HOME/id' >/dev/null && bash '$S' show"
 [ ! -e "$D/pass" ] && [ ! -e "$D/askpass" ] && m=ok || { m=WRONG; fail=1; }
 printf '%-5s %-8s %s\n' "$m" key "the password is gone"

@@ -424,9 +424,11 @@ function DLZMOD_rw(remount) {
   return run;
 }
 
-// true when no medium is left writable; false: look again later. A remount that has not finished
-// after `limit` ms counts as not done: a mount stuck in the kernel (a pulled stick) ignores
-// DLZMOD_run's timeout, and waiting for it would end the looking again for good
+// true when no medium is left writable; false: look again later. The remounts get `limit` ms in all
+// (under the queue's 40 s, so nothing runs alongside them); one not finished by then counts as not
+// done: a mount stuck in the kernel (a pulled stick) ignores DLZMOD_run's timeout, and waiting for
+// it would end the looking again for good. While it is stuck no second one is started for the same
+// mount point (each would hang behind it, with its own process and pipes)
 async function DLZMOD_roNow(mounts = "/proc/mounts", limit = 35000) {
   const s = DLZMOD_roLater;
   const get = (k) => globalThis.getDataKey(k);
@@ -439,12 +441,20 @@ async function DLZMOD_roNow(mounts = "/proc/mounts", limit = 35000) {
     return false;
   }
   let done = true;
+  const end = Date.now() + limit;
+  s.pending = s.pending || new Map();
   for (const m of rw) {
+    let p = s.pending.get(m);
+    if (!p) {
+      p = DLZMOD_run("/usr/bin/mount", ["-o", "remount,ro", m]);
+      s.pending.set(m, p);
+      p.then(() => s.pending.delete(m));   // DLZMOD_run never rejects
+    }
     let timer;
     const r = await Promise.race([
-      DLZMOD_run("/usr/bin/mount", ["-o", "remount,ro", m]),
+      p,
       new Promise((resolve) => {
-        timer = setTimeout(() => resolve({ ok: false, err: "the remount did not finish in " + limit / 1000 + " s" }), limit);
+        timer = setTimeout(() => resolve({ ok: false, err: "the remount has not finished yet" }), Math.max(0, end - Date.now()));
       }),
     ]);
     clearTimeout(timer);

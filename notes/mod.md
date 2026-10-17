@@ -72,7 +72,8 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
   because a file is still open for writing (EBUSY), it looks again every 10 s. Every remount runs
   through one queue (`DLZMOD_rw`), so a recording that starts during a read-only remount waits for
   it and gets its `rw`; a remount that hangs (a pulled stick) holds the queue up for 40 s at most
-  and counts as not done after 35 s, so the looking goes on. A rename or delete always remounts
+  and counts as not done after 35 s for all media together, so the looking goes on without a second
+  mount for that medium while the first still hangs. A rename or delete always remounts
   `rw` (stock skipped it while its own flag said writable) [static]. No stock write needs the old
   always-writable state: server.js writes to the media only through those remounts (record, sample,
   rename, delete, the start's finalizer) and in the multitrack renames 2 s after a stop; its other
