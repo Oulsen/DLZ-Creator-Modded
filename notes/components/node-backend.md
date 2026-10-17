@@ -77,6 +77,16 @@ All [static].
   properly unmounted" at each mount or `rw` remount. So once marked, a card keeps the mark and the
   warning until an fsck (a PC's "Scan and fix") clears it, however cleanly it is used afterwards
   [device: `01` across clean read-only switch-offs, `00` after a Windows scan and from then on].
+- **An automatic fsck at startup was tried and dropped** (#98). `fsck.fat -a` (dosfstools 4.2, the
+  card's own) truncates a file whose directory entry is shorter than its cluster chain, the usual
+  shape of a recording cut off by a power cut (size 0 or the last flushed size), and frees the tail:
+  `-f` only keeps chains no entry points to, as `FSCKnnnn.REC`. A cross-linked chain makes it free
+  clusters of an intact file. It writes everything at the end (the dirty bit cleared next to last,
+  FSInfo last) but without fsync, so writeback can store the cleared bit before the repairs. What
+  it could repair safely (the mark, the free count, orphaned chains) changes nothing for the mixer,
+  and a card it must not repair would stay dirty and be checked at every start (seconds, before the
+  mixer software). Owners clear the mark on a computer, recordings copied off first (README, "SD
+  cards") [static + PC: the card's fsck.fat under qemu on test images].
 - **Scan details**: a rescan runs when `/dev/disk/by-id` changes. Skipped (with their children):
   names starting with `mmcblk1`, mountpoint `/` or `/boot`, EFI partitions. Every other node with an
   `fstype` is a candidate; SD vs USB comes from lsblk `subsystems` (first `:mmc_host:platform` = SD,

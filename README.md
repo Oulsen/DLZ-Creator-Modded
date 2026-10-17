@@ -71,6 +71,13 @@ your recordings. **Minimum 16 GB** (smaller cards are refused before anything is
 or more to work with recordings, 64 GB or more preferred**. The card's speed sets the install time
 and how safely long multitrack recordings run.
 
+The mod keeps the card's recordings part read-only except while it records, renames or deletes, so
+switching off is safe then. A card that was switched off while writable (during a recording, or with
+older versions and the stock software whenever it held recordings) stays marked as "not properly
+unmounted". The mixer works with it as before; to clear the mark, put the card in a computer, **copy
+your recordings off first**, then let the computer scan and fix it (a repair can shorten a recording
+that was cut off).
+
 ### Known good cards
 
 Cards that installed and ran the mod on a real mixer. Tested a card? Open an issue with the exact
