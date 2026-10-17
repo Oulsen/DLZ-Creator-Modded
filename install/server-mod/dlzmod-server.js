@@ -1011,17 +1011,20 @@ async function DLZMOD_recList(roots, busy) {
 // medium comes or goes, so a browser kept showing a recordings folder as it was. bus: server.js's
 // broadcaster (ee, null before the server runs). Calls while one waits make one message, at the
 // later of their times: a delete just after a recording stop must not send before the recording has
-// its final name
+// its final name. The message goes to the last broadcaster given (one from before the server ran is
+// null). Times on the monotonic clock: the mixer's clock jumps when NTP sets it after a start
 function DLZMOD_dirsChanged(bus, delay = 0) {
   const s = DLZMOD_dirsChanged;
-  const due = Date.now() + delay;
+  if (bus) s.bus = bus;
+  const due = require("perf_hooks").performance.now() + delay;
   if (s.timer && s.due >= due) return;
   clearTimeout(s.timer);
   s.due = due;
   s.timer = setTimeout(() => {
     s.timer = null;
+    const b = s.bus;
     try {
-      if (bus && typeof bus.send === "function") bus.send({ cmd: "UPDATE_DIRS", id: 0, args: {} });
+      if (b && typeof b.send === "function") b.send({ cmd: "UPDATE_DIRS", id: 0, args: {} });
     } catch (e) {
       console.error("dlzmod: file lists:", e.message);
     }

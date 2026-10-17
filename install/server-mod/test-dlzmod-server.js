@@ -1647,12 +1647,27 @@ test("recordings: file lists again for every client after a change, one message 
   assert.strictEqual(sent.length, 2, "not before the recording has its final name");
   await tick(80);
   assert.strictEqual(sent.length, 3, "one message for both");
-  ctx.DLZMOD_dirsChanged(null);
+  // a failing send: tried, nothing thrown
+  let tried = 0;
   ctx.DLZMOD_dirsChanged({ send() {
+    tried++;
     throw new Error("socket gone");
   } });
   await tick(20);
-  assert.strictEqual(ctx.DLZMOD_dirsChanged.timer, null, "no server yet or a failing send: nothing thrown");
+  assert.strictEqual(tried, 1, "the send was tried");
+  assert.strictEqual(ctx.DLZMOD_dirsChanged.timer, null, "and its throw stayed inside");
+  // a call from before the server ran (no broadcaster), then one with it: the message reaches it
+  ctx.DLZMOD_dirsChanged.bus = undefined;
+  const late = [];
+  ctx.DLZMOD_dirsChanged(null, 40);
+  ctx.DLZMOD_dirsChanged({ send: (m) => late.push(plain(m)) });
+  await tick(70);
+  assert.deepStrictEqual(late, [{ cmd: "UPDATE_DIRS", id: 0, args: {} }], "the later call's broadcaster");
+  // never a broadcaster: nothing sent, nothing thrown
+  ctx.DLZMOD_dirsChanged.bus = undefined;
+  ctx.DLZMOD_dirsChanged(null);
+  await tick(20);
+  assert.strictEqual(ctx.DLZMOD_dirsChanged.timer, null);
 });
 test("recordings: wavfinalizer that fails to start leaves no busy count behind", async () => {
   ctx.DLZMOD_wavfinalize.running = 0;
