@@ -382,8 +382,8 @@ function DLZMOD_wavfinalize(src, dst) {
 // (server.js's mounts) is remounted read-only, unless something records, is paused, has a sample
 // take still to keep or store, or was remounted read-write (or finalized a file) in the last 10 s (a
 // recording starts with the remount and only then shows as recording); then it looks again every
-// 10 s. A file still
-// open for writing makes the kernel refuse (EBUSY): also again in 10 s. A new call restarts the wait.
+// 10 s. A file still open for writing makes the kernel refuse (EBUSY): also again in 10 s. A new
+// call restarts the wait.
 function DLZMOD_roLater(delay = 10000) {
   const s = DLZMOD_roLater;
   clearTimeout(s.timer);
@@ -424,8 +424,10 @@ function DLZMOD_rw(remount) {
   return run;
 }
 
-// true when no medium is left writable; false: look again later
-async function DLZMOD_roNow(mounts = "/proc/mounts") {
+// true when no medium is left writable; false: look again later. A remount that has not finished
+// after `limit` ms counts as not done: a mount stuck in the kernel (a pulled stick) ignores
+// DLZMOD_run's timeout, and waiting for it would end the looking again for good
+async function DLZMOD_roNow(mounts = "/proc/mounts", limit = 35000) {
   const s = DLZMOD_roLater;
   const get = (k) => globalThis.getDataKey(k);
   if (Date.now() - (s.lastRw || 0) < 10000 || DLZMOD_recBusy(get)) return false;
@@ -438,7 +440,14 @@ async function DLZMOD_roNow(mounts = "/proc/mounts") {
   }
   let done = true;
   for (const m of rw) {
-    const r = await DLZMOD_run("/usr/bin/mount", ["-o", "remount,ro", m]);
+    let timer;
+    const r = await Promise.race([
+      DLZMOD_run("/usr/bin/mount", ["-o", "remount,ro", m]),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve({ ok: false, err: "the remount did not finish in " + limit / 1000 + " s" }), limit);
+      }),
+    ]);
+    clearTimeout(timer);
     if (r.ok) {
       console.log("dlzmod: " + m + " read-only again");
     } else {

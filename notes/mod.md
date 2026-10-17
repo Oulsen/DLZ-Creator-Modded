@@ -71,9 +71,13 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
   in the last 10 s (counted from when the remount is done); otherwise, and when the kernel refuses
   because a file is still open for writing (EBUSY), it looks again every 10 s. Every remount runs
   through one queue (`DLZMOD_rw`), so a recording that starts during a read-only remount waits for
-  it and gets its `rw`; a remount that hangs (a pulled stick) holds the queue up for 40 s at most. A
-  rename or delete always remounts `rw` (stock skipped it while its own flag said writable)
-  [static]. Measured on the XS dev card [device]: read-only again 12-13 s after the start's
+  it and gets its `rw`; a remount that hangs (a pulled stick) holds the queue up for 40 s at most
+  and counts as not done after 35 s, so the looking goes on. A rename or delete always remounts
+  `rw` (stock skipped it while its own flag said writable) [static]. No stock write needs the old
+  always-writable state: server.js writes to the media only through those remounts (record, sample,
+  rename, delete, the start's finalizer) and in the multitrack renames 2 s after a stop; its other
+  writes go to the system (`/srv` presets, `srv_data.json`, the bank player's defaults) and `/tmp`
+  [static, the dump's server.js]. Measured on the XS dev card [device]: read-only again 12-13 s after the start's
   remount, 10.3 s after a recording stopped, 10.2 s after a sample was kept, exactly 60 s after a
   rename or delete (also a rename while already read-only); after a recording and a switch-off the
   next start finds the FAT volume clean (state byte `00`, no warning). Side effect: Mackie's 500 ms

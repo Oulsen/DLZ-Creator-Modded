@@ -64,13 +64,14 @@ sshopts() {
   fi
 }
 # a key path as dev/push.env or the user writes it: ~ is the Windows user folder (Git Bash's home),
-# C:\... or C:/... a Windows path; both mapped into WSL
+# C:\... or C:/... a Windows path, /c/... a Git Bash path; all mapped into WSL
 keypath() {
   case $1 in
     "~"/*) prof=$(cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r')
            [ -n "$prof" ] || { echo "the Windows user folder for $1 is unknown" >&2; exit 2; }
            wslpath -u "$prof${1#\~}" ;;
     [A-Za-z]:[\\/]*) wslpath -u "$1" ;;
+    /[A-Za-z]/*) printf '/mnt/%s%s\n' "$(printf '%s' "${1:1:1}" | tr 'A-Z' 'a-z')" "${1:2}" ;;
     *) printf '%s\n' "$1" ;;
   esac
 }
@@ -86,12 +87,15 @@ case ${1:-} in
     if [ -t 0 ]; then IFS= read -rsp "mixer password: " pw; echo >&2; else IFS= read -r pw || [ -n "$pw" ]; fi
     [ -n "$pw" ] || { echo "no password read" >&2; exit 2; }
     privdir new
+    # the password replaces a stored key (a key is used first, so a key the mixer refuses would stay)
+    rm -f "$KEY"
     umask 077; printf '%s' "$pw" > "$PASS" && echo "password stored in $D (WSL /tmp only)" ;;
   key)
     src=${2:-}
     if [ -z "$src" ]; then
       [ -f dev/push.env ] || { echo "usage: dlz-ssh.sh key <private key> (or run it where dev/push.env is)" >&2; exit 2; }
-      src=$(sed -n 's/^SSH_KEY=//p' dev/push.env | head -1 | tr -d '\r')
+      # read as dev/push.sh reads it: the last line wins
+      src=$(sed -n 's/^SSH_KEY=//p' dev/push.env | tail -n 1 | tr -d '\r')
       [ -n "$src" ] || { echo "no SSH_KEY in dev/push.env" >&2; exit 2; }
     fi
     src=$(keypath "$src")
@@ -101,7 +105,8 @@ case ${1:-} in
     # A private key without a passphrase (BatchMode cannot ask for one); nothing of it is printed
     umask 077; cat "$src" > "$KEY.new" || exit 2
     if ssh-keygen -y -P '' -f "$KEY.new" > /dev/null 2>&1; then
-      mv -f "$KEY.new" "$KEY" && echo "key stored in $D (a copy of $src, WSL /tmp only)"
+      # the key replaces a stored password
+      mv -f "$KEY.new" "$KEY" && rm -f "$PASS" "$ASK" && echo "key stored in $D (a copy of $src, WSL /tmp only)"
     else
       rm -f "$KEY.new"; echo "not a private key without a passphrase: $src" >&2; exit 2
     fi ;;

@@ -252,6 +252,7 @@ SERVER_PATCHES = [
     (
         # me(): read-write for 60 s around a rename or delete. Stock skips the remount while its own
         # flag says the medium is writable; that flag knows nothing of DLZMOD_roLater, so always remount
+        # (each rename or delete then has its own 60 s timer: a few DLZMOD_roLater(0) calls, harmless)
         "media: read-write remounts queued, every time (rename, delete)",
         "async function me(e){(e==q&&0==H||e==M&&0==W)&&(!async function(e){H=e==q?1:H,W=e==M?1:W,"
         'v("Changing  mount "+e+" to  RW (TEMP)"),await R("mount -o remount,rw "+e)',

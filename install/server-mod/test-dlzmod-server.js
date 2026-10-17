@@ -1337,6 +1337,19 @@ test("read-only: a refused remount (file open for writing) is tried again, the o
   assert.strictEqual(ctx.DLZMOD_roLater.failLogged, true);
   assert.strictEqual(await ctx.DLZMOD_roNow("/nonexistent/mounts"), false, "an unreadable mount list: later");
 });
+test("read-only: a remount stuck in the kernel (pulled stick) counts as not done after the limit, the others still go", async () => {
+  const r = roRig({});
+  const run = ctx.DLZMOD_run;
+  ctx.DLZMOD_run = (f, args) => (args[args.length - 1] === "/tmp/mnt/mmcblk0p2" ? new Promise(() => {}) : run(f, args));
+  try {
+    const t = Date.now();
+    assert.strictEqual(await ctx.DLZMOD_roNow(r.file, 50), false, "looked at again later");
+    assert.ok(Date.now() - t < 1000, "did not wait for the stuck one");
+    assert.deepStrictEqual(r.calls, ["/usr/bin/mount -o remount,ro /tmp/mnt/my stick"]);
+  } finally {
+    ctx.DLZMOD_run = run;
+  }
+});
 test("read-only: remounts one after the other; read-write asked during read-only comes after it, errors stay the caller's", async () => {
   const order = [];
   let release;

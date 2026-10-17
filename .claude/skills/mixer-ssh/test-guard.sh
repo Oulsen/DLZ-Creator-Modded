@@ -62,8 +62,17 @@ D=$(cat "$HOME/.config/dlz-mixer-ssh/tmpdir")
 [ "$(stat -c %a "$D/key")" = 600 ] && cmp -s "$D/key" "$HOME/id" && m=ok || { m=WRONG; fail=1; }
 printf '%-5s %-8s %s\n' "$m" key "a private copy (mode 600)"
 k "shown"                        "login: key stored"              bash "$S" show
-mkdir -p "$HOME/repo/dev" && printf 'MIXER_HOST=x\nSSH_KEY=%s\r\n' "$HOME/id" > "$HOME/repo/dev/push.env"
-k "from dev/push.env (CRLF)"     "key stored in /tmp/dlz-ssh."    bash -c "cd '$HOME/repo' && bash '$S' key"
+# the last SSH_KEY line wins, as in dev/push.sh
+mkdir -p "$HOME/repo/dev" && printf 'MIXER_HOST=x\nSSH_KEY=%s\nSSH_KEY=%s\r\n' "$HOME/missing" "$HOME/id" > "$HOME/repo/dev/push.env"
+k "from dev/push.env (CRLF, last line)" "key stored in /tmp/dlz-ssh." bash -c "cd '$HOME/repo' && bash '$S' key"
+k "a Git Bash path (/x/...)"     "no key file at /mnt/x/no/such"  bash "$S" key /x/no/such
+# one way to log in at a time: a password replaces the key, a key the password
+k "a password replaces the key"  "password: stored"               bash -c "printf 'pw\n' | bash '$S' pass >/dev/null && bash '$S' show"
+[ ! -e "$D/key" ] && m=ok || { m=WRONG; fail=1; }
+printf '%-5s %-8s %s\n' "$m" key "the key copy is gone"
+k "a key replaces the password"  "login: key stored"              bash -c "bash '$S' key '$HOME/id' >/dev/null && bash '$S' show"
+[ ! -e "$D/pass" ] && [ ! -e "$D/askpass" ] && m=ok || { m=WRONG; fail=1; }
+printf '%-5s %-8s %s\n' "$m" key "the password is gone"
 k "forgotten"                    "password, key, askpass"         bash "$S" forget
 [ ! -e "$D" ] && m=ok || { m=WRONG; fail=1; }
 printf '%-5s %-8s %s\n' "$m" key "the private folder is gone"
