@@ -38,10 +38,15 @@ run() { approve; run_asking; }
 # the updater switches user namespaces off around its sandbox and back on: the PC's own setting,
 # shared by every run on this machine. One lock around each updater call (and each read of the
 # setting), so runs side by side (cardbind.sh) take turns there only, and none saves another's 0 (#122)
+# (-o: what the updater leaves running does not keep the lock; -w/-E: a run whose updater hangs makes
+# the other one fail after 10 min with this reason, not wait for ever)
 UNS_LOCK=/tmp/dlzmod-update-test-userns.lock
-uns_now() { flock "$UNS_LOCK" cat /proc/sys/user/max_user_namespaces; }
+uns_now() { flock -w 600 "$UNS_LOCK" cat /proc/sys/user/max_user_namespaces; }
 run_asking() {
-  flock "$UNS_LOCK" chroot $R /usr/bin/env DLZMOD_DATA=/mnt/dlzdata /usr/local/sbin/dlzmod-update > $W/run.out 2>&1; echo "rc=$?" >> $W/run.out; sed 's/^/    | /' $W/run.out
+  local rc
+  flock -w 600 -E 75 -o "$UNS_LOCK" chroot $R /usr/bin/env DLZMOD_DATA=/mnt/dlzdata /usr/local/sbin/dlzmod-update > $W/run.out 2>&1
+  rc=$?; [ $rc != 75 ] || bad "waited 10 min for $UNS_LOCK: another run's updater hangs (the updater did not run)"
+  echo "rc=$rc" >> $W/run.out; sed 's/^/    | /' $W/run.out
   ls $R/tmp | grep -q '^dlzmod-' && { bad "temp files left in /tmp: $(ls $R/tmp | grep '^dlzmod-' | tr '\n' ' ')"; rm -rf $R/tmp/dlzmod-*; }
 }
 approve() {
@@ -84,8 +89,13 @@ refused() {   # refused <name> <expected text>: the package stays, the card is u
 }
 
 echo "== the PC's user namespace setting before this run"
-[ "$(uns_now)" != 0 ] && ok "max_user_namespaces $(uns_now)" \
-  || bad "max_user_namespaces is 0 before this run started: left by an earlier run (set it back: the value of /proc/sys/user/max_pid_namespaces)"
+# (stopped here when it is 0: the sandbox's own check that it gets no user namespaces would pass on
+# the PC's setting, not on the updater's)
+if [ "$(uns_now)" != 0 ]; then ok "max_user_namespaces $(uns_now)"
+else
+  bad "max_user_namespaces is 0 before this run started: left by an earlier run (set it back: the value of /proc/sys/user/max_pid_namespaces)"
+  echo "$F UPDATE CHECK(S) FAILED (stopped before the cases)"; exit 1
+fi
 
 echo "== installed on the card"
 for f in usr/local/sbin/dlzmod-update etc/systemd/system/dlzmod-update.service etc/systemd/system/multi-user.target.wants/dlzmod-update.service etc/udev/rules.d/90-dlzmod-usb-wifi.rules var/lib/dlzmod-update/version; do
