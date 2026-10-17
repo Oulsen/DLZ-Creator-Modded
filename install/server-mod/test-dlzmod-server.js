@@ -1753,6 +1753,29 @@ test("update upload: the names the drop-in update takes", () => {
     assert.ok(!ctx.DLZMOD_uploadName(n), JSON.stringify(n));
   }
 });
+test("update upload: each file synced again under its new name, the signature before the package is renamed", async () => {
+  // FAT's rename writes the new entry with size 0 until the file's inode is written back: without
+  // these syncs a power cut after the answer left a 0-byte package (tests/upload.sh, case D)
+  const up = upMedia();
+  const fsp = fs.promises;
+  const { rename, open } = fsp;
+  const steps = [];
+  fsp.rename = async (a, b) => (steps.push("rename " + path.basename(b)), rename(a, b));
+  fsp.open = async (f, flags, ...a) => {
+    const fh = await open(f, flags, ...a);
+    const sync = fh.sync.bind(fh);
+    return Object.assign(fh, { sync: () => (steps.push("sync " + path.basename(f)), sync()) });
+  };
+  try {
+    assert.strictEqual((await upCall(up, upReq([SIG, PKG]))).status, 200);
+  } finally {
+    Object.assign(fsp, { rename, open });
+  }
+  assert.deepStrictEqual(steps.slice(-4), ["rename dlzmod-v0.2.0.tar.sig", "sync dlzmod-v0.2.0.tar.sig",
+    "rename dlzmod-v0.2.0.tar", "sync dlzmod-v0.2.0.tar"]);
+  assert.deepStrictEqual(steps.slice(0, 2), ["sync .dlzmod-upload.tar.part", "sync .dlzmod-upload.sig.part"],
+    "both temp files synced before anything is replaced");
+});
 test("update upload: both files in place, older update files replaced, other files and folders left alone", async () => {
   const up = upMedia();
   fs.mkdirSync(up.dir);

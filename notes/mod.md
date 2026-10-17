@@ -296,8 +296,9 @@ recording starts, the 503 while `wavfinalizer` runs, linked folders and files, t
 
 A paired computer sends a mod update to the card; installing it stays the drop-in update's
 ([updates.md](updates.md), "Drop-in update"): its signature and version checks, and Install on the
-mixer's own screen (#65). Nothing is checked or installed live: the next start finds the files [static:
-unit tests on node 18 (the dump's, under qemu), card rehearsal and the mixer still to come]:
+mixer's own screen (#65). Nothing is checked or installed live: the next start finds the files [PC:
+unit tests on node 18 (the dump's, under qemu) and `tests/upload.sh` (real FAT image, full card, cut-off,
+power cuts); the mixer still to come]:
 
 - **Where**: Upload Update... on the Mod page, in the place of Install Update..., only in a browser
   (`DLZMOD_external`); the Updates row then says to upload the `.tar` and `.sig`. The browser's file
@@ -328,7 +329,12 @@ unit tests on node 18 (the dump's, under qemu), card rehearsal and the mixer sti
   card can write less without an error). Only when the whole body is there: the tar synced and its
   size checked, the signature written to its own synced temp file, every `dlzmod-*.tar` and
   `.tar.sig` in the folder removed (never two packages, which the updater refuses), the signature
-  renamed, then the package, the folder synced. A power cut at any point leaves at most hidden temp
+  renamed and synced again, then the package the same, the folder synced. The sync after each rename
+  is needed on FAT: Linux's vfat rename writes the new folder entry with no first cluster and size 0
+  and the real ones only when the file's inode is written back (seconds to ~30 s later); the folder's
+  own sync does not write it [PC: `tests/upload.sh` without them: every power cut after the answer left
+  a 0-byte package]. Any durable rename on DLZDATA needs the same (the mod's other durable writes,
+  `DLZMOD_writeDurable`, are all on the ext4 system). A power cut at any point leaves at most hidden temp
   files (removed by the next upload) or a signature without a package: never a package the updater
   takes for a complete update; a package with a signature that does not match it is refused by the
   updater. Other files and folders in `dlzmod-update/` (its README) stay.

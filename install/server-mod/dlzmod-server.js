@@ -1143,6 +1143,17 @@ async function DLZMOD_writeAll(fh, buf) {
   }
 }
 
+// a file's data and folder entry (its inode) to the card (opened for writing, not written: Windows,
+// where the unit tests also run, syncs only such a handle)
+async function DLZMOD_syncFile(file) {
+  const fh = await require("fs").promises.open(file, "r+");
+  try {
+    await fh.sync();
+  } finally {
+    await fh.close();
+  }
+}
+
 // root is a FAT medium mounted read-write in the kernel's mount table (text): never a folder that
 // only looks like one (a medium gone, its mount point left on /tmp's tmpfs, which is RAM)
 function DLZMOD_uploadMounted(text, root) {
@@ -1241,10 +1252,16 @@ async function DLZMOD_uploadRun(req, dir, name, len, mounts) {
       const st = await fsp.lstat(dir + "/" + f);
       if (st.isFile()) await fsp.unlink(dir + "/" + f);
     }
+    // each synced again under its new name: FAT's rename writes the new folder entry with no first
+    // cluster and size 0, the real ones only when the kernel writes the file's inode back (up to
+    // ~30 s later; the folder's sync does not) [PC: tests/upload.sh, a power cut after the answer
+    // left a 0-byte package]
     await fsp.rename(sig, dir + "/" + name + ".sig");
     sigPlaced = true;
+    await DLZMOD_syncFile(dir + "/" + name + ".sig");
     await fsp.rename(tar, dir + "/" + name);
     placed = true;
+    await DLZMOD_syncFile(dir + "/" + name);
     DLZMOD_syncDir(dir);
   } catch (e) {
     if (fh) await fh.close().catch(() => {});
