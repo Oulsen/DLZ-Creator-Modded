@@ -144,8 +144,8 @@ mixer has no other way to switch off; this is normal.
   and Settings → DLZ Creator Modded → **Mod** has an **Install Update...** button meanwhile. (An
   update from v0.1.0 installs at the first start without asking: the question comes with the update.
   A card installed with v0.1.0 keeps "v0.1.0" on its start-up screens after an update; the version
-  in Settings is the right one. From v0.2.0 on the start-up screens show no version; a card gets them
-  with its next full install.)
+  in Settings is the right one. From v0.2.0 on the start-up screens show no version; a v0.1.0 card
+  only gets the new start-up screens with a full install.)
   A release with only the installer image needs a full install (its notes say so): writing the
   installer to the card again erases the whole card, **recordings included**: copy them to your
   computer first.
