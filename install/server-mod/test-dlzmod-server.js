@@ -1696,6 +1696,307 @@ test("recordings: HTTP: a paired device reaches them, others do not", () => {
   assert.strictEqual(gate(httpReq("192.168.1.50", "/dlzmod-rec", { headers: { cookie: cookie(token) } })).status, 403, "off");
 });
 
+// #114: a mod update sent from a computer (DLZMOD_updateUpload). The SD card's medium in a temp
+// folder, its remount stubbed, the mount table a file listing it as a writable FAT medium; up: {root,
+// state, mounts, remounts}
+const SIG = Buffer.alloc(64, 7);
+const PKG = Buffer.from("x".repeat(300));
+const upMedia = () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "dlzup-sd-"));
+  const state = fs.mkdtempSync(path.join(os.tmpdir(), "dlzup-state-"));
+  const mounts = path.join(state, "mounts");
+  fs.writeFileSync(mounts, "/dev/mmcblk0p1 / ext4 rw,noatime 0 0\n/dev/mmcblk0p2 " + root.replace(/ /g, "\\040") +
+    " vfat rw,relatime,fmask=0022 0 0\n");
+  const remounts = [];
+  ctx.DLZMOD_run = async (f, args) => (remounts.push([f].concat(args)), { ok: true, out: "", err: "" });
+  ctx.getDataKey = () => undefined;
+  return { root, state, mounts, remounts, dir: path.join(root, "dlzmod-update") };
+};
+// a request whose body comes in chunks; fail: an error after them (the computer went away); wait: ms
+// before the end, or before the chunks in late
+const upReq = (chunks, o = {}) => {
+  const body = Buffer.concat(chunks.concat(o.late || []));
+  const r = require("stream").Readable.from((async function* () {
+    for (const c of chunks) yield c;
+    if (o.wait) await new Promise((resolve) => setTimeout(resolve, o.wait));
+    for (const c of o.late || []) yield c;
+    if (o.fail) throw new Error("aborted");
+  })(), { objectMode: false });
+  return Object.assign(r, { socket: { remoteAddress: o.address || "192.168.1.50" }, path: o.path || "/dlzmod-update-upload",
+    method: o.method || "POST", headers: Object.assign({ host: HOST, origin: "http://" + HOST,
+      "x-dlzmod-name": "dlzmod-v0.2.0.tar", "content-length": String(o.len === undefined ? body.length : o.len) }, o.headers || {}) });
+};
+// the answer, or (status 0) none once the upload has stopped: a computer that went away gets none
+const upCall = (up, req) => {
+  const res = recRes();
+  let next = false;
+  ctx.DLZMOD_updateUpload(() => up.root, up.state, up.mounts)(req, res, () => (next = true));
+  if (next) return "next";
+  const idle = (async () => {
+    do await tick(5); while (ctx.DLZMOD_updateUpload.running);
+    await tick(50);
+    return res;
+  })();
+  return Promise.race([res.done, idle]).then(async (r) => {
+    // the handler's last step (running off, read-only later) runs just after the answer
+    await tick(20);
+    clearTimeout(ctx.DLZMOD_roLater.timer);
+    return r;
+  });
+};
+const ls = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir).sort() : []);
+test("update upload: the names the drop-in update takes", () => {
+  for (const n of ["dlzmod-v0.2.0.tar", "dlzmod-v0.2.0-dev+3.g1a2b3c.tar", "dlzmod-v10.0.1_rc1.tar"]) assert.ok(ctx.DLZMOD_uploadName(n), n);
+  for (const n of ["dlzmod-v0.2.0 (1).tar", "dlzmod-v0.2.0.TAR", "DLZMOD-v0.2.0.tar", "dlzmod-.tar", "dlzmod-..tar",
+    "dlzmod-a..b.tar", "dlzmod-../x.tar", "dlzmod-a/b.tar", "dlzmod-v0.2.0.tar.sig", "x.tar", "dlzmod-a\0.tar",
+    "dlzmod-" + "a".repeat(82) + ".tar", ""]) {
+    assert.ok(!ctx.DLZMOD_uploadName(n), JSON.stringify(n));
+  }
+});
+test("update upload: each file synced again under its new name, the signature before the package is renamed", async () => {
+  // FAT's rename writes the new entry with size 0 until the file's inode is written back: without
+  // these syncs a power cut after the answer left a 0-byte package (tests/upload.sh, case D)
+  const up = upMedia();
+  const fsp = fs.promises;
+  const { rename, open } = fsp;
+  const steps = [];
+  fsp.rename = async (a, b) => (steps.push("rename " + path.basename(b)), rename(a, b));
+  fsp.open = async (f, flags, ...a) => {
+    const fh = await open(f, flags, ...a);
+    const sync = fh.sync.bind(fh);
+    return Object.assign(fh, { sync: () => (steps.push("sync " + path.basename(f)), sync()) });
+  };
+  try {
+    assert.strictEqual((await upCall(up, upReq([SIG, PKG]))).status, 200);
+  } finally {
+    Object.assign(fsp, { rename, open });
+  }
+  assert.deepStrictEqual(steps.slice(-4), ["rename dlzmod-v0.2.0.tar.sig", "sync dlzmod-v0.2.0.tar.sig",
+    "rename dlzmod-v0.2.0.tar", "sync dlzmod-v0.2.0.tar"]);
+  assert.deepStrictEqual(steps.slice(0, 2), ["sync .dlzmod-upload.tar.part", "sync .dlzmod-upload.sig.part"],
+    "both temp files synced before anything is replaced");
+});
+test("update upload: both files in place, older update files replaced, other files and folders left alone", async () => {
+  const up = upMedia();
+  fs.mkdirSync(up.dir);
+  for (const f of ["dlzmod-v0.1.0.tar", "dlzmod-v0.1.0.tar.sig", "dlzmod-v0.1.5.tar.sig", "readme.txt"]) fs.writeFileSync(path.join(up.dir, f), "old");
+  fs.mkdirSync(path.join(up.dir, "previous"));
+  fs.writeFileSync(path.join(up.dir, ".dlzmod-upload.tar.part"), "left by a power cut");
+  // the 64-byte signature split over chunks
+  const res = await upCall(up, upReq([SIG.subarray(0, 40), Buffer.concat([SIG.subarray(40), PKG.subarray(0, 100)]), PKG.subarray(100)]));
+  assert.strictEqual(res.status, 200, res.body);
+  assert.match(res.body, /^dlzmod-v0\.2\.0\.tar is on the mixer's card\.\nSwitch the mixer off and on/);
+  assert.deepStrictEqual(ls(up.dir), ["dlzmod-v0.2.0.tar", "dlzmod-v0.2.0.tar.sig", "previous", "readme.txt"]);
+  assert.ok(fs.readFileSync(path.join(up.dir, "dlzmod-v0.2.0.tar")).equals(PKG), "the package");
+  assert.ok(fs.readFileSync(path.join(up.dir, "dlzmod-v0.2.0.tar.sig")).equals(SIG), "its signature");
+  assert.deepStrictEqual(up.remounts, [["/usr/bin/mount", "-o", "remount,rw", up.root]], "the medium writable first");
+  assert.ok(!ctx.DLZMOD_updateUpload.running, "the next one may come");
+  // the folder made when missing; the same name again replaces it
+  const up2 = upMedia();
+  assert.strictEqual((await upCall(up2, upReq([SIG, PKG]))).status, 200);
+  assert.strictEqual((await upCall(up2, upReq([SIG, Buffer.from("new")]))).status, 200);
+  assert.deepStrictEqual(ls(up2.dir), ["dlzmod-v0.2.0.tar", "dlzmod-v0.2.0.tar.sig"]);
+  assert.strictEqual(fs.readFileSync(path.join(up2.dir, "dlzmod-v0.2.0.tar"), "utf8"), "new");
+});
+test("update upload: the medium must be in the mount table as a writable FAT one", () => {
+  const t = "/dev/mmcblk0p1 / ext4 rw 0 0\n/dev/mmcblk0p2 /tmp/mnt/mmcblk0p2 vfat rw,relatime 0 0\n" +
+    "/dev/sda1 /tmp/mnt/my\\040stick vfat rw 0 0\n/dev/sdb1 /tmp/mnt/sdb1 vfat ro,relatime 0 0\ntmpfs /tmp tmpfs rw 0 0\n";
+  assert.ok(ctx.DLZMOD_uploadMounted(t, "/tmp/mnt/mmcblk0p2"));
+  assert.ok(ctx.DLZMOD_uploadMounted(t, "/tmp/mnt/my stick"), "octal escapes");
+  for (const r of ["/tmp/mnt/sdb1", "/tmp", "/", "/tmp/mnt/mmcblk0p", "/tmp/mnt/mmcblk0p2/", "/tmp/mnt/gone", ""]) {
+    assert.ok(!ctx.DLZMOD_uploadMounted(t, r), r);
+  }
+});
+test("update upload: refused before anything is written, with a text for the browser", async () => {
+  const cases = [
+    [{ method: "GET" }, 405, /^$/], [{ method: "PUT" }, 405, /^$/],
+    [{ headers: { origin: "http://evil.example" } }, 403, /^Only from the mixer's own page/],
+    [{ headers: { "x-dlzmod-name": "dlzmod-v0.2.0 (1).tar" } }, 400, /not a mod update/],
+    [{ headers: { "x-dlzmod-name": undefined } }, 400, /not a mod update/],
+    [{ len: "" }, 411, /^$/], [{ len: "12abc" }, 411, /^$/], [{ len: "-5" }, 411, /^$/],
+    [{ len: 64 }, 413, /too big/], [{ len: 64 + 64 * 1024 * 1024 + 1 }, 413, /too big/],
+  ];
+  for (const [o, status, text] of cases) {
+    const up = upMedia();
+    const req = upReq([SIG, PKG], o);
+    const res = await upCall(up, req);
+    assert.strictEqual(res.status, status, JSON.stringify(o));
+    assert.match(res.body, text, JSON.stringify(o));
+    assert.strictEqual(res.headers.Connection, "close", "not an upload of the page's: the connection ends");
+    assert.deepStrictEqual(up.remounts, [], "the medium not touched: " + JSON.stringify(o));
+    assert.deepStrictEqual(ls(up.root), []);
+  }
+  // a well-formed upload refused: answered once its body has come in (a browser still sending when
+  // the connection closes shows a network error), the connection kept
+  const drained = (res, req, what) => {
+    assert.strictEqual(res.headers.Connection, undefined, what + ": the connection kept");
+    assert.ok(req.readableEnded && !req.errored, what + ": the body read to its end first");
+  };
+  const up = upMedia();
+  ctx.getDataKey = (k) => (k === "hw_rec" ? 1 : undefined);
+  const recReq = upReq([SIG], { wait: 50, late: [PKG] });
+  const rec = await upCall(up, recReq);
+  assert.match(rec.body, /busy with a recording/);
+  drained(rec, recReq, "recording");
+  ctx.getDataKey = () => undefined;
+  fs.writeFileSync(path.join(up.state, "inprogress"), "abc\n");
+  const inReq = upReq([SIG, PKG]);
+  const r = await upCall(up, inReq);
+  assert.strictEqual(r.status, 409);
+  assert.match(r.body, /last update did not finish/);
+  drained(r, inReq, "unfinished try");
+  fs.writeFileSync(path.join(up.state, "inprogress"), "");
+  ctx.DLZMOD_updateUpload.running = true;
+  try {
+    const busyReq = upReq([SIG, PKG]);
+    const busy = await Promise.race([new Promise((resolve) => {
+      const res = recRes();
+      ctx.DLZMOD_updateUpload(() => up.root, up.state, up.mounts)(busyReq, res, () => {});
+      res.done.then(resolve);
+    }), tick(2000)]);
+    assert.match(busy.body, /Another update is being sent/);
+    drained(busy, busyReq, "another upload");
+  } finally {
+    ctx.DLZMOD_updateUpload.running = false;
+  }
+  const noneReq = upReq([SIG, PKG]);
+  const none = await upCall(Object.assign(upMedia(), { root: "-" }), noneReq);
+  assert.strictEqual(none.status, 503);
+  drained(none, noneReq, "no SD medium");
+  // a medium not (or not writable) in the mount table: refused after the remount, nothing written
+  for (const table of ["", "/dev/mmcblk0p2 " + up.root.replace(/ /g, "\\040") + " vfat ro,relatime 0 0\n"]) {
+    const gone = upMedia();
+    fs.writeFileSync(gone.mounts, table);
+    const g = await upCall(gone, upReq([SIG, PKG]));
+    assert.strictEqual(g.status, 500, JSON.stringify(table));
+    assert.match(g.body, /could not store the update\. Nothing was kept/);
+    assert.strictEqual(gone.remounts.length, 1, "asked to be writable first");
+    assert.deepStrictEqual(ls(gone.root), [], "no folder made");
+  }
+  assert.deepStrictEqual(up.remounts, [], "an empty inprogress is no unfinished try, but nothing was sent yet");
+  assert.strictEqual(upCall(up, upReq([SIG, PKG], { path: "/dlzmod-update-uploadx" })), "next", "other paths: on");
+  assert.strictEqual(upCall(up, upReq([SIG, PKG], { path: "/dlzmod-rec" })), "next");
+  // the mixer itself: no Origin check (its own page has none to give here); an empty inprogress goes ahead
+  const local = await upCall(up, upReq([SIG, PKG], { address: "127.0.0.1", headers: { origin: "http://evil.example" } }));
+  assert.strictEqual(local.status, 200, local.body);
+});
+test("update upload: a failure after the old update files are removed leaves no update files at all", async () => {
+  const up = upMedia();
+  fs.mkdirSync(up.dir);
+  for (const f of ["dlzmod-v0.1.0.tar", "dlzmod-v0.1.0.tar.sig", "README.txt"]) fs.writeFileSync(path.join(up.dir, f), "old");
+  const fsp = fs.promises;
+  const rename = fsp.rename;
+  // the package's rename fails (the signature's went through)
+  fsp.rename = async (a, b) => (String(b).endsWith(".tar") ? Promise.reject(new Error("EIO: i/o error")) : rename(a, b));
+  try {
+    const r = await upCall(up, upReq([SIG, PKG]));
+    assert.strictEqual(r.status, 500);
+    assert.match(r.body, /could not store the update\. Nothing was kept/);
+  } finally {
+    fsp.rename = rename;
+  }
+  assert.deepStrictEqual(ls(up.dir), ["README.txt"], "no package, no signature without one, no temp files: the updater sees nothing");
+  assert.ok(!ctx.DLZMOD_updateUpload.running);
+});
+test("update upload: cut off, a failed remount, a full card: nothing of it kept, the old update stays", async () => {
+  const old = (up) => {
+    fs.mkdirSync(up.dir);
+    fs.writeFileSync(path.join(up.dir, "dlzmod-v0.1.0.tar"), "old");
+    fs.writeFileSync(path.join(up.dir, "dlzmod-v0.1.0.tar.sig"), "old");
+  };
+  const kept = ["dlzmod-v0.1.0.tar", "dlzmod-v0.1.0.tar.sig"];
+  // the computer went away: no one to answer
+  for (const chunks of [[SIG, PKG.subarray(0, 10)], [SIG.subarray(0, 30)]]) {
+    const up = upMedia();
+    old(up);
+    const res = await upCall(up, upReq(chunks, { fail: true, len: 64 + PKG.length }));
+    assert.strictEqual(res.status, 0, "no answer");
+    assert.deepStrictEqual(ls(up.dir), kept);
+    assert.ok(!ctx.DLZMOD_updateUpload.running);
+  }
+  // fewer bytes than announced
+  const short = upMedia();
+  old(short);
+  const sres = await upCall(short, upReq([SIG, PKG.subarray(0, 10)], { len: 64 + PKG.length }));
+  assert.strictEqual(sres.status, 500);
+  assert.match(sres.body, /^The upload was cut off\. Nothing was kept\.$/);
+  assert.deepStrictEqual(ls(short.dir), kept);
+  const up = upMedia();
+  old(up);
+  ctx.DLZMOD_run = async () => ({ ok: false, out: "", err: "mount: busy\n" });
+  const res = await upCall(up, upReq([SIG, PKG]));
+  assert.strictEqual(res.status, 500);
+  assert.match(res.body, /could not store the update\. Nothing was kept/);
+  assert.deepStrictEqual(ls(up.dir), kept);
+  // the card's writes: the package's file handle's write replaced (the signature's still writes, so
+  // only a stop at the package's error passes)
+  const open = fs.promises.open;
+  const withWrite = async (write, fn) => {
+    fs.promises.open = async (f, ...a) => {
+      const fh = await open(f, ...a);
+      if (!String(f).endsWith(".tar.part")) return fh;
+      const real = fh.write.bind(fh);
+      return Object.assign(fh, { write: (...w) => write(real, ...w) });
+    };
+    try {
+      return await fn();
+    } finally {
+      fs.promises.open = open;
+    }
+  };
+  const enospc = () => Promise.reject(Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" }));
+  // the card full: an error, or a write of nothing
+  for (const write of [enospc, async () => ({ bytesWritten: 0 })]) {
+    const full = upMedia();
+    old(full);
+    const r = await withWrite(write, () => upCall(full, upReq([SIG, PKG])));
+    assert.strictEqual(r.status, 507);
+    assert.match(r.body, /SD card is full\. Nothing was kept/);
+    assert.deepStrictEqual(ls(full.dir), kept);
+  }
+  // a write that says it wrote what it did not: the size check before anything is replaced
+  const liar = upMedia();
+  old(liar);
+  const l = await withWrite(async (real, buf, off, n) => ({ bytesWritten: n }), () => upCall(liar, upReq([SIG, PKG])));
+  assert.strictEqual(l.status, 500);
+  assert.match(l.body, /could not store the update\. Nothing was kept/);
+  assert.deepStrictEqual(ls(liar.dir), kept);
+  // short writes (a nearly full card writes less without an error): written to the end all the same
+  const bits = upMedia();
+  const b = await withWrite((real, buf, off, n) => real(buf, off, Math.min(n, 7)), () => upCall(bits, upReq([SIG, PKG])));
+  assert.strictEqual(b.status, 200, b.body);
+  assert.ok(fs.readFileSync(path.join(bits.dir, "dlzmod-v0.2.0.tar")).equals(PKG));
+});
+test("update upload: a recording that starts stops the writing; the rest of the body is thrown away, then the text", async () => {
+  const up = upMedia();
+  // the late part well after the watch's first look (1 s after the start; later under qemu)
+  const req = upReq([SIG, PKG.subarray(0, 10)], { wait: 3000, late: [PKG.subarray(10)] });
+  const p = upCall(up, req);
+  await tick(100);
+  ctx.getDataKey = (k) => (k === "recState" ? 2 : undefined);
+  const res = await p;
+  ctx.getDataKey = () => undefined;
+  assert.strictEqual(res.status, 500);
+  assert.match(res.body, /started a recording, so the upload stopped/);
+  assert.ok(req.readableEnded && !req.errored, "not cut off: the browser gets the text");
+  assert.strictEqual(res.headers.Connection, undefined);
+  assert.deepStrictEqual(ls(up.dir), []);
+});
+test("update upload: a paired device reaches it, others do not", () => {
+  pairIn("upload");
+  pairSet(true);
+  const post = (headers) => gate(httpReq("192.168.1.50", "/dlzmod-update-upload", { method: "POST", headers }));
+  assert.strictEqual(post({}).status, 403, "not paired");
+  const token = pairOne();
+  assert.strictEqual(post({ cookie: cookie(token) }), "next");
+  for (const p of ["/dlzmod-update-upload/x", "/dlzmod-update", "/dlzmod-update-upload/../srv_data.json"]) {
+    const r = gate(httpReq("192.168.1.50", p, { method: "POST", headers: { cookie: cookie(token) } }));
+    assert.ok(r !== "next" && r.status >= 400, p);
+  }
+  pairSet(false);
+  assert.strictEqual(post({ cookie: cookie(token) }).status, 403, "off");
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {

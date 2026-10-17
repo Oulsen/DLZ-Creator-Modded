@@ -296,7 +296,89 @@ function DLZMOD_updateRow() {
   if (p) return ["Update " + p.version + " is on the card: install it on the mixer's own screen", DLZMOD_yellow()];
   const failed = DLZMOD_updateFailed();
   if (failed) return [failed, Color.red2];
+  if (DLZMOD_external()) return ["Upload the update's .tar and .sig with the button below", null];
   return ["Copy the update's .tar and .sig to DLZDATA/dlzmod-update", null];
+}
+
+// #114: Upload Update... (Mod page, in a browser): the browser's file picker for the update's two files.
+// In the page while open (a picker outside it can be dropped by some browsers before it answers); the
+// one of an earlier press (cancelled: no answer) goes. Not while one is being sent
+function DLZMOD_uploadPick() {
+  const s = DLZMOD_uploadPick;
+  if (DLZMOD_uploadBusy()) return;
+  if (s.input) s.input.remove();
+  const input = (s.input = document.createElement("input"));
+  input.type = "file";
+  input.multiple = !0;
+  input.accept = ".tar,.sig";
+  input.hidden = !0;
+  input.onchange = () => {
+    const files = Array.from(input.files || []);
+    input.remove();
+    s.input = null;
+    DLZMOD_uploadFiles(files);
+  };
+  document.body.appendChild(input);
+  input.click();
+}
+
+// the chosen files: {tar, sig}, or what is wrong with them (the server checks the same again)
+function DLZMOD_uploadCheck(files) {
+  const tar = files.filter((f) => /\.tar$/i.test(f.name));
+  const sig = files.filter((f) => /\.tar\.sig$/i.test(f.name));
+  if (files.length !== 2 || tar.length !== 1 || sig.length !== 1) {
+    return "Choose both files of the update together:\nits dlzmod-....tar and its .tar.sig.";
+  }
+  const t = tar[0];
+  const s = sig[0];
+  if (!/^dlzmod-[A-Za-z0-9][A-Za-z0-9._+-]{0,80}\.tar$/.test(t.name) || t.name.includes("..")) {
+    return t.name + " is not a mod update.\n(A copy the browser renamed, like \"(1)\", is not taken.)";
+  }
+  if (s.name !== t.name + ".sig") return s.name + " is not the signature of " + t.name + ".";
+  if (s.size !== 64) return s.name + " is not a signature file.";
+  if (!t.size || t.size > 64 * 1024 * 1024) return t.name + " is not a mod update (wrong size).";
+  return { tar: t, sig: s };
+}
+
+// sent as one request (dlzmod-server.js, DLZMOD_updateUpload): the signature, then the package. A
+// Blob of the two files: the browser sends them from disk, not read into the page first. One at a
+// time from this page
+function DLZMOD_uploadFiles(files) {
+  const s = DLZMOD_uploadFiles;
+  const title = "Upload Update";
+  if (DLZMOD_uploadBusy()) return;
+  const f = DLZMOD_uploadCheck(files);
+  if (typeof f === "string") return showMessage(f, { title: title });
+  askConfirm("Send " + f.tar.name + " (" + DLZMOD_size(f.tar.size) + ") to the mixer?\n" +
+    "It is installed only after Install on the mixer's own screen.", { title: title }, () => {
+    if (s.busy) return;
+    s.busy = !0;
+    showToast("Sending: " + f.tar.name);
+    fetch("/dlzmod-update-upload", { method: "POST", cache: "no-store", body: new Blob([f.sig, f.tar]),
+      headers: { "Content-Type": "application/octet-stream", "X-Dlzmod-Name": f.tar.name } })
+      .then((r) => r.text().then((text) => showMessage(DLZMOD_uploadReply(r, text), { title: title })))
+      .catch(() => showMessage("The upload did not get through. Try again.", { title: title }))
+      .finally(() => (s.busy = !1));
+  });
+}
+
+// an update being sent from this page: says so; true: stop there
+function DLZMOD_uploadBusy() {
+  if (!DLZMOD_uploadFiles.busy) return !1;
+  showMessage("An update is being sent to the mixer.\nWait for its answer.", { title: "Upload Update" });
+  return !0;
+}
+
+// what the mixer answered, for the popup: the upload's own text (text/plain); the pairing gate's
+// pages (HTML: no longer paired, control from other devices off) get a sentence instead
+function DLZMOD_uploadReply(r, text) {
+  const plain = /^text\/plain/i.test((r.headers && r.headers.get("content-type")) || "");
+  if (plain && text) return text;
+  if (r.ok) return "Sent.";
+  if (r.status === 403 || r.status === 421) {
+    return "This browser is not paired with the mixer any more,\nor control from other devices is off. Reload this page.";
+  }
+  return "The mixer refused it (HTTP " + r.status + ").";
 }
 
 // the installed build as the update popup names it ("v0.1.0" on a release card, the stamped VERSION
@@ -487,7 +569,7 @@ function DLZMOD_metersPanel(parent, x, y, w) {
 }
 
 // Mod: what is installed and how to update it; Install for an update waiting on the card (#65), on
-// the mixer's own screen only
+// the mixer's own screen only; Upload Update... in its place in a browser (#114)
 function DLZMOD_aboutPanel(parent, x, y, w) {
   return new Widget(parent, {
     anchors: [x, y],
@@ -497,6 +579,10 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
       this.install = new E1Button(this, {
         anchors: [0, 252, null, null, !0], size: [300, 56], text: "Install Update...",
         onPress: () => DLZMOD_askUpdate(DLZMOD_updatePending()),
+      });
+      this.upload = new E1Button(this, {
+        anchors: [0, 252, null, null, !0], size: [300, 56], text: "Upload Update...",
+        visible: DLZMOD_external(), onPress: () => DLZMOD_uploadPick(),
       });
       this.syncInstall();
     },

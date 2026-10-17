@@ -41,7 +41,9 @@ The card applies those in place at startup, without a rebuild from the eMMC.
 
 1. **Courier**: the user copies `dlzmod-vX.Y.Z.tar` and its `.tar.sig` into `DLZDATA/dlzmod-update/`
    (a fixed folder with a README, made by the installer; never the card root, so a stray file among
-   the recordings cannot trigger anything).
+   the recordings cannot trigger anything), or sends both from a paired computer's browser (Upload
+   Update... on the Mod page, #114: [mod.md](mod.md), "An update from a computer"), which puts the
+   same two files there and nothing else.
 2. **Find** (`dlzmod-update`, before evolve-node, evolve-app and dspserver): exactly one
    `dlzmod-v*.tar` with its `.sig` next to it. Without a `.sig`: reported once, not marked failed, so
    adding the `.sig` later works. More than one tar: nothing is installed.
@@ -339,8 +341,8 @@ refused file is copied and hashed at every start until it is removed (a few seco
 ## Not built yet
 
 - **Updates without the card reader** (#55): "Check for updates" on the Mod page (the latest GitHub
-  release only, never `main`; downloaded with `curl`, which the stock system has), a USB stick, or an
-  upload from a computer on the network (only while the update screen is open, after #45's pairing).
+  release only, never `main`; downloaded with `curl`, which the stock system has) or a USB stick (the
+  upload from a paired computer exists: #114).
   Each only puts the same two files into `DLZDATA/dlzmod-update/`; a release without update files
   (image only, "Release files") is shown as "needs a full install", never downloaded. Rules for it: only the latest-release
   request leaves the mixer (no device ID, serial or usage data); "update available" means strictly

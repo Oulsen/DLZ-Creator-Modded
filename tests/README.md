@@ -29,6 +29,7 @@ logs go to `build/` (git-ignored); card images go to `/root` in WSL and are dele
 | `cardcheck.sh` | The card's gate before the FPGA loader (`dlzmod-cardcheck`) in a fake tree: own mixer, other mixer, other model (also `any` cards), the eMMC's firmware moved on, no or unreadable eMMC; the last cases read the dump with the device's own debugfs | ~30 s |
 | `cardbind.sh` | The default run for both models: the gate, one card per model from the rig cache (binding, gate files, model accepted and the other refused), then the update tests on copies in parallel (XS all, full-size quick). `FULL=1` adds the full-size rehearsal from a fresh source (when the install's write path changes, and on a release candidate) | ~17 min, ~10 with cached cards |
 | `backup-other-firmware.sh` | The backup for a mixer on other firmware (#46): hardware report, bootloader check, the backup onto a fake installer card, checked from outside | ~5 min |
+| `upload.sh` | The update upload from a computer (#114, `DLZMOD_updateUpload` through `upload-rig.js`) on the mixer's own node against a real FAT image mounted read-only under `/tmp/mnt` as server.js mounts DLZDATA: real remounts, `/proc/mounts`, fsync and renames, read-only again after it. An upload replacing an older update, a full card (507), an upload cut off, and power cuts: copies of the image every ~0.2 s while one writes and after its answer, each mounted and judged (no package, the old pair or the whole new pair; after the answer always the new pair), each card checked with `fsck.fat` | ~2 min |
 
 `fixtures/` holds files the update test puts into crafted packages.
 
@@ -52,6 +53,7 @@ checks, the sandbox and the device review. Say why before starting a rehearsal.
 | The installer's write steps, `card-core.sh`, `build-sd.sh` | `rehearse-install.sh`, `fullsize.sh`, `compare-negative.sh` as the write path asks, then `cardbind.sh` |
 | The installer's texts, screens and log names | `dev/installer-mockup.py --check` (screens); the install on the mixer shows the rest |
 | The card's gate (`dlzmod-cardcheck`) | `cardcheck.sh`, `cardbind.sh` |
+| The server mod's writes to DLZDATA (the update upload) | the server mod's unit tests, then `upload.sh` |
 
 `update-checks.sh` in WSL, where the default user is root: as `nobody`, from the repo root:
 `setpriv --reuid=65534 --regid=65534 --clear-groups env HOME=/tmp bash tests/update-checks.sh`.

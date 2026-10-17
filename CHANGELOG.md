@@ -9,6 +9,7 @@
 - (MOD FEATURE) Ask before installing an update
 - (MOD FEATURE) A development card that takes new test builds over Wi-Fi
 - (MOD FEATURE) The Mod page and the logs on the card show which build is installed
+- (MOD FEATURE) Send a mod update to the mixer from your computer
 - (MOD FEATURE) Automatic checks for the mod's own screens and settings
 - (MOD BUG) Recordings, presets and snapshots can only be deleted or renamed on the mixer's own screen
 - (MOD BUG) Install time estimate far too high at the start of a step

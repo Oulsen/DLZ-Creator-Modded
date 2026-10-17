@@ -769,11 +769,11 @@ function DLZMOD_remoteAdmit(socket, send) {
 }
 
 // what a paired browser may load: the UI (index.html, app.js and its libraries, fonts and pictures)
-// and the recordings (DLZMOD_recHttp, #26). Not srv_data.json (the System Lock PIN), presets,
-// node_modules, package files, the demo pages
+// and the recordings (DLZMOD_recHttp, #26); and where it may send a mod update (DLZMOD_updateUpload,
+// #114). Not srv_data.json (the System Lock PIN), presets, node_modules, package files, the demo pages
 function DLZMOD_remoteFileOk(p) {
   return !/(^|\/)\.\.?(\/|$)/.test(p) && !p.includes("\0") &&
-    /^\/(|index\.html|app\.js|style\.css|favicon\.ico|(libs|fonts|img1x)\/.+|dlzmod-rec(\/.+)?)$/.test(p);
+    /^\/(|index\.html|app\.js|style\.css|favicon\.ico|(libs|fonts|img1x)\/.+|dlzmod-rec(\/.+)?|dlzmod-update-upload)$/.test(p);
 }
 
 // what the PIN and switch-off pages load before any pairing: Mackie's logo and the two font weights
@@ -1050,6 +1050,234 @@ function DLZMOD_recWatch(res) {
     console.log("dlzmod: recording: " + s.running.size + " download(s) cut off");
     for (const r of [...s.running]) r.destroy();
   }, 1000);
+}
+
+// #114: a mod update from a computer (the Mod page's Upload Update..., in a browser): POST
+// /dlzmod-update-upload, the body the update's 64-byte signature and then its package, the package's
+// name in X-Dlzmod-Name. It only puts the two files into DLZDATA/dlzmod-update/ (the boot card's
+// medium, server.js's "sd"), where the drop-in update finds them at the next start: its own checks
+// (signature, version) still decide, and Install stays on the mixer's own screen (#65). Other devices
+// only paired (DLZMOD_remoteHttp runs first) and from the mixer's own page (DLZMOD_originOk). Streamed
+// to the card (about 120 MB free RAM) under hidden temp names the update does not look at; only once
+// complete and synced are the update files there replaced: the old ones removed, the signature
+// renamed, then the package. A cut-off upload or a power cut never leaves a package to be taken for
+// an update (a temp file a power cut leaves is removed by the next upload). Not while the mixer
+// records (a recording that starts stops the writing), not while an update's try is unfinished, one
+// at a time; the medium goes back to read-only after it (DLZMOD_roLater). The answer: a text for the
+// browser to show; a refusal of a well-formed request comes after the rest of the body (thrown away
+// as it comes): a browser that is still sending when the connection closes shows a network error
+// instead. root: () => the SD card's mount point ("-" when empty), server.js's ce("sd"); state: the
+// drop-in update's state folder; mounts: the kernel's mount table
+const DLZMOD_UPLOAD_MAX = 64 * 1024 * 1024;   // dlzmod-update's MAX_PKG
+
+function DLZMOD_updateUpload(root, state = "/var/lib/dlzmod-update", mounts = "/proc/mounts") {
+  return (req, res, next) => {
+    if (String(req.path || "") !== "/dlzmod-update-upload") return next();
+    const s = DLZMOD_updateUpload;
+    // not an upload of the page's (method, origin, name, size): answered at once, the connection closes
+    // (a browser still sending may show a network error instead of the text: the page checks name and
+    // size itself first, so these are for other clients)
+    const bad = (status, text) => {
+      req.resume();
+      DLZMOD_uploadAnswer(res, status, text, true);
+    };
+    const refuse = (status, text) => DLZMOD_uploadDrain(req, () => DLZMOD_uploadAnswer(res, status, text));
+    if (req.method !== "POST") return bad(405, "");
+    const h = req.headers || {};
+    if (!DLZMOD_isLocal(req.socket && req.socket.remoteAddress) && !DLZMOD_originOk(h)) {
+      return bad(403, "Only from the mixer's own page: open the mixer by its IP address or its .local name.");
+    }
+    const name = String(h["x-dlzmod-name"] || "");
+    if (!DLZMOD_uploadName(name)) {
+      return bad(400, "This is not a mod update: choose its dlzmod-....tar and .tar.sig.");
+    }
+    const len = /^[0-9]{1,9}$/.test(String(h["content-length"] || "")) ? Number(h["content-length"]) : -1;
+    if (len < 0) return bad(411, "");
+    if (len <= 64 || len > 64 + DLZMOD_UPLOAD_MAX) return bad(413, "This file is too big for a mod update.");
+    if (s.running) return refuse(409, "Another update is being sent to the mixer. Try again when it has finished.");
+    if (DLZMOD_recNoRead()) return refuse(503, "The mixer is busy with a recording.\nSend the update when it has finished.");
+    let unfinished = "";
+    try {
+      unfinished = require("fs").readFileSync(state + "/inprogress", "utf8").trim();
+    } catch (e) {}
+    if (unfinished) return refuse(409, "The last update did not finish. Switch the mixer off and on first.");
+    const r = root();
+    if (!r || r === "-") return refuse(503, "The mixer does not see its SD card's DLZDATA partition.");
+    s.running = true;
+    DLZMOD_uploadRun(req, r + "/dlzmod-update", name, len, mounts).then(
+      () => {
+        console.log("dlzmod: update upload: " + name + " in place");
+        DLZMOD_uploadAnswer(res, 200, name + " is on the mixer's card.\nSwitch the mixer off and on: " +
+          "its screen then asks whether to install it.");
+      },
+      (e) => {
+        console.error("dlzmod: update upload:", e.message);
+        refuse(e.code === "ENOSPC" ? 507 : 500, e.code === "ENOSPC"
+          ? "The SD card is full. Nothing was kept." : e.cut ? e.message : "The mixer could not store the update. Nothing was kept.");
+      }).catch((e) => console.error("dlzmod: update upload:", e.message)).finally(() => {
+      // node 18 ends the whole server on an unhandled rejection: nothing above may throw past here
+      s.running = false;
+      DLZMOD_roLater();
+    });
+  };
+}
+
+// the name the drop-in update looks for (dlzmod-*.tar), a plain one the browser would send
+function DLZMOD_uploadName(name) {
+  return /^dlzmod-[A-Za-z0-9][A-Za-z0-9._+-]{0,80}\.tar$/.test(name) && !name.includes("..");
+}
+
+// fn once the request's body has come in to its end, the rest thrown away as it comes; never when
+// the computer went away (no one to answer)
+function DLZMOD_uploadDrain(req, fn) {
+  if (req.readableEnded || req.complete) return fn();
+  if (req.destroyed) return;
+  req.on("error", () => {});
+  req.once("end", fn);
+  req.resume();
+}
+
+// all of buf, however many writes the kernel takes for it (a nearly full card can write less
+// without an error)
+async function DLZMOD_writeAll(fh, buf) {
+  for (let off = 0; off < buf.length;) {
+    const { bytesWritten } = await fh.write(buf, off, buf.length - off);
+    if (!(bytesWritten > 0)) throw Object.assign(new Error("ENOSPC: nothing written"), { code: "ENOSPC" });
+    off += bytesWritten;
+  }
+}
+
+// a file's data and folder entry (its inode) to the card (opened for writing, not written: Windows,
+// where the unit tests also run, syncs only such a handle)
+async function DLZMOD_syncFile(file) {
+  const fh = await require("fs").promises.open(file, "r+");
+  try {
+    await fh.sync();
+  } finally {
+    await fh.close();
+  }
+}
+
+// root is a FAT medium mounted read-write in the kernel's mount table (text): never a folder that
+// only looks like one (a medium gone, its mount point left on /tmp's tmpfs, which is RAM)
+function DLZMOD_uploadMounted(text, root) {
+  return String(text).split("\n").some((line) => {
+    const f = line.split(" ");
+    return f.length >= 4 && f[2] === "vfat" && f[3].split(",").includes("rw") &&
+      f[1].replace(/\\([0-7]{3})/g, (x, o) => String.fromCharCode(parseInt(o, 8))) === root;
+  });
+}
+
+// close: the connection ends after the answer (a body not read to its end)
+function DLZMOD_uploadAnswer(res, status, text, close) {
+  if (res.headersSent || res.destroyed) return;
+  const h = { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" };
+  if (close) h.Connection = "close";
+  if (status === 405) h.Allow = "POST";
+  res.writeHead(status, h);
+  res.end(text);
+}
+
+// the medium writable, the body to the temp files, then the update files replaced (DLZMOD_updateUpload).
+// Rejects with the reason; nothing of this upload is left then (an error after the old update files
+// are removed leaves none). An error with .cut set has a text for the browser
+async function DLZMOD_uploadRun(req, dir, name, len, mounts) {
+  const fs = require("fs");
+  const fsp = fs.promises;
+  const root = require("path").dirname(dir);
+  const tar = dir + "/.dlzmod-upload.tar.part";
+  const sig = dir + "/.dlzmod-upload.sig.part";
+  const cut = (text) => Object.assign(new Error(text), { cut: true });
+  let fh = null;
+  let watch = null;
+  let placed = false;
+  let sigPlaced = false;
+  try {
+    await DLZMOD_rw(() => DLZMOD_run("/usr/bin/mount", ["-o", "remount,rw", root]).then((x) =>
+      x.ok ? x : Promise.reject(new Error("remount: " + x.err.trim()))));
+    if (!DLZMOD_uploadMounted(await fsp.readFile(mounts, "utf8"), root)) {
+      throw new Error(root + " is not a writable FAT medium");
+    }
+    await fsp.mkdir(dir, { recursive: true });
+    if (!(await DLZMOD_recReal(dir))) throw new Error(dir + " is not a folder");
+    await fsp.rm(tar, { force: true });
+    await fsp.rm(sig, { force: true });
+    // a recording that starts stops the writing (card time goes to the recording; the rest of the
+    // body is then thrown away, so the browser gets the text); the read-only remount waits while the
+    // file is written (DLZMOD_roNow)
+    let recording = false;
+    watch = setInterval(() => {
+      DLZMOD_roLater.lastRw = Date.now();
+      if (DLZMOD_recNoRead()) recording = true;
+    }, 1000);
+    fh = await fsp.open(tar, "w");
+    const head = [];
+    let got = 0;
+    let headLen = 0;
+    let writeErr = null;
+    try {
+      // a break leaves the request as it is (DLZMOD_uploadDrain reads the rest)
+      for await (const c of req.iterator({ destroyOnReturn: false })) {
+        if (recording) break;
+        got += c.length;
+        if (got > len) break;
+        let rest = c;
+        if (headLen < 64) {
+          const part = c.subarray(0, 64 - headLen);
+          head.push(part);
+          headLen += part.length;
+          rest = c.subarray(part.length);
+        }
+        if (rest.length) await DLZMOD_writeAll(fh, rest).catch((e) => Promise.reject((writeErr = e)));
+      }
+    } catch (e) {
+      // the card (a full one) throws on; the computer that went away: below
+      if (writeErr) throw writeErr;
+    }
+    if (recording) throw cut("The mixer started a recording, so the upload stopped. Nothing was kept.");
+    if (got !== len) throw cut("The upload was cut off. Nothing was kept.");
+    await fh.sync();
+    if ((await fh.stat()).size !== len - 64) throw new Error("the package on the card is not the size sent");
+    await fh.close();
+    fh = null;
+    // the watch runs on (its "recently writable" mark) until the end: a read-only remount between
+    // removing the old update files and the renames would leave none
+    // the signature in its own synced temp file, then the update files replaced: never two packages
+    // (the update refuses both), a package only with its complete signature
+    const sh = await fsp.open(sig, "w");
+    try {
+      await DLZMOD_writeAll(sh, Buffer.concat(head));
+      await sh.sync();
+    } finally {
+      await sh.close();
+    }
+    for (const f of await fsp.readdir(dir)) {
+      if (!/^dlzmod-.*\.tar(\.sig)?$/.test(f)) continue;
+      const st = await fsp.lstat(dir + "/" + f);
+      if (st.isFile()) await fsp.unlink(dir + "/" + f);
+    }
+    // each synced again under its new name: FAT's rename writes the new folder entry with no first
+    // cluster and size 0, the real ones only when the kernel writes the file's inode back (up to
+    // ~30 s later; the folder's sync does not) [PC: tests/upload.sh, a power cut after the answer
+    // left a 0-byte package]
+    await fsp.rename(sig, dir + "/" + name + ".sig");
+    sigPlaced = true;
+    await DLZMOD_syncFile(dir + "/" + name + ".sig");
+    await fsp.rename(tar, dir + "/" + name);
+    placed = true;
+    await DLZMOD_syncFile(dir + "/" + name);
+    DLZMOD_syncDir(dir);
+  } catch (e) {
+    if (fh) await fh.close().catch(() => {});
+    if (!placed) {
+      await fsp.rm(tar, { force: true }).catch(() => {});
+      await fsp.rm(sig, { force: true }).catch(() => {});
+      if (sigPlaced) await fsp.rm(dir + "/" + name + ".sig", { force: true }).catch(() => {});
+    }
+    throw e;
+  } finally {
+    if (watch) clearInterval(watch);
+  }
 }
 
 // port 89 (the screen's connection) on loopback only, IPv4 and IPv6: app.js connects to
