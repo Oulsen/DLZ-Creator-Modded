@@ -74,16 +74,18 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
   it and gets its `rw`; a remount that hangs (a pulled stick) holds the queue up for 40 s at most
   and counts as not done after 35 s for all media together, so the looking goes on without a second
   mount for that medium while the first still hangs. A rename or delete always remounts
-  `rw` (stock skipped it while its own flag said writable) [static]. No stock write needs the old
+  `rw` (stock skipped it while its own flag said writable), and waits for that remount before
+  stock's 500 ms (stock did not wait); a failed `rw` remount is logged (`dlzmod: read-write
+  remount:`), where stock's un-awaited call would end node 18 as an unhandled rejection. A recording
+  refused for want of a free name sends the medium back read-only like a finished one [static]. No stock write needs the old
   always-writable state: server.js writes to the media only through those remounts (record, sample,
   rename, delete, the start's finalizer) and in the multitrack renames 2 s after a stop; its other
   writes go to the system (`/srv` presets, `srv_data.json`, the bank player's defaults) and `/tmp`
   [static, the dump's server.js]. Measured on the XS dev card [device]: read-only again 12-13 s after the start's
   remount, 10.3 s after a recording stopped, 10.2 s after a sample was kept, exactly 60 s after a
   rename or delete (also a rename while already read-only); after a recording and a switch-off the
-  next start finds the FAT volume clean (state byte `00`, no warning). Side effect: Mackie's 500 ms
-  wait after a rename's remount can, at worst, run out behind a read-only remount; the rename then
-  fails and can be repeated. Not covered: a card already marked dirty stays marked until an fsck
+  next start finds the FAT volume clean (state byte `00`, no warning). Side effect: a rename or delete
+  that comes while a read-only remount runs waits for it (the queue's 40 s at most). Not covered: a card already marked dirty stays marked until an fsck
   ([node-backend.md](components/node-backend.md), "FAT's dirty mark is sticky").
 - **Recording names** (#27, #34, #35): `REC_<number>_<animal>.wav`, e.g. `REC_0042_otter`. The
   number counts above every `REC_<n>` file or folder, in any letter case, in the recordings folders

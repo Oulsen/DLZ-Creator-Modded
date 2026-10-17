@@ -193,10 +193,11 @@ SERVER_PATCHES = [
     ),
     (
         # A() (REC_START): t is the recordings folder, y the file handed to dspserver; ce() is a
-        # medium's mount point ("-" when empty), C()?w:x the XS / full-size folder name
+        # medium's mount point ("-" when empty), C()?w:x the XS / full-size folder name. No free name:
+        # no recording, but de() already made the medium writable, so it goes back read-only (#98)
         "recording: free, unique names (DLZMOD_recName)",
         'let a=await le(t,"REC_[0-9]{4}");y=t+"/REC_"+"0".repeat(4-a.toString().length)+a+".wav"',
-        'let a=await DLZMOD_recName(t,[ce("sd"),ce("usb")].map((m=>m+"/"+(C()?w:x))));if(!a)return;y=t+"/"+a+".wav"',
+        'let a=await DLZMOD_recName(t,[ce("sd"),ce("usb")].map((m=>m+"/"+(C()?w:x))));if(!a)return void DLZMOD_roLater();y=t+"/"+a+".wav"',
     ),
     (
         # same round trip as Mackie's firmware popup: sent when a screen has loaded, OK comes back
@@ -259,12 +260,19 @@ SERVER_PATCHES = [
     (
         # me(): read-write for 60 s around a rename or delete. Stock skips the remount while its own
         # flag says the medium is writable; that flag knows nothing of DLZMOD_roLater, so always remount
-        # (each rename or delete then has its own 60 s timer: a few DLZMOD_roLater(0) calls, harmless)
-        "media: read-write remounts queued, every time (rename, delete)",
+        # (each rename or delete then has its own 60 s timer: a few DLZMOD_roLater(0) calls, harmless).
+        # Stock runs the remount in an async function nobody awaits and goes on after a fixed 500 ms:
+        # a failed remount (rejected) would end node 18 as an unhandled rejection, and a remount still
+        # waiting in the queue would leave the delete or rename on a read-only medium. Here a failed
+        # remount is logged, and me() waits for the remount (w) before its 500 ms
+        "media: read-write remounts queued, every time, awaited (rename, delete)",
         "async function me(e){(e==q&&0==H||e==M&&0==W)&&(!async function(e){H=e==q?1:H,W=e==M?1:W,"
-        'v("Changing  mount "+e+" to  RW (TEMP)"),await R("mount -o remount,rw "+e)',
-        "async function me(e){(!async function(e){H=e==q?1:H,W=e==M?1:W,"
-        'v("Changing  mount "+e+" to  RW (TEMP)"),await DLZMOD_rw((()=>R("mount -o remount,rw "+e)))',
+        'v("Changing  mount "+e+" to  RW (TEMP)"),await R("mount -o remount,rw "+e),await ae(6e4),'
+        "e==q&&2==H||e==M&&2==W||e==q&&0==H||e==M&&0==W||await fe(e)}(e),await ae(500))}",
+        "async function me(e){let w;(!async function(e){H=e==q?1:H,W=e==M?1:W,"
+        'v("Changing  mount "+e+" to  RW (TEMP)"),await(w=DLZMOD_rw((()=>R("mount -o remount,rw "+e)))'
+        '.catch((t=>console.error("dlzmod: read-write remount:",t.message)))),await ae(6e4),'
+        "e==q&&2==H||e==M&&2==W||e==q&&0==H||e==M&&0==W||await fe(e)}(e),await w,await ae(500))}",
     ),
     (
         # fe(): the end of a rename/delete's 60 s and of the start's finalizer
