@@ -73,9 +73,11 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
       unmount 1.25 s). Since then grow-data stops at once once `/var/lib/dlzmod/dlzdata-ready` is
       set (written when DLZDATA is set up): ~1.4 s. The boot log stays as it was (copied before
       the mixer software at every boot, ~2.2 s). Moving its copy after the start, into the
-      server's mount, does not work: server.js mounts DLZDATA read-only (`ro,noatime`, `rw` only
-      while it writes itself), and remounting it under the server could break a recording
-      [static, server.js; `ro` while idle: device]. Expected: ~1.4 s off a normal boot [device: the next install]
+      server's mount, does not work: server.js mounts DLZDATA read-only (`ro,noatime`) and
+      remounts it `rw` to write, and remounting it under the server could break a recording
+      [static, server.js]. Stock never goes back to `ro` once a recordings folder exists (`rw` from
+      the start on [device]); the mod does that, about 10 s after the last write (#98,
+      [mod.md](mod.md), "Media back to read-only"). Expected: ~1.4 s off a normal boot [device: the next install]
     - Open: (B) a stopwatch from power-on to the UI and to sound, card in vs card out (stock from
       the eMMC, nothing touched); (C) only if B shows a gap: 10 s of 4 KiB random reads, O_DIRECT,
       read-only, on the card and on the eMMC (`python3` with an mmap-aligned buffer; mixer idle).

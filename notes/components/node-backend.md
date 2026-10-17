@@ -61,6 +61,15 @@ All [static].
 - **Accepted media**: `lsblk -OJ`; a card/stick only counts as `INSERTED` when its `fstype` is
   `vfat`, anything else (exFAT, NTFS, ext4) shows as `NOTSUPPORTED`. Mounted under `/tmp/mnt/<dev>`
   with `ro,noatime` (+ `flush` for vfat), remounted `rw` when a recording starts.
+- **Read-write remounts**: "permanent" (log `RW (Perm)`) at a recording or sample recording start,
+  and at every start when a recordings folder exists (to finish `*.wav.unfinished` files with
+  `wavfinalizer`); "temporary" (`RW (TEMP)`) for a rename or delete, with the back-to-read-only
+  function 60 s later. That function waits for running renames/deletes, runs `sync` and logs
+  `back to RO1` / `DONE RO`, but never runs `mount -o remount,ro`, and the end of a recording does
+  not call it at all: stock, a medium with a recordings folder stays `rw` from the start until
+  switched off, so the next start finds the FAT volume "not properly unmounted" [device]. Its
+  "permanent" flag compares a mount point with a device path and so never matches. The mod
+  remounts read-only itself (#98; [mod.md](../mod.md), "Media back to read-only").
 - **Scan details**: a rescan runs when `/dev/disk/by-id` changes. Skipped (with their children):
   names starting with `mmcblk1`, mountpoint `/` or `/boot`, EFI partitions. Every other node with an
   `fstype` is a candidate; SD vs USB comes from lsblk `subsystems` (first `:mmc_host:platform` = SD,

@@ -60,6 +60,21 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
   Accepted: snapshots are not filtered on load (snapshots saved on the mixer may hold pad sample
   files). `srv_data.json` and the presets are no longer served to other devices (#45, below).
 - **Control from other devices** (#45): below, "Remote Control".
+- **Media back to read-only** (#98): stock remounts the SD card's DLZDATA or a USB stick `rw` to
+  record, rename, delete or finish half-written recordings, and never back
+  ([node-backend.md](components/node-backend.md), "Read-write remounts"), so a switch-off could
+  damage the card. The mod (`DLZMOD_roLater`, patched into the end of a recording, the sample
+  recorder's stop and stock's back-to-read-only function) remounts every writable FAT medium under
+  `/tmp/mnt` read-only about 10 s later (a rename or delete: after stock's 60 s), once nothing
+  records, is paused or has a sample take still to keep or store (`sample.rec.file` set: the sample
+  recorder's state stays at keep/discard after a store) and nothing was remounted `rw` or finalized
+  in the last 10 s (counted from when the remount is done); otherwise, and when the kernel refuses
+  because a file is still open for writing (EBUSY), it looks again every 10 s. Every remount runs
+  through one queue (`DLZMOD_rw`), so a recording that starts during a read-only remount waits for
+  it and gets its `rw`; a remount that hangs (a pulled stick) holds the queue up for 40 s at most. A
+  rename or delete always remounts `rw` (stock skipped it while its own flag said writable)
+  [static; device: next test]. Side effect: Mackie's 500 ms wait after a rename's remount can, at
+  worst, run out behind a read-only remount; the rename then fails and can be repeated.
 - **Recording names** (#27, #34, #35): `REC_<number>_<animal>.wav`, e.g. `REC_0042_otter`. The
   number counts above every `REC_<n>` file or folder, in any letter case, in the recordings folders
   of both media (SD card and USB stick; reading the other medium gives up after 2 s, so a hung stick
