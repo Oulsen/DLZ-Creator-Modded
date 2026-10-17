@@ -64,12 +64,18 @@ Reading files and state, small outputs:
   `systemd-analyze`, `systemd-analyze blame|critical-chain`
 - copying a file **to the PC** with `get` (reads on the mixer; small files, logs)
 
-The wrapper refuses commands that look like writes (`rm`, `mv`, `cp`, `dd`, `tee`, `>` to a file,
-`mount`, `systemctl start/stop/...`, `kill`, `apt`, interpreters like `python3`/`bash`, and more:
-`WRITE_RE` in the script; command words count only where a command starts, so a unit name like
-`flash-fpga` as an argument is fine). A refusal is a stop sign, not an obstacle: do not rephrase the
-command to get past it. A refused *read* is a false positive in the wrapper: fix the pattern, add the
-case to `test-guard.sh` (offline, never connects), run it until ALL OK, then rerun the same command.
+The wrapper only lets reads through, as an allowlist (`READ_CMDS` and `seg_ok` in the script): every
+command between `;`, `|`, `&&`, `||` must be a reading program by its bare name (or from `/bin`,
+`/sbin`, `/usr/bin`, `/usr/sbin`). Some are only allowed with reading arguments: `systemctl` and
+`systemd-analyze` with the verbs above, `ip` with `show`/`list`/`get`, `find` without
+`-exec`/`-delete`/`-fprint*`, `dmesg` without clearing, `top -b`, `sed -n 'N,Mp'` only, `awk`
+without `system`/`getline`/`|`/program files, `sort`/`uniq`/`date`/`hostname`/`ss`/`journalctl`
+without their writing options. Refused outright: `$(`, backticks, `( )`, `{ }`, a `$variable` outside
+single quotes, `<`, a lone `&`, and any `>` except to `/dev/null` and `2>&1`. `get` takes remote names
+of `A-Z a-z 0-9 _ . / + ~ -` only. A refusal is a stop sign, not an obstacle: do not rephrase the
+command to get past it. A refused *read* is a false positive in the wrapper: widen the list, add the
+case to `test-guard.sh` (offline, never connects; CI runs it), run it until ALL OK, then rerun the
+same command.
 
 ## Anything else: strict confirmation
 

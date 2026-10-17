@@ -1,15 +1,16 @@
 #!/bin/bash
-# Run from anywhere in WSL: bash .claude/skills/mixer-ssh/test-guard.sh (after every change to WRITE_RE/CMDPOS/ARG_RE)
+# Run from anywhere in WSL or Linux: bash .claude/skills/mixer-ssh/test-guard.sh (after every change to
+# the guard; CI runs it too). Exits 1 when a case goes wrong.
 # The wrapper's read-only guard, offline: an empty HOME = no stored address, so a command that passes
 # the guard stops at "no mixer address stored" and never connects.
 S=$(dirname "$(readlink -f "$0")")/dlz-ssh.sh
 export HOME=$(mktemp -d)
 fail=0
-t() {   # t <expected allowed|REFUSED> <command>
-  out=$(bash "$S" run "$2" 2>&1)
+t() {   # t <expected allowed|REFUSED> <command>, or t <expected> get <remote> <local>
+  if [ "$2" = get ]; then out=$(bash "$S" get "$3" "$4" 2>&1); else out=$(bash "$S" run "$2" 2>&1); fi
   case $out in *REFUSED*) r=REFUSED ;; *"no mixer address"*) r=allowed ;; *) r="?? $out" ;; esac
   [ "$r" = "$1" ] && m=ok || { m=WRONG; fail=1; }
-  printf '%-5s %-8s %s\n' "$m" "$r" "$2"
+  printf '%-5s %-8s %s\n' "$m" "$r" "${*:2}"
 }
 # reads
 t allowed 'systemctl is-active flash-fpga faderlink dspserver evolve-node 2>&1 | paste -sd" " -'
@@ -23,6 +24,25 @@ t allowed 'find /var/log -maxdepth 1 -name "*.log"'
 t allowed 'systemd-analyze blame | head -15'
 t allowed 'ls /usr/bin/python3 /usr/sbin/mount'
 t allowed 'free -m; cat /proc/swaps; vmstat 1 6'
+t allowed 'lsblk -o NAME,LABEL,SIZE,RO,MOUNTPOINT && findmnt -rno TARGET -S LABEL=DLZDATA'
+t allowed 'systemctl list-units --state=failed --no-pager || systemctl'
+t allowed 'journalctl -u ssh -n 20 --no-pager --since "-1h"'
+t allowed 'dmesg -T | tail -20'
+t allowed 'top -bn1 | head -15'
+t allowed 'ip -br addr; ip route show; ip link'
+t allowed 'ss -ltnp'
+t allowed 'date; date +%s; hostname; uptime'
+t allowed "sed -n '100,200p' /var/log/syslog"
+t allowed "sed -n '\$p' /var/log/syslog"
+t allowed "awk '{print \$1, \$NF}' /proc/loadavg"
+t allowed 'sort -n /tmp/x | uniq -c'
+t allowed 'stat -c %a /root; md5sum /srv/app.js; file /srv/server.js'
+t allowed '/usr/bin/cat /etc/hostname'
+t allowed 'grep -a "x$" /var/log/syslog | tail -5'
+t allowed 'systemd-analyze critical-chain evolve-node.service'
+t allowed 'ls /tmp >> /dev/null 2>&1; echo done'
+t allowed get /var/log/syslog build/device-logs/syslog
+t allowed get '~/install-3.txt' build/device-logs/install3.txt
 # writes and launchers
 t REFUSED 'rm -rf /tmp/x'
 t REFUSED '/bin/rm /tmp/x'
@@ -44,6 +64,92 @@ t REFUSED 'sh -c "echo"'
 t REFUSED 'sed -i s/a/b/ f'
 t REFUSED 'kill 1'
 t REFUSED 'free -m; swapon --show'
+# what the denylist of v0.1.0 let through (back-review, #107)
+t REFUSED 'mke2fs /dev/mmcblk0p2'
+t REFUSED 'mkswap /dev/mmcblk0p2'
+t REFUSED 'blkdiscard /dev/mmcblk0'
+t REFUSED 'e2label /dev/mmcblk0p1 x'
+t REFUSED 'mkdosfs /dev/mmcblk0p2'
+t REFUSED 'unlink /etc/fstab'
+t REFUSED 'gzip /var/log/syslog'
+t REFUSED 'tar -xf a.tar -C /'
+t REFUSED 'sort -o /etc/fstab /tmp/x'
+t REFUSED 'sort -no /etc/fstab /tmp/x'
+t REFUSED 'sort --compress-program=reboot /tmp/x'
+t REFUSED 'find / -name x -fprintf /etc/fstab %p'
+t REFUSED 'systemctl reboot'
+t REFUSED 'systemctl poweroff'
+t REFUSED 'systemctl --no-block halt'
+t REFUSED 'fw_setenv bootcmd x'
+t REFUSED 'ip l set wlan0 down'
+t REFUSED 'ip l s wlan0 down'
+t REFUSED 'ip -batch /tmp/x'
+t REFUSED 'ip addr flush dev wlan0'
+t REFUSED 'date -s 2020-01-01'
+t REFUSED 'date --set=2020-01-01'
+t REFUSED 'eval rm /x'
+t REFUSED 'command rm /x'
+t REFUSED 'setsid reboot'
+t REFUSED 'su -c reboot'
+t REFUSED 'dash -c reboot'
+t REFUSED "awk 'BEGIN{system(\"reboot\")}'"
+t REFUSED "awk 'BEGIN{\"reboot\" | getline}'"
+t REFUSED "awk 'BEGIN{print 1 > \"/etc/fstab\"}'"
+t REFUSED 'awk -f /tmp/prog'
+t REFUSED '{ rm -rf /x; }'
+t REFUSED 'case a in a) rm x;; esac'
+t REFUSED 'if false; then :; elif true; then rm x; fi'
+t REFUSED 'while rm x; do :; done'
+t REFUSED 'until rm x; do :; done'
+t REFUSED '\rm /x'
+t REFUSED 'r\m /x'
+t REFUSED 'echo x >/dev/nullX'
+t REFUSED 'echo x 2>/dev/null.d/x'
+# more ways around a list of programs
+t REFUSED 'ls & rm x'
+t REFUSED 'ls |& tee x'
+t REFUSED 'cat <(rm x)'
+t REFUSED 'cat < /etc/fstab'
+t REFUSED 'cat "$(reboot)"'
+t REFUSED 'cat `reboot`'
+t REFUSED "cat \$'\\x41'"
+t REFUSED 'X=1 cat /x'
+t REFUSED '$SHELL -c reboot'
+t REFUSED 'cat $HOME/x'
+t REFUSED '/tmp/cat /x'
+t REFUSED '/usr/bin/../../tmp/cat /x'
+t REFUSED 'cat x; (rm y)'
+t REFUSED 'ls '"'"'unclosed'
+t REFUSED "sed -n '1p;w /etc/fstab' /x"
+t REFUSED "sed -n '1e reboot' /x"
+t REFUSED 'sed s/a/b/ /x'
+t REFUSED 'uniq /tmp/a /etc/fstab'
+t REFUSED 'hostname evil'
+t REFUSED 'file -C -m /tmp/x'
+t REFUSED 'dmesg -c'
+t REFUSED 'dmesg -TC'
+t REFUSED 'dmesg --clear'
+t REFUSED 'ss -K dst 1.2.3.4'
+t REFUSED 'ss -D /tmp/x'
+t REFUSED 'top -n1'
+t REFUSED 'journalctl --vacuum-size=1M'
+t REFUSED 'journalctl --rot'
+t REFUSED 'journalctl --flush'
+t REFUSED 'journalctl --cursor-file=/etc/fstab'
+t REFUSED 'systemd-analyze log-level debug'
+t REFUSED 'systemctl set-environment X=1'
+t REFUSED 'systemctl daemon-reexec'
+t REFUSED 'xargs rm < /tmp/x'
+t REFUSED 'tee /x'
+t REFUSED 'cp /a /b'
+t REFUSED $'cat /x\nrm /y'
+# get: the remote name goes through the mixer's shell with the old scp protocol
+t REFUSED get '/tmp/x;reboot' build/device-logs/x
+t REFUSED get '/tmp/$(reboot)' build/device-logs/x
+t REFUSED get '/tmp/a b' build/device-logs/x
+t REFUSED get '-oProxyCommand=x' build/device-logs/x
+t REFUSED get /var/log/syslog 'other-host:/tmp/x'
+t REFUSED get /var/log/syslog '-r'
 # the key login, offline too: stored as a private copy, shown, refused when it is no usable key, forgotten
 k() {   # k <description> <expected text in the output> <command...>
   out=$("${@:3}" 2>&1)
@@ -79,4 +185,4 @@ k "forgotten"                    "password, key, askpass"         bash "$S" forg
 [ ! -e "$D" ] && m=ok || { m=WRONG; fail=1; }
 printf '%-5s %-8s %s\n' "$m" key "the private folder is gone"
 rm -rf "$HOME"
-[ $fail = 0 ] && echo "ALL OK" || echo "SOME WRONG"
+[ $fail = 0 ] && echo "ALL OK" || { echo "SOME WRONG"; exit 1; }

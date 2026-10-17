@@ -52,8 +52,9 @@ backup the installer makes.
    `bash tests/guards.sh`, `bash tests/cardcheck.sh` and `bash tests/patches.sh` (WSL, as root),
    `tests/update-checks.sh` (as a normal user: in WSL as `nobody`, see tests/README.md); the rest,
    and which to run for which change: [tests/README.md](../tests/README.md). GitHub runs the unit
-   tests, `guards.sh`, `update-checks.sh` and a syntax check of every script on each push and pull
-   request (`.github/workflows/checks.yml`).
+   tests, `guards.sh`, `update-checks.sh`, the `mixer-ssh` skill's read-only guard
+   (`test-guard.sh`) and a syntax check of every script on each push and pull request
+   (`.github/workflows/checks.yml`).
 4. **Look at the UI on the PC**: `bash dev/ui-sandbox.sh` (Git Bash) serves the mixer's UI with the
    mod at http://127.0.0.1/ (the first start copies `/srv` from the mount). Always stop it with
    `bash .claude/skills/ui-sandbox/sandbox.sh stop`: it leaves Node on ports 80/89 and a mapped drive
@@ -82,7 +83,7 @@ organised: "GitHub workflow" below and [CONTRIBUTING.md](../CONTRIBUTING.md).
 | `vendor/` | Third-party U-Boot, downloaded in Setup (git-ignored) |
 | `build/` | Generated images/scripts (git-ignored) |
 | `dumps/` | Data read from the device (git-ignored, never share) |
-| `.github/` | Issue templates (bug, feature, help with an install), the pull request template, `CODEOWNERS` (who reviews) and the checks GitHub runs on every push and pull request (`workflows/checks.yml`: unit tests, key guards, script syntax) |
+| `.github/` | Issue templates (bug, feature, help with an install), the pull request template, `CODEOWNERS` (who reviews) and the checks GitHub runs on every push and pull request (`workflows/checks.yml`: unit tests, key guards, updater checks, the SSH skill's read-only guard, script syntax) |
 | `.claude/skills/` | Workflows for Claude Code: the device review, the UI sandbox, SSH to your mixer, the release build |
 
 ## Notes
