@@ -44,7 +44,7 @@ checks, the sandbox and the device review. Say why before starting a rehearsal.
 |---|---|
 | Notes, docs, issues | nothing (GitHub's checks run on the PR anyway) |
 | The server mod | `node install/server-mod/test-dlzmod-server.js`; the UI sandbox for what is visible |
-| The app mod | `node install/app-mod/test-dlzmod.js` for its logic (so far #26's download button and questions), the UI sandbox for what it looks like |
+| The app mod | `node install/app-mod/test-dlzmod.js` for its logic (what is shown, enabled, sent or asked), the UI sandbox for what it looks like |
 | The updater's checks (`dlzmod-update` before its snapshot), `package.env`, keys | `update-checks.sh` (seconds) |
 | The updater's apply, place or restore, the sandbox, `apply-mod.sh`, units | `update-checks.sh`, then `update.sh` (XS) and `QUICK=1` on the full-size, or `cardbind.sh` |
 | What the updater says or names (report texts, file names) | `update-checks.sh` for the checks' texts (it writes no report); the push to the mixer shows the report and its name |
