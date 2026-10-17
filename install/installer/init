@@ -205,7 +205,8 @@ IC_CID=$(cat /sys/block/$sd/device/cid 2>/dev/null)
 
 # 3. lock the eMMC before anything is mounted (same script as the mod card), then verify it. The lock
 # refuses writes from user space only (5.10): what keeps the eMMC unwritten during the copy is the
-# read-only loop and plain snapshot it is read through (install-card.sh, ic_snap_up)
+# loop it is read through (opened read-only, no discard or write-zeroes) and the plain snapshot over
+# it (install-card.sh, ic_snap_up and ic_ro_loop_ok)
 sh $PKG/mod/sd-system/dlzmod-emmc-ro >> "$LOG" 2>&1 || fail "Internal storage could not be locked read-only"
 for b in /dev/$emmc /dev/${emmc}p*; do
   [ "$(blockdev --getro "$b")" = 1 ] || fail "$b is still writable"

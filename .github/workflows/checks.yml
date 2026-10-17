@@ -23,6 +23,10 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 18
+      # and Python 3.10 (Ubuntu 22.04): the installer's ui.py and the card's python scripts run with it
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.10'
 
       - name: Server mod unit tests
         run: node install/server-mod/test-dlzmod-server.js
@@ -78,17 +82,21 @@ jobs:
             esac
             n=$((n + 1))
             node --check "$p" || { echo "::error file=$p::syntax error (node)"; f=$((f + 1)); }
-          done < <(git ls-files)
+          done < <(git -c core.quotePath=off ls-files)
           echo "JavaScript files: $n checked, $f failed"
-          [ "$f" = 0 ]
+          [ "$n" -gt 0 ] && [ "$f" = 0 ]
 
-      # *.py and python scripts without the extension (by shebang)
+      # *.py and python scripts without the extension (by shebang), with the mixer's Python (3.10)
       - name: Python syntax
         run: |
-          files=$(git ls-files | while IFS= read -r p; do
+          f=0; n=0
+          while IFS= read -r p; do
             case $p in
-              *.py) echo "$p" ;;
-              *) if head -c 100 "$p" | head -n 1 | tr -d '\0' | grep -q '^#!.*python'; then echo "$p"; fi ;;
+              *.py) ;;
+              *) head -c 100 "$p" | head -n 1 | tr -d '\0' | grep -q '^#!.*python' || continue ;;
             esac
-          done)
-          python3 -m py_compile $files
+            n=$((n + 1))
+            python3 -m py_compile "$p" || { echo "::error file=$p::syntax error (python)"; f=$((f + 1)); }
+          done < <(git -c core.quotePath=off ls-files)
+          echo "Python files: $n checked, $f failed"
+          [ "$n" -gt 0 ] && [ "$f" = 0 ]
