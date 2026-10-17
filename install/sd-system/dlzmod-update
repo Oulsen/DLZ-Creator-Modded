@@ -246,8 +246,9 @@ repair() {
   inp=$(cat "$STATE/inprogress" 2>/dev/null)
   [ -z "$CHECK_ONLY" ] && [ -n "$inp" ] || return 0
   if [ ! -f "$STATE/previous.tar" ] || [ ! -f "$STATE/previous.list" ]; then
-    # a marker without its snapshot: nothing to put back, and it must not carry an Install over to a
-    # later copy of that file
+    # a marker without its snapshot: nothing was placed behind it (the marker is written after the
+    # snapshot), so there is nothing to put back; cleared here, on the paths that call repair (a
+    # resumed start of that same file still goes on by it: the same file, approved for it)
     rm -f "$STATE/inprogress"; sync
     return 0
   fi
@@ -280,7 +281,8 @@ fail() {
 }
 # not the package's fault: tried again next start, and the try this start counted is given back. A
 # resumed cut-off try of this file is not left half-placed until the cause goes away: what it placed
-# goes back, and its Install is kept for this same file, so the next start begins a fresh try
+# goes back, and its Install is kept for this same file, so the next start begins a fresh try (with
+# a fresh count of 3: the repair clears that try's count, accepted, as the cause is not the package)
 later() {
   local n
   log "NOT INSTALLED this time: $*"
