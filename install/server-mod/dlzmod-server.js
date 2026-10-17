@@ -425,10 +425,11 @@ function DLZMOD_rw(remount) {
 }
 
 // true when no medium is left writable; false: look again later. The remounts get `limit` ms in all
-// (under the queue's 40 s, so nothing runs alongside them); one not finished by then counts as not
-// done: a mount stuck in the kernel (a pulled stick) ignores DLZMOD_run's timeout, and waiting for
-// it would end the looking again for good. While it is stuck no second one is started for the same
-// mount point (each would hang behind it, with its own process and pipes)
+// (under the queue's 40 s, so the queue does not move on during this call); one not finished by then
+// counts as not done: a mount stuck in the kernel (a pulled stick) ignores DLZMOD_run's timeout, and
+// waiting for it would end the looking again for good. While it is stuck no second one is started
+// for the same mount point (each would hang behind it, with its own process and pipes); accepted: a
+// new medium mounted at that very point while the old mount still hangs stays writable, as stock
 async function DLZMOD_roNow(mounts = "/proc/mounts", limit = 35000) {
   const s = DLZMOD_roLater;
   const get = (k) => globalThis.getDataKey(k);
@@ -440,24 +441,25 @@ async function DLZMOD_roNow(mounts = "/proc/mounts", limit = 35000) {
     console.error("dlzmod: cannot read " + mounts + ":", e.message);
     return false;
   }
-  let done = true;
-  const end = Date.now() + limit;
+  // all media at once (one stuck medium does not keep the others from their turn), one deadline
   s.pending = s.pending || new Map();
-  for (const m of rw) {
+  const runs = rw.map((m) => {
     let p = s.pending.get(m);
     if (!p) {
-      p = DLZMOD_run("/usr/bin/mount", ["-o", "remount,ro", m]);
-      s.pending.set(m, p);
-      p.then(() => s.pending.delete(m));   // DLZMOD_run never rejects
+      const q = DLZMOD_run("/usr/bin/mount", ["-o", "remount,ro", m]);
+      s.pending.set(m, q);
+      q.then(() => s.pending.get(m) === q && s.pending.delete(m));   // DLZMOD_run never rejects
+      p = q;
     }
-    let timer;
-    const r = await Promise.race([
-      p,
-      new Promise((resolve) => {
-        timer = setTimeout(() => resolve({ ok: false, err: "the remount has not finished yet" }), Math.max(0, end - Date.now()));
-      }),
-    ]);
-    clearTimeout(timer);
+    return [m, p];
+  });
+  let timer;
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ ok: false, err: "the remount has not finished yet" }), limit);
+  });
+  let done = true;
+  for (const [m, p] of runs) {
+    const r = await Promise.race([p, late]);
     if (r.ok) {
       console.log("dlzmod: " + m + " read-only again");
     } else {
@@ -467,6 +469,7 @@ async function DLZMOD_roNow(mounts = "/proc/mounts", limit = 35000) {
       s.failLogged = true;
     }
   }
+  clearTimeout(timer);
   if (done) s.failLogged = false;
   return done;
 }

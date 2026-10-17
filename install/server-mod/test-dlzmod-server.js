@@ -1357,12 +1357,31 @@ test("read-only: a remount stuck in the kernel (pulled stick) counts as not done
 test("read-only: the limit is for the whole call, also with two stuck media (under the queue's 40 s)", async () => {
   const r = roRig({});
   const run = ctx.DLZMOD_run;
-  ctx.DLZMOD_run = () => new Promise(() => {});
+  let started = 0;
+  ctx.DLZMOD_run = () => (started++, new Promise(() => {}));
   try {
     const t = Date.now();
     assert.strictEqual(await ctx.DLZMOD_roNow(r.file, 200), false);
     const took = Date.now() - t;
     assert.ok(took >= 190 && took < 350, "about one limit, not one per medium: " + took + " ms");
+    assert.strictEqual(started, 2, "both media tried, side by side");
+  } finally {
+    ctx.DLZMOD_run = run;
+    delete ctx.DLZMOD_roLater.pending;
+  }
+});
+test("read-only: a remount that finishes after the limit frees its medium for the next try", async () => {
+  const r = roRig({});
+  const run = ctx.DLZMOD_run;
+  let release, started = 0;
+  ctx.DLZMOD_run = (f, args) => (args[args.length - 1] === "/tmp/mnt/mmcblk0p2"
+    ? (started++, new Promise((res) => (release = res))) : run(f, args));
+  try {
+    assert.strictEqual(await ctx.DLZMOD_roNow(r.file, 30), false);
+    release({ ok: false, out: "", err: "busy" });
+    await tick(0);
+    assert.strictEqual(await ctx.DLZMOD_roNow(r.file, 30), false);
+    assert.strictEqual(started, 2, "a new remount once the old one has ended");
   } finally {
     ctx.DLZMOD_run = run;
     delete ctx.DLZMOD_roLater.pending;
