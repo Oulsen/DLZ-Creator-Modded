@@ -35,8 +35,18 @@ trap cleanup EXIT
 # run: a start after Install on the screen (#65): the one package with its .sig approved, as the server
 # mod writes it (the cases below test what comes after); run_asking: a start without it
 run() { approve; run_asking; }
+# the updater switches user namespaces off around its sandbox and back on: the PC's own setting,
+# shared by every run on this machine. One lock around each updater call (and each read of the
+# setting), so runs side by side (cardbind.sh) take turns there only, and none saves another's 0 (#122)
+# (-o: what the updater leaves running does not keep the lock; -w/-E: a run whose updater hangs makes
+# the other one fail after 10 min with this reason, not wait for ever)
+UNS_LOCK=/tmp/dlzmod-update-test-userns.lock
+uns_now() { flock -w 600 "$UNS_LOCK" cat /proc/sys/user/max_user_namespaces; }
 run_asking() {
-  chroot $R /usr/bin/env DLZMOD_DATA=/mnt/dlzdata /usr/local/sbin/dlzmod-update > $W/run.out 2>&1; echo "rc=$?" >> $W/run.out; sed 's/^/    | /' $W/run.out
+  local rc
+  flock -w 600 -E 75 -o "$UNS_LOCK" chroot $R /usr/bin/env DLZMOD_DATA=/mnt/dlzdata /usr/local/sbin/dlzmod-update > $W/run.out 2>&1
+  rc=$?; [ $rc != 75 ] || bad "waited 10 min for $UNS_LOCK: another run's updater hangs (the updater did not run)"
+  echo "rc=$rc" >> $W/run.out; sed 's/^/    | /' $W/run.out
   ls $R/tmp | grep -q '^dlzmod-' && { bad "temp files left in /tmp: $(ls $R/tmp | grep '^dlzmod-' | tr '\n' ' ')"; rm -rf $R/tmp/dlzmod-*; }
 }
 approve() {
@@ -77,6 +87,15 @@ refused() {   # refused <name> <expected text>: the package stays, the card is u
   [ "$(cat $ST/approved 2>/dev/null)" != "$(key $U/$1.tar 2>/dev/null)" ] && ok "$1: no approval left for it" || bad "$1: its approval kept after the refusal"
   rm -f $U/$1.tar $U/$1.tar.sig
 }
+
+echo "== the PC's user namespace setting before this run"
+# (stopped here when it is 0: the sandbox's own check that it gets no user namespaces would pass on
+# the PC's setting, not on the updater's)
+if [ "$(uns_now)" != 0 ]; then ok "max_user_namespaces $(uns_now)"
+else
+  bad "max_user_namespaces is 0 before this run started: left by an earlier run (set it back: the value of /proc/sys/user/max_pid_namespaces)"
+  echo "$F UPDATE CHECK(S) FAILED (stopped before the cases)"; exit 1
+fi
 
 echo "== installed on the card"
 for f in usr/local/sbin/dlzmod-update etc/systemd/system/dlzmod-update.service etc/systemd/system/multi-user.target.wants/dlzmod-update.service etc/udev/rules.d/90-dlzmod-usb-wifi.rules var/lib/dlzmod-update/version; do
@@ -445,11 +464,11 @@ touch /run/pkg/x 2>/dev/null && exit 47
 grep -q '^CapEff:[[:space:]]*0*$' /proc/self/status || exit 49
 true
 EOF
-UNS0=$(cat /proc/sys/user/max_user_namespaces)
+UNS0=$(uns_now)
 put $(craft dlzmod-vwalls "cp $W/walls.sh mod/walls.sh; printf '. \"\$TOOLS/walls.sh\"\n' >> mod/apply-mod.sh"); run
 said "INSTALLED: " && ok "every wall held (uid 65533, no userns, no sockets, nothing writable, 4 device nodes, no caps)" \
   || bad "A WALL FAILED: $(grep -o 'exit [0-9]*' "$(last)" | head -1) (41 uid, 42 userns, 43 sockets, 44-47 writable, 48 /dev, 49 caps)"
-[ "$(cat /proc/sys/user/max_user_namespaces)" = "$UNS0" ] && ok "user namespaces back on afterwards ($UNS0)" || bad "max_user_namespaces left at $(cat /proc/sys/user/max_user_namespaces)"
+[ "$UNS0" != 0 ] && [ "$(uns_now)" = "$UNS0" ] && ok "user namespaces back on afterwards ($UNS0)" || bad "max_user_namespaces $UNS0 before, $(uns_now) after (0: switched off, by this run or one before it)"
 APP=$(sha $R/srv/app.js)
 
 echo "== 50: patches that do not fit this firmware (patch.py --check fails, in the sandbox)"
