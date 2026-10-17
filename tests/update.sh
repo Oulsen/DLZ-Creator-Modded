@@ -26,9 +26,33 @@ mkdir -p $R/mnt/dlzdata && mount --bind $D $R/mnt/dlzdata && mount -t proc proc 
 # /proc), a tmpfs /run holding daemon sockets
 mount -t binfmt_misc binfmt_misc $R/proc/sys/fs/binfmt_misc || echo "WARNING: no binfmt_misc mount: the hidden-mount case is not tested"
 mount -t tmpfs tmpfs $R/run && python3 -c "import socket,sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])" $R/run/fake.sock
-cleanup() { umount -R $R/dev 2>/dev/null; umount $R/proc/sys/fs/binfmt_misc $R/run 2>/dev/null; umount $R/tmp $R/proc $R/mnt/dlzdata 2>/dev/null; rmdir $R/mnt/dlzdata 2>/dev/null; umount $R $D; losetup -d $L; rm -rf $W; }
+cleanup() { chattr -i $R/srv/app.js 2>/dev/null; umount $R/proc/sys/user/max_user_namespaces 2>/dev/null; umount -R $R/dev 2>/dev/null; umount $R/proc/sys/fs/binfmt_misc $R/run 2>/dev/null; umount $R/tmp $R/proc $R/mnt/dlzdata 2>/dev/null; rmdir $R/mnt/dlzdata 2>/dev/null; umount $R $D; losetup -d $L; rm -rf $W; }
 trap cleanup EXIT
-run() { chroot $R /usr/bin/env DLZMOD_DATA=/mnt/dlzdata /usr/local/sbin/dlzmod-update > $W/run.out 2>&1; echo "rc=$?" >> $W/run.out; sed 's/^/    | /' $W/run.out; }
+# every run: no temp files of the updater left in the card's /tmp afterwards (its report, work and
+# restore folders)
+# (the chroot has no /sys: the refusal of the rehearsal settings on an SD card, #84, never fires
+# here; it is shown on the mixer, notes/updates.md "Rehearsal settings")
+# run: a start after Install on the screen (#65): the one package with its .sig approved, as the server
+# mod writes it (the cases below test what comes after); run_asking: a start without it
+run() { approve; run_asking; }
+# the updater switches user namespaces off around its sandbox and back on: the PC's own setting,
+# shared by every run on this machine. One lock around each updater call (and each read of the
+# setting), so runs side by side (cardbind.sh) take turns there only, and none saves another's 0 (#122)
+# (-o: what the updater leaves running does not keep the lock; -w/-E: a run whose updater hangs makes
+# the other one fail after 10 min with this reason, not wait for ever)
+UNS_LOCK=/tmp/dlzmod-update-test-userns.lock
+uns_now() { flock -w 600 "$UNS_LOCK" cat /proc/sys/user/max_user_namespaces; }
+run_asking() {
+  local rc
+  flock -w 600 -E 75 -o "$UNS_LOCK" chroot $R /usr/bin/env DLZMOD_DATA=/mnt/dlzdata /usr/local/sbin/dlzmod-update > $W/run.out 2>&1
+  rc=$?; [ $rc != 75 ] || bad "waited 10 min for $UNS_LOCK: another run's updater hangs (the updater did not run)"
+  echo "rc=$rc" >> $W/run.out; sed 's/^/    | /' $W/run.out
+  ls $R/tmp | grep -q '^dlzmod-' && { bad "temp files left in /tmp: $(ls $R/tmp | grep '^dlzmod-' | tr '\n' ' ')"; rm -rf $R/tmp/dlzmod-*; }
+}
+approve() {
+  local t=($U/dlzmod-*.tar)
+  if [ ${#t[@]} = 1 ] && [ -f "$t" ] && [ -f "$t.sig" ]; then key "$t" > $ST/approved; else rm -f $ST/approved; fi
+}
 U=$D/dlzmod-update
 reports() { ls $D/dlzmod-logs/ 2>/dev/null | grep -c '^update-'; }
 last() { ls $D/dlzmod-logs/update-*.txt 2>/dev/null | sort -V | tail -1; }
@@ -40,7 +64,7 @@ TK=$W/tk; mkdir -p $TK
 for k in release release2 dev other; do openssl genpkey -algorithm ed25519 -out $TK/$k.pem 2>/dev/null && openssl pkey -in $TK/$k.pem -pubout -out $TK/$k.pub; done
 sign() { openssl pkeyutl -sign -inkey $TK/${2:-dev}.pem -rawin -in "$1" -out "$1.sig"; }   # sign <tar> [key]
 put() { cp "$1" "$1.sig" $U/; }   # a package and its signature onto DLZDATA
-key() { cat "$1" "$1.sig" | sha256sum | cut -d' ' -f1; }   # the updater's record of a try
+key() { { cat "$1"; head -c 65 "$1.sig"; } | sha256sum | cut -d' ' -f1; }   # the updater's record of a try (its copy takes 65 bytes of the .sig)
 setchan() { sed -i "s/^CHANNEL=.*/CHANNEL=$1/" package.env; }   # in craft code: pkg/ and the outer folder
 
 # craft <name> <code in the unpacked pkg/ dir> [<code in the outer folder>]
@@ -59,8 +83,19 @@ refused() {   # refused <name> <expected text>: the package stays, the card is u
   [ -e $U/$1.tar ] && ok "$1: package kept" || bad "$1: package gone"
   said "NOT INSTALLED" && said "$2" && ok "$1: refused ($2)" || bad "$1: not refused with '$2'"
   [ "$(sha $R/srv/app.js)" = "$APP" ] && [ "$(sha $R/srv/server.js)" = "$SRV" ] && ok "$1: app/server unchanged" || bad "$1: app/server changed"
+  # #65: a refusal also ends that file's approval (run approves before every start; fail() removes it)
+  [ "$(cat $ST/approved 2>/dev/null)" != "$(key $U/$1.tar 2>/dev/null)" ] && ok "$1: no approval left for it" || bad "$1: its approval kept after the refusal"
   rm -f $U/$1.tar $U/$1.tar.sig
 }
+
+echo "== the PC's user namespace setting before this run"
+# (stopped here when it is 0: the sandbox's own check that it gets no user namespaces would pass on
+# the PC's setting, not on the updater's)
+if [ "$(uns_now)" != 0 ]; then ok "max_user_namespaces $(uns_now)"
+else
+  bad "max_user_namespaces is 0 before this run started: left by an earlier run (set it back: the value of /proc/sys/user/max_pid_namespaces)"
+  echo "$F UPDATE CHECK(S) FAILED (stopped before the cases)"; exit 1
+fi
 
 echo "== installed on the card"
 for f in usr/local/sbin/dlzmod-update etc/systemd/system/dlzmod-update.service etc/systemd/system/multi-user.target.wants/dlzmod-update.service etc/udev/rules.d/90-dlzmod-usb-wifi.rules var/lib/dlzmod-update/version; do
@@ -80,28 +115,81 @@ cmp -s $K/dev.pub <(tr -d '\r' < $REPO/install/keys/dev.pub) && echo "  (dev key
 cp $TK/release.pub $TK/release2.pub $TK/dev.pub $K/
 cp "$PKG" "$W/${PKG##*/}"; PKG=$W/${PKG##*/}; sign $PKG
 
-echo "== 0: every function in the update script is defined before any line uses it (the live-only eMMC"
-echo "   check once called 'later' before its definition: bash said 'command not found' and went on)"
-S0=$R/usr/local/sbin/dlzmod-update
-for fn in $(grep -oE '^[a-z_]+\(\) \{' $S0 | cut -d'(' -f1); do
-  def=$(grep -nE "^$fn\(\) \{" $S0 | head -1 | cut -d: -f1)
-  use=$(sed 's/[[:space:]]#.*$//' $S0 | grep -nE "(^|[^a-z_\$])$fn([^a-z_(]|$)" | grep -v ':\s*#' | grep -v 'trap ' | head -1 | cut -d: -f1)
-  [ -z "$use" ] || [ "$use" -ge "$def" ] || bad "$fn used on line $use before its definition on line $def"
-done
-ok "function order checked"
-
 echo "== 1: nothing to do"
 n0=$(reports); run; [ "$(reports)" = "$n0" ] && ok "no report" || bad "a report for nothing"
 
 echo "== 2: the same package as installed"
+# a report from before v0.2.0 (no version in its name) with a gap below it: the next one comes after it
+mkdir -p $D/dlzmod-logs && : > $D/dlzmod-logs/update-20.txt
 put "$PKG"; run
 [ ! -e $U/${PKG##*/} ] && [ ! -e $U/${PKG##*/}.sig ] && said "INSTALLED: " && said "signature: dev key" && ok "installed, package and signature deleted" || bad "not installed"
+# named like the package (dlzmod-v0.1.0-dev-abc1234 -> update-21-v0.1.0-dev-abc1234.txt), the popup's name the same
+PTOP=$(tar -tf "$PKG" | head -n 1 | cut -d/ -f1)
+[ "$(basename "$(last)")" = "update-21-${PTOP#dlzmod-}.txt" ] && ok "report named $(basename "$(last)")" || bad "report name: $(basename "$(last)"), expected update-21-${PTOP#dlzmod-}.txt"
+[ "$(cat $ST/last-report)" = "$(basename "$(last)")" ] && ok "last-report names it" || bad "last-report: $(cat $ST/last-report)"
+rm -f $D/dlzmod-logs/update-20.txt
 [ "$(sha $R/srv/app.js)" = "$APP" ] && ok "app.js unchanged (same package)" || bad "app.js changed"
 
 echo "== 3: a package that really changes something (dlzmod.js)"
 P=$(craft dlzmod-vchanged "printf '\n// dlzmod update test\n' >> mod/app-mod/dlzmod.js"); put $P; run
 said "INSTALLED: " && [ ! -e $U/dlzmod-vchanged.tar ] && ok "installed, package deleted" || bad "not installed"
 grep -q "dlzmod update test" $R/srv/app.js && ok "app.js has the new code" || bad "app.js without the new code"
+APP=$(sha $R/srv/app.js)
+
+echo "== 3a: asked first (#65): no Install, Later, Install for another file, a file replaced after Install, then Install"
+label() {   # the version as "pending" names it, from the package's package.env
+  local v b
+  v=$(tar -xOf "$1" --wildcards '*/package.env' | sed -n 's/^DLZMOD_VERSION=//p'); b=$(tar -xOf "$1" --wildcards '*/package.env' | sed -n 's/^BUILD=//p')
+  case $b in ''|release) echo "$v" ;; *) echo "$v ($b)" ;; esac
+}
+waits() {   # waits <what> <tar>: nothing applied, no report, no try, the question for the screen written
+  [ -e $U/${2##*/} ] && [ "$(sha $R/srv/app.js)" = "$APP" ] && [ "$(reports)" = "$n0" ] && ok "$1: nothing applied, package kept, no report" || bad "$1: applied or reported"
+  [ ! -e $ST/tries ] && [ ! -e $ST/inprogress ] && ok "$1: no try counted" || bad "$1: a try was counted"
+  [ "$(cat $ST/pending 2>/dev/null)" = "$(key $2) $(label $2)" ] && ok "$1: pending: $(cut -c1-12 $ST/pending)... $(cut -d' ' -f2- $ST/pending)" \
+    || bad "$1: pending is '$(cat $ST/pending 2>/dev/null)', expected '$(key $2) $(label $2)'"
+}
+P=$(craft dlzmod-vask "printf '\n// ask test\n' >> mod/app-mod/dlzmod.js"); put $P
+rm -f $ST/approved; n0=$(reports)
+run_asking; waits "no Install" $P
+run_asking; waits "Later: the next start asks again" $P
+printf '%064d\n' 0 > $ST/approved; run_asking; waits "Install for another file" $P
+[ ! -e $ST/approved ] && ok "another file's approval removed" || bad "another file's approval kept"
+key $P > $ST/approved; rm -f $U/dlzmod-vask.tar $U/dlzmod-vask.tar.sig
+P2=$(craft dlzmod-vask2 "printf '\n// ask test 2\n' >> mod/app-mod/dlzmod.js"); put $P2
+run_asking; waits "replaced by another file after Install" $P2
+[ ! -e $ST/approved ] && ok "the replaced file's approval removed" || bad "the replaced file's approval kept"
+key $P2 > $ST/approved; run_asking
+said "INSTALLED: " && grep -q "ask test 2" $R/srv/app.js && [ ! -e $U/dlzmod-vask2.tar ] && ok "installed after Install for this file" || bad "not installed after Install"
+[ ! -e $ST/approved ] && [ ! -e $ST/pending ] && ok "approval used up, no question left" || bad "approval or question left: $(ls $ST)"
+APP=$(sha $R/srv/app.js)
+key $P > $ST/approved   # an Install whose file was removed before the next start
+n0=$(reports); run_asking; [ "$(reports)" = "$n0" ] && [ ! -e $ST/pending ] && ok "the start after: nothing to ask" || bad "a question or report without a package"
+[ ! -e $ST/approved ] && ok "an Install for a file that is gone does not wait for it" || bad "approval kept without its file"
+# a package its checks refuse is reported as before (the red popup), never offered
+put $(craft dlzmod-vaskbad "sed -i 's/^REINSTALL=.*/REINSTALL=yes/' package.env" "sed -i 's/^REINSTALL=.*/REINSTALL=yes/' package.env") $U/; rm -f $ST/approved; run_asking
+[ ! -e $ST/pending ] && ok "refused package: no question" || bad "refused package offered: $(cat $ST/pending)"
+refused dlzmod-vaskbad "needs a full install"
+
+echo "== 3b: a card on v0.1.0's updater takes this package (by its own gate and sandbox), then the new one takes the next"
+OLDU=$(git -C $REPO -c safe.directory=$REPO show v0.1.0:install/sd-system/dlzmod-update 2>/dev/null)
+NEWU=$(tar -xOf "$PKG" --wildcards '*/initrd.cpio.gz' | zcat | cpio -i --quiet --to-stdout '*pkg/mod/sd-system/dlzmod-update')
+if [ -z "$OLDU" ] || [ -z "$NEWU" ]; then bad "no v0.1.0 tag here (git fetch --tags) or no updater in the package"
+else
+  printf '%s\n' "$OLDU" > $R/usr/local/sbin/dlzmod-update
+  # v0.1.0 names its report update-N.txt with the lowest free N: not the highest, so found by the listing
+  before=$(ls $D/dlzmod-logs)
+  put $(craft dlzmod-vfrom010 "printf '\n// from v0.1.0 test\n' >> mod/app-mod/dlzmod.js"); run
+  rep=$(ls $D/dlzmod-logs | grep -vxF -f <(printf '%s\n' $before) | head -n 1)
+  [ -n "$rep" ] && grep -qF "INSTALLED: " "$D/dlzmod-logs/$rep" && grep -q "from v0.1.0 test" $R/srv/app.js \
+    && ok "installed by the v0.1.0 updater ($rep)" || bad "the v0.1.0 updater did not install it (report: ${rep:-none})"
+  if [ "$(cat $R/usr/local/sbin/dlzmod-update)" = "$NEWU" ]; then ok "the card's updater is now the package's"
+  else   # the cases below test the package's updater, not v0.1.0's
+    bad "the card kept another updater (the package's put back for the cases below)"
+    printf '%s\n' "$NEWU" > $R/usr/local/sbin/dlzmod-update; chmod 755 $R/usr/local/sbin/dlzmod-update
+  fi
+  put $(craft dlzmod-vfromnew "printf '\n// by the new updater\n' >> mod/app-mod/dlzmod.js"); run
+  said "INSTALLED: " && grep -q "by the new updater" $R/srv/app.js && ok "the next package installed by the new updater" || bad "the new updater did not install the next one"
+fi
 APP=$(sha $R/srv/app.js)
 
 if [ -z "${QUICK:-}" ]; then   # QUICK=1: only the install, a good update, model/marker and guards
@@ -131,9 +219,6 @@ said "nothing on the card was changed" && ok "refused, nothing placed" || bad "n
 [ "$(sha $R/srv/app.js)" = "$APP" ] && ok "app.js as before the update" || bad "app.js CHANGED"
 rm -f $U/dlzmod-vfail7.tar $U/dlzmod-vfail7.tar.sig
 
-echo "== 8: a symlink in the initramfs"
-put $(craft dlzmod-vlink "ln -s /etc mod/evil") $U/; run; refused dlzmod-vlink "links or special files"
-
 fi
 if [ -e $R/root/.dlzlite ]; then wrong=full-size; else wrong=XS; fi   # a package made for the other model only
 echo "== 9: made for the $wrong only"
@@ -145,14 +230,6 @@ mv $R/root/.gd32-loaded-firmware-$mine-154.bin $R/root/.gd32-loaded-firmware-$ot
 put $(craft dlzmod-vmarker "true") $U/; run; refused dlzmod-vmarker "does not pass the package's check"
 mv $R/root/.gd32-loaded-firmware-$other-154.bin $R/root/.gd32-loaded-firmware-$mine-154.bin
 rm -f $U/dlzmod-vmarker.tar $U/dlzmod-vmarker.tar.sig
-
-echo "== 10: older version"
-put $(craft dlzmod-vold "echo v0.0.9 > VERSION && sed -i 's/^DLZMOD_VERSION=.*/DLZMOD_VERSION=v0.0.9/' package.env" "sed -i 's/^DLZMOD_VERSION=.*/DLZMOD_VERSION=v0.0.9/' package.env") $U/; run; refused dlzmod-vold "older"
-
-echo "== 11: a guard that still says ExecStart= but starts the flash again"
-put $(craft dlzmod-vguard "echo 'ExecStart=/usr/local/bin/flash-gd32.sh' >> mod/sd-system/flash-gd32.service.d/dlzmod.conf") $U/; run
-refused dlzmod-vguard "changes a safety guard"
-grep -q flash-gd32.sh $R/etc/systemd/system/flash-gd32.service.d/dlzmod.conf && bad "GD32 GUARD WEAKENED" || ok "GD32 guard as installed"
 
 echo "== 12: apply puts an extra drop-in next to the GD32 guard"
 put $(craft dlzmod-vextra "cat $HERE/fixtures/extra-dropin.sh >> mod/apply-mod.sh") $U/; run
@@ -168,7 +245,7 @@ sed -n '/^SNAP_GLOBS=/,/dlzmod-keys\/\*"$/p;/^snap_list() {/,/^}/p' $R/usr/local
 chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
 echo "$S" > $ST/inprogress
 echo "// half written" >> $R/srv/app.js
-put $P; run
+put $P; rm -f $ST/approved; run_asking   # no new Install (#65): the cut-off try's marker carries it
 said "was interrupted: keeping the snapshot" && ok "kept the first snapshot" || bad "took a new snapshot"
 [ "$(sha $R/srv/app.js)" = "$APP" ] && ok "app.js as before the cut-off try" || bad "app.js NOT as before"
 rm -f $U/dlzmod-vcut.tar $U/dlzmod-vcut.tar.sig
@@ -191,14 +268,11 @@ P=$(craft dlzmod-vhang "printf '\n// hang test\n' >> mod/app-mod/dlzmod.js"); S=
 chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
 echo "$S" > $ST/inprogress; echo "$S 3" > $ST/tries
 echo "// half written" >> $R/srv/app.js
-put $P; run
+put $P; rm -f $ST/approved; run_asking
 said "stopped 3 times" && said "it never finished" && ok "given up" || bad "not given up"
 [ "$(sha $R/srv/app.js)" = "$APP" ] && ok "app.js as before" || bad "app.js NOT restored"
 [ ! -e $ST/tries ] && [ ! -e $ST/inprogress ] && ok "counters cleared" || bad "counters left"
 rm -f $U/dlzmod-vhang.tar $U/dlzmod-vhang.tar.sig
-
-echo "== 18: an initramfs that unpacks to more than the limit"
-put $(craft dlzmod-vbomb "head -c 70000000 /dev/zero > mod/big") $U/; run; refused dlzmod-vbomb "unpacks too big"
 
 echo "== 19: a cut-off try left a drop-in next to the GD32 guard, the package was removed since: repaired anyway"
 chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
@@ -207,9 +281,6 @@ printf '[Service]\nExecStart=/bin/false\n' > $R/etc/systemd/system/flash-gd32.se
 run
 said "after a try that was cut off" && said "previous files restored" && ok "repaired without a package" || bad "not repaired"
 [ "$(ls -A $R/etc/systemd/system/flash-gd32.service.d)" = dlzmod.conf ] && [ ! -e $ST/inprogress ] && ok "drop-in gone, marker cleared" || bad "drop-in or marker left"
-
-echo "== 20: a compressed tar"
-gzip -c "$PKG" > $U/dlzmod-vgz.tar; sign $U/dlzmod-vgz.tar; run; refused dlzmod-vgz "not a plain tar"
 
 echo "== 21: no signature file, then the next start, then the signature added"
 P=$(craft dlzmod-vnosig "printf '\n// nosig test\n' >> mod/app-mod/dlzmod.js"); cp $P $U/; run
@@ -233,24 +304,10 @@ cp "$PKG" $W/vafter.tar; sign $W/vafter.tar
 python3 -c "import sys; f=open(sys.argv[1],'r+b'); f.seek(4000); b=f.read(1); f.seek(4000); f.write(bytes([b[0]^1]))" $W/vafter.tar
 cp $W/vafter.tar $U/dlzmod-vafter.tar; cp $W/vafter.tar.sig $U/dlzmod-vafter.tar.sig; run; refused dlzmod-vafter "not signed with a key this card trusts"
 
-echo "== 24: a signature file of the wrong size"
-P=$(craft dlzmod-vsig65 ":"); echo x >> $P.sig; put $P; run; refused dlzmod-vsig65 "not an ed25519 signature"
-
-echo "== 25: a test build on a release card (release.pub + release2.pub)"
-mv $K/dev.pub $W/dev.pub.kept
-P=$(craft dlzmod-vdevonrel "printf '\n// dev on release\n' >> mod/app-mod/dlzmod.js"); put $P; run; refused dlzmod-vdevonrel "not signed with a key this card trusts"
-mv $W/dev.pub.kept $K/dev.pub
-
-echo "== 26: signed with the release key but marked dev"
-P=$(SIGNKEY=release craft dlzmod-vrelasdev ":"); put $P; run; refused dlzmod-vrelasdev "a 'dev' package signed with the release key"
-
 echo "== 27: a release package (release key, CHANNEL=release) on the developer card"
 P=$(SIGNKEY=release craft dlzmod-vrel "printf '\n// release test\n' >> mod/app-mod/dlzmod.js; setchan release" "setchan release"); put $P; run
 said "INSTALLED: " && said "signature: release key" && grep -q "release test" $R/srv/app.js && ok "installed" || bad "release package not installed"
 APP=$(sha $R/srv/app.js)
-
-echo "== 28: a dev package marked release, signed with the dev key"
-P=$(craft dlzmod-vdevasrel "setchan release" "setchan release"); put $P; run; refused dlzmod-vdevasrel "a 'release' package signed with the dev key"
 
 echo "== 29: an update that adds a trusted key: caught, put back"
 KS=$(cd $K && sha256sum *)
@@ -269,11 +326,6 @@ echo "== 31: a package.env key this version does not know (a later version's): i
 P=$(craft dlzmod-vfuture "printf '\n// future test\n' >> mod/app-mod/dlzmod.js; echo FUTURE_FIELD=something >> package.env" "echo FUTURE_FIELD=something >> package.env"); put $P; run
 said "INSTALLED: " && ok "installed" || bad "unknown key refused"
 APP=$(sha $R/srv/app.js)
-
-echo "== 32: a card without update keys (made before signed updates)"
-mv $K $W/keys.kept
-P=$(craft dlzmod-vnokeys ":"); put $P; run; refused dlzmod-vnokeys "has no update keys"
-mv $W/keys.kept $K
 
 echo "== 33: update keys per channel (card-core.sh): package.env wins; none only with DLZMOD_CHANNEL=dev (build-sd.sh); else refused"
 F33=$W/k33; mkdir -p $F33/tools/keys; cp $REPO/install/keys/*.pub $F33/tools/keys/
@@ -298,17 +350,25 @@ for ch in release dev none builddev bad envwins; do
   rm -rf $F33/mnt
 done
 
-echo "== 35: a different file's try was cut off; a refused file must not clear its marker"
-chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
-echo "other-package" > $ST/inprogress
-echo "# half applied by the cut-off file" > $R/etc/udev/rules.d/99-dlzmod-halfa.rules
+halfa() {   # a different file's try cut off after it placed a udev rule
+  chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
+  echo "other-package" > $ST/inprogress
+  echo "# half applied by the cut-off file" > $R/etc/udev/rules.d/99-dlzmod-halfa.rules
+}
+echo "== 35: a different file's try was cut off, then a file that is refused: the cut-off try is put back first (#108)"
+halfa
 P=$(craft dlzmod-vearly ":"); echo x >> $P.sig; put $P; run; refused dlzmod-vearly "not an ed25519 signature"
-[ "$(cat $ST/inprogress 2>/dev/null)" = other-package ] && ok "the other file's marker kept" || bad "OTHER FILE'S MARKER CLEARED"
+said "an earlier update file was cut off" && said "previous files restored" && [ ! -e $R/etc/udev/rules.d/99-dlzmod-halfa.rules ] \
+  && [ ! -e $ST/inprogress ] && ok "the cut-off file's leftover removed, its marker cleared" || bad "CUT-OFF TRY NOT PUT BACK before the refusal"
 
-echo "== 34: then a good file: the cut-off file's leftovers go first, then the new snapshot and the install"
-P=$(craft dlzmod-vafterother "printf '\n// after other test\n' >> mod/app-mod/dlzmod.js"); put $P; run
-said "an earlier update file was cut off" && said "INSTALLED: " && ok "rolled back first, then installed" || bad "not rolled back or not installed"
+echo "== 34: a different file's try was cut off, then a good file, not yet approved (#65): the leftovers go while it waits; then Install"
+halfa
+P=$(craft dlzmod-vafterother "printf '\n// after other test\n' >> mod/app-mod/dlzmod.js"); put $P; rm -f $ST/approved; run_asking
+said "an earlier update file was cut off" && said "previous files restored" && said "waits for Install" && ! said "INSTALLED: " && ok "rolled back while it waits, not installed" || bad "not rolled back, or installed without Install"
 [ ! -e $R/etc/udev/rules.d/99-dlzmod-halfa.rules ] && ok "the cut-off file's leftover removed" || bad "LEFTOVER KEPT"
+[ ! -e $ST/inprogress ] && [ "$(cut -d' ' -f1 $ST/pending 2>/dev/null)" = "$(key $P)" ] && ok "marker cleared, the new file asked about" || bad "marker left or no question"
+run
+said "INSTALLED: " && grep -q "after other test" $R/srv/app.js && ok "installed after Install" || bad "not installed after Install"
 [ ! -e $ST/inprogress ] && ok "marker cleared" || bad "marker left: $(cat $ST/inprogress)"
 tar -tf $ST/previous.tar 2>/dev/null | grep -q halfa && bad "LEFTOVER IN THE NEW SNAPSHOT" || ok "new snapshot without the leftover"
 APP=$(sha $R/srv/app.js)
@@ -319,9 +379,6 @@ P=$(SIGNKEY=release2 craft dlzmod-vspare "printf '\n// spare key test\n' >> mod/
 said "INSTALLED: " && said "signature: release2 key" && grep -q "spare key test" $R/srv/app.js && ok "installed with the spare key" || bad "spare-signed release not installed"
 mv $W/dev.pub.kept $K/dev.pub
 APP=$(sha $R/srv/app.js)
-
-echo "== 37: signed with the spare release key but marked dev"
-P=$(SIGNKEY=release2 craft dlzmod-vspareasdev ":"); put $P; run; refused dlzmod-vspareasdev "a 'dev' package signed with the release key"
 
 echo "== 38: a cut-off try had already written its (newer) version: the check uses the snapshot's"
 chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
@@ -334,6 +391,7 @@ APP=$(sha $R/srv/app.js)
 
 echo "== 39: two files, removed, then the same two again: reported again"
 cp "$PKG" $U/dlzmod-va.tar; cp "$PKG" $U/dlzmod-vb.tar; run; said "more than one" && ok "reported" || bad "not reported"
+case $(basename "$(last)") in update-*-unknown-version.txt) ok "report named without a version: $(basename "$(last)")" ;; *) bad "report name: $(basename "$(last)")" ;; esac
 rm $U/dlzmod-va.tar $U/dlzmod-vb.tar; run
 [ ! -e $ST/multiple ] && ok "marker cleared with nothing there" || bad "marker kept"
 n1=$(reports); cp "$PKG" $U/dlzmod-va.tar; cp "$PKG" $U/dlzmod-vb.tar; run
@@ -357,17 +415,21 @@ sleep 6
 [ ! -e $R/srv/late.txt ] && [ ! -e $R/tmp/dlzmod-late ] && ! pgrep -f "sleep 4" > /dev/null && ok "no leftover process, nothing written late" || bad "A LEFTOVER PROCESS RAN"
 APP=$(sha $R/srv/app.js)
 
-echo "== 43: a new boot.scr (U-Boot script image): placed atomically, then put back by the test"
+echo "== 43: a new boot.scr, even a proper U-Boot script image: refused (only a full install brings one)"
 cp -p $R/boot/boot.scr $W/boot.scr.kept
 printf '\x27\x05\x19\x56test boot script' > $W/new-boot.scr
 put $(craft dlzmod-vbootscr "cp $W/new-boot.scr mod/new-boot.scr; printf 'cp \"\$TOOLS/new-boot.scr\" \"\$MNT/boot/boot.scr\"\n' >> mod/apply-mod.sh"); run
-said "INSTALLED: " && cmp -s $R/boot/boot.scr $W/new-boot.scr && ok "boot.scr placed" || bad "boot.scr not placed"
-cp -p $W/boot.scr.kept $R/boot/boot.scr
-APP=$(sha $R/srv/app.js)   # the base package's app.js again (42's comment gone)
+refused dlzmod-vbootscr "the update changes /boot/boot.scr, which an update may not"
+cmp -s $R/boot/boot.scr $W/boot.scr.kept && ok "boot.scr as before" || bad "BOOT.SCR CHANGED"
 
-echo "== 44: a boot.scr that is not a U-Boot script image: refused"
+echo "== 44: a boot.scr that is not a U-Boot script image: refused the same way (by the allowlist, whatever it holds)"
 put $(craft dlzmod-vbadscr "printf 'cp /etc/hostname \"\$MNT/boot/boot.scr\"\n' >> mod/apply-mod.sh"); run
-refused dlzmod-vbadscr "puts something unexpected at /boot/boot.scr"
+refused dlzmod-vbadscr "the update changes /boot/boot.scr, which an update may not"
+cmp -s $R/boot/boot.scr $W/boot.scr.kept && ok "boot.scr as before" || bad "BOOT.SCR CHANGED"
+
+echo "== 44b: boot.scr removed: refused"
+put $(craft dlzmod-vnoscr "printf 'rm -f \"\$MNT/boot/boot.scr\"\n' >> mod/apply-mod.sh"); run
+refused dlzmod-vnoscr "the update changes /boot/boot.scr, which an update may not"
 cmp -s $R/boot/boot.scr $W/boot.scr.kept && ok "boot.scr as before" || bad "BOOT.SCR CHANGED"
 
 echo "== 45: a new update script with another guard list: refused"
@@ -402,11 +464,11 @@ touch /run/pkg/x 2>/dev/null && exit 47
 grep -q '^CapEff:[[:space:]]*0*$' /proc/self/status || exit 49
 true
 EOF
-UNS0=$(cat /proc/sys/user/max_user_namespaces)
+UNS0=$(uns_now)
 put $(craft dlzmod-vwalls "cp $W/walls.sh mod/walls.sh; printf '. \"\$TOOLS/walls.sh\"\n' >> mod/apply-mod.sh"); run
 said "INSTALLED: " && ok "every wall held (uid 65533, no userns, no sockets, nothing writable, 4 device nodes, no caps)" \
   || bad "A WALL FAILED: $(grep -o 'exit [0-9]*' "$(last)" | head -1) (41 uid, 42 userns, 43 sockets, 44-47 writable, 48 /dev, 49 caps)"
-[ "$(cat /proc/sys/user/max_user_namespaces)" = "$UNS0" ] && ok "user namespaces back on afterwards ($UNS0)" || bad "max_user_namespaces left at $(cat /proc/sys/user/max_user_namespaces)"
+[ "$UNS0" != 0 ] && [ "$(uns_now)" = "$UNS0" ] && ok "user namespaces back on afterwards ($UNS0)" || bad "max_user_namespaces $UNS0 before, $(uns_now) after (0: switched off, by this run or one before it)"
 APP=$(sha $R/srv/app.js)
 
 echo "== 50: patches that do not fit this firmware (patch.py --check fails, in the sandbox)"
@@ -452,9 +514,9 @@ cp /bin/true "$MNT/usr/local/sbin/dlzmod-suid" && chmod 4755 "$MNT/usr/local/sbi
 EOF
 with() { echo "cp $W/$1 mod/$1; printf '. \"\$TOOLS/$1\"\n' >> mod/apply-mod.sh"; }
 
-echo "== 56: a boot.scr that writes the eMMC: refused"
+echo "== 56: a boot.scr that writes the eMMC: refused (by the allowlist, as 43-44b; kept for the day boot.scr gets a content check again)"
 put $(craft dlzmod-vmmcw "$(with x-mmcw.sh)"); run
-refused dlzmod-vmmcw "puts something unexpected at /boot/boot.scr"
+refused dlzmod-vmmcw "the update changes /boot/boot.scr, which an update may not"
 
 echo "== 57: a new unit that starts before the eMMC lock (DefaultDependencies=no): refused"
 put $(craft dlzmod-vearlyunit "$(with x-early.sh)"); run
@@ -467,6 +529,162 @@ refused dlzmod-vsetrw "puts something unexpected at /etc/udev/rules.d/99-dlzmod-
 echo "== 59: a setuid file: refused"
 put $(craft dlzmod-vsuid "$(with x-suid.sh)"); run
 refused dlzmod-vsuid "puts something unexpected at /usr/local/sbin/dlzmod-suid"
+
+echo "== 60: the progress marker cannot be written: not installed this time, then installed"
+P=$(craft dlzmod-vprogress "printf '\n// marker test\n' >> mod/app-mod/dlzmod.js")
+mkdir $ST/inprogress.new; put $P; run
+said "NOT INSTALLED this time" && said "progress marker not written" && ok "stopped before the steps" || bad "not stopped at the marker"
+[ -e $U/dlzmod-vprogress.tar ] && [ ! -e $ST/inprogress ] && [ "$(sha $R/srv/app.js)" = "$APP" ] \
+  && ok "package kept, no marker, app.js unchanged" || bad "package gone, marker set or app.js changed"
+rmdir $ST/inprogress.new; run
+said "INSTALLED: " && grep -q "marker test" $R/srv/app.js && ok "installed at the next start" || bad "not installed at the next start"
+APP=$(sha $R/srv/app.js)
+rm -f $U/dlzmod-vprogress.tar $U/dlzmod-vprogress.tar.sig   # left only when this case failed
+
+echo "== 61: a step that exits with 3 is a failed step, not a firmware that does not fit"
+put $(craft dlzmod-vexit3 "sed -i 's/^record_version() {/record_version() { exit 3/' mod/apply-mod.sh"); run
+refused dlzmod-vexit3 "a step failed (exit 3)"
+
+echo "== 62: a cut-off try whose snapshot cannot be unpacked: restore incomplete, no temp folder left"
+for f in previous.tar previous.list; do cp $ST/$f $W/$f.keep 2>/dev/null; done
+chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list'
+echo "not a tar" > $ST/previous.tar
+echo "gone-package" > $ST/inprogress
+run
+said "RESTORE INCOMPLETE" && ok "restore incomplete reported" || bad "no RESTORE INCOMPLETE"
+# tried again at every start, but said once: no new report with the same text
+n1=$(reports); run
+[ "$(reports)" = "$n1" ] && [ -s $ST/inprogress ] && ok "tried again, no second report" || bad "a report at every start, or the marker gone"
+rm -f $ST/inprogress   # the snapshot pair as it was before this case
+for f in previous.tar previous.list; do [ -e $W/$f.keep ] && mv $W/$f.keep $ST/$f || rm -f $ST/$f; done
+
+# #108: a try that was cut off (or whose put-back failed) and that a start does not go on with is put
+# back, whatever lies in dlzmod-update; the state each case starts from: a snapshot of the card as
+# it is, a progress marker, and app.js half placed
+cutoff() {   # cutoff <progress marker>
+  chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
+  echo "$1" > $ST/inprogress
+  echo "// half placed" >> $R/srv/app.js
+}
+backnow() {   # backnow <what>: app.js as before the cut-off try, its marker gone
+  [ "$(sha $R/srv/app.js)" = "$APP" ] && [ ! -e $ST/inprogress ] && ok "$1: app.js as before, marker cleared" || bad "$1: app.js NOT put back or marker left"
+}
+echo "== 64: a failed try whose put-back failed, its file still there: put back at the next start"
+P=$(craft dlzmod-vrinc "printf '\n// rinc test\n' >> mod/app-mod/dlzmod.js"); S=$(key $P)
+cutoff "$S"; echo "$S" > $ST/failed
+put $P; run
+said "could not all be put back then" && said "previous files restored" && ok "put back with the failed file still there" || bad "not put back"
+backnow "failed file"
+n1=$(reports); run; [ "$(reports)" = "$n1" ] && ok "no new report once it is back" || bad "a report at every start"
+rm -f $U/dlzmod-vrinc.tar $U/dlzmod-vrinc.tar.sig $ST/failed $ST/approved
+
+echo "== 65: a cut-off try of another file, then an update file without its signature: put back"
+cutoff other-package
+cp $P $U/dlzmod-vnosig2.tar; run
+said "has no signature file" && said "previous files restored" && ok "put back, the missing signature named" || bad "not put back"
+backnow "unsigned file"
+rm -f $U/dlzmod-vnosig2.tar
+
+echo "== 66: a cut-off try of another file, then two update files: put back"
+cutoff other-package
+put $P; cp $P $U/dlzmod-vrinc2.tar; cp $P.sig $U/dlzmod-vrinc2.tar.sig; run
+said "more than one update file" && said "previous files restored" && ok "put back, the two files named" || bad "not put back"
+backnow "two files"
+rm -f $U/dlzmod-vrinc.tar $U/dlzmod-vrinc.tar.sig $U/dlzmod-vrinc2.tar $U/dlzmod-vrinc2.tar.sig
+
+echo "== 67: a cut-off try of this file, and its own check of the card refuses it now: put back"
+P2=$(craft dlzmod-vchk "echo 'exit 1' > mod/check-rootfs.sh"); S2=$(key $P2)
+cutoff "$S2"
+put $P2; rm -f $ST/approved; run_asking   # the marker carries the Install
+said "does not pass the package's check" && said "a try of this file placed files" && said "previous files restored" \
+  && ok "refused and put back" || bad "refused without putting back"
+backnow "refused resumed try"
+rm -f $U/dlzmod-vchk.tar $U/dlzmod-vchk.tar.sig
+
+echo "== 68: a start that stops for a reason not the package's gives its try back (the earlier ones stay)"
+echo "$S 1" > $ST/tries; mkdir $ST/inprogress.new; put $P; run
+said "progress marker not written" && [ "$(cat $ST/tries 2>/dev/null)" = "$S 1" ] && ok "this start's try given back, the earlier one kept" \
+  || bad "tries now: $(cat $ST/tries 2>/dev/null || echo gone)"
+rmdir $ST/inprogress.new; rm -f $U/dlzmod-vrinc.tar $U/dlzmod-vrinc.tar.sig $ST/tries $ST/approved
+
+echo "== 69: a progress marker without its snapshot, no file there: cleared (nothing was placed behind it)"
+for f in previous.tar previous.list; do mv $ST/$f $W/$f.keep69; done
+echo "$S" > $ST/inprogress; run
+[ ! -e $ST/inprogress ] && ok "marker cleared" || bad "marker without a snapshot kept"
+for f in previous.tar previous.list; do mv $W/$f.keep69 $ST/$f; done
+
+echo "== 70: a resumed cut-off try stops for a reason not the package's: put back, Install kept, then installed"
+cutoff "$S"; put $P
+# the sandbox setup cannot switch user namespaces off this start (a read-only bind over the knob)
+echo 15000 > $W/uns
+if mount --bind $W/uns $R/proc/sys/user/max_user_namespaces && mount -o remount,bind,ro $R/proc/sys/user/max_user_namespaces; then
+rm -f $ST/approved; run_asking   # the marker carries the Install
+umount $R/proc/sys/user/max_user_namespaces
+said "NOT INSTALLED this time: user namespaces" && said "previous files restored" && ok "stopped and put back" || bad "not put back"
+backnow "resumed try stopped"
+[ "$(cat $ST/approved 2>/dev/null)" = "$S" ] && ok "its Install kept" || bad "Install not kept"
+run_asking   # no new Install
+said "INSTALLED: " && grep -q "rinc test" $R/srv/app.js && ok "installed at the next start without asking again" || bad "not installed at the next start"
+APP=$(sha $R/srv/app.js)
+else
+  umount $R/proc/sys/user/max_user_namespaces 2>/dev/null; bad "case 70 setup: the read-only bind over max_user_namespaces failed (case skipped)"
+  rm -f $ST/inprogress   # the cut-off state of this case
+fi
+rm -f $U/dlzmod-vrinc.tar $U/dlzmod-vrinc.tar.sig   # left only when this case failed
+
+echo "== 71: a cut-off try of this file, then a second file next to it: put back with its Install kept; the copy removed: installed"
+P=$(craft dlzmod-vkeep "printf '\n// keep test\n' >> mod/app-mod/dlzmod.js"); S=$(key $P)
+cutoff "$S"; rm -f $ST/approved
+put $P; cp $P $U/dlzmod-vkeep2.tar; cp $P.sig $U/dlzmod-vkeep2.tar.sig; run_asking
+said "more than one update file" && said "previous files restored" && ok "put back, the two files named" || bad "not put back"
+backnow "same file next to another"
+[ "$(cat $ST/approved 2>/dev/null)" = "$S" ] && ok "its Install kept" || bad "Install not kept: $(cat $ST/approved 2>/dev/null || echo none)"
+rm -f $U/dlzmod-vkeep2.tar $U/dlzmod-vkeep2.tar.sig; run_asking   # no new Install
+said "INSTALLED: " && grep -q "keep test" $R/srv/app.js && ok "installed without asking again" || bad "not installed"
+APP=$(sha $R/srv/app.js)
+rm -f $U/dlzmod-vkeep.tar $U/dlzmod-vkeep.tar.sig   # left only when this case failed
+
+echo "== 72: a put-back that fails (app.js cannot be replaced): reported once; tried once per start, also with broken guards"
+cutoff gone-package3
+echo "added" > $R/usr/local/sbin/dlzmod-added   # an update's new file: removed at the first try
+chattr +i $R/srv/app.js
+n1=$(reports); run
+said "RESTORE INCOMPLETE" && said "removed /usr/local/sbin/dlzmod-added" && [ "$(reports)" = "$((n1 + 1))" ] && ok "reported" || bad "no report of the failed put-back"
+run; [ "$(reports)" = "$((n1 + 1))" ] && ok "the next start: the same news, no new report (without the removed line)" || bad "a second report for the same failure"
+printf '[Service]\nExecStart=/bin/false\n' > $R/etc/systemd/system/flash-gd32.service.d/zz.conf   # guards not as installed
+run
+[ "$(grep -c 'putting the files from before it back' "$(last)")" = 1 ] && ok "with broken guards: put back once this start, not again on the next path" \
+  || bad "put back $(grep -c 'putting the files from before it back' "$(last)") times in one start"
+chattr -i $R/srv/app.js; run
+said "previous files restored" && [ ! -e $ST/inprogress ] && [ "$(sha $R/srv/app.js)" = "$APP" ] && ok "put back once app.js can be replaced" || bad "not put back afterwards"
+[ ! -e $R/etc/systemd/system/flash-gd32.service.d/zz.conf ] && ok "extra drop-in gone" || bad "EXTRA DROP-IN LEFT"
+
+echo "== 73: the start-up put-back fails, the same file goes on and its placing fails too: put back again after placing"
+P3=$(craft dlzmod-vplace "printf '\n// place test\n' >> mod/app-mod/dlzmod.js"); S3=$(key $P3)
+cutoff "$S3"
+printf '[Service]\nExecStart=/bin/false\n' > $R/etc/systemd/system/flash-gd32.service.d/zz.conf   # the start-up put-back runs
+chattr +i $R/srv/app.js   # it fails, and so does placing app.js
+put $P3; run
+said "applying failed" && [ "$(grep -c 'putting the files from before it back' "$(last)")" = 2 ] \
+  && ok "put back at the start, and once more after placing" || bad "put back $(grep -c 'putting the files from before it back' "$(last)") times (want 2)"
+chattr -i $R/srv/app.js; run
+said "could not all be put back then" && said "previous files restored" && ok "put back at the next start" || bad "not put back at the next start"
+backnow "placing failed after a failed put-back"
+rm -f $U/dlzmod-vplace.tar $U/dlzmod-vplace.tar.sig $ST/failed $ST/approved
+
+echo "== 74: a put-back keeps no Install over another file's, and none for a file that failed"
+cutoff "$S"; echo other-record > $ST/approved
+cp $P $U/dlzmod-vkeepa.tar; cp $P.sig $U/dlzmod-vkeepa.tar.sig; cp $P $U/dlzmod-vkeepb.tar; cp $P.sig $U/dlzmod-vkeepb.tar.sig; run_asking
+said "previous files restored" && [ "$(cat $ST/approved 2>/dev/null)" = other-record ] && ok "another file's Install not overwritten" || bad "approved now: $(cat $ST/approved 2>/dev/null || echo none)"
+rm -f $ST/approved
+cutoff "$S"; echo "$S" > $ST/failed; run_asking
+said "previous files restored" && [ ! -e $ST/approved ] && ok "no Install kept for a file that failed" || bad "an Install kept for a failed file"
+rm -f $U/dlzmod-vkeep[ab].tar $U/dlzmod-vkeep[ab].tar.sig $ST/failed $ST/approved
+
+echo "== 63: stops before DLZDATA (not on an SD card): no report file left in /tmp"
+chroot $R /usr/local/sbin/dlzmod-update > $W/run.out 2>&1
+grep -q "not on an SD card" $W/run.out && ok "stopped: not on an SD card" || bad "did not stop at the SD check: $(cat $W/run.out)"
+ls $R/tmp | grep -q '^dlzmod-update-report' && bad "report file left in /tmp" || ok "no report file left"
 fi
 echo "== 14: guards still as installed after all this"
 for f in flash-gd32 upgradedaemon upgraderun; do

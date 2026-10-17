@@ -16,9 +16,10 @@ root, with `MSYS_NO_PATHCONV=1` in Git Bash:
 
 ```bash
 W="MSYS_NO_PATHCONV=1 wsl -d Ubuntu -e bash .claude/skills/mixer-ssh/dlz-ssh.sh"
-$W show                                    # stored address? password this session?
+$W show                                    # stored address? key or password this session?
 $W host <ip or name>                       # when none is stored or the user gives a new one
-$W pass '<password>'                       # once per session (WSL /tmp only)
+$W key                                     # dev card: the key from dev/push.env (or $W key <file>)
+printf '%s\n' '<password>' | $W pass        # otherwise: once per session, on stdin (WSL /tmp only)
 $W run 'uptime; findmnt -no SOURCE /'      # read-only command; prints [mixer: root@<address>]
 $W get <remote file> build/device-logs/<name>   # copy to the PC (git-ignored)
 $W forget                                  # at the end of the session (--all: the address too)
@@ -29,12 +30,22 @@ $W forget                                  # at the end of the session (--all: t
   different mixer or network: ask the user for the address (IP, or the network name such as
   `mackie-dlz-creator-xs.local`) and store it with `host`. Say which address is used when it was
   stored in an earlier session. User `root`.
+- **Key first**: a dev card trusts the key `dev/push.sh` uses (`SSH_KEY` in `dev/push.env`, a
+  private key without a passphrase). `key` copies it into the session's private folder (mode 600;
+  WSL's ssh refuses a key on a Windows drive) and logs in with only that key, before any password.
+  In a worktree (no `dev/push.env`) give the path: `$W key '~/.ssh/<file>'` (`~` = the Windows user
+  folder) or `C:/...`. No key file, a key with a passphrase (`key` refuses it; the dev card's own key
+  is made without one, `docs/DEVELOPMENT.md` "Dev card"), or a mixer that does not take it: ask for
+  the password.
 - **Password**: only from the user, in this conversation, for this session; never write it into
-  the repo, notes, memory or any command line other than `pass`. When the user uses a test
+  the repo, notes, memory or any command line. It goes to `pass` on stdin, through the shell's own
+  `printf` (a builtin, so it is on no command line in WSL: not `wsl`'s, not `ssh`'s, not
+  `dlz-ssh.sh`'s); `pass` refuses an argument and stores
+  it in a private `mktemp -d` folder (mode 700) that `forget` removes. When the user uses a test
   password, remind them to change it and turn SSH keep-on off before the mixer leaves home.
 - SSH must be on (Settings, Network, SSH). Connection refused or timeout: ask the user, do not
   scan the network.
-- Host keys go to a file in `/tmp`: each install makes a new card with new keys, so a changed key
+- Host keys go to the same private folder: each install makes a new card with new keys, so a changed key
   after a reinstall is expected (`forget` clears it). A changed key *without* a reinstall: stop and
   tell the user.
 
@@ -53,12 +64,22 @@ Reading files and state, small outputs:
   `systemd-analyze`, `systemd-analyze blame|critical-chain`
 - copying a file **to the PC** with `get` (reads on the mixer; small files, logs)
 
-The wrapper refuses commands that look like writes (`rm`, `mv`, `cp`, `dd`, `tee`, `>` to a file,
-`mount`, `systemctl start/stop/...`, `kill`, `apt`, interpreters like `python3`/`bash`, and more:
-`WRITE_RE` in the script; command words count only where a command starts, so a unit name like
-`flash-fpga` as an argument is fine). A refusal is a stop sign, not an obstacle: do not rephrase the
-command to get past it. A refused *read* is a false positive in the wrapper: fix the pattern, add the
-case to `test-guard.sh` (offline, never connects), run it until ALL OK, then rerun the same command.
+The wrapper only lets reads through, as an allowlist (`READ_CMDS` and `seg_ok` in the script): every
+command between `;`, `|`, `&&`, `||` must be a reading program by its bare name (or from `/bin`,
+`/sbin`, `/usr/bin`, `/usr/sbin`). Some are only allowed with reading arguments: `systemctl` and
+`systemd-analyze` with the verbs above and options as `--name=value` (`--property=ActiveState`,
+`--lines=5`, not `-p X`/`-n 5`), `ip` with `show`/`list`/`get`, `find` without
+`-exec`/`-delete`/`-fprint*`, `dmesg` without clearing, `top -b`, `sed -n 'N,Mp'` only, `awk`
+without `system`/`getline`/`|`/program files/a `>` after `print`, `mount` without arguments,
+`blkid`/`sort`/`uniq`/`date`/`hostname`/`ss`/`journalctl` without their writing options; these
+checked programs take no unquoted `*` `?` `[` (quote the pattern). Refused outright: `$(`, backticks,
+`( )`, `{ }`, a `$variable` outside single quotes, an unquoted `<` or `>` (except `>` to `/dev/null`
+and `2>&1`), a lone `&`. A read stops after 120 s (`DLZ_SSH_TIMEOUT`), so `-f`/`-w` follows end
+there; a confirmed write (`DLZ_SSH_WRITE=1`) has no limit, so it is never cut off halfway. `get` takes remote names of `A-Z a-z 0-9 _ . / + ~ -` only, and overwrites the local file
+without asking. A refusal is a stop sign, not an obstacle: do not rephrase the
+command to get past it. A refused *read* is a false positive in the wrapper: widen the list, add the
+case to `test-guard.sh` (offline, never connects; CI runs it), run it until ALL OK, then rerun the
+same command.
 
 ## Anything else: strict confirmation
 
@@ -92,7 +113,7 @@ The project's hard rules (`CLAUDE.md`) apply over SSH too; point to them and ref
 - The card is `mmcblk0` (p1 the system, p2 `DLZDATA`), the eMMC `mmcblk1`; check with `lsblk -o
   NAME,LABEL,SIZE,RO,MOUNTPOINT` before relying on it
 - DLZDATA's mount point: find it (`findmnt -rno TARGET -S LABEL=DLZDATA` or `lsblk`); Mackie's
-  server mounts it. Logs in its `dlzmod-logs/`: `install-N.txt` (the installer, highest N =
+  server mounts it. Logs in its `dlzmod-logs/`: `install-N-<version>.txt` (the installer, highest N =
   newest), boot logs from `dlzmod-bootlog`, update results; the backup in `dlzmod-backup/`
 - Fetched logs go to `build/device-logs/` (git-ignored, private), e.g. `install4.txt`
 - Mod units: `dlzmod-*` (bootlog, cardcheck, emmc-ro, grow-data, update), Mackie's `evolve-node`
@@ -107,6 +128,10 @@ Check `notes/system.md` before calling a reading odd; the ones that come up ever
   together ~590/s, so the load sample keeps catching them runnable. Real load: per-core
   `/proc/stat` over a few seconds (cores 0-2 measured ~8 % busy each)
 - the eMMC (`mmcblk1`, its boot0/boot1) shows `RO 1`: the mod's read-only lock (`dlzmod-emmc-ro`)
+- `Goodix-TS 1-0014: I2C communication failure: -6` at boot: the DTB also declares the touch chip at
+  0x14, where nothing answers; the real one at 0x5d binds and touch works
+- `/var/log/syslog` of 100+ MB with NUL bytes in it: many boots in one file, and a switch-off while
+  it was being written; read it with `grep -a` and line ranges, never whole
 - installer files on DLZDATA dated 1 Jan 1980: FAT's earliest date (the installer sets no clock);
   for other odd dates check the mixer's own clock (`date`) before reading anything into them
 

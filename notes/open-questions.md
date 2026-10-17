@@ -34,6 +34,10 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
    replace or add to the built-in init? (The `sys.*` API is known statically, see dspserver.md.)
 7. Which codec chips are on the XS board (AKM, Everest, ESS Sabre)?
 8. Which chip does USB audio to the PC: the FPGA or a separate bridge? (`lsusb -v` on the PC.)
+   Known: it can show up under two identities, `0A73:003A` (normal, LOUD's driver) and once
+   `0A4A:AC1E` (a standard USB Audio 2.0 device) [device]; neither ID is in any file on the rootfs,
+   the FPGA bitstreams or the GD32 firmware [static], so most likely a chip with its own firmware
+   [guess] (hardware.md). `lsusb -v` of both identities would name it.
 9. Stock's media scan filters out `/` by lsblk's `mountpoint` column: is that column still in
    `lsblk -O` on the mod card? (Which `mmcblk` is which is answered: hardware.md, Storage.)
 10. GD32 UART protocol and baud rate on ttyS2.
@@ -69,9 +73,11 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
       unmount 1.25 s). Since then grow-data stops at once once `/var/lib/dlzmod/dlzdata-ready` is
       set (written when DLZDATA is set up): ~1.4 s. The boot log stays as it was (copied before
       the mixer software at every boot, ~2.2 s). Moving its copy after the start, into the
-      server's mount, does not work: server.js mounts DLZDATA read-only (`ro,noatime`, `rw` only
-      while it writes itself), and remounting it under the server could break a recording
-      [static, server.js]. Expected: ~1.4 s off a normal boot [device: the next install]
+      server's mount, does not work: server.js mounts DLZDATA read-only (`ro,noatime`) and
+      remounts it `rw` to write, and remounting it under the server could break a recording
+      [static, server.js]. Stock never goes back to `ro` once a recordings folder exists (`rw` from
+      the start on [device]); the mod does that, about 10 s after the last write (#98,
+      [mod.md](mod.md), "Media back to read-only"). Expected: ~1.4 s off a normal boot [device: the next install]
     - Open: (B) a stopwatch from power-on to the UI and to sound, card in vs card out (stock from
       the eMMC, nothing touched); (C) only if B shows a gap: 10 s of 4 KiB random reads, O_DIRECT,
       read-only, on the card and on the eMMC (`python3` with an mmap-aligned buffer; mixer idle).
@@ -90,20 +96,18 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
 18. Which USB controller is the external USB-A port on, and does U-Boot need VBUS enabled for it?
     (Only matters if we ever boot from USB, see hardware.md.) Also: how much current the port can
     supply, and whether a heavy load (bus-powered drive, phone charging) sags the board's 5 V.
-21. Does the RTC keep time without power? Known: offline, a recording got the file date
-    2023-11-16, the dump's saved time, because `fake-hwclock` never moves the clock back and rtc0
-    read earlier [device]; online, chrony (Ubuntu pools, `makestep 1 3`, `rtcsync`) steps the clock
-    within minutes, while the boot's earlier journal lines keep the old time [static] [device].
-    rtc0 may simply never have been set (only a sync writes it). Decisive test: set rtc0
-    (`hwclock -w` after a sync), cut power for minutes, boot offline, read
-    `/sys/class/rtc/rtc0/{date,time}`. A full-size teardown (linuxslate.com forum, t=21) shows no
-    coin cell on the top of the digital board and says the rear switch cuts all power; the
-    underside is not shown, so a supercap is not ruled out. Likely no backup battery [guess, strong].
-    The system timezone is `Etc/UTC` (no timezone handling in `server.js`), so FAT file times are UTC
-    and recording names carry no date (`REC_NNNN`) [static].
 31. What does a "frozen on the logo" crash look like from inside? Kill glesgui 6 times in 10 s on the
     SD system and confirm the logo stays while audio keeps running; after a real freeze, read
     `/var/log/syslog` and `kern.log` (persist on disk) for the cause (OOM, segfault, kernel oops).
+    Known: in the freezes during a start (components/glesgui.md, "Bad starts after a software
+    restart") the syslog stops before the cause, so a freeze needs a log that does not go through
+    the card [device].
+34. Why does a closed popup stay on the device's screen until the page below it draws again, when
+    closing it clears the foreground layer and asks for a frame [static]? The mod works around it on
+    the Mod page (modding-guide.md, "PC sandbox"); other quiet pages may show the same.
+35. Why does `glesgui` fail its first start with "Failed to init OpenGL" (about 11 s in) on 2 of the 3
+    boots that reached the GUI on a full-size's mod card, then start at systemd's restart [device: owner's logs]?
+    Not seen in our XS logs. Full-size timing, or does that mixer do it from the eMMC too?
 
 ## Installer boot
 

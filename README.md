@@ -7,15 +7,22 @@ Alpha, at your own risk: read [DISCLAIMER.md](DISCLAIMER.md) first.
 ## What the mod does
 
 - **Recordings**: saved to the SD card by default, numbered across SD card and USB with unique
-  names like `REC_0003_otter`
+  names like `REC_0003_otter`, and downloaded to a computer over the network (after pairing,
+  from the Media page)
 - **Meters**: level before or after the fader, yellow and red zones, a dB scale
 - **Screen**: the header bar can be hidden for more room; a "DLZ Creator Modded" tab in Settings;
   its own startup screens and a startup log for bug reports
-- **Network**: Wi-Fi from the screen (with a USB Wi-Fi stick) and remote login (SSH), off by default
+- **Network**: Wi-Fi from the screen (with a USB Wi-Fi stick), remote login (SSH), and control from
+  a computer's web browser after pairing with a PIN (phones and tablets not yet,
+  [#52](https://github.com/Oulsen/DLZ-Creator-Modded/issues/52)); all off by default
 - **Safety**: no firmware updates from the card, the mixer's internal storage is never changed
-- **Updates** of the mod without losing recordings or settings
+- **Updates** of the mod without losing recordings or settings, copied to the card or sent from a
+  computer's web browser after pairing, installed only after you tap Install on the mixer's own
+  screen
 - **Fixes for stock bugs**: the recording crash after take 9,999; new recordings overwriting old
-  ones; anyone on the network (or a prepared SD card or USB stick) changing files on the mixer
+  ones; anyone on the network (or a prepared SD card or USB stick) changing files on the mixer;
+  anyone on the network controlling the mixer without a PIN; the SD card or USB stick staying
+  writable once it holds recordings, so switching off could damage it
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
@@ -24,7 +31,7 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 What is planned and what is being worked on, all on GitHub:
 
 - **[The board](https://github.com/users/Oulsen/projects/2)**: the planned bugs and features, from
-  "to do" to "done"
+  "to do" to "released"
 - **[Milestones](https://github.com/Oulsen/DLZ-Creator-Modded/milestones)**: what goes into which
   version
 - **[Issues](https://github.com/Oulsen/DLZ-Creator-Modded/issues)**: the details of each one, and new
@@ -35,7 +42,7 @@ What is planned and what is being worked on, all on GitHub:
 | Mixer | Firmware (Settings → About) | Status |
 |---|---|---|
 | DLZ Creator XS | 1.2.0, build 1731 | Supported, tested |
-| DLZ Creator (full-size) | 1.2.0, build 1731 | Untested: same hardware and firmware as the XS |
+| DLZ Creator (full-size) | 1.2.0, build 1731 | Supported: installed and running on an owner's mixer (v0.1.0); our test mixer is an XS |
 | Either model | another build, such as 1794 | Not supported: the installer can save a backup so we can add it |
 
 ## Install
@@ -53,9 +60,10 @@ the card, put it in the mixer and follow the screen. Step by step, with pictures
 - A card belongs to the mixer it was installed on: in another mixer it keeps the sound hardware off
   and says so on the screen
 - The installer also saves a backup of the mixer's internal storage onto the card
-- On a network (cable or Wi-Fi), anyone on that network can control the mixer, as with Mackie's own
-  software: only connect it to networks you trust, not to an open café or venue Wi-Fi. A PIN for
-  phones and computers is planned ([#45](https://github.com/Oulsen/DLZ-Creator-Modded/issues/45))
+- On a network (cable or Wi-Fi), other devices can only control the mixer once you allow it
+  (Settings → DLZ Creator Modded → Remote, off by default) and pair them with the PIN shown
+  there. Open the mixer by its IP address or its `.local` name. The connection is not encrypted: only use it on networks you trust, not on an open café or
+  venue Wi-Fi
 - It is still an alpha made by one person: see [DISCLAIMER.md](DISCLAIMER.md)
 
 ## SD cards
@@ -65,15 +73,34 @@ your recordings. **Minimum 16 GB** (smaller cards are refused before anything is
 or more to work with recordings, 64 GB or more preferred**. The card's speed sets the install time
 and how safely long multitrack recordings run.
 
+The mod keeps the card's recordings part read-only except while it records, renames or deletes, so
+switching off is safe then. A card that was switched off while writable (during a recording, or with
+older versions and the stock software whenever it held recordings) stays marked as "not properly
+unmounted". The mixer works with it as before; to clear the mark, put the card in a computer, **copy
+your recordings off first**, then let the computer scan and fix the DLZDATA drive only. If the
+computer offers to format a drive of the card, **never click Format**. A repair can shorten a
+recording that was cut off.
+
 ### Known good cards
 
 Cards that installed and ran the mod on a real mixer. Tested a card? Open an issue with the exact
-name, size, mod version, install time (from `dlzmod-logs/install-N.txt` on the card) and whether
+name, size, mod version, install time (from `dlzmod-logs/install-N-vX.Y.Z.txt` on the card) and whether
 recording worked.
 
 | Card | Size | Mod version | Install time | Write speed during install | Recording |
 |---|---|---|---|---|---|
 | SanDisk Ultra microSDXC UHS-I, A1, U1, Class 10 | 128 GB | v0.1.0 | 9 min | about 13 MB/s | yes |
+| Gigastone 4K UHD Video microSDXC, U3 | 64 GB | v0.1.0 | 9 min | about 11 MB/s | not tried yet |
+
+### Known good Wi-Fi sticks
+
+USB Wi-Fi sticks that connected on a real mixer with the mod. Other sticks may work too, but have not
+been tried. Tested a stick? Open an issue with its exact name and version (on the box or the stick),
+the mod version and whether Wi-Fi connected.
+
+| Wi-Fi stick | Mod version | Wi-Fi | Notes |
+|---|---|---|---|
+| TP-Link Archer T3U (AC1300) | v0.1.0 | yes | the mixer's stock software does not recognise it, the mod does |
 
 ## Help and contact
 

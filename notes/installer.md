@@ -54,7 +54,7 @@ onto a card is checked by the `device-review` skill first.
    costs ~55 ms on the A40i [device]. `dev/installer-mockup.py` renders every screen for the guide.
 4. **Touch:** the Goodix `event*` device, found by name; no touch device = a countdown screen,
    nothing written.
-5. **Logs:** in RAM while the card is rewritten, then `DLZDATA/dlzmod-logs/install-N.txt` with
+5. **Logs:** in RAM while the card is rewritten, then `DLZDATA/dlzmod-logs/install-N-<version>.txt` with
    `dmesg-N.txt` and the last screen as `screen-N.png`. Before DLZDATA exists, a failure leaves its
    log on a small rescue partition, DLZLOG (Windows may give it no drive letter: Disk Management,
    Change Drive Letter). Every line carries the uptime; the card's maker, OEM, name and date are
@@ -98,7 +98,8 @@ onto a card is checked by the `device-review` skill first.
      after Debian's SPL has set the PMIC. Evidence that the SPL is safe on the full-size: one software
      image and one bootloader package for both models, the XS image ships the full-size's GD32 and
      FPGA files too [static], the full-size's board is an `EVOLVE-A1_A40i` like the XS's [web]
-   - The full-size on build 1731 gets the full install (#50); not tried on a full-size yet
+   - The full-size on build 1731 gets the full install (#50); installed and running on an
+     owner's full-size (hardware.md, "Full-size DLZ Creator") [device]
 
 ## Copy and compare
 
@@ -106,8 +107,11 @@ onto a card is checked by the `device-review` skill first.
   eMMC's p1, its store in RAM. `e2fsck -fy` replays the journal into the store (the mixer is switched
   off hard, so the journal is usually not replayed), and `e2image -ra` copies only the blocks the file
   system uses: 2322 of 7292 MiB. The compare reads the same view. Proven on the PC: the used blocks of
-  "copy everything, replay" and of this view are bit for bit the same. The eMMC is only read: the
-  kernel lock from `/init`, the read-only loop, and the snapshot target never writes its origin
+  "copy everything, replay" and of this view are bit for bit the same. The eMMC is only read
+  because the loop opens p1 read-only (`losetup -r`) and advertises no discard or write-zeroes
+  (`ic_ro_loop_ok`), and the plain `snapshot` target never writes its origin; the kernel lock from
+  `/init` and the loop's read-only flag do not cover this path (5.10: they refuse writes from user
+  space only, kernel-issued writes from dm or loop only warn) [static]
 - **The compare** reads card and eMMC side at the same time (two controllers) into GNU `cmp`, so it
   takes about the card's read time. `tests/compare-negative.sh` plants faults (a data byte, the group
   table, a backup superblock, p1's tail, a killed card side) that it must catch
@@ -123,6 +127,18 @@ onto a card is checked by the `device-review` skill first.
   no total (the total holds the backup's size, an estimate until the backup ends, and it wandered);
   the compare shows "X of N GB compared". `tests/rehearse-install.sh` times every progress line and
   fails on a mean gap over 6 s or one over 20 s
+- **Time left (#66):** the streams that copy, back up and compare are the file system's full size,
+  but the blocks in use sit near their start (in the dump 87 % of them in the first 35 % of the
+  stream) [static, dumpe2fs], so a speed since the start of a step foretold many times the real time:
+  22 min for a step of under 5, the whole install jumping back to 9 min at step 2 [device]. Each step's
+  time left is now its measured one blended with the device's own times (130 ms per MiB in use for the
+  copy, the compare 81 % of the copy's real time), the measured one weighing more as the step goes on;
+  the backup's part follows its reads of the data, then the zero tail at its own speed. The compare
+  still goes by its stream position (its zeros cost time on the mixer too). Every ~30-40 s a progress
+  line goes into the install log (`progress: step N, ...`; left out of the failure screen's last
+  lines); the rehearsal checks every shown time against the real one (shown at most twice the real
+  plus a minute, real at most twice the shown plus two) [guess for the mixer until an install's log
+  lines say otherwise]
 
 ## Endings and power
 
@@ -164,7 +180,10 @@ and the package directory. Pinned downloads (`vendor.sh`, sha256 as in Debian's 
 `u-boot-sunxi` 2025.01-3+deb13u1 (Banana Pi M2 Ultra build: same R40 and DRAM setup) and
 `busybox-static` 1.37.0-6+b9. Reproducible with `SOURCE_DATE_EPOCH` (default: the last commit time):
 the package `.tar` is byte-identical across builds; the image's FAT entries carry the build time, so
-each release publishes the image's sha256. `RELEASE=1` refuses a tree with changes.
+each release publishes the image's sha256. `RELEASE=1` refuses a tree with changes; the image takes
+its boot route (`boot.txt`, `mkscr`/`mkenv`/`mksdimg`, the safe U-Boot) from the tree at image time,
+so `mkinstaller.sh` builds a release package's image only from a clean tree at the package's
+`COMMIT`.
 
 **Safe U-Boot** (`uboot-safe.py`, same-length patches, both uImage CRCs recalculated, the result
 pinned by sha256; 48 bytes differ from Debian's binary):
@@ -201,6 +220,10 @@ On a SanDisk Ultra 128 GB (A1, U1) in an XS, times from the first write [device]
 |---|---|---|---|---|
 | Current | **526 s** | **277 s** for 2322 MiB in use, 978 MiB backup | **210 s** | 38 s |
 
+The same installer on a Gigastone 4K UHD Video 64 GB (U3) [device]: 553 s in all, the copy 302 s
+(+9 %), the compare 212 s: writing is a little slower, reading the same. The installs before the
+current one ran on the SanDisk only (the timings below).
+
 What the time depends on:
 - Copying only the blocks in use (#49): the whole p1 (7293 MiB) took 555 s for the copy and 931 s
   in all, and 1262 s with the backup. Reading the eMMC alone runs at 44 MB/s (7297 MiB in 167 s)
@@ -222,7 +245,7 @@ What the time depends on:
 - Never rely on `set -e` inside a subshell or function whose status is tested (bash ignores it
   there: a failing step carried on and reported "installed")
 - Every function defined before any line uses it (a call before its definition is "command not
-  found" and the script carries on; `tests/update.sh` checks this statically)
+  found" and the script carries on; `tests/update-checks.sh` checks this statically for the updater)
 - busybox: every variable in a sh function is global; `wc -c` reads the whole file; no background
   jobs in the copy (a qemu-user signal race once crashed the emulated busybox)
 - No apostrophes inside the awk programs of `install-card.sh`: they sit in single quotes

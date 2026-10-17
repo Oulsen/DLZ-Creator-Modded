@@ -34,6 +34,31 @@ The board, Mackie's device tree, the boot chain, the eMMC layout and the SD slot
 - External USB-A port: Linux USB host, used for USB drives and the Wi-Fi stick [device]; a Wi-Fi
   stick while connected caused no over-current or disconnects [device]; its power budget is unknown.
   The USB port to the PC is not Linux (no OTG in the DTB)
+- USB audio to the PC: normally `0A73:003A` with LOUD's driver (`loudusbaudio`, 14 channels)
+  [device]. Once, after a software restart with the cable plugged in, it came up as `0A4A:AC1E` rev
+  1.30, also named "DLZ Creator XS", class 01 / protocol 0x20 (standard USB Audio 2.0), which
+  Windows' own driver could not start (code 10); replugging the cable gave `0A73:003A` again
+  [device]. Neither ID is in any file on the rootfs, the FPGA bitstreams or the GD32 firmware
+  [static], so the USB audio chip most likely has its own firmware [guess] (open question 8). Not
+  seen again in 7 starts with the cable plugged in (6 with the switch, 1 software restart), with a
+  watcher on the PC [device] (#88)
+
+### Full-size DLZ Creator
+
+One owner's full-size installed v0.1.0 and runs it [device: their install log, boot logs and a
+photo]; our own test mixer is an XS.
+
+- The installer reads it as `DLZ Creator full-size`, build 1731, GD32 marker
+  `.gd32-loaded-firmware-evolve-154.bin` (the full-size firmware, no `/root/.dlzlite`); all 13 app and
+  13 server anchors match, so its `app.js` and `server.js` match the XS's where the mod patches them
+- Same disks as the XS: eMMC `mmcblk1` with 15269888 sectors, one ext4 partition at 8192, boot
+  areas of 8192 sectors; SD `mmcblk0`
+- Same touch: Goodix GT911 at 0x5d (ID 911, firmware 1060); the probe at 0x14 fails with `-6` on
+  both models (a second touch address in the device tree that nothing answers)
+- Install on a 128 GB card: 830 s from the first write, 2282 MiB in use on the eMMC, backup 895 MiB
+- `dspserver` finds I2C devices 0x22, 0x40, 0x44, 0x48, 0x4C, 0x90, 0x98 (no XS list to compare yet)
+- On 2 of 3 boots that reached the GUI, `glesgui` failed once with "Failed to init OpenGL" about
+  11 s after "Initialising graphics..." and started at systemd's restart (open question 35)
 
 ## Mackie's device tree
 

@@ -20,6 +20,58 @@ const CANNED = [
 ];
 const logged = new Set();
 
+// DLZ_FAKE_MEDIA=sd, usb or sd,usb: a pretend SD card (its recordings part, mmcblk0p2) and/or USB
+// stick (sda1), so the player's lists and the recordings download (#26) can be tried. server.js
+// finds them in lsblk, "mounts" them (a folder /tmp/mnt/<name> on the sandbox drive, seeded once
+// with a few short silent recordings) and finds them mounted at the next lsblk. Remounts are
+// no-ops; /proc/mounts lists them read-only, so the mod's read-only watcher (#98) is content.
+// Off by default: other screens expect no media.
+const FAKE_MEDIA = (process.env.DLZ_FAKE_MEDIA || '').split(',').filter((m) => m === 'sd' || m === 'usb')
+  .map((m) => m === 'sd'
+    ? { name: 'mmcblk0p2', parent: 'mmcblk0', subsystems: 'block:mmc:mmc_host:platform', label: 'DLZDATA', mounted: false }
+    : { name: 'sda1', parent: 'sda', subsystems: 'block:scsi:usb:platform', label: 'STICK', mounted: false });
+// an earlier run's list (the sandbox folder is shared between sessions): none until something mounts.
+// Only on the sandbox drive (ui-sandbox.sh starts server.js in <drive>:\srv), never a real /proc
+if (/^[A-Za-z]:\\srv$/.test(process.cwd())) fs.rmSync('/proc/mounts', { force: true });
+function fakeLsblk() {
+  return JSON.stringify({ blockdevices: FAKE_MEDIA.map((d) => ({
+    name: d.parent, path: '/dev/' + d.parent, fstype: null, mountpoint: null, subsystems: d.subsystems, size: '59.5G',
+    children: [{ name: d.name, path: '/dev/' + d.name, fstype: 'vfat', label: d.label, subsystems: d.subsystems,
+      mountpoint: d.mounted ? '/tmp/mnt/' + d.name : null, size: '58G', fsavail: '41.2G' }],
+  })) });
+}
+// a silent 16-bit stereo 48 kHz WAV of `seconds`
+function silentWav(seconds) {
+  const data = seconds * 48000 * 4;
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0); h.writeUInt32LE(36 + data, 4); h.write('WAVEfmt ', 8); h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(1, 20); h.writeUInt16LE(2, 22); h.writeUInt32LE(48000, 24); h.writeUInt32LE(192000, 28);
+  h.writeUInt16LE(4, 32); h.writeUInt16LE(16, 34); h.write('data', 36); h.writeUInt32LE(data, 40);
+  return Buffer.concat([h, Buffer.alloc(data)]);
+}
+function fakeMount(d) {
+  const mnt = '/tmp/mnt/' + d.name;
+  const rec = mnt + '/DLZ_Creator_XS_Recordings';
+  if (!fs.existsSync(rec)) {
+    fs.mkdirSync(rec + '/REC_0005', { recursive: true });
+    const put = (name, seconds, minutesAgo) => {
+      fs.writeFileSync(rec + '/' + name, silentWav(seconds));
+      const t = new Date(Date.now() - minutesAgo * 60000);
+      fs.utimesSync(rec + '/' + name, t, t);
+    };
+    put('REC_0001_otter.wav', 3, 600);
+    put('REC_0002_owl.wav', 8, 300);
+    put('Band take.wav', 5, 120);
+    put('REC_0004_yak.wav', 2, 30);
+    put('REC_0006_emu.wav.unfinished', 1, 1);
+  }
+  d.mounted = true;
+  fs.mkdirSync('/proc', { recursive: true });
+  fs.writeFileSync('/proc/mounts', FAKE_MEDIA.filter((m) => m.mounted)
+    .map((m) => `/dev/${m.name} /tmp/mnt/${m.name} vfat ro,noatime,flush 0 0\n`).join(''));
+}
+const FAKE_MOUNT = /^mkdir -p '\/tmp\/mnt\/(\w+)' && mount -o ro,noatime(,flush)? '\/dev\/\1' '\/tmp\/mnt\/\1' +\|\| true$/;
+
 function run(cmd) {
   const mv = SAVE_MV.exec(cmd);
   if (mv) {
@@ -27,6 +79,23 @@ function run(cmd) {
     return '';
   }
   if (/^sync( -d \S+)?$/.test(cmd)) return '';
+  if (FAKE_MEDIA.length) {
+    if (cmd === 'lsblk -OJ') return fakeLsblk();
+    const m = FAKE_MOUNT.exec(cmd);
+    const d = m && FAKE_MEDIA.find((x) => x.name === m[1]);
+    if (d) {
+      fakeMount(d);
+      console.log(`[sandbox] fake: mounted ${d.name} at S:/tmp/mnt/${d.name}`);
+      return '';
+    }
+    // by mount point (recording) or by device (rename, delete: unguarded, an error ends server.js)
+    const rm = /^mount -o remount,r[ow] (?:\/tmp\/mnt|\/dev)\/(\w+)$/.exec(cmd);
+    if (rm && FAKE_MEDIA.some((x) => x.name === rm[1])) return '';
+    // Mackie's look for a firmware file on a new medium (unguarded: an error would end server.js)
+    if (/^\s*find \/tmp\/mnt\/\w+ -name \*\.upd /.test(cmd)) return '';
+    const df = /^df (\/tmp\/mnt\/\w+)$/.exec(cmd);
+    if (df) return `Filesystem 1K-blocks Used Available Use% Mounted on\n/dev/x 60817408 17612800 43204608 29% ${df[1]}\n`;
+  }
   // About's address with the mod's patch (eth0, then wlan0): the pretend stick's when connected
   if (/^\{ ip addr show eth0; ip addr show wlan0; \}/.test(cmd)) {
     if (fakeNet.connected) return '192.168.1.42/\n';
@@ -132,6 +201,8 @@ function fakeExec(file, args) {
     return [0, '', '', 800];
   }
   if (['chpasswd', 'ssh-keygen', 'sync'].includes(prog)) return [0, '', '', 200];
+  // the mod's read-only remount (#98) of a pretend medium (DLZ_FAKE_MEDIA)
+  if (prog === 'mount' && FAKE_MEDIA.length && /^-o remount,ro \/tmp\/mnt\/\w+$/.test(a)) return [0, '', '', 100];
   return null;
 }
 cp.execFile = function (file, args, opts, cb) {
@@ -176,6 +247,18 @@ function fromThisPc(req) {
   const origin = req.headers.origin;
   return LOCAL_HOST.test(req.headers.host || '') && (origin === undefined || LOCAL_ORIGIN.test(origin));
 }
+// DLZ_SANDBOX_REMOTE=1: http://localhost/ plays another device on the network (a phone): the mod
+// sees a LAN address on that connection and the page is Mackie's own index.html (the browser
+// layout), so control from other devices and pairing (#45) can be tried on this PC.
+// http://127.0.0.1/ stays the mixer's own screen; the browser keeps a cookie per host, so the two
+// stay apart. Still this PC only (Host and Origin as above).
+const REMOTE = process.env.DLZ_SANDBOX_REMOTE === '1';
+const PRETEND_PHONE = '192.0.2.10';
+function asPhone(req) {
+  if (!REMOTE || !/^localhost(:80)?$/i.test(req.headers.host || '')) return false;
+  Object.defineProperty(req.socket, 'remoteAddress', { value: PRETEND_PHONE, configurable: true });
+  return true;
+}
 const http = require('http');
 const emit = http.Server.prototype.emit;
 http.Server.prototype.emit = function (event, req, res) {
@@ -189,7 +272,8 @@ http.Server.prototype.emit = function (event, req, res) {
     else { res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('sandbox: this PC only\n'); }
     return true;
   }
-  if (event === 'request' && req.method === 'GET' && /^\/(index\.html)?(\?.*)?$/.test(req.url)) {
+  const phone = (event === 'request' || event === 'upgrade') && asPhone(req);
+  if (!phone && event === 'request' && req.method === 'GET' && /^\/(index\.html)?(\?.*)?$/.test(req.url)) {
     let html = fs.readFileSync('index.html', 'utf8')
       .replace('<script src="app.js">', FORCE_INT + '\n  <script src="app.js">')
       .replace('</head>', PANEL_ASPECT + '\n</head>');
@@ -242,4 +326,5 @@ net.Server.prototype.emit = function (event, socket) {
   return netEmit.apply(this, arguments);
 };
 
-console.log('[sandbox] shell commands blocked, listening on 127.0.0.1 only');
+console.log('[sandbox] shell commands blocked, listening on 127.0.0.1 only' +
+  (REMOTE ? '; http://localhost/ plays a phone on the network' : ''));

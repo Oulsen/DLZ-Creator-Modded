@@ -41,7 +41,9 @@ The card applies those in place at startup, without a rebuild from the eMMC.
 
 1. **Courier**: the user copies `dlzmod-vX.Y.Z.tar` and its `.tar.sig` into `DLZDATA/dlzmod-update/`
    (a fixed folder with a README, made by the installer; never the card root, so a stray file among
-   the recordings cannot trigger anything).
+   the recordings cannot trigger anything), or sends both from a paired computer's browser (Upload
+   Update... on the Mod page, #114: [mod.md](mod.md), "An update from a computer"), which puts the
+   same two files there and nothing else.
 2. **Find** (`dlzmod-update`, before evolve-node, evolve-app and dspserver): exactly one
    `dlzmod-v*.tar` with its `.sig` next to it. Without a `.sig`: reported once, not marked failed, so
    adding the `.sig` later works. More than one tar: nothing is installed.
@@ -52,12 +54,20 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    list; the card's model in `MODELS`, `EVOLVE_NODE` and `REINSTALL=no`; not older than the card's version
    (`/var/lib/dlzmod-update/version`); and the package's **guards** byte for byte
    as the installed updater knows them (sha256 list `GUARDS` in `dlzmod-update`, checked against the
-   files by `mkpackage.sh`). A package that changes a guard needs a full install. One file of the
-   package runs as root here, after the signature check and every other check of this step: its
-   own `check-rootfs.sh` (does this card's firmware and GD32 marker pass the new package's check);
-   that is covered by the signature being the trust boundary (below).
+   files by `mkpackage.sh`). A package that changes a guard needs a full install. Then the one
+   piece of package code that runs as root outside the sandbox: its own `check-rootfs.sh` (does
+   this card's firmware and GD32 marker pass the new package's check), only after the signature
+   check and every other check of this step. It needs root to list `/root` (mode 700:
+   `.dlzlite` and the GD32 markers), which the sandbox's uid cannot read; the signature being the
+   trust boundary (below) covers it.
    The 8 guards: the drop-ins of `flash-gd32`, `flash-fpga`, `upgradedaemon` and `upgraderun`,
    `dlzmod-emmc-ro` with its unit and the udev rule `60-dlzmod-emmc-ro.rules`, and `dlzmod-cardcheck`.
+
+   **Then the question** (#65): a package that passed every check is applied only after **Install**
+   on the mixer's own screen ("The question before an update" below). Without it the updater stops
+   here: nothing applied (its signed `check-rootfs.sh` has run, as above), no try counted, no report
+   (unless an earlier cut-off try was put back), the package stays, and `pending` tells the screen. A
+   try that was cut off goes on without a new Install (its progress marker carries it).
 4. **Snapshot** of every file an update may change (once per package: a retry after a power cut
    keeps the one from before the first try).
 5. **Stage and sandbox** (below): the package's own steps run on a copy, as an unused uid, and the updater
@@ -67,31 +77,120 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    each file atomically and only when it differs. Then the installed updater's own checks: the guards'
    exact content, nothing else in the guard drop-in folders, the enable links, the stock units they
    act on unchanged, the `server.js` refusals of Format SD and firmware updates, the keys unchanged.
-7. **Result**: success deletes the tar and `.sig` and writes `DLZDATA/dlzmod-logs/update-N.txt`.
+7. **Result**: success deletes the tar and `.sig` and writes `DLZDATA/dlzmod-logs/update-N-<version>.txt`
+   (named like the package, `v0.1.0` or `v0.1.0-dev-c0e3084`; `unknown-version` when it stopped before
+   reading the package; N one past the highest, so the newest report has the highest number).
    Failure restores the snapshot and removes what the update added; the files stay, and the same file
    is not tried again until a different one is there. A package gets 3 tries; a failure that is not
-   the package's fault (no eMMC seen yet, the sandbox setup failing) is `later` and uses up no try.
+   the package's fault (no eMMC seen yet, the sandbox setup failing) is `later` and gives back the try
+   that start counted (the earlier ones stay counted).
+   A try that a start does not go on with is put back at that start, whatever the folder holds (#108):
+   one cut off by a power cut while placing, or one whose put-back failed (`RESTORE INCOMPLETE`: its
+   progress marker stays for this). Broken guards or no file: right at the start (as in v0.1.0).
+   With a file there, after the eMMC-lock check (a `later` there leaves it for a start that sees the
+   eMMC locked): more than one file or a file without `.sig` before they are named, a different file
+   or the same file marked failed before that file is checked. A check that refuses a resumed try of
+   the same file puts back what it placed first, and so does a `later` on one (its count of 3 starts
+   fresh: the cause is not the package).
+   Where a start stops before looking at a file (broken guards, more than one file, no `.sig`) and in
+   that `later`, a put-back that really put files back keeps the cut-off try's Install for that same
+   file (its record: tar + `.sig`), so the next start with only that file begins a fresh try without
+   asking again: unless another file's Install is there or that file failed (a marker without its
+   snapshot is only cleared: then the screen asks again); a start without any file drops it, as below.
+   A put-back that fails is tried once per start (once more after this start placed files) and again
+   at the next one; its report is written once (no new report with the same text as the last, not
+   counting the `removed`/`placed` lines of the first try). A progress marker without its snapshot
+   (nothing placed behind it) is cleared by those put-backs; a start of that same file goes on by it
+   with a fresh snapshot [static, PC
+   rehearsal: `tests/update.sh` cases 13, 17, 19, 34-35, 62, 64-74].
 
 Not covered by the drop-in (installer only): boot visuals, the installer itself, the card layout,
 the guards. A package can declare `REINSTALL=yes` for such changes; the drop-in refuses it.
 
-Tested: `tests/update.sh` (power cut, failure after the patches, links, wrong model, older version,
-a weakened guard, an extra drop-in next to a guard, the sandbox walls, the signing cases), tested on the PC;
-installed and refused (one byte changed, original `.sig`) on the mixer, by the mixer's own OpenSSL
-3.0.2 [device].
+Tested: `tests/update.sh` on a card image (power cut, failure after the patches, the sandbox walls,
+placing and putting back, a card on v0.1.0's updater taking a new package) and `tests/update-checks.sh`
+without one (every released updater's gate for the new copy; the package and card checks: links,
+wrong model, older version, a weakened guard, the signing cases), on the PC; installed and refused (one
+byte changed, original `.sig`) on the mixer, by the mixer's own OpenSSL 3.0.2 [device].
+
+**Checks only** (`DLZMOD_CHECK_ONLY=1`, for `tests/update-checks.sh`) [static, tested on the PC]: the
+updater runs steps 2 and 3 (find, check) on a rehearsal tree and stops before step 4, the snapshot,
+with `CHECKS PASSED` or the usual `NOT INSTALLED:` reason. Apart from the package's own
+`check-rootfs.sh`, which runs as in step 3 and only reads, it writes nothing outside its own temp
+files: no README or report on DLZDATA, the package stays, no start-up repair, the try records in a
+temp copy of the state folder (so every run checks afresh). It only starts with `DLZMOD_ROOT` (not
+`/`) and `DLZMOD_DATA` both set to folders; any other value of the flag stops it. On the mixer
+nothing sets it (the unit's environment is clean, the sandbox's is empty), and if something did,
+the updater refuses it first thing ("Rehearsal settings" below).
+
+### The question before an update
+
+An update file is never installed without the person at the mixer agreeing (#65) [static, PC
+rehearsal: `tests/update.sh` case 3a]:
+
+- At every start the updater checks the package (steps 2 and 3). Without an approval it writes
+  `/var/lib/dlzmod-update/pending`: `<record> <version>`, where the record is the sha256 of the tar
+  and its `.sig` together (the same record as `failed` and `tries`) and the version is named as in
+  `installed` (`v0.2.0 (dev-c0e3084)`, a release just `v0.2.0`), from the checked `package.env`. Each
+  start removes it first, so it is only ever about the package that is there now. A package its
+  checks refuse is never offered: it gets the red popup below, as before.
+- The server mod sends it to the screen in `GUI_LOADED` (`DLZMOD_UPDATE_ASK`), **only to the mixer's
+  own screen** (`dlzmodLocal`), laid out as Mackie's firmware update question (current and new
+  version) with **Install** and **Later**. Later closes it; it comes back at every start, and the Mod
+  page's Updates row keeps an "Install Update..." button. Other devices see the row with "install it
+  on the mixer's own screen" and no button.
+- **Install** sends `DLZMOD_UPDATE_APPROVE {sum}`, a screen-only command (`DLZMOD_SCREEN_ONLY` and its
+  own check). The server writes the pending record to `approved` (temp file, fsync, rename, folder
+  fsync: the next thing the user does is cut the power) and answers "Ready to install vX.Y.Z. Switch
+  the mixer off and on."; the update installs while the logo shows (about 12 s in all, of
+  which 4 s checks [device]), then the popup below says how it went.
+- **Off and on, not a restart from software**: software restarts on the mod card often hang at the
+  next start (#81, `notes/components/glesgui.md`), so the screen asks for the switch, as
+  `dev/push.sh` does (#87).
+- The updater installs only when `approved` holds the record of the file it has just checked: a file
+  replaced or changed after Install (another tar or another `.sig`) is asked about again. The approval
+  is used up once the snapshot and progress marker are written; a fail before that removes it too,
+  and so does a start that finds no file, or one other checked file, in the folder. `later` (not the
+  package's fault, e.g. the eMMC not seen yet) keeps it, and so do the starts that stop before the
+  checks (more than one file, a file without `.sig`, a file that failed before): accepted, the
+  approval names exactly one tar and `.sig`, so it can only ever install the file it was given for.
+  The same goes for a cut-off try's Install that a put-back keeps (#108, step 7 above): it is written
+  back only for that try's own record, never over another file's Install. It stays until a start
+  finds no file or asks about another one; a refused other file in between leaves it, so that same
+  file and `.sig`, put back unchanged, installs without asking again: accepted, as above.
+- When another file's try was cut off (that file removed since), the files from before that try go
+  back at the start, before this file is checked, so they are back while it waits for Install too
+  (#108).
+- The approval check is one of the gates a new updater copy must keep (by its text, like the other
+  gates: it catches a mistake, not a hostile signer).
+- An unseen result popup and a new question can open at the same start, one over the other
+  (accepted: rare, both still work).
+- **Not shown during the install**: the screen keeps Weston's background (the logo) meanwhile.
+  Weston and glesgui start in `basic.target`, before the updater (a `multi-user` service), so the
+  kernel bootsplash and `/dev/fb0` are not on screen any more [static: the units in the dump]. A
+  message during the install: #96.
+
+Accepted: a file that someone else puts on the card still runs its package's `check-rootfs.sh` as
+root at every start while it waits, after the signature check (the signature is the trust boundary,
+as before); while a file waits, every start checks it again (signature, unpack, manifests: a few
+seconds before the mixer software starts) until Install or until it is removed; a file refused for
+the card it is on is reported once, as before. The update that brings
+this updater is installed the old way by the card's older one, without the question.
 
 ### The popup after an update
 
 After a start that installed or refused an update, the screen shows it once, in the style of
 Mackie's firmware popups (`showMessage`): green "Updated to v… ." or red "The update was not
-installed. See dlzmod-logs/update-N.txt on the card." The last refusal also stays, in red, in the
-"Updates" row of the Mod page. Same round trip as Mackie's `.upgradesuccess` popup: the server mod
+installed. See dlzmod-logs/update-N-<version>.txt on the card." The last refusal also stays, in red, in the
+"Updates" row of the Mod page, and its "Version" row always shows `installed` (the build, as the
+popup names it). Same round trip as Mackie's `.upgradesuccess` popup: the server mod
 sends `DLZMOD_UPDATE_NOTE` in `GUI_LOADED`; the OK comes back as `DLZMOD_UPDATE_NOTE_OK` and only
 then is it marked shown. State in `/var/lib/dlzmod-update/`: `installed` (version + build), `shown`
 (written by the OK, fsynced with its folder: without that, a quick power-off after OK brought the
 popup back [device]; a fresh install writes it too), `failed` (sha256 of the refused file and its signature together: the same file with another
 `.sig` counts as a new try),
-`shown-failed`, `last-report`. Not shown: `later` and "more than one update file".
+`shown-failed`, `last-report`, and for the question before it `pending` and `approved` (above). Not
+shown: `later` and "more than one update file".
 Accepted: any hub client can send the OK (a few small writes in fixed files); the fsync pauses the
 hub for one card flush per tap (audio is dspserver).
 
@@ -106,8 +205,8 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
 - **Stage**: a copy in `/tmp` of every file an update may change plus what the steps read (the patch
   originals); filling it is checked file by file. The package's steps (`apply-mod.sh`:
   `install_sd_system`, `apply_patches`, `set_mod_defaults`, `record_version`, the new updater copy;
-  `patch.py --check` first) only ever see the stage. (The package's `check-rootfs.sh` runs
-  earlier, as root: step 3.)
+  `patch.py --check` first) only ever see the stage. (The one exception: the package's
+  `check-rootfs.sh` runs earlier, as root and outside the sandbox: step 3.)
 - **Sandbox**: `unshare -m -p -n -f --kill-child --mount-proc` (own mount, pid and network namespaces:
   no network, and whatever they start dies with them). Before dropping root: a fresh empty `/run` and
   `/tmp` (the sockets of systemd, dbus, udev and the display live there; `/run/systemd/private` is
@@ -127,21 +226,37 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   `srv/{app.js,server.js,srv_data.json}`, `var/lib/dlzmod-update/{version,installed}`,
   `usr/local/sbin/dlzmod-*`, `etc/udev/rules.d/*dlzmod*.rules`, `etc/systemd/system/dlzmod-*.service`,
   `ssh.socket`, the `dlzmod.conf` drop-ins of flash-gd32, flash-fpga, upgradedaemon, upgraderun,
-  dspserver and ssh, `dlzmod-*.service` links in `multi-user.target.wants`, only
-  `dlzmod-emmc-ro.service` in `sysinit.target.wants`, and `boot/boot.scr` (only as a U-Boot script
-  image). Also refused: names with a space, newline, quote or glob character; special files; wrongly
-  shaped links; units with `DefaultDependencies=no` (only the eMMC lock's own unit has it); udev rules
-  with `setrw` or `force_ro=0`; setuid, setgid, sticky or other-writable modes; a `boot.scr` that
-  writes the eMMC or the environment (`mmc write/erase`, `saveenv`, `gpt`, `ums`, `fastboot`, ...).
+  dspserver and ssh, `dlzmod-*.service` links in `multi-user.target.wants`, and only
+  `dlzmod-emmc-ro.service` in `sysinit.target.wants`. Not `boot/boot.scr` (below). Also refused: names
+  with a space, newline, quote or glob character; special files; wrongly shaped links; units with
+  `DefaultDependencies=no` (only the eMMC lock's own unit has it); udev rules with `setrw` or
+  `force_ro=0`; setuid, setgid, sticky or other-writable modes.
   A later version that needs a path outside this list needs a full install, or first an update that
   only brings the newer updater (its own list applies from the next update).
 - **The new updater copy** must keep the installed one's `GUARDS` list exactly and contain its gates
-  (signature check, the sandbox's uid, capability drop, user namespaces off, read-only remount, eMMC check,
-  allowlist, key check). A text check: it catches a mistake, not a hostile signer.
-- **`boot.scr`**: the card keeps Armbian's stock `boot.scr`; a signed later package may replace it
-  through the allowlist, atomically and in the snapshot. That is the door for later boot logic (a
-  boot flag, a boot counter) without shipping untested boot code now. U-Boot runs `boot.scr` before
-  any guard, so a signed one could write the eMMC: no worse than a signed root unit.
+  (signature check, the sandbox's uid, capability drop, user namespaces off, read-only remount, eMMC check, the refusal
+  of rehearsal settings on the card, allowlist, key check). A text check: it catches a mistake, not a
+  hostile signer. The strings are looked for outside the new copy's own gate block (that block lists
+  them all, so before #93 a check dropped from the code was still found there; v0.1.0 cards check
+  the update that brings this with their old copy), and a
+  copy without that block is refused [static; tests/update-checks.sh, also with the card's mawk].
+- **`boot.scr`**: the card keeps Armbian's stock `boot.scr`, and an update cannot place, change or
+  remove anything under `boot/` (nothing there is on the allowlist: `boot.scr`, `armbianEnv.txt`,
+  the kernel, initrd, DTBs and overlays it loads): a new one comes only with a full install, where
+  the installer is reviewed as a boot route. U-Boot runs `boot.scr` before any guard, and a text
+  check of a script cannot find every way it could write the eMMC or the PMIC (U-Boot's `mmc`,
+  `i2c`, `mw`, `fatwrite`, ...), so the updater no longer places it at all. Like the other checks
+  this stops a mistake, not a hostile signer: a signed root script could still rewrite `/boot` after
+  the start (the signature is the trust boundary). It holds from the second update on: the update
+  that brings this updater is still checked by the card's older one (whose list allowed
+  `boot.scr`; no package changes it). Later boot logic (a boot flag, a boot counter) needs a full
+  install, or first an update that brings an updater whose own list allows it. The snapshot still
+  covers `boot/boot.scr`, so a try that an older updater cut off is put back whole.
+- **Rehearsal settings** (`DLZMOD_ROOT`, `DLZMOD_DATA`, `DLZMOD_CHECK_ONLY`) skip the eMMC-lock
+  check: the updater refuses them first thing when `/` is on an SD card (the mixer's own system),
+  exit 2, nothing done [device: all three set by hand over SSH]. Where the root disk cannot be determined (a rehearsal chroot without `/sys`, a PC) it
+  lets them through: the rehearsals need that, and on the mixer the same lookup already finds the
+  card for the live path; the eMMC lock itself is a separate guard that runs first.
 - **What the eMMC lock is** [static, kernel 5.10 sources]: read-only blocks `write()` on the device
   node and read-write mounts, which is what a bug in our code or Mackie's would do; root can undo it
   (`blockdev --setrw`), and discard/zero-out ioctls and raw MMC commands may not check it. It protects
@@ -159,9 +274,12 @@ build (`dev-<commit>`) is never compared. Newer and equal install, older is refu
 
 - **Equal stays allowed**, so an older build of the same version can go back on (bisecting a
   regression); there is no build counter.
-- **`VERSION` is bumped with the first functional change after a release**, not at the end of the
-  cycle: dev builds then read "v0.2.0 dev-…" on the way to 0.2.0, never the released number on
-  different code. Bumping again before the release (0.1.1 → 0.2.0) is fine.
+- **`VERSION` is bumped in `develop` right after a release**, as its own small PR (`docs/vX.Y.Z-bump`),
+  before any other change of the new cycle: dev builds then read "v0.2.0 dev-…" on the way to 0.2.0,
+  never the released number on different code, and every branch builds the same version. A feature
+  or fix branch never bumps: with the bump on one unmerged branch, the dev card took that branch's
+  builds and refused every other branch's as older (seen in the v0.2.0 cycle). Bumping again before the
+  release (0.1.1 → 0.2.0) is fine, also as its own PR into `develop`.
 - **No `-rc` suffix**: `sort -V` ranks `v0.2.0-rc1` above `v0.2.0`, so the release would be refused as
   older. `VERSION_RE` (`modversion.py`) blocks it.
 - **A release candidate is the `RELEASE=1` build itself.** Its test: a fresh install from the
@@ -178,8 +296,9 @@ build (`dev-<commit>`) is never compared. Newer and equal install, older is refu
 ## Signing keys
 
 Why: not to stop forks (anyone may build their own and install it with their own installer image, a
-deliberate act with screens and an accept button), but because a drop-in runs silently as root at
-the next start, and root can undo the eMMC lock. The signature is the only thing between a file on
+deliberate act with screens and an accept button), but because a drop-in runs as root at the next
+start (since #65 only after Install on the screen, but the person tapping it sees a version, not the
+code), and root can undo the eMMC lock. The signature is the only thing between a file on
 DLZDATA (a fake download, a card in someone else's reader, later the online update) and the mixer's
 internal storage.
 
@@ -222,8 +341,8 @@ refused file is copied and hashed at every start until it is removed (a few seco
 ## Not built yet
 
 - **Updates without the card reader** (#55): "Check for updates" on the Mod page (the latest GitHub
-  release only, never `main`; downloaded with `curl`, which the stock system has), a USB stick, or an
-  upload from a computer on the network (only while the update screen is open, after #45's pairing).
+  release only, never `main`; downloaded with `curl`, which the stock system has) or a USB stick (the
+  upload from a paired computer exists: #114).
   Each only puts the same two files into `DLZDATA/dlzmod-update/`; a release without update files
   (image only, "Release files") is shown as "needs a full install", never downloaded. Rules for it: only the latest-release
   request leaves the mixer (no device ID, serial or usage data); "update available" means strictly
@@ -233,8 +352,8 @@ refused file is copied and hashed at every start until it is removed (a few seco
   using a stick (our files never look like a Mackie `.upd`); the download and check code gets a
   security review.
 - **Full update and undo** (#56), for what the drop-in cannot do (boot visuals, card layout):
-  "Install" on the Mod page sets a one-shot flag on DLZDATA and restarts; the card's `boot.scr` sees
-  it and boots the installer path (Mackie's kernel from the eMMC + the package's initramfs) in update
+  "Install" on the Mod page sets a one-shot flag on DLZDATA and restarts; the card's `boot.scr` (one
+  that comes with a full install: an update cannot change it) sees it and boots the installer path (Mackie's kernel from the eMMC + the package's initramfs) in update
   mode: rebuild the system partition from the eMMC, carry over the state (`srv_data.json`, presets,
   NDI config, Wi-Fi, SSH keys, mod settings), leave DLZDATA untouched. Undo: the previous package
   stays in `dlzmod-update/previous/`; "Revert" rebuilds with it; `boot.scr` counts start attempts on

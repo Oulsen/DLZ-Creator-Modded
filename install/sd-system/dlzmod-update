@@ -1,12 +1,13 @@
 #!/bin/bash
 # Drop-in ("light") update of the mod on this card, at startup before the mixer software: a package
-# (dlzmod-vX.Y.Z*.tar, the release's own file) in DLZDATA/dlzmod-update/ is checked, and its mod files
+# (dlzmod-vX.Y.Z*.tar, the release's own file) in DLZDATA/dlzmod-update/ is checked, and once the
+# mixer's own screen said Install (#65: "pending" for the screen, "approved" back from it), its mod files
 # are applied with the same code as the install (apply-mod.sh: guards and units, the app/server
 # patches, mod defaults): run in a sandbox on a copy (step 3), then placed by this script from its
-# allowlist (the mod's own files, and boot.scr as a U-Boot script image). Not the boot visuals, the
-# installer, the card layout or the safety guards themselves: a package that changes those needs the
-# full install (REINSTALL=yes, or refused here) (notes/updates.md, "Drop-in update").
-# - success: the package is deleted, the report is DLZDATA/dlzmod-logs/update-N.txt
+# allowlist (the mod's own files). Not boot.scr, the boot visuals, the installer, the card layout or
+# the safety guards themselves: a package that changes those needs the full install (REINSTALL=yes,
+# or refused here) (notes/updates.md, "Drop-in update").
+# - success: the package is deleted, the report is DLZDATA/dlzmod-logs/update-N-<version>.txt
 # - refused or failed: nothing of it stays; what it placed is put back from the snapshot taken before
 #   it (files it added are removed), the package stays (to look at) and is not tried again until a
 #   different file is there
@@ -26,10 +27,32 @@ set -u
 PATH=/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C   # one sort order for every list compared here (comm, the snapshot list)
 ROOT=${DLZMOD_ROOT:-}
+# the rehearsal settings skip the eMMC-lock check (step 1): never on a system running from an SD card,
+# the mixer's own (a PC's / is not on one; a rehearsal chroot has no /sys, so its disk type is unknown)
+if [ -n "$ROOT" ] || [ -n "${DLZMOD_DATA:-}" ] || [ -n "${DLZMOD_CHECK_ONLY:-}" ]; then
+  rdisk=$(lsblk -no PKNAME "$(findmnt -no SOURCE / 2>/dev/null)" 2>/dev/null | head -n 1)
+  if [ -n "$rdisk" ] && [ "$(cat "/sys/block/$rdisk/device/type" 2>/dev/null)" = SD ]; then
+    echo "dlzmod-update: DLZMOD_ROOT, DLZMOD_DATA and DLZMOD_CHECK_ONLY are for PC rehearsals: refused on a system running from an SD card, nothing done"
+    exit 2
+  fi
+fi
+# checks only (tests/update-checks.sh, on a PC): every check of steps 1 and 2 on a rehearsal tree, then
+# stop before the snapshot. Nothing is written but its own temp files: no report on DLZDATA, the
+# package stays, the try records go to a temp copy of the state folder. Only with both rehearsal
+# folders set, never on a card's own / (the unit's environment never has it; the sandbox's is empty)
+CHECK_ONLY=${DLZMOD_CHECK_ONLY:-}
+case $CHECK_ONLY in
+  '') ;;
+  1) [ -n "$ROOT" ] && [ -d "$ROOT" ] && [ -n "${DLZMOD_DATA:-}" ] && [ -d "$DLZMOD_DATA" ] \
+       && [ "$(cd "$ROOT" && pwd -P)" != / ] \
+       || { echo "dlzmod-update: checks only needs DLZMOD_ROOT (not /) and DLZMOD_DATA, both folders"; exit 2; } ;;
+  *) echo "dlzmod-update: DLZMOD_CHECK_ONLY can only be 1"; exit 2 ;;
+esac
 STATE=$ROOT/var/lib/dlzmod-update
 KEYS=$ROOT/usr/local/share/dlzmod-keys   # release.pub, release2.pub, dev.pub: fixed at install
 MAX_PKG=$((64 * 1024 * 1024))   # a real package is about 1 MB
 REPORT=$(mktemp /tmp/dlzmod-update-report.XXXXXX)
+trap 'rm -f "$REPORT"' EXIT   # until finish takes over (below)
 WROTE=no
 log() { echo "dlzmod-update: $*"; echo "$*" >> "$REPORT"; }
 
@@ -53,7 +76,9 @@ STOCK_UNITS="flash-gd32.service flash-fpga.service upgradedaemon.service upgrade
 SERVER_MARKERS='dlzmod: FORMAT_SD refused, the SD slot holds the boot card
 dlzmod: firmware updates are disabled on the SD card
 async FIRMWARE_UPDATE(){return{rootResponse:{cmd:"FIRMWARE_UPDATE_FAILED"'
-# what an update may change (snapshot and restore), as patterns relative to the rootfs
+# what an update may change (snapshot and restore), as patterns relative to the rootfs; boot/boot.scr
+# stays although no update may change it any more: the snapshot puts back a try an older updater cut
+# off, and seeding it into the stage is what shows a package that removes it (refused by the allowlist)
 SNAP_GLOBS="srv/app.js srv/server.js srv/srv_data.json usr/local/sbin/dlzmod-* etc/systemd/system/dlzmod-*.service etc/systemd/system/ssh.socket
 etc/systemd/system/flash-gd32.service etc/systemd/system/flash-fpga.service etc/systemd/system/upgradedaemon.service
 etc/systemd/system/upgraderun.service
@@ -109,6 +134,10 @@ guards_ok() {   # checked by this installed script, never by the package's code
   [ "$ok" = yes ]
 }
 
+# the screen's question (#65) is about this start's package only: written again below while one
+# waits, so a start that stops before looking (no DLZDATA) leaves no question from an earlier one
+[ -n "$CHECK_ONLY" ] || rm -f "$STATE/pending"
+
 # DLZDATA: this card's p2 (or the rehearsal's mount), read-only unless something has to be written
 if [ -n "${DLZMOD_DATA:-}" ]; then
   DATA=$DLZMOD_DATA
@@ -126,43 +155,53 @@ else
   mount -t vfat -o ro "$part" "$DATA" || { echo "dlzmod-update: DLZDATA could not be mounted"; rmdir "$DATA"; exit 0; }
 fi
 writable() {   # DLZDATA read-write from here on
+  [ -z "$CHECK_ONLY" ] || return 1
   [ "$WROTE" = yes ] && return 0
   [ -n "${DLZMOD_DATA:-}" ] || mount -o remount,rw "$DATA" || return 1
   WROTE=yes
 }
-SUM=""
 UNS=/proc/sys/user/max_user_namespaces
 UNS_OLD=""   # user namespaces are off while the sandbox runs (step 3); finish puts this back
-# only this file's own try markers: a different file's cut-off try keeps its snapshot (step 3 puts it back)
-fail() {
-  log "NOT INSTALLED: $*"; echo "$SUM" > "$STATE/failed"
-  [ "$(cat "$STATE/inprogress" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/inprogress"
-  [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/tries"
-  sync; exit 0
-}
-# not the package's fault: tried again next start, without using up one of its 3 tries
-later() {
-  log "NOT INSTALLED this time: $*"
-  [ -z "$SUM" ] || [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/tries"
-  exit 0
-}
+SUM=""
+COUNTED=no    # this start counted one of the file's 3 tries (step 0)
+REPAIRED=""   # a cut-off try was put back (or tried) this start: its report is kept
+REPAIR_FAILED=""   # a put-back failed this start: not tried again until the next start (or placing)
+PLACED=no    # files of this file may be on the card: a try of it was cut off, or placing began
 
 WORK=""
+CHECK_STATE=""
 APPLYING=no
+LOGV=""   # the package's version and build for the report's name, once known (step 1)
 finish() {   # the report next to the other logs, then DLZDATA released
+  local n name f last
+  # a put-back that keeps failing says so once, not at every start: no new report with the same
+  # text as the last one (the files it removed or placed only show at the first try, so those lines
+  # do not count)
+  last=$(cat "$STATE/last-report" 2>/dev/null)
+  if [ -s "$REPORT" ] && grep -q '^RESTORE INCOMPLETE' "$REPORT" && [ -n "$last" ] && [ -f "$DATA/dlzmod-logs/$last" ] \
+     && [ "$(grep -Ev '^(removed|placed) ' "$REPORT")" = "$(grep -Ev '^(removed|placed) ' "$DATA/dlzmod-logs/$last")" ]; then
+    : > "$REPORT"
+  fi
   if [ -s "$REPORT" ] && writable; then
     mkdir -p "$DATA/dlzmod-logs"
+    # one past the highest number, the names without a version (update-N.txt, before v0.2.0) included,
+    # so the newest report always has the highest number
     n=1
-    while [ -e "$DATA/dlzmod-logs/update-$n.txt" ]; do n=$((n + 1)); done
-    # its name for the update popup (the server mod: "see dlzmod-logs/update-N.txt")
+    for f in "$DATA"/dlzmod-logs/update-[0-9]*.txt; do
+      f=${f##*/update-}; f=${f%%[!0-9]*}
+      [ -z "$f" ] || [ "$f" -lt "$n" ] || n=$((10#$f + 1))
+    done
+    name=update-$n-${LOGV:-unknown-version}.txt
+    # its name for the update popup (the server mod: "see dlzmod-logs/update-N-v0.1.0.txt")
     # (on the card's root, not DLZDATA: flushed here, the sync below only covers DLZDATA)
-    if cp "$REPORT" "$DATA/dlzmod-logs/update-$n.txt"; then echo "update-$n.txt" > "$STATE/last-report.dlzmod-new" \
+    if cp "$REPORT" "$DATA/dlzmod-logs/$name"; then echo "$name" > "$STATE/last-report.dlzmod-new" \
       && sync "$STATE/last-report.dlzmod-new" && mv -f "$STATE/last-report.dlzmod-new" "$STATE/last-report" && sync -f "$STATE"
     else echo "dlzmod-update: report not saved"; fi
   fi
   [ -z "$UNS_OLD" ] || echo "$UNS_OLD" > "$UNS" 2>/dev/null
   rm -f "$REPORT"
   [ -z "$WORK" ] || rm -rf "$WORK"
+  [ -z "$CHECK_STATE" ] || rm -rf "$CHECK_STATE"
   [ "$WROTE" = no ] || sync -f "$DATA/."
   if [ -z "${DLZMOD_DATA:-}" ]; then
     umount "$DATA" && rmdir "$DATA" || echo "dlzmod-update: DLZDATA could not be unmounted"
@@ -177,7 +216,8 @@ clean_new() {   # half-written files from a write cut off before its rename (put
 restore() {   # the snapshot back, and what the update added removed; not stopped halfway by a TERM
   local r f t ok=yes
   trap '' TERM INT
-  r=$(mktemp -d /tmp/dlzmod-restore.XXXXXX) && tar -xpf "$STATE/previous.tar" -C "$r" >> "$REPORT" 2>&1 || { trap on_term TERM INT; return 1; }
+  r=$(mktemp -d /tmp/dlzmod-restore.XXXXXX) && tar -xpf "$STATE/previous.tar" -C "$r" >> "$REPORT" 2>&1 \
+    || { [ -z "$r" ] || rm -rf "$r"; trap on_term TERM INT; return 1; }
   # file by file, atomically and only where it differs (like apply-mod.sh's put_file): the guards,
   # unchanged, are not touched at all
   while IFS= read -r f; do
@@ -200,34 +240,110 @@ restore() {   # the snapshot back, and what the update added removed; not stoppe
   trap on_term TERM INT
   [ "$ok" = yes ]
 }
+# repair <why> [keep]: a try that was cut off (or whose put-back failed) and that this start does not
+# go on with: the files from before it go back, so the card never keeps a half-placed update. 0 when
+# there is nothing to put back (or checks only) or it is back; 1 when the files could not all be
+# put back (the progress marker stays: the next start tries again; this one only once more, after it
+# placed files). With keep (the
+# starts that stop before looking at a file, and later), the Install that try had is kept for that
+# same file (its record: tar + sig): unless another Install is there, or that file failed
+repair() {
+  local inp
+  inp=$(cat "$STATE/inprogress" 2>/dev/null)
+  [ -z "$CHECK_ONLY" ] && [ -n "$inp" ] || return 0
+  [ -z "$REPAIR_FAILED" ] || return 1
+  if [ ! -f "$STATE/previous.tar" ] || [ ! -f "$STATE/previous.list" ]; then
+    # a marker without its snapshot: nothing was placed behind it (the marker is written after the
+    # snapshot), so there is nothing to put back; cleared here, on the paths that call repair (a
+    # resumed start of that same file still goes on by it: the same file, approved for it)
+    rm -f "$STATE/inprogress"; sync
+    return 0
+  fi
+  REPAIRED=yes
+  log "$1: putting the files from before it back"
+  if restore && guards_ok; then
+    [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" != "$inp" ] || rm -f "$STATE/tries"
+    rm -f "$STATE/inprogress"; sync
+    log "previous files restored"
+    if [ "${2:-}" = keep ] && [ ! -s "$STATE/approved" ] && [ "$(cat "$STATE/failed" 2>/dev/null)" != "$inp" ]; then
+      { echo "$inp" > "$STATE/approved.dlzmod-new" && sync && mv -f "$STATE/approved.dlzmod-new" "$STATE/approved" && sync; } \
+        || log "its Install could not be kept: the screen asks again"
+    fi
+    return 0
+  fi
+  REPAIR_FAILED=yes
+  log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"
+  return 1
+}
+# only this file's own try markers: a different file's cut-off try is put back by repair (before this
+# file's checks). What a try of this file placed (cut off earlier, or this one) goes back first; if
+# that fails, its progress marker stays, so the next start tries to put it back again
+fail() {
+  if [ "$PLACED" = yes ] && [ "$(cat "$STATE/inprogress" 2>/dev/null)" = "$SUM" ] && ! repair "a try of this file placed files"; then
+    log "NOT INSTALLED: $* (the next start tries to put the files back again)"
+    echo "$SUM" > "$STATE/failed"
+    [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/tries"
+    sync; exit 0
+  fi
+  log "NOT INSTALLED: $*"; echo "$SUM" > "$STATE/failed"
+  [ "$(cat "$STATE/approved" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/approved"
+  [ "$(cat "$STATE/inprogress" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/inprogress"
+  [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/tries"
+  sync; exit 0
+}
+# not the package's fault: tried again next start, and the try this start counted is given back. A
+# resumed cut-off try of this file is not left half-placed until the cause goes away: what it placed
+# goes back, and its Install is kept for this same file, so the next start begins a fresh try (with
+# a fresh count of 3: the repair clears that try's count, accepted, as the cause is not the package)
+later() {
+  local n
+  log "NOT INSTALLED this time: $*"
+  [ "$PLACED" = yes ] && [ "$(cat "$STATE/inprogress" 2>/dev/null)" = "$SUM" ] && repair "a try of this file placed files" keep
+  if [ "$COUNTED" = yes ] && [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" = "$SUM" ]; then
+    n=$(( $(cut -d' ' -f2 "$STATE/tries") - 1 ))
+    if [ "$n" -gt 0 ]; then
+      echo "$SUM $n" > "$STATE/tries.new" && sync && mv -f "$STATE/tries.new" "$STATE/tries" && sync
+    else rm -f "$STATE/tries"; fi
+  fi
+  exit 0
+}
 # systemd's timeout (or a stop) during the apply: put things back first
 on_term() { if [ "$APPLYING" = yes ]; then log "stopped while applying: putting the previous files back"; restore; fi; exit 1; }
 trap on_term TERM INT
 
 U=$DATA/dlzmod-update
-if [ ! -e "$U/README.txt" ]; then
-  writable && mkdir -p "$U" && printf '%s\r\n' "Updates for DLZ Creator Modded go here: copy both update files (dlzmod-vX.Y.Z.tar and" \
-    "dlzmod-vX.Y.Z.tar.sig) into this folder, then start the mixer with this card. It is installed at" \
-    "startup and then deleted; the result is in dlzmod-logs." > "$U/README.txt"
+# (the same text as the installer's, install-card.sh; an older one is replaced)
+readme() {
+  printf '%s\r\n' "Updates for DLZ Creator Modded go here: copy both update files (dlzmod-vX.Y.Z.tar and" \
+    "dlzmod-vX.Y.Z.tar.sig) into this folder, then start the mixer with this card. Its screen asks" \
+    "whether to install the update; after Install, switch the mixer off and on: it is installed at that" \
+    "start and then deleted. The result is in dlzmod-logs."
+}
+if ! readme | cmp -s - "$U/README.txt"; then
+  writable && mkdir -p "$U" && readme > "$U/README.txt"
 fi
 shopt -s nullglob
+if [ -n "$CHECK_ONLY" ]; then
+  # the state the checks read (the card's version, a cut-off try's snapshot), copied; no try records,
+  # so every run checks afresh
+  CHECK_STATE=$(mktemp -d /tmp/dlzmod-checks.XXXXXX) || { CHECK_STATE=""; later "no room in /tmp"; }
+  for f in version inprogress previous.tar previous.list; do
+    [ ! -f "$STATE/$f" ] || cp "$STATE/$f" "$CHECK_STATE/" || later "the state could not be copied"
+  done
+  STATE=$CHECK_STATE
+fi
 mkdir -p "$STATE"
-clean_new
-if [ -s "$STATE/inprogress" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ] && ! guards_ok > /dev/null; then
-  log "the guards are not as installed after a try that was cut off: putting the files from before it back"
-  if restore && guards_ok; then log "previous files restored"; rm -f "$STATE/inprogress"; sync
-  else log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"; fi
+[ -n "$CHECK_ONLY" ] || clean_new
+if [ -z "$CHECK_ONLY" ] && [ -s "$STATE/inprogress" ] && ! guards_ok > /dev/null; then
+  repair "the guards are not as installed after a try that was cut off" keep
 fi
 pkgs=("$U"/dlzmod-*.tar)
 if [ ${#pkgs[@]} = 0 ]; then   # nothing to do (every normal start)
-  rm -f "$STATE/unsigned" "$STATE/multiple"
+  # an Install for a file that is gone does not wait for that file to come back (#65)
+  rm -f "$STATE/unsigned" "$STATE/multiple" "$STATE/approved"
   # a try cut off while placing, and its file removed since (the guards may be fine, so the repair
   # above did not run): the files from before it go back, or the card keeps a half-placed update
-  if [ -s "$STATE/inprogress" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ]; then
-    log "an update was cut off while placing its files and is no longer there: putting the files from before it back"
-    if restore && guards_ok; then log "previous files restored"; rm -f "$STATE/inprogress" "$STATE/tries"; sync
-    else log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"; fi
-  fi
+  repair "an update was cut off while placing its files and is no longer there"
   exit 0
 fi
 # on the mixer (a PC rehearsal sets DLZMOD_ROOT or DLZMOD_DATA): never change anything while the eMMC
@@ -242,9 +358,11 @@ if [ -z "$ROOT" ] && [ -z "${DLZMOD_DATA:-}" ]; then
   # (it is probed asynchronously: not seen yet means not locked yet, 60-dlzmod-emmc-ro.rules does that)
   [ "$emmc" -gt 0 ] || later "the internal storage (eMMC) is not visible this start, so it is not known to be locked"
 fi
+# none of the files below is tried this start: a cut-off try (of any file) is not left half-placed
 if [ ${#pkgs[@]} -gt 1 ]; then
+  repair "an update was cut off while placing its files, and more than one update file is there now" keep
   names=$(printf '%s\n' "${pkgs[@]##*/}")
-  if [ "$(cat "$STATE/multiple" 2>/dev/null)" = "$names" ]; then : > "$REPORT"; exit 0; fi   # said so already
+  if [ "$(cat "$STATE/multiple" 2>/dev/null)" = "$names" ]; then [ -n "$REPAIRED" ] || : > "$REPORT"; exit 0; fi   # said so already
   printf '%s\n' "$names" > "$STATE/multiple"
   log "more than one update file in dlzmod-update: none installed, leave only one there"
   exit 0
@@ -252,7 +370,8 @@ fi
 rm -f "$STATE/multiple"
 SRC=${pkgs[0]}
 if [ ! -f "$SRC.sig" ]; then
-  if [ "$(cat "$STATE/unsigned" 2>/dev/null)" = "${SRC##*/}" ]; then : > "$REPORT"; exit 0; fi   # said so already
+  repair "an update was cut off while placing its files, and the update file there now has no signature" keep
+  if [ "$(cat "$STATE/unsigned" 2>/dev/null)" = "${SRC##*/}" ]; then [ -n "$REPAIRED" ] || : > "$REPORT"; exit 0; fi   # said so already
   printf '%s\n' "${SRC##*/}" > "$STATE/unsigned"
   log "update file ${SRC##*/} has no signature file (${SRC##*/}.sig) next to it: not installed, copy both files"
   exit 0
@@ -268,27 +387,41 @@ head -c $((MAX_PKG + 1)) "$SRC" > "$PKG" && head -c 65 "$SRC.sig" > "$SIGF" || l
 # another signature counts as a different try
 SUM=$(cat "$PKG" "$SIGF" | sha256sum | cut -d' ' -f1)
 log "update file ${SRC##*/} (sha256 $(sha256sum < "$PKG" | cut -d' ' -f1))"
+# a cut-off try of another file goes back before this one is looked at (whatever happens to this one
+# below: refused, waiting for Install or tried); one of this file whose put-back failed earlier
+# (failed, with its progress marker kept) is put back again now. Only a try of this file that was cut
+# off goes on (step 3)
+inp=$(cat "$STATE/inprogress" 2>/dev/null)
+if [ -n "$inp" ] && [ "$inp" != "$SUM" ]; then
+  repair "an earlier update file was cut off while applying" \
+    || later "the files from before an earlier cut-off update could not be put back"
+elif [ -n "$inp" ] && [ "$(cat "$STATE/failed" 2>/dev/null)" = "$SUM" ]; then
+  repair "this file failed earlier and the files from before it could not all be put back then"
+elif [ -n "$inp" ]; then
+  PLACED=yes   # a try of this file was cut off: it goes on in step 3, or fail puts it back
+fi
 if [ "$(cat "$STATE/failed" 2>/dev/null)" = "$SUM" ]; then
   echo "dlzmod-update: ${SRC##*/} failed before, not tried again"
-  : > "$REPORT"   # no new report for the same failure at every start
+  [ -n "$REPAIRED" ] || : > "$REPORT"   # no new report for the same failure at every start
   exit 0
 fi
-t=$(cat "$STATE/tries" 2>/dev/null)
-if [ "${t% *}" = "$SUM" ]; then tries=$(( ${t#* } + 1 )); else tries=1; fi
-if [ "$tries" -gt 3 ]; then
-  log "stopped 3 times before it finished"
-  if [ "$(cat "$STATE/inprogress" 2>/dev/null)" = "$SUM" ]; then
-    log "putting the previous files back"
-    if ! { restore && guards_ok; }; then
-      log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"
-      log "NOT INSTALLED: it never finished (the next start tries to put the files back again)"
-      echo "$SUM" > "$STATE/failed"; rm -f "$STATE/tries"; sync   # inprogress stays for the start-up repair
-      exit 0
-    fi
-  fi
-  fail "it never finished"
+# #65: installed only after Install on the mixer's own screen: the server mod writes this file's
+# record (SUM, from "pending" below) to "approved". A try of this file that was cut off goes on
+# without a new one: its progress marker carries the approval (step 3 uses "approved" up)
+APPROVED=no
+if [ "$(cat "$STATE/approved" 2>/dev/null)" = "$SUM" ] || [ "$(cat "$STATE/inprogress" 2>/dev/null)" = "$SUM" ]; then
+  APPROVED=yes
 fi
-echo "$SUM $tries" > "$STATE/tries.new" && sync && mv -f "$STATE/tries.new" "$STATE/tries" && sync
+# only an approved start is a try: waiting for the screen uses up none of the 3
+if [ "$APPROVED" = yes ]; then
+  t=$(cat "$STATE/tries" 2>/dev/null)
+  if [ "${t% *}" = "$SUM" ]; then tries=$(( ${t#* } + 1 )); else tries=1; fi
+  if [ "$tries" -gt 3 ]; then
+    log "stopped 3 times before it finished"
+    fail "it never finished"   # (puts back what its tries placed first)
+  fi
+  echo "$SUM $tries" > "$STATE/tries.new" && sync && mv -f "$STATE/tries.new" "$STATE/tries" && sync && COUNTED=yes
+fi
 
 # 1. the package: size and signature before anything reads its contents, then only plain files and
 # folders under one top folder (tar and the initramfs inside it), both manifests, and the manifest
@@ -339,6 +472,10 @@ T=$WORK/root/pkg/mod
 penv() { sed -n "s/^$1=//p" "$P/package.env"; }
 NEWV=$(penv DLZMOD_VERSION)
 log "version $NEWV ($(penv BUILD)), models $(penv MODELS), evolve-node $(penv EVOLVE_NODE)"
+# the report's name like the package's (v0.1.0, v0.1.0-dev-c0e3084); FAT-safe characters only
+LOGV=$NEWV
+case $(penv BUILD) in ''|release) ;; *) LOGV=$NEWV-$(penv BUILD) ;; esac
+LOGV=$(printf '%s' "$LOGV" | tr -cd 'A-Za-z0-9._+-' | cut -c1-40)
 
 # 2. made for this mixer and this firmware, not older than what is here, applicable here, complete,
 # and the safety guards exactly as they are
@@ -384,30 +521,53 @@ bash -n "$T/apply-mod.sh" && bash -n "$T/sd-system/dlzmod-update" || fail "its s
 # (whether its patches fit this firmware: patch.py --check, the package's own code, runs in the
 # sandbox in step 3, never here as root)
 guards_ok || later "the guards on this card are not as installed: install again with the installer image"
+if [ -n "$CHECK_ONLY" ]; then log "CHECKS PASSED (checks only: nothing applied)"; exit 0; fi
+
+# #65: every check passed, but the mixer's own screen has not said Install for this file yet. Nothing
+# of it is applied (only its signed check-rootfs.sh has run, above, as at every start it waits):
+# "pending" holds its record and checked version for the server mod, which asks on the screen; after
+# Install the next start finds "approved" and goes on. No try counted, no report (the question on the
+# screen is the news; only an earlier cut-off try put back below writes one), the package stays.
+wait_for_approval() {
+  local label
+  # (a different file's cut-off try was put back above, before this file's checks: then the report
+  # says so; otherwise there is none)
+  if [ -n "$REPAIRED" ]; then log "NOT INSTALLED yet: ${SRC##*/} waits for Install on the mixer's screen"
+  else : > "$REPORT"; fi
+  # an Install for another file (one replaced since) does not carry over to a later one
+  rm -f "$STATE/approved"
+  # named as the installed file names a build ("v0.2.0 (dev-c0e3084)"; a release: "v0.2.0")
+  label=$NEWV
+  case $(penv BUILD) in ''|release) ;; *) label="$NEWV ($(penv BUILD))" ;; esac
+  label=$(printf '%s' "$label" | tr -cd 'A-Za-z0-9._+() -' | cut -c1-60)
+  { echo "$SUM $label" > "$STATE/pending.dlzmod-new" && mv -f "$STATE/pending.dlzmod-new" "$STATE/pending"; } \
+    || { rm -f "$STATE/pending.dlzmod-new"; echo "dlzmod-update: the question for the screen could not be written"; }
+  echo "dlzmod-update: ${SRC##*/} ($label) waits for Install on the mixer's screen"
+  exit 0
+}
+[ "$APPROVED" = yes ] || wait_for_approval
 
 # 3. snapshot of everything it may change (once per package: a retry after a power cut keeps the one
 # from before the first try), then apply in a subshell run as a plain command (bash ignores set -e
 # inside a subshell whose status is tested), then the guard check with this script's own list
 other=$(cat "$STATE/inprogress" 2>/dev/null)
-RESUMED=no
 if [ "$other" = "$SUM" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ]; then
   log "a try of this file was interrupted: keeping the snapshot from before it"
-  RESUMED=yes
 else
-  # a different file's try was cut off (that file removed since): its half-applied files would end up
-  # in this snapshot, so the files from before it go back first
-  if [ -n "$other" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ]; then
-    log "an earlier update file was cut off while applying: putting the files from before it back first"
-    { restore && guards_ok; } || later "the files from before an earlier cut-off update could not be put back"
-    rm -f "$STATE/inprogress"; sync
-    log "previous files restored"
-  fi
+  # (a different file's cut-off try was put back before this file's checks, so its half-applied
+  # files do not end up in this snapshot; a progress marker without a snapshot has nothing to put
+  # back and is replaced)
   snap_list > "$STATE/previous.list.new" && tar -cpf "$STATE/previous.tar.new" -C "$ROOT/" -T "$STATE/previous.list.new" \
     && sync && mv -f "$STATE/previous.list.new" "$STATE/previous.list" && mv -f "$STATE/previous.tar.new" "$STATE/previous.tar" \
-    || later "snapshot not written (card full?)"
-  echo "$SUM" > "$STATE/inprogress.new" && sync && mv -f "$STATE/inprogress.new" "$STATE/inprogress" && sync
+    || { rm -f "$STATE/previous.list.new" "$STATE/previous.tar.new"; later "snapshot not written (card full?)"; }
+  echo "$SUM" > "$STATE/inprogress.new" && sync && mv -f "$STATE/inprogress.new" "$STATE/inprogress" \
+    || { rm -f "$STATE/inprogress.new"; later "progress marker not written (card full?)"; }
+  sync
   log "snapshot of the current files taken"
 fi
+# the approval is used up: from here a cut-off try goes on by its progress marker, and a finished one,
+# installed or not, needs a new Install for the next file
+rm -f "$STATE/approved"
 # The package's own steps (apply-mod.sh: install_sd_system, apply_patches, set_mod_defaults,
 # record_version, the new copy of this script) run on a STAGE, a copy of every file an update may
 # touch, inside a sandbox: their own mount, pid and network namespaces, every mount read-only but the
@@ -417,20 +577,8 @@ fi
 # anything outside its allowlist refuses the whole package before the card is touched; the rest is
 # placed by this script, file by file and atomically, the guards first and its own new copy last.
 # refused from here on: nothing of this try is on the card yet, but a cut-off earlier try of this same
-# file may have placed part of it, so that goes back first
-refuse() {
-  if [ "$RESUMED" = yes ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ]; then
-    log "putting back what the cut-off earlier try of this file placed"
-    if ! { restore && guards_ok; }; then
-      log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"
-      log "NOT INSTALLED: $* (the next start tries to put the files back again)"
-      echo "$SUM" > "$STATE/failed"; sync   # inprogress stays: the start-up repair runs again
-      exit 0
-    fi
-    log "previous files restored"
-  fi
-  fail "$@"
-}
+# file may have placed part of it: fail puts that back first
+refuse() { fail "$@"; }
 SB=$WORK/sandbox
 S=$SB/stage
 mkdir -p "$S" "$SB/tmp" || later "no room for the update's stage"
@@ -491,7 +639,7 @@ exec setpriv --reuid=65533 --regid=65533 --clear-groups --bounding-set=-all --in
   /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME=/ TMPDIR=/run/sb/tmp PYTHONDONTWRITEBYTECODE=1 \
   /bin/bash -c 'set -Eeuo pipefail; MNT=/run/sb/stage; TOOLS=/run/pkg/mod
     for t in app:srv/app.js server:srv/server.js; do
-      python3 -B -E -s "$TOOLS/patch.py" --check "${t%%:*}" "$MNT/${t#*:}" || exit 3
+      python3 -B -E -s "$TOOLS/patch.py" --check "${t%%:*}" "$MNT/${t#*:}" || exit 213
     done
     . "$TOOLS/apply-mod.sh"; install_sd_system; apply_patches; set_mod_defaults; record_version'
 SANDBOX_EOF
@@ -506,7 +654,8 @@ ready=$(unshare -m -p -n -f --kill-child --mount-proc --propagation private /bin
 rc=$?
 [ -z "$UNS_OLD" ] || { echo "$UNS_OLD" > "$UNS"; UNS_OLD=""; }
 [ "$ready" = ready ] || later "the update sandbox could not be set up (exit $rc)"
-[ "$rc" != 3 ] || refuse "does not fit this firmware (patch.py --check)"
+# 213: the firmware check's own code, which no tool or signal (128+n) gives on its own
+[ "$rc" != 213 ] || refuse "does not fit this firmware (patch.py --check)"
 [ "$rc" = 0 ] || refuse "a step failed (exit $rc); nothing on the card was changed"
 
 # what the steps changed: "<path>" per file or link that differs, is new, or is gone; nothing else
@@ -529,7 +678,7 @@ allowed() {
     var/lib/dlzmod-update) case $b in version|installed) return 0 ;; esac ;;
     usr/local/sbin) case $b in dlzmod-*) return 0 ;; esac ;;
     etc/udev/rules.d) case $b in *dlzmod*.rules) return 0 ;; esac ;;
-    boot) [ "$b" = boot.scr ] && return 0 ;;
+    # not boot/boot.scr: U-Boot runs it before the eMMC lock, so a new one needs a full install
     etc/systemd/system) case $b in dlzmod-*.service|ssh.socket) return 0 ;; esac ;;
     etc/systemd/system/*)
       rest=${d#etc/systemd/system/}
@@ -542,9 +691,7 @@ allowed() {
   esac
   return 1
 }
-# links only where systemd expects them, pointing where install_sd_system puts them; boot.scr only as
-# a U-Boot script image (magic 27051956): a bad one would only stop the card from starting, but that
-# must still be a deliberate, built file
+# links only where systemd expects them, pointing where install_sd_system puts them
 shape_ok() {
   local p=$1
   if [ -L "$S/$p" ]; then
@@ -559,9 +706,6 @@ shape_ok() {
     # the checks below catch a mistake, not a hostile signer (see the notes: the signature is the
     # trust boundary): nothing that runs before or undoes the eMMC lock
     case $p in
-      boot/boot.scr)
-        [ "$(od -An -tx1 -N4 "$S/$p" | tr -d ' \n')" = 27051956 ] \
-          && ! tail -c +65 "$S/$p" | grep -qaiE 'mmc +(write|erase|swrite|partconf|bootbus|hwpartition|rst-function)|saveenv|env +save|(^|[^a-z])(gpt|ums|fastboot)([^a-z]|$)' ;;
       etc/systemd/system/ssh.socket|etc/systemd/system/*.wants/*) return 1 ;;
       etc/systemd/system/dlzmod-emmc-ro.service) return 0 ;;   # a guard: its hash is checked
       etc/systemd/system/*.service) ! grep -qiE '^[[:space:]]*DefaultDependencies[[:space:]]*=[[:space:]]*(no|false|0)' "$S/$p" ;;
@@ -595,10 +739,19 @@ if grep -qx usr/local/sbin/dlzmod-update <<< "$changed"; then
   [ -f "$new" ] && bash -n "$new" || refuse "its new update script does not parse"
   [ "$(sed -n '/^GUARDS="/,/"$/p' "$new" | sed 's/^GUARDS="//; s/"$//')" = "$GUARDS" ] \
     || refuse "its new update script changes the guard list: needs a full install"
+  # the gates are looked for outside this block of the new copy: its own list names every one of them,
+  # so a check dropped from the code would still be found there; a copy without the block's first
+  # line has no such check of its next copy at all
+  grep -qxF 'if grep -qx usr/local/sbin/dlzmod-update <<< "$changed"; then' "$new" \
+    || refuse "its new update script does not check its own next copy: needs a full install"
+  code=$(awk '$0 == "if grep -qx usr/local/sbin/dlzmod-update <<< \"$changed\"; then" { skip = 1 }
+      !skip { print }
+      skip && /^fi$/ { skip = 0 }' "$new")
   for g in 'openssl pkeyutl -verify -pubin' '--bounding-set=-all' '--reuid=65533' 'max_user_namespaces' \
-      'remount,bind,ro' 'blockdev --getro' \
-      'refuse "the update changes /$p, which an update may not' '[ "$(key_sums)" = "$keys_before" ]'; do
-    grep -qF -- "$g" "$new" || refuse "its new update script lacks a check ($g): needs a full install"
+      'remount,bind,ro' 'blockdev --getro' '/device/type" 2>/dev/null)" = SD' \
+      'refuse "the update changes /$p, which an update may not' '[ "$(key_sums)" = "$keys_before" ]' \
+      'if [ "$(cat "$STATE/approved" 2>/dev/null)" = "$SUM" ]' '[ "$APPROVED" = yes ] || wait_for_approval'; do
+    grep -qF -- "$g" <<< "$code" || refuse "its new update script lacks a check ($g): needs a full install"
   done
 fi
 
@@ -621,7 +774,8 @@ keys_before=$(key_sums)
 grep -E "$guards" <<< "$changed" > "$SB/place-guards"
 grep -Ev "$guards|$self" <<< "$changed" | grep . > "$SB/place-rest"
 grep -E "$self" <<< "$changed" > "$SB/place-self"
-APPLYING=yes
+# (placing changes the card again: a put-back that failed earlier this start is worth another try)
+APPLYING=yes PLACED=yes REPAIR_FAILED=""
 rc=0
 while IFS= read -r p; do place "$p" || rc=1; done < "$SB/place-guards"
 sync
@@ -648,12 +802,8 @@ if [ "$rc" = 0 ]; then
   log "changed startup units from the next start"
   [ -n "$ROOT" ] || udevadm control --reload 2>/dev/null
 else
-  log "applying failed: putting the previous files back"
-  if restore && guards_ok; then log "previous files restored"; fail "see the lines above"; fi
-  log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"
-  log "NOT INSTALLED: see the lines above (the next start tries to put the files back again)"
-  echo "$SUM" > "$STATE/failed"; sync   # inprogress stays: the start-up repair above runs again
-  exit 0
+  log "applying failed"
+  fail "see the lines above"   # (puts the previous files back first)
 fi
 exit 0
 }

@@ -24,7 +24,7 @@ backup the installer makes.
 
 - A DLZ Creator XS or DLZ Creator on firmware 1.2.0 build 1731 (Settings → About), a microSD card of
   16 GB or more and a card reader
-- Windows with Git Bash, Node.js 18 or later (the UI sandbox and the server mod's unit tests) and
+- Windows with Git Bash, Node.js 18 or later (the UI sandbox and the app and server mods' unit tests) and
   Chrome (sandbox screenshots; another Chromium with `CHROME=<path>`)
 - WSL 2 with the distro **Ubuntu** (Docker Desktop's `docker-desktop` distro can be the default:
   always pass `-d Ubuntu`), with:
@@ -48,10 +48,14 @@ backup the installer makes.
    card below makes it too.
 2. **Mount it read-only**: `wsl -d Ubuntu -u root -e bash install/mount-ro.sh` (repo root) gives
    `/mnt/dlz`. An idle WSL drops the mount: keep `wsl -d Ubuntu -u root -e sleep 7000` running.
-3. **Run the tests that need no mixer**: `node install/server-mod/test-dlzmod-server.js` (Windows),
-   `bash tests/guards.sh` and `bash tests/cardcheck.sh` (WSL, as root); the rest:
-   [tests/README.md](../tests/README.md). GitHub runs the first two and a syntax check of every
-   script on each push and pull request (`.github/workflows/checks.yml`).
+3. **Run the tests that need no mixer**: `node install/server-mod/test-dlzmod-server.js` and
+   `node install/app-mod/test-dlzmod.js` (Windows),
+   `bash tests/guards.sh`, `bash tests/cardcheck.sh` and `bash tests/patches.sh` (WSL, as root),
+   `tests/update-checks.sh` (as a normal user: in WSL as `nobody`, see tests/README.md); the rest,
+   and which to run for which change: [tests/README.md](../tests/README.md). GitHub runs the unit
+   tests, `guards.sh`, `update-checks.sh`, the `mixer-ssh` skill's read-only guard
+   (`test-guard.sh`) and a syntax check of every script on each push and pull request
+   (`.github/workflows/checks.yml`).
 4. **Look at the UI on the PC**: `bash dev/ui-sandbox.sh` (Git Bash) serves the mixer's UI with the
    mod at http://127.0.0.1/ (the first start copies `/srv` from the mount). Always stop it with
    `bash .claude/skills/ui-sandbox/sandbox.sh stop`: it leaves Node on ports 80/89 and a mapped drive
@@ -80,14 +84,14 @@ organised: "GitHub workflow" below and [CONTRIBUTING.md](../CONTRIBUTING.md).
 | `vendor/` | Third-party U-Boot, downloaded in Setup (git-ignored) |
 | `build/` | Generated images/scripts (git-ignored) |
 | `dumps/` | Data read from the device (git-ignored, never share) |
-| `.github/` | Issue templates (bug, feature, help with an install), the pull request template, `CODEOWNERS` (who reviews) and the checks GitHub runs on every push and pull request (`workflows/checks.yml`: unit tests, key guards, script syntax) |
+| `.github/` | Issue templates (bug, feature, help with an install), the pull request template, `CODEOWNERS` (who reviews) and the checks GitHub runs on every push and pull request (`workflows/checks.yml`: unit tests, key guards, updater checks, the SSH skill's read-only guard, script syntax) |
 | `.claude/skills/` | Workflows for Claude Code: the device review, the UI sandbox, SSH to your mixer, the release build |
 
 ## Notes
 
 | File | Contents |
 |---|---|
-| `CHANGELOG.md` | Plain-language changelog, updated every version. The roadmap is on GitHub: [issues](https://github.com/Oulsen/DLZ-Creator-Modded/issues) and the [board](https://github.com/users/Oulsen/projects/2) |
+| `CHANGELOG.md` | Plain-language changelog: each PR that finishes a milestone issue adds its bullet. The roadmap is on GitHub: [issues](https://github.com/Oulsen/DLZ-Creator-Modded/issues) and the [board](https://github.com/users/Oulsen/projects/2) |
 | `notes/architecture.md` | Processes, IPC, message protocol, data model: start here |
 | `notes/system.md` | OS layer: boot, network, ports, security, persistence, package ownership |
 | `notes/components/` | One page per component: Node backend, glesgui, dspserver, mixer graph, faderlink, firmware update |
@@ -135,7 +139,7 @@ The repo is public, so what goes into it is limited by what the project may publ
 
 | Tool | Runs on | Purpose |
 |---|---|---|
-| `stage2-backup.txt` | U-Boot | Full eMMC backup in 64 MiB chunks; backlight toggles per chunk, powers off when done. Reads the eMMC's data (switching to its boot areas sets a register that resets at power-off), writes to the SD card |
+| `stage2-backup.txt` | U-Boot | Full eMMC user-area backup in 64 MiB chunks (not the boot areas boot0/boot1, like the installer's backup); backlight toggles per chunk, powers off when done. Only reads the eMMC, writes to the SD card |
 | `mkscr.py` | any | Plain-text U-Boot script -> `boot.scr` |
 | `mksdimg.py` | any | Dumper card image: U-Boot at 8 KiB + empty FAT32 partition |
 | `mkenv.py` | any | `uboot.env` for our cards: U-Boot's default environment with overrides (`boot_targets=mmc0`: never boot the eMMC) |
@@ -145,7 +149,7 @@ The repo is public, so what goes into it is limited by what the project may publ
 | Tool | Runs on | Purpose |
 |---|---|---|
 | `bootsplash.py` | any (PNG frames: Pillow) | Unpack / pack kernel bootsplash files (byte-exact roundtrip); `--raw` frames need no Pillow |
-| `mklayers.py` | WSL | Layout of the boot visuals (MODDED sticker, version, status lines, logo position); renders our layers (no Mackie logo) as RGBA PNGs + `layout.env` |
+| `mklayers.py` | WSL | Layout of the boot visuals (MODDED sticker, status lines, logo position; no version, #97); renders our layers (no Mackie logo) as RGBA PNGs + `layout.env` |
 | `logobbox.py` | WSL / device | Find Mackie's logo in the device's own `/etc/dlz.png` (stdlib + ffmpeg) |
 | `mkvisuals.sh` | WSL / device | Compose `/etc/dlz.png` and the kernel bootsplash from the device's originals + our layers (ffmpeg) |
 | `modversion.py` | any | Reads and checks the mod version from `VERSION` (`v0.1.0` .. `v9.99.99`) |
@@ -163,15 +167,18 @@ The repo is public, so what goes into it is limited by what the project may publ
 | `apply-mod.sh` | WSL / device | The mod's own changes to a rootfs (guards and units, app/server patches, mod defaults, Mackie's factory Wi-Fi network and SSH access removed once), shared by `card-core.sh` and the drop-in update so both apply the same files; every file written atomically and only when it differs |
 | `sd-system/` | device | Installed by `card-core.sh`: eMMC read-only unit (and a udev rule that locks it whenever it appears), first-boot `DLZDATA` grower, boot log copy to `DLZDATA/dlzmod-logs/`, dspserver start guard (waits for server.js), drop-ins that stop GD32 flashing and Mackie updates, the card bound to its mixer (`dlzmod-cardcheck` before Mackie's FPGA loader: the flag matches the GD32 marker, both match the eMMC's own (read-only), and the eMMC's CID hash matches `/etc/dlzmod/mixer-id`, else no FPGA load, faderlink or dspserver and a red popup), the drop-in update (`dlzmod-update`: a package in `DLZDATA/dlzmod-update/` is checked and applied at startup, only with a valid signature from a key the card trusts; its steps run in a sandbox on a copy, then only allowlisted files are placed), USB Wi-Fi ids the stock driver lacks, an eject rule for Realtek sticks that start as a driver CD, and an SSH drop-in that gives each card its own host keys, slows down password guessing and starts SSH only when turned on from the screen (off again after a restart unless kept on) |
 | `mount-ro.sh` | WSL (root) | Mount a dump's rootfs read-only |
-| `patch.py` | any | `patch.py app <app.js>`: our UI mods (`app-mod/dlzmod.js` + anchor patches). `patch.py server <server.js>`: our server mods (`server-mod/dlzmod-server.js` + anchor patches): FORMAT SD and firmware updates refused, free and unique recording names, the update popup, Wi-Fi and SSH for the Mod page's Network panel, and Mackie's file commands checked (deleting and renaming only from the mixer's own screen, preset folders and names checked, no shell for file names, the kept `*.orig` originals not served) |
-| `server-mod/test-dlzmod-server.js` | Node | Unit tests for the server mod: recording names, update popup, Network panel, file command checks (`node install/server-mod/test-dlzmod-server.js`) |
+| `patch.py` | any | `patch.py app <app.js>`: our UI mods (`app-mod/dlzmod.js` + anchor patches). `patch.py server <server.js>`: our server mods (`server-mod/dlzmod-server.js` + anchor patches): FORMAT SD and firmware updates refused, free and unique recording names, the update popup, Wi-Fi and SSH for the Mod page's Network panel, control from other devices only when switched on and paired with a PIN (HTTP, socket.io and port 89 on loopback; the Remote Control panel), and Mackie's file commands checked (deleting and renaming only from the mixer's own screen and paired devices, recordings only in their folders, preset folders and names checked, no shell for file names, the kept `*.orig` originals not served), recordings downloaded by paired computers (read only, nothing read while recording) and every client's recording list refreshed after a recording, rename or delete |
+| `server-mod/test-dlzmod-server.js` | Node | Unit tests for the server mod: recording names, update popup, Network panel, pairing (PIN, pause, cookie, Origin, which files other devices get), file command checks, the recordings download and list refresh (`node install/server-mod/test-dlzmod-server.js`) |
+| `app-mod/test-dlzmod.js` | Node | Unit tests for the app mod, with stand-ins for Mackie's UI: the recordings download, meters, the header setting, the Mod page's tabs, Wi-Fi, SSH and Remote Control (states, passwords, the network list), the PIN pad, the update and card popups (`node install/app-mod/test-dlzmod.js`) |
 
 ### `dev/`: develop mods on a PC
 
 | Tool | Runs on | Purpose |
 |---|---|---|
-| `ui-sandbox.sh` | Git Bash + Node | Run the mixer UI on this PC at http://127.0.0.1/ in the on-device layout (copy of `/srv` in `dumps/sandbox`, shell commands blocked, localhost only); `DLZ_FULLSIZE=1` shows the full-size DLZ Creator's UI from its own copy (`dumps/sandbox-full`) |
-| `ui-sandbox/shot.js` | Node + Chrome | Headless screenshot of the sandbox UI, optionally after taps |
+| `ui-sandbox.sh` | Git Bash + Node | Run the mixer UI on this PC at http://127.0.0.1/ in the on-device layout (copy of `/srv` in `dumps/sandbox`, shell commands blocked, localhost only); `DLZ_FULLSIZE=1` shows the full-size DLZ Creator's UI from its own copy (`dumps/sandbox-full`); `DLZ_SANDBOX_REMOTE=1` makes http://localhost/ another device on the network; `DLZ_FAKE_MEDIA=sd` (`usb`, `sd,usb`) a pretend SD card / USB stick with a few recordings |
+| `push.sh` | Git Bash + WSL | Build HEAD, push it over Wi-Fi to a dev card as a drop-in update, wait for the mixer to be switched off and on (`--restart`: from software, #81) and show the update's report ("Dev card" below); settings in `dev/push.env` (git-ignored, from `push.env.example`) |
+| `ui-sandbox/shot.js` | Node + Chrome | Headless screenshot of the sandbox UI, optionally after taps; also as a paired other device (`DLZ_SHOT_COOKIE`) and keeping its downloads (`DLZ_SHOT_DOWNLOADS`) |
+| `ui-sandbox/pair.js` | Node | Pair the sandbox's other device with the PIN, as a real one pairs; prints the token for `shot.js` |
 | `ui-sandbox/fake-vu-live.js` | browser | Moving fake meter levels that follow the faders, loaded into the sandbox page by the shim (off with `/?novu`) |
 | `installer-shot.py` | WSL (Pillow) | Render an installer screen (`ui.py`) as a PNG, upright, as it will look on the mixer |
 | `installer-mockup.py` | WSL (Pillow) | Every screen of a real install as PNGs, an animated spinner and one overview sheet (look checks); `--no-sheet docs/images/install` renders the install guide's screens, `--check docs/images/install` says whether they are current, and fails when a progress line does not fit one row |
@@ -192,23 +199,30 @@ card below, fetch them once by hand (WSL, repo root):
 ## Build the dumper card
 
 ```bash
-python install/dumper/mksdimg.py vendor/u-boot-sunxi-with-spl.bin build/dlz-sdboot.img
+python install/dumper/mksdimg.py vendor/u-boot-safe.bin build/dlz-sdboot.img
 python install/dumper/mkscr.py -n "DLZ stage2" install/dumper/stage2-backup.txt build/boot.scr
-python install/dumper/mkenv.py vendor/u-boot-sunxi-with-spl.bin build/uboot.env boot_targets=mmc0 \
+python install/dumper/mkenv.py vendor/u-boot-safe.bin build/uboot.env boot_targets=mmc0 \
   "bootcmd=run distro_bootcmd; poweroff" bootdelay=-2 preboot= stdin=serial
 ```
+
+Both use the safe U-Boot, as the installer image does (`notes/installer.md`, "Safe U-Boot"): its
+built-in defaults never boot the eMMC, never start USB and never probe the network, also when
+`uboot.env` is missing or its FAT cannot be read.
 
 ## Prepare a card
 
 1. Flash `build/dlz-sdboot.img` with balenaEtcher.
 2. Format the 16 GiB partition as FAT32 (formatting does not touch the bootloader).
-3. Copy `build/boot.scr` and `build/uboot.env` to the card root. `uboot.env` keeps U-Boot on the SD
-   card and stops it from waiting at a prompt (no autoboot delay, no USB keyboard): without it, a
-   missing or failing `boot.scr` makes U-Boot boot the eMMC's own system with the wrong device tree.
+3. Copy `build/boot.scr` and `build/uboot.env` to the card root. `uboot.env` stops U-Boot from
+   waiting at a prompt (no autoboot delay, no USB keyboard) and powers the mixer off when `boot.scr`
+   fails; without it, a missing or failing `boot.scr` leaves U-Boot at a prompt with no input: pull
+   the card.
 
 The mixer writes the user area as `emmc_<block>.bin` (the start block in hex: 64 MiB chunks, then
-1 MiB for the tail), the two boot partitions as `emmcboot<N>_<block>.bin`, and powers off when done
-(`done2.txt`). Join the user area in block order (WSL, in a copy of the card's files):
+1 MiB for the tail) and powers off when done (`done2.txt`). Like the installer's backup, it skips the
+boot areas boot0/boot1: they are empty on the XS, and selecting them is a write to the eMMC's EXT_CSD
+register (`notes/installer.md`). Join the user area in block order (WSL, in a copy of the card's
+files):
 
 ```bash
 for h in $(ls emmc_*.bin | sed 's/^emmc_//; s/\.bin$//' | while read h; do echo $((16#$h)) $h; done \
@@ -229,8 +243,8 @@ else. Before writing to the image it checks that every tool and mod file it need
 build deletes the half-built image.
 `DLZMOD_UUID=<uuid> SOURCE_DATE_EPOCH=<seconds>` make two builds of the same dump identical. It generates the boot visuals
 from the image's own originals and applies the UI mods; the
-version shown on the boot screens and in Settings comes from `VERSION` (bumped when functionality
-is added or changed, not for cosmetic tweaks). Flash `build/dlz-sd-vX.Y.Z.img` with balenaEtcher (re-select the file
+version shown in Settings (and on the installer's screens) comes from `VERSION` (bumped in `develop`
+right after a release: "Version bump" below). Flash `build/dlz-sd-vX.Y.Z.img` with balenaEtcher (re-select the file
 after a rebuild, and never rebuild while a flash is running; cancel Windows' format prompt). Card out = stock firmware. Power off before pulling the card.
 
 ### SSH key (optional, test cards only)
@@ -245,6 +259,63 @@ cp $B/install/sd.env.example /root/dlz/sd.env && chmod 600 /root/dlz/sd.env   # 
 SDCONF=/root/dlz/sd.env bash $B/install/build-sd.sh /root/dlz/orig.img $B/build/dlz-sd-dev.img
 ssh root@mackie-dlz-creator-xs.local   # an XS's name on the network
 ```
+
+## Dev card: test builds over Wi-Fi
+
+A card that takes new builds of the mod without leaving the mixer: build, push, switch off and on, test.
+The push only puts the package and its signature in `DLZDATA/dlzmod-update/`, so every build goes
+through the same signature check and sandbox as a user's drop-in update (`notes/updates.md`). It
+also writes the approval that the screen's **Install** would (#65, over root SSH), so the next start
+installs it without the question.
+
+**Once per card.** A card trusts the keys it was installed with for life, and a card from the
+release image trusts only the release keys: use a second microSD for development.
+
+1. Install it from a dev installer image (`install/release/mkpackage.sh` and `mkinstaller.sh`,
+   without `RELEASE=1`, with your own `DLZMOD_SIGNING_KEYS`), or build it with `build-sd.sh` and an
+   SSH key in `sd.env` (above).
+2. On the mixer's screen (Settings, DLZ Creator Modded, Network): connect Wi-Fi, turn SSH on with
+   "Keep on after a restart".
+3. Make a key only for the dev card, without a passphrase, and add it once (Git Bash):
+   `ssh-keygen -t ed25519 -N '' -C dlz-dev-card -f ~/.ssh/dlz-dev`, then `ssh-copy-id -o
+   IdentitiesOnly=yes -i ~/.ssh/dlz-dev.pub root@<mixer>` with the SSH password from step 2
+   (`IdentitiesOnly`: the mixer allows 3 tries, and an SSH agent with several keys uses them up
+   before the password). Without a passphrase `push.sh` and the `mixer-ssh` skill (`dlz-ssh.sh key`)
+   log in unattended, also from Claude Code; the file gives root on the dev card, so it stays on
+   your PC and the card is a development card only. Not needed for a `build-sd.sh` card with an SSH
+   key.
+4. `cp dev/push.env.example dev/push.env` and fill in the mixer's address and your key. The script
+   never asks for anything: a key with a passphrase goes into `ssh-agent` first, and the dev key is
+   used as `mkkeys.sh` makes it (without a passphrase).
+
+**The loop** (Git Bash, repo root):
+
+```bash
+git commit -m "WIP ..."   # only a committed tree is signed; WIP commits disappear in the squash merge
+bash dev/push.sh          # build in WSL, check, copy; switch the mixer off and on; it prints update-N-<version>.txt
+```
+
+Every push needs a new start of the mixer: not during a recording. `push.sh` asks for it and waits:
+switch it off and on with the switch on the back. `--restart` restarts it from software instead, but
+with the current Mackie software that often hangs on the loading screen (#81). Before that, `push.sh` checks the
+package the way the card will: the signature against the card's own `dev.pub` (a release card, or
+one built with another dev key, stops here), `CHANNEL=dev`, `REINSTALL=no`, not older than the
+card's version, and not a file the card refused before. The mixer software keeps DLZDATA mounted
+read-only and writable only while it records: `push.sh` stops when it finds it writable, else makes
+it writable for the copy and read-only again after it. Earlier packages in `dlzmod-update/` are
+removed (more than one is never installed). After the new start it waits for the
+updater's report, prints it and says from the report whether the package was installed. Packages
+stay in `build/push/`.
+
+**Back to an older build** of the same version (bisecting): equal versions install, so check out
+the older commit and push again, or push its package from before: `bash dev/push.sh
+build/push/dlzmod-v0.2.0-dev-<commit>.tar`. A refused file is not tried again; a new build is a new
+file.
+
+Not covered: changes that need a full install (`REINSTALL=yes`: guards, the updater's gates, boot
+visuals, the card layout). Each pushed build is a build on the mixer: `device-review` at the tier
+the change asks for. The release gate stays: a release candidate still gets a fresh install from
+the installer image and an update from a card running the previous release.
 
 ## GitHub workflow
 
@@ -273,41 +344,56 @@ issue's technical notes point to the note section instead of copying it.
 - **Life cycle** (board Status):
 
   ```
-  Todo ──> In progress ──PR into develop (Refs #N)──> Device test ──tested on the mixer──>
-  Fixed in develop ──release PR develop → main (Fixes #N)──> Done (issue closed)
+  Todo ──planned for the next version──> Next Version ──work starts──> In progress
+  ──PR merged (Refs #N), issue closed──> Fixed in develop ──release on main──> Released
   ```
 
-  Work PRs into `develop` say `Refs #N`, never `Fixes #N` (that would close the issue before it is
-  released). "Device test" is the list for the next session with the mixer; issues that the tests and
-  the sandbox fully cover (docs, a screen text) skip it. An issue closes only with the release: the
-  release PR's description lists `Fixes #N: <title>` for every released issue (one keyword per
-  issue; GitHub reads the PR description, not the commits), and what GitHub does not close when the
-  release is pushed is closed by hand ("Releases", step 4).
+  "Next Version" holds the next milestone's issues that have not started; after a release the
+  following milestone's issues move into it. The mixer test is part of the work on the branch (the
+  dev card, `dev/push.sh`), before the PR. What can only be seen later (an install log on the next
+  install) is noted in the issue's "Done when" and checked at the release ("Releases", step 4).
+  After the merge the issue is closed by hand with "Fixed in develop, comes with vX.Y.Z." and its
+  card goes to "Fixed in develop", so the milestone's progress shows what is done; "Fixed in develop" = in `develop`, not on `main` yet, "Released" =
+  on `main`. Work PRs say `Refs #N`: `develop` is not the default branch, so `Fixes #N` would do
+  nothing there. The board's "Item closed" workflow is off (it would move a closed card past "Fixed
+  in develop").
 - **Branches**: `develop` for work and tests, `main` for releases only. Nothing is committed to
   either directly: every change gets its own branch from `develop` (`fix/...`, `feature/...`,
   `docs/...`) and a PR into `develop`, **squash-merged** (one commit per change).
 - **Review**: every PR into `develop` gets a review before it is merged, also a small one that only
   changes docs. A contributor's PR: the maintainer reviews it (`.github/CODEOWNERS` requests that
-  once the repo is public; a ruleset makes it required). The maintainer's own PRs: one review pass
-  by an AI reviewer on the branch's diff before the PR opens (for docs: consistency with the other
-  docs and correctness; for code: bugs, failure paths, what the tests cannot see); findings are
-  fixed, or named in the PR description as accepted. The release PR `develop` → `main` only carries
-  reviewed changes: its check is the changelog section, the `Fixes #N` list and that the release
-  files are the tested ones; it is fast-forwarded, not merged with the button ("Releases"). A change that runs on the mixer still gets its device review, once per
-  image (`.claude/skills/device-review`).
+  once the repo is public; a ruleset makes it required). The maintainer's own PRs: right after the
+  PR opens, the maintainer runs one review pass by an AI reviewer on the opened PR (`/cr` or
+  `/code-review`, Claude Code review commands), so the whole diff that will be merged is read,
+  including changes made after a device review (for docs: consistency with the other docs and
+  correctness; for code: bugs, failure paths, what the tests cannot see). Findings are fixed as new
+  commits on the PR, or named in the PR description as accepted, before the merge; fixes that add
+  new logic or touch other code get one more pass on the PR, wording and fixes that only do what a
+  finding asked do not. The release PR `develop` → `main` only carries reviewed changes, and still
+  gets one final `/cr` pass on the whole release diff before the fast-forward (how the PRs fit
+  together); besides that its check is the changelog section, the list of released issues and that
+  the release files are the tested ones; it is fast-forwarded, not merged with the button
+  ("Releases"). A change that runs on the mixer still
+  gets its device review, once per image (`.claude/skills/device-review`).
 - **Releases**: a PR `develop` → `main`, **fast-forwarded**, not merged with GitHub's button: its
   merge methods all add commits (a merge commit, or rewritten copies), which would leave `develop`
   behind `main`. Nothing is merged into `develop` from the release build until the push, so the built
   commit, `develop`'s tip and the PR's head are one commit. In order:
   1. Make the release build from `develop`'s tip and test it (its `package.env` names that commit).
-  2. Open the release PR `develop` → `main` and review it.
+  2. Open the release PR `develop` → `main` and review it: a final `/cr` (or `/code-review`) on
+     the PR, findings fixed (a fix PR into `develop`, then back to step 1) or named in the PR as
+     accepted, before step 3.
   3. The maintainer moves `main` to the PR's head commit:
      `git fetch origin && git push origin <commit>:main` (no `--force`: git refuses anything that is
      not a fast-forward). GitHub then shows the PR as merged, and `main` and `develop` are the same
      commit. The ruleset on `main` needs the maintainer on its bypass list in mode "Always" (not "Pull
      requests only") for this push; force pushes stay blocked.
-  4. Check that the milestone's issues closed (`gh issue list --milestone vX.Y.Z --state open`) and
-     close the ones the `Fixes #N` lines missed by hand.
+  4. Check the milestone: `gh issue list --milestone vX.Y.Z --state open` is empty (an open one
+     moves to the next milestone or holds the release), and the "Done when" items noted for later
+     on its closed issues (an install log seen at the next install) are seen on the release
+     candidate and ticked; the `## vX.Y.Z` section of `CHANGELOG.md` lists exactly its closed issues
+     (`--state closed`), and the bullet of an issue moved to the next milestone moves with it. Then
+     move its cards from "Fixed in develop" to "Released" and close the milestone.
   5. An annotated tag `vX.Y.Z` on that commit. Then a GitHub release with the `CHANGELOG.md` section as notes
   (grouped under the section headings of "`CHANGELOG.md`" below, without the title prefixes),
   followed by the GPL source note from the README's "Legal" (U-Boot and busybox versions and their
@@ -318,13 +404,18 @@ issue's technical notes point to the note section instead of copying it.
   "Update from vX.Y.Z: copy the update files" or "Full install with the installer image (copy your
   recordings off the card first)". Check the release by downloading its files again
   (`gh release download`) and running `sha256sum -c SHA256SUMS`.
-- **`CHANGELOG.md`**: with every version bump a `## vX.Y.Z` section from the milestone's issues: their
-  titles as bullets, ordered `DLZ FEATURE`, `DLZ BUG`, `MOD FEATURE`, `MOD BUG` (no `ANALYSIS`, no
-  `release`): what changes on the mixer first, then the mod itself. Written by hand from the
-  milestone; the release PR (`Fixes #N: <title>` lines) and the release notes use the same order, as
-  sections ("DLZ features", "DLZ bugs fixed", "Mod features", "Mod bugs fixed"; empty ones left out).
-  The README's "What the mod does" follows: it describes the current mod, so a new feature or
-  stock fix goes into its group there with the same bump.
+- **Version bump**: right after a release, `VERSION` goes to the next version in `develop` as its own
+  PR (`docs/vX.Y.Z-bump`), before any other change of the new cycle, so every branch builds the same
+  version and the dev card takes any of them. Feature and fix branches never bump
+  ([notes/updates.md](../notes/updates.md), "Versions and channels").
+- **`CHANGELOG.md`**: the bump PR opens a `## vX.Y.Z` section (with the milestone's issues already
+  in `develop`, if any); every PR that finishes a milestone issue adds its title as a bullet there,
+  and the release PR checks the section against the milestone. Bullets ordered `DLZ FEATURE`,
+  `DLZ BUG`, `MOD FEATURE`, `MOD BUG` (no `ANALYSIS`, no `release`): what changes on the mixer first,
+  then the mod itself. The release PR (`#N: <title>` lines) and the release notes use the same
+  order, as sections ("DLZ features", "DLZ bugs fixed", "Mod features", "Mod bugs fixed"; empty
+  ones left out). The README's "What the mod does" follows: it describes the current mod, so the PR
+  that brings a new feature or stock fix puts it into its group there.
 - **Community**: questions, bug reports and support go through issues, with templates for a bug,
   a feature and help with an install (GitHub Discussions are off); anyone can file, the maintainer sets labels, milestones and board columns. Triage of a report:
   accept (`triage` off, `roadmap` on, a milestone), need more (`needs-info`), no (closed as "not

@@ -52,12 +52,19 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
 - **Clock**: RTC drivers built in (`RTC_DRV_SUN6I`, `RTC_DRV_SUNXI`), but `fake-hwclock` is
   installed and chrony only syncs from internet pools. Offline every boot restarts at the dump's
   saved time, 2023-11-16 [device]: fake-hwclock has no periodic save, only one at a clean shutdown,
-  which the hard power switch never gives [static]. No backup battery [guess, strong] (open question 21).
+  which the hard power switch never gives [static].
   The only RTC in the Mackie DTB is the SoC's own `rtc@1c20400` (`allwinner,sun8i-r40-rtc`, external
   32.768 kHz crystal); no external RTC chip on i2c0 (PMIC) or i2c1 (GT911 only). Kernel has
   `RTC_HCTOSYS=y` and `RTC_SYSTOHC=y` (rtc0 is only written back after an NTP sync); fake-hwclock
-  runs without `FORCE`, so it only moves the clock forward [static]. A public teardown shows no
-  coin cell on the digital board's top side (see open question 21). Timezone is `Etc/UTC`
+  runs without `FORCE`, so it only moves the clock forward [static].
+  **The RTC keeps time over a software restart and loses it without power** [device]: in every
+  kept boot log, after a restart fake-hwclock logs "saved clock information is in the past" (rtc0
+  is ahead and wins); after the switch on the back systemd logs "System time before build time,
+  advancing clock" and fake-hwclock sets its saved time. Those two lines tell a cold start from a
+  warm one in any boot log. So there is no backup battery [guess, strong; a public teardown shows
+  no coin cell on the digital board's top side either]. Online, chrony (`makestep 1 3`) then steps
+  the clock some 20-40 s into the boot: by the time since the last clean shutdown after a cold
+  start, by about a second after a warm one [device]. Timezone is `Etc/UTC`
   (`/etc/localtime`, `/etc/timezone`), so recording file times are UTC [static]
 - **Filesystems**: vfat built in; `exfat.ko` and `ntfs.ko` (rw) available as modules; CIFS and NFSD
   as modules [static]. Userland has `mkfs.vfat`/`mkfs.ext*` but no `mkfs.exfat`, no Samba, no NFS
@@ -75,7 +82,10 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   four SPI controllers disabled; no musb/OTG node [static]
 - UARTs: ttyS0 = uart0 (console, DEBUG header), ttyS1 = uart3 (Bluetooth module), ttyS2 = uart5 (GD32) [static]
 - Touch: Goodix GT911 on i2c1 @ 0x5d; calibration through libinput, matrix stored in
-  `/etc/udev/rules.d/touchscreen.rules` (written by `save-calibration.sh`) [static]
+  `/etc/udev/rules.d/touchscreen.rules` (written by `save-calibration.sh`) [static].
+  The DTB declares the GT911 twice, at its two possible addresses 0x14 and 0x5d; only 0x5d answers
+  and binds `Goodix-TS`, so every boot logs `Goodix-TS 1-0014: I2C communication failure: -6` (no
+  device at 0x14): a normal reading [device]
 - modprobe.d: `blacklist mali`, `g_ether use_eem=0`, 8189fs power option [static]
 - **Hardware watchdog unused**: `CONFIG_SUNXI_WATCHDOG=y` and the DTB's `watchdog@1c20c90` is enabled,
   but `RuntimeWatchdogSec` in `/etc/systemd/system.conf` is unset and nothing else opens
@@ -109,8 +119,8 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
 | Port | Process | Bind | Auth | Conf. |
 |---|---|---|---|---|
 | 22 | sshd | all | password + keys | [static] |
-| 80 | server.js (HTTP + socket.io) | all | **none** | [device] (`ss -ltnp`) |
-| 89 | server.js (newline-JSON) | all | **none** | [device] |
+| 80 | server.js (HTTP + socket.io) | all | **none** (mod: other devices only paired, #45) | [device] (`ss -ltnp`) |
+| 89 | server.js (newline-JSON) | all (mod: 127.0.0.1 and ::1) | **none** | [device] |
 | 8011 | glesgui (WebSocket) | 127.0.0.1 only (app.js uses it) | none | [device] |
 | ? | upgradedaemon (Prologue, default 8080) | `0.0.0.0` | RSA-signed upload | [guess] |
 
@@ -133,7 +143,10 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   panel: Wi-Fi and SSH"
 - **Ports 80 and 89 give full control to anyone on the LAN**, with no authentication: every mixer
   parameter plus `FACTORY_RESET`, `FORMAT_SD/USB`, `FIRMWARE_UPDATE`. `express.static(/srv)` also
-  serves `srv_data.json` and the presets [static]
+  serves `srv_data.json` and the presets [static]. Every socket.io client gets the whole state store
+  as `INIT`, `lock` included [static]. On the mod card other devices need "Control from other
+  devices" and a pairing with a PIN, and port 89 listens on loopback only ([mod.md](mod.md), "Remote
+  Control", #45)
 - **Stock's file commands reach any file** [static, server.js]: `MEDIA_DELETE` and `MEDIA_RENAME`
   take a path from the client, only rewrite its `sd:`/`usb:` prefix and unlink or rename it as root
   (the new name may contain `/`); server.js has a containment helper for the media folder, but these
@@ -143,15 +156,22 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   paths dspserver opens; multitrack track names (`i.N.name`) become rename targets; on mounting a
   card or stick, each `*.wav.unfinished` name goes unquoted into a shell command for `wavfinalizer`
   (a name with `;` runs as root). On stock that reaches the whole eMMC system. The mod limits file
-  commands to the mixer's own screen and checks names and folders for everyone ([mod.md](mod.md),
-  #47); everything else stays open until #45 (pairing with a PIN)
+  commands to the mixer's own screen (deleting and renaming also to paired devices, recordings only in
+  their folders, #48) and checks names and folders for everyone ([mod.md](mod.md), #47)
 - Port 89's only Mackie client is app.js running in Node (the screen: `$NET.usePipeForNode=1`,
   `usePipePort=89`); browsers use socket.io on :80 [static]. It listens on all interfaces
   (`ss -ltnp` [device]). Closing it to the network needs a listener on **both** loopback addresses:
   app.js connects to `localhost`, which Node 18 resolves to `::1` first when the mixer has an IPv6
-  address, so a 127.0.0.1-only listener cuts the screen off [static + qemu]
-- The "System Lock" password lives in state key `lock` in `srv_data.json` (plain); whether it
-  gates the web UI is unknown [static] / [guess]
+  address, so a 127.0.0.1-only listener cuts the screen off [static + qemu]. The mod does that
+  (`DLZMOD_listen89`, #45) [device: `ss -ltn` shows `127.0.0.1:89` and `[::1]:89`, the screen
+  connects, no restarts]
+- dspserver and faderlink are socket.io clients on `localhost:80`, so port 80 itself must stay open:
+  the mod tells the mixer's own connections (127.0.0.1 / ::1) from other devices per connection
+  [static]
+- The "System Lock" password lives in state key `lock` in `srv_data.json` (plain) [static]. It
+  does not gate the web UI's commands: the server reads `lock` only in the hardware handlers `HWREC`,
+  `PADPRSD` and `ALT`; a browser shows the lock overlay of a locked mixer, but its socket.io commands
+  go through [static]. Since #45 only paired browsers get that far (`notes/mod.md`)
 
 Implication: keep the mixer on a trusted LAN, and never port-forward it.
 

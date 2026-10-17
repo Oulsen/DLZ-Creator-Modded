@@ -61,6 +61,32 @@ All [static].
 - **Accepted media**: `lsblk -OJ`; a card/stick only counts as `INSERTED` when its `fstype` is
   `vfat`, anything else (exFAT, NTFS, ext4) shows as `NOTSUPPORTED`. Mounted under `/tmp/mnt/<dev>`
   with `ro,noatime` (+ `flush` for vfat), remounted `rw` when a recording starts.
+- **Read-write remounts**: "permanent" (log `RW (Perm)`) at a recording or sample recording start,
+  and at every start when a recordings folder exists (to finish `*.wav.unfinished` files with
+  `wavfinalizer`); "temporary" (`RW (TEMP)`) for a rename or delete, with the back-to-read-only
+  function 60 s later. That function waits for running renames/deletes, runs `sync` and logs
+  `back to RO1` / `DONE RO`, but never runs `mount -o remount,ro`, and the end of a recording does
+  not call it at all: stock, a medium with a recordings folder stays `rw` from the start until
+  switched off, so the next start finds the FAT volume "not properly unmounted" [device]. Its
+  "permanent" flag compares a mount point with a device path and so never matches. The mod
+  remounts read-only itself (#98; [mod.md](../mod.md), "Media back to read-only").
+- **FAT's dirty mark is sticky**: the FAT32 boot sector's state byte (offset 0x41, read with
+  `od -An -tx1 -j65 -N1 /dev/mmcblk0p2`) is `01` after an unclean switch-off. Linux 5.10 sets it at
+  every mount or remount `rw` and clears it at a remount `ro` or unmount, but leaves a volume that
+  was already dirty at mount as it is (`fs/fat/inode.c`, `fat_set_state`), and warns "Volume was not
+  properly unmounted" at each mount or `rw` remount. So once marked, a card keeps the mark and the
+  warning until an fsck (a PC's "Scan and fix") clears it, however cleanly it is used afterwards
+  [device: `01` across clean read-only switch-offs, `00` after a Windows scan and from then on].
+- **An automatic fsck at startup was tried and dropped** (#98). `fsck.fat -a` (dosfstools 4.2, the
+  card's own) truncates a file whose directory entry is shorter than its cluster chain, the usual
+  shape of a recording cut off by a power cut (size 0 or the last flushed size), and frees the tail:
+  `-f` only keeps chains no entry points to, as `FSCKnnnn.REC`. A cross-linked chain makes it free
+  clusters of an intact file. It writes everything at the end (the dirty bit cleared next to last,
+  FSInfo last) but without fsync, so writeback can store the cleared bit before the repairs. What
+  it could repair safely (the mark, the free count, orphaned chains) changes nothing for the mixer,
+  and a card it must not repair would stay dirty and be checked at every start (seconds, before the
+  mixer software). Owners clear the mark on a computer, recordings copied off first (README, "SD
+  cards") [static + PC: the card's fsck.fat under qemu on test images].
 - **Scan details**: a rescan runs when `/dev/disk/by-id` changes. Skipped (with their children):
   names starting with `mmcblk1`, mountpoint `/` or `/boot`, EFI partitions. Every other node with an
   `fstype` is a candidate; SD vs USB comes from lsblk `subsystems` (first `:mmc_host:platform` = SD,

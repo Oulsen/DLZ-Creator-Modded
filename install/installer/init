@@ -30,6 +30,10 @@ TIMER=$!
 PKG=/pkg
 VERSION=$(cat $PKG/VERSION 2>/dev/null)
 BUILD=$(sed -n 's/^BUILD=//p' $PKG/package.env 2>/dev/null)
+# the log's name carries the version like the package's (install-1-v0.1.0.txt, install-1-v0.1.0-dev-c0e3084.txt)
+LOGV=$VERSION
+case $BUILD in ''|release) ;; *) LOGV=$VERSION-$BUILD ;; esac
+LOGV=$(printf '%s' "${LOGV:-unknown-version}" | tr -cd 'A-Za-z0-9._+-' | cut -c1-40)
 DRYRUN=no
 grep -qw 'dlzmod.dryrun=1' /proc/cmdline && DRYRUN=yes
 BANNER=""
@@ -128,7 +132,7 @@ fail() {  # reason; what it says depends on how far the real install got (STAGE)
   # (the 3 lines before the FAIL line just logged, which the red line above already says), taken
   # now, before saving the log adds lines of its own
   printf 'fail|%s\n' "$1" > /emmc/tmp/fail-lines 2>/dev/null
-  [ -n "$STAGE" ] && tail -n 4 "$LOG" | head -n 3 | sed 's/^/info|/' >> /emmc/tmp/fail-lines 2>/dev/null
+  [ -n "$STAGE" ] && grep -v '^\[[0-9.]*] progress: ' "$LOG" | tail -n 4 | head -n 3 | sed 's/^/info|/' >> /emmc/tmp/fail-lines 2>/dev/null
   [ "$STAGE" = dump ] && pr_dump_abort   # an unfinished backup holds the mixer's settings
   [ -n "$STAGE" ] && ic_snap_down    # the copy's snapshot of the eMMC (RAM store, read-only loop), if any
   [ -n "$STAGE" ] && ic_bk_release   # DLZDATA mounted for the backup: free for the log below (ic_guard)
@@ -139,16 +143,28 @@ fail() {  # reason; what it says depends on how far the real install got (STAGE)
     if ls /sd/dlzmod-backup/*.part > /dev/null 2>&1; then
       rm -f /sd/dlzmod-backup/*.part && log "unfinished backup deleted" || log "unfinished backup could not be deleted"
     fi
-    N=1   # a fresh DLZDATA: install-1.txt, and finish() writes dmesg-1.txt next to it
-    cat "$LOG" > "$LOGDIR/install-1.txt" && LOG=$LOGDIR/install-1.txt
-    LOGNAME_SHOWN="DLZDATA/dlzmod-logs/install-1.txt"
+    log_n "$LOGDIR"   # a fresh DLZDATA: install-1-<version>.txt, and finish() writes dmesg-1.txt next to it
+    cat "$LOG" > "$LOGDIR/$LOGF" && LOG=$LOGDIR/$LOGF
+    LOGNAME_SHOWN="DLZDATA/dlzmod-logs/$LOGF"
   elif [ "$STAGE" = card ] && [ -z "$LOGDIR" ] && ic_rescue_log; then
     LOGDIR=/sd/dlzmod-logs   # no DLZDATA yet: a small DLZLOG partition on the card holds the log
-    N=1
-    cat "$LOG" > "$LOGDIR/install-1.txt" && LOG=$LOGDIR/install-1.txt
-    LOGNAME_SHOWN="DLZLOG/dlzmod-logs/install-1.txt"
+    log_n "$LOGDIR"
+    cat "$LOG" > "$LOGDIR/$LOGF" && LOG=$LOGDIR/$LOGF
+    LOGNAME_SHOWN="DLZLOG/dlzmod-logs/$LOGF"
   fi
   finish --title "$stopped" --title-colour red --lines-file /tmp/fail-lines --text "$said"
+}
+
+# the log's number in folder $1: one past the highest install-N there (the names without a version,
+# from before v0.2.0, included), so the newest log has the highest number; sets N and LOGF
+log_n() {
+  local f
+  N=1
+  for f in "$1"/install-[0-9]*.txt; do
+    f=${f##*/install-}; f=${f%%[!0-9]*}; f=${f#"${f%%[!0]*}"}   # its number, without leading zeros
+    if [ -n "$f" ] && [ "$f" -ge "$N" ]; then N=$((f + 1)); fi
+  done
+  LOGF=install-$N-$LOGV.txt
 }
 
 # print the mmcblkN whose card type is $1 (MMC = eMMC, SD = card); rc 1 = none, rc 2 = ambiguous
@@ -187,7 +203,10 @@ done
 IC_CID=$(cat /sys/block/$sd/device/cid 2>/dev/null)
 [ -n "$IC_CID" ] || fail "The SD card has no identity (CID)"
 
-# 3. lock the eMMC before anything is mounted (same script as the mod card), then verify it
+# 3. lock the eMMC before anything is mounted (same script as the mod card), then verify it. The lock
+# refuses writes from user space only (5.10): what keeps the eMMC unwritten during the copy is the
+# loop it is read through (opened read-only, no discard or write-zeroes) and the plain snapshot over
+# it (install-card.sh, ic_snap_up and ic_ro_loop_ok)
 sh $PKG/mod/sd-system/dlzmod-emmc-ro >> "$LOG" 2>&1 || fail "Internal storage could not be locked read-only"
 for b in /dev/$emmc /dev/${emmc}p*; do
   [ "$(blockdev --getro "$b")" = 1 ] || fail "$b is still writable"
@@ -200,13 +219,14 @@ log "eMMC $emmc locked: $(blockdev --getro /dev/$emmc), boot areas: $(cat /sys/b
 
 # 4. log onto this installer card (FAT; ascii charset: iso8859-1 is a module on the eMMC)
 N=1
+LOGF=install-1-$LOGV.txt
 LOGDIR=""
 if mount -t vfat -o iocharset=ascii,flush "/dev/${sd}p1" /sd && mkdir -p /sd/dlzmod-logs; then
-  while [ -e "/sd/dlzmod-logs/install-$N.txt" ]; do N=$((N + 1)); done
+  log_n /sd/dlzmod-logs
   LOGDIR=/sd/dlzmod-logs
-  cat "$LOG" > "$LOGDIR/install-$N.txt"
-  LOG=$LOGDIR/install-$N.txt
-  LOGNAME_SHOWN="dlzmod-logs/install-$N.txt"
+  cat "$LOG" > "$LOGDIR/$LOGF"
+  LOG=$LOGDIR/$LOGF
+  LOGNAME_SHOWN="dlzmod-logs/$LOGF"
 fi
 
 # 5. the eMMC rootfs, read-only and without journal replay; touch drivers from it; chroot for the tools
@@ -421,10 +441,12 @@ if [ "$DRYRUN" != yes ]; then
     umount /sd || fail "The installer card could not be released (nothing was written)"
   fi
   LOGNAME_SHOWN="not saved"
-  if ! ic_guard; then   # nothing written: the installer card is intact, put the log back on it
-    if mount -t vfat -o iocharset=ascii,flush "/dev/${sd}p1" /sd && mkdir -p /sd/dlzmod-logs        && cat "$LOG" > "/sd/dlzmod-logs/install-$N.txt"; then
-      LOGDIR=/sd/dlzmod-logs LOG=/sd/dlzmod-logs/install-$N.txt
-      LOGNAME_SHOWN="dlzmod-logs/install-$N.txt"
+  # nothing written: the log goes back onto the installer card, unless the guard failed because a
+  # different card is in the slot now (then it stays in RAM: no write to a card nobody chose)
+  if ! ic_guard; then
+    if ic_card_same && mount -t vfat -o iocharset=ascii,flush "/dev/${sd}p1" /sd && mkdir -p /sd/dlzmod-logs        && cat "$LOG" > "/sd/dlzmod-logs/$LOGF"; then
+      LOGDIR=/sd/dlzmod-logs LOG=/sd/dlzmod-logs/$LOGF
+      LOGNAME_SHOWN="dlzmod-logs/$LOGF"
     fi
     fail "Safety check before writing failed (see the log)"
   fi
@@ -460,11 +482,10 @@ if [ "$DRYRUN" != yes ]; then
   log "install done in $(awk -v a="$t0" -v b="$t3" 'BEGIN { printf "%.0f", b - a }') s from the first write"
   # the log onto the new DLZDATA (the mod system keeps its own logs in the same folder)
   if mount -t vfat -o iocharset=ascii,flush "${SD}p2" /sd && mkdir -p /sd/dlzmod-logs; then
-    N=1
-    while [ -e "/sd/dlzmod-logs/install-$N.txt" ]; do N=$((N + 1)); done
+    log_n /sd/dlzmod-logs
     LOGDIR=/sd/dlzmod-logs
-    cat "$LOG" > "$LOGDIR/install-$N.txt" && LOG=$LOGDIR/install-$N.txt
-    LOGNAME_SHOWN="DLZDATA/dlzmod-logs/install-$N.txt"
+    cat "$LOG" > "$LOGDIR/$LOGF" && LOG=$LOGDIR/$LOGF
+    LOGNAME_SHOWN="DLZDATA/dlzmod-logs/$LOGF"
   fi
   finish --title "Installation done" --line "ok|All checks passed" --line "ok|Copied to the card and compared with the mixer" \
     --line "ok|Backup of the mixer saved on the card" --line "ok|Modded system built and made bootable" \

@@ -63,10 +63,15 @@ likely FEL (unconfirmed, [hardware.md](hardware.md)).
 ## Version and boot visuals
 
 - `VERSION` (repo root) is the mod version: `vMAJOR.MINOR.PATCH`, max `v9.99.99` (enforced by
-  `install/modversion.py`; longer strings collide with the logo on the boot screens). Bump it only when
-  functionality is added or changed, not for cosmetic tweaks; it shows on the kernel splash, the
-  Weston background and the Settings → DLZ Creator Modded page. Always write the full form
-  (`v0.1.0`, not `v0.1`).
+  `install/modversion.py`; a longer one widens the sticker picture on the installer's screens and
+  shortens their title line). It is
+  bumped in `develop` right after a release ([updates.md](updates.md), "Versions and channels"), and
+  a new version is released only when functionality is added or changed, not for cosmetic tweaks;
+  it shows on the installer's screens, the Settings → DLZ Creator Modded page and the update popup.
+  Always write the full form (`v0.1.0`, not `v0.1`).
+- **Not on the card's start screens** (kernel splash, Weston background; #97): those are made only
+  when a card is built, and a drop-in update cannot change them (`notes/updates.md`, "Drop-in
+  update"), so an updated card would keep showing the version it was installed with.
 - What each version changed: [CHANGELOG.md](../CHANGELOG.md).
 - `build-sd.sh` regenerates both boot images from the image's own originals on every build, in two
   steps: `mklayers.py` renders our parts (one shared layout for both images, Pillow, PC only) and
@@ -95,13 +100,14 @@ The pattern, as used by "Hide header" (`install/app-mod/dlzmod.js`):
 - The key is global: a browser remote sees the same setting as the device.
 - Not for state the server owns (Wi-Fi, SSH on the Network panel): those come from the server mod
   as messages (`DLZMOD_NET_STATE`), so nothing is broadcast or saved in `srv_data.json`.
-- Layout: sub-tabs Display / Network / Mod (Mackie `ToggleButton`, 200 x 44, mod
+- Layout: sub-tabs Display / Network / Remote / Mod (Mackie `ToggleButton`, 200 x 44, mod
   yellow when active), 8 px gap, then that sub-page's cards, 388 px high. Unlike Mackie's pages
   (829 x 392) the page fills Settings with 12 px margins: 914 x 440, laid out for the header shown
   (464 px under the tab bar, measured in the sandbox); with it hidden,
   Mackie's centring splits the extra 30 px. Display = Screen (290) + Meters (612); Network = Wi-Fi +
   SSH cards (451 each) inside `page.network`, a paint-less container so `page.network.update()`
-  still repaints both; Mod = one card (version, update hint or refusal in red, credits). A new
+  still repaints both; Remote Control = one card (switch, warning, address, PIN, Forget, #45); Mod =
+  one card (version, update hint or refusal in red, credits). A new
   setting goes on the sub-page it belongs to; a new topic gets a sub-tab, not a squeezed row.
 - Segmented controls (`SwitchBox`) and buttons on these pages are sized for fingers: 46-56 px high.
 - Header specifics: `app.setPage` shows the header on every page switch (patched to ask
@@ -169,7 +175,7 @@ bash $B/install/build-sd.sh /root/dlz/orig.img $B/build/dlz-sd-$(cat $B/VERSION)
 
 Name images after the version (`build/dlz-sd-v0.1.0.img`), never a generic `sd.img`: balenaEtcher
 remembers the last file, so an unversioned name makes it easy to flash an old build. Check
-the version on the boot screen and the Mod page before testing. An older version is rebuilt from a
+the version on the Mod page before testing. An older version is rebuilt from a
 detached worktree of its commit (`git worktree add --detach build/wt-vX.Y.Z <commit>`) with that
 worktree's own `install/build-sd.sh`.
 
@@ -184,8 +190,10 @@ The drop-in: build the package (`install/release/mkpackage.sh` in WSL; from a co
 signed with the dev key, a tree with changes gives an unsigned `+dirty` package that cards refuse),
 copy **both** `build/release/dlzmod-vX.Y.Z-*.tar` and its `.tar.sig` into `DLZDATA/dlzmod-update/`
 on the card (Explorer is fine), start the mixer with the card. The files are gone afterwards and
-`dlzmod-logs/update-N.txt` says what happened. A device review is still needed before it goes onto
-the card: it changes what runs on the mixer.
+`dlzmod-logs/update-N-<version>.txt` says what happened. A device review is still needed before it goes onto
+the card: it changes what runs on the mixer. On a dev card the same drop-in goes over Wi-Fi without
+taking the card out: `bash dev/push.sh` builds, checks, copies, waits for the mixer to be switched off and on, and prints the report
+(`docs/DEVELOPMENT.md`, "Dev card").
 
 With SSH on, small iterations can be `scp` + `systemctl restart <unit>` instead of a package.
 
@@ -193,7 +201,9 @@ Reading the card's logs without SSH: at every boot, before server.js mounts DLZD
 `dlzmod-bootlog` (install/sd-system) copies the syslog of the last 3 SD-system boots to
 `DLZDATA/dlzmod-logs/syslog-last-boots.txt` (the previous copy as `.prev.txt`), so a failed boot is
 readable in any card reader after the next boot. It costs ~2.2 s of boot time; it cannot move after
-the start, because server.js holds DLZDATA mounted read-only (open-questions Q28). Only boots of the
+the start, because server.js holds DLZDATA mounted read-only and remounts it read-write only while
+it writes itself (stock leaves it writable once a recordings folder exists; the mod puts it back,
+#98; open-questions Q28). Only boots of the
 SD system are copied (sections with `dlzmod-grow-data`, which runs at every boot), not the dump's
 own history. Always on.
 
@@ -241,6 +251,13 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
   straight-on photo of the device (1.80:1) [device: photo measurement]. Layout stays 1024x600 px.
 - Remaining device differences: a few `$ENV.isNode` text offsets/fonts, NanoVG vs browser
   anti-aliasing, and canvas calls glesgui lacks (e.g. `setLineDash`).
+- A closed popup stays on the device's screen until the page below it draws again [device: up to
+  3 s on the Mod page's Network panel, until its status redraw, #67]. On the device, closing one
+  clears the whole foreground layer (`clearFgRect`) and asks for a frame (`needDrawFrame`) [static],
+  yet that frame still shows it (why: open-questions.md, 34); pages with meters draw all the time and
+  hide it.
+  The mod draws the Mod page right after every `PopupWindow` closes (`DLZMOD_hookPopups`) and after
+  the keyboard [device: gone at once after the SSH warning, keyboard, spinner and result message].
 - Screenshots without touching your own browser:
   `node dev/ui-sandbox/shot.js build/shots/x.png [x,y taps...]` (headless Chrome, `#INT`,
   taps in UI pixels, e.g. `905,60` = Settings gear).
@@ -248,12 +265,32 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
 - `dev/ui-sandbox/shim.js` blocks every shell command (server.js would otherwise run
   mkfs/dd/parted/mount/systemctl), only allows the `mv`/`sync` of the state save, and binds 80/89 to
   localhost. Never run server.js outside the shim, and never as root in WSL.
+- **A phone on the network, on this PC** (#45): `DLZ_SANDBOX_REMOTE=1 bash dev/ui-sandbox.sh`. Then
+  http://localhost/ plays another device (the shim gives that connection the address 192.0.2.10 and
+  leaves `index.html` to Mackie's server, so it opens in remote mode), while http://127.0.0.1/ stays
+  the mixer's screen. Turn "Control from other devices" on in the screen's Remote tab and pair
+  the localhost tab with the PIN; the browser keeps a cookie per host, so the two stay apart. Still
+  this PC only. Without clicking: `node dev/ui-sandbox/pair.js` turns it on from the screen's side
+  (port 89), pairs with the PIN as localhost and prints the token; `DLZ_SHOT_URL=http://localhost/
+  DLZ_SHOT_COOKIE=<token> node dev/ui-sandbox/shot.js ...` then shoots the paired browser UI, and
+  `DLZ_SHOT_DOWNLOADS=<folder>` keeps what it downloads.
+- **A pretend SD card and/or USB stick**: `DLZ_FAKE_MEDIA=sd` (or `usb`, `sd,usb`) in front of the
+  start. The shim reports a FAT partition in `lsblk`, lets server.js "mount" it at
+  `/tmp/mnt/mmcblk0p2` / `sda1` (a folder on the sandbox drive, seeded once with a few short silent
+  recordings, a `*.unfinished` one and a sub-folder), answers its remounts and `df`, and its look for
+  a firmware file (`find ... *.upd`: unguarded in server.js, an error there ends the server).
+  `/proc/mounts` lists them read-only for the mod's read-only watcher. Mackie's `wavfinalizer` stays
+  blocked. Off by default: other screens expect no media.
 - Works: the whole UI, state changes, presets/snapshots, port-89 clients (state persists in the
-  sandbox's `srv_data.json`). Not there: dspserver, faderlink, glesgui, so no audio, hardware
-  buttons or USB media. Meters show moving fake levels that follow the faders and mutes
-  (`dev/ui-sandbox/fake-vu-live.js`, injected by the shim; off with `http://127.0.0.1/?novu`).
+  sandbox's `srv_data.json`). Not there: dspserver, faderlink, glesgui, so no audio or hardware
+  buttons, and no media without `DLZ_FAKE_MEDIA`. Meters show moving fake levels that follow the
+  faders and mutes (`dev/ui-sandbox/fake-vu-live.js`, injected by the shim; off with
+  `http://127.0.0.1/?novu`): on a fresh copy most channels are muted or their faders down (the dump's
+  state), so only a few meters move until they are opened.
 - Patch `dumps/sandbox/srv/app.js` and reload the browser; restart the script for `server.js`.
-  Reset: delete `dumps/sandbox/` and run the script again (it re-copies `/srv` from the dump).
+  Reset: delete `dumps/sandbox/` and run the script again (it re-copies `/srv` from the dump). A
+  worktree has no `dumps/`: the first start there copies a fresh `/srv` (patch it with `repatch`
+  before the first start).
 - Observed [static, sandbox]: the hub does not echo a key write back to its sender; writing
   `i.0.mute` produced a broadcast with a different value (mute groups?), not yet understood.
 
@@ -268,6 +305,12 @@ Useful service restarts:
 
 ## Things that will bite you
 
+- **A widget that hides itself in `getState` never comes back.** Mackie's `internalUpdate` runs
+  `getState` only while the widget is visible, so `this.visible = ...` there works for the state the
+  page was built in and not after a change (the "Show PIN" button stayed away after Remote Control was
+  switched on) [device]. Toggle `enabled` in `getState`, or call `setVisible` from code that runs
+  anyway (the panel's paint, a `Data.regWidget` callback). The sandbox only shows it when the test
+  starts in the other state.
 - **The mixer is switched off by cutting the power**, and the card's root is ext4 in writeback mode
   with `commit=10`: anything mod code writes is lost (or left empty after a rename) when the mixer is
   switched off within seconds. Flush every state file the moment it matters: write a temp file,

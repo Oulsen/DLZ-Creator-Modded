@@ -120,14 +120,50 @@ APP_PATCHES = [
         "if(DLZMOD_vuSet(e.vu2,l,T+1,o,a),",
     ),
     (
+        # #45: the server refuses the System Lock PIN and a factory reset from other devices; in a
+        # browser Mackie's UI would lock or "reset" only itself, so there the buttons are not shown
+        # (DLZMOD_external is known before the pages are built)
+        "remote: no System Lock button in a browser",
+        "text:lang.SYSTEM_LOCK,",
+        "text:lang.SYSTEM_LOCK,visible:!DLZMOD_external(),",
+    ),
+    (
+        # a mixer locked on its screen shows the lock in the browser too: tapping it says where to unlock
+        "remote: unlocking only on the mixer's own screen",
+        'ondown(){Data.get("lock")&&new PopupLock(app)}',
+        'ondown(){Data.get("lock")&&(DLZMOD_screenOnly()||new PopupLock(app))}',
+    ),
+    (
+        "remote: no Factory Reset (setup page) in a browser",
+        "this.reset=new E1Button(this,{anchors:[30,null,30,i],w:e,text:wrapText(lang.FACTORY_RESET,30,15),",
+        "this.reset=new E1Button(this,{anchors:[30,null,30,i],w:e,visible:!DLZMOD_external(),"
+        "text:wrapText(lang.FACTORY_RESET,30,15),",
+    ),
+    (
+        "remote: no Factory Reset (About) in a browser",
+        "this.factoryReset=new E1Button(this,{anchors:[0,210,null,null,!0],text:lang.FACTORY_RESET,",
+        "this.factoryReset=new E1Button(this,{anchors:[0,210,null,null,!0],visible:!DLZMOD_external(),"
+        "text:lang.FACTORY_RESET,",
+    ),
+    (
+        # #26: a download button on the Media page, left of Sort, in a browser and in a recordings
+        # folder only (DLZMOD_mediaDownloadButton); e = the page's button style
+        "media: download recordings in a browser",
+        "this.bSort=new E1ToggleButton(this,{anchors:[316,-214,",
+        "this.bDownload=DLZMOD_mediaDownloadButton(this,e),this.bSort=new E1ToggleButton(this,{anchors:[316,-214,",
+    ),
+    (
         # next to Mackie's firmware popups: the drop-in update's result (DLZMOD_UPDATE_NOTE, once,
-        # until its OK) and the status line for the Mod page (DLZMOD_UPDATE_STATUS), sent by the
-        # server mod when the screen has loaded
+        # until its OK) and the installed build, last refusal and waiting update for the Mod page
+        # (DLZMOD_UPDATE_STATUS), sent by the server mod when the screen has loaded
         "update: popup after a drop-in update, status on the Mod page",
         "$NET.addCallback(E_CMD.FIRMWARE_UPDATE_SUCCESS,(()=>showFirmwareUpdateSuccessPopup())),",
         "$NET.addCallback(E_CMD.FIRMWARE_UPDATE_SUCCESS,(()=>showFirmwareUpdateSuccessPopup())),"
         '$NET.addCallback("DLZMOD_UPDATE_NOTE",(t=>DLZMOD_showUpdateNote(t))),'
         '$NET.addCallback("DLZMOD_UPDATE_STATUS",(t=>DLZMOD_setUpdateStatus(t))),'
+        # #65: an update waits for Install (asked on the mixer's own screen), and Install's answer
+        '$NET.addCallback("DLZMOD_UPDATE_ASK",(t=>DLZMOD_askUpdate(t))),'
+        '$NET.addCallback("DLZMOD_UPDATE_APPROVED",(t=>DLZMOD_updateApproved(t))),'
         # the card is not in the mixer it was made for (sd-system/dlzmod-cardcheck): every start
         '$NET.addCallback("DLZMOD_CARD_NOTE",(t=>DLZMOD_showCardNote(t))),'
         # Network panel on the Mod page: status, Wi-Fi scan list, outcome of a change
@@ -157,10 +193,11 @@ SERVER_PATCHES = [
     ),
     (
         # A() (REC_START): t is the recordings folder, y the file handed to dspserver; ce() is a
-        # medium's mount point ("-" when empty), C()?w:x the XS / full-size folder name
+        # medium's mount point ("-" when empty), C()?w:x the XS / full-size folder name. No free name:
+        # no recording, but de() already made the medium writable, so it goes back read-only (#98)
         "recording: free, unique names (DLZMOD_recName)",
         'let a=await le(t,"REC_[0-9]{4}");y=t+"/REC_"+"0".repeat(4-a.toString().length)+a+".wav"',
-        'let a=await DLZMOD_recName(t,[ce("sd"),ce("usb")].map((m=>m+"/"+(C()?w:x))));if(!a)return;y=t+"/"+a+".wav"',
+        'let a=await DLZMOD_recName(t,[ce("sd"),ce("usb")].map((m=>m+"/"+(C()?w:x))));if(!a)return void DLZMOD_roLater();y=t+"/"+a+".wav"',
     ),
     (
         # same round trip as Mackie's firmware popup: sent when a screen has loaded, OK comes back
@@ -170,10 +207,13 @@ SERVER_PATCHES = [
     ),
     (
         # each connection's send function says whether it comes from the mixer itself (127.0.0.1:
-        # the device's screen); DLZMOD_net only takes changes from those (DLZMOD_isLocal)
-        "network: socket.io connections marked local or not",
+        # the device's screen); DLZMOD_net only takes changes from those (DLZMOD_isLocal). #45:
+        # another device only when paired (stamped dlzmodPaired), else it is dropped before anything
+        # of it runs
+        "network: socket.io connections marked local or paired, others dropped",
         '};Xt(),e.on("message",(async e=>await la(e,t)))}',
         '};t.send.dlzmodLocal=DLZMOD_isLocal(e.handshake&&e.handshake.address);'
+        'if(!DLZMOD_remoteAdmit(e,t.send))return;'
         'Xt(),e.on("message",(async e=>await la(e,t)))}',
     ),
     (
@@ -207,11 +247,90 @@ SERVER_PATCHES = [
         'try{await b("wavfinalizer "+t+"/"+e+" "+t+"/"+a)}',
         'try{await DLZMOD_wavfinalize(t+"/"+e,t+"/"+a)}',
     ),
+    # #98: stock remounts a medium read-write to record, rename, delete or finish half-written
+    # recordings at the start, but never back read-only (fe() only logs it), so a card with a
+    # recordings folder stayed writable until switched off. DLZMOD_roLater does the remount once
+    # nothing writes; every remount runs through one queue (DLZMOD_rw), so the last one asked wins
+    (
+        # de(): read-write "permanently" (recording, sample recorder, the start's finalizer)
+        "media: read-write remounts queued (recording)",
+        'v("Changing  mount "+e+" to  RW (Perm)"),await R("mount -o remount,rw "+e)',
+        'v("Changing  mount "+e+" to  RW (Perm)"),await DLZMOD_rw((()=>R("mount -o remount,rw "+e)))',
+    ),
+    (
+        # me(): read-write for 60 s around a rename or delete. Stock skips the remount while its own
+        # flag says the medium is writable; that flag knows nothing of DLZMOD_roLater, so always remount
+        # (each rename or delete then has its own 60 s timer: a few DLZMOD_roLater(0) calls, harmless).
+        # Stock runs the remount in an async function nobody awaits and goes on after a fixed 500 ms:
+        # a failed remount (rejected) would end node 18 as an unhandled rejection, and a remount still
+        # waiting in the queue would leave the delete or rename on a read-only medium. Here a failed
+        # remount is logged, and me() waits for the remount (w) before its 500 ms
+        "media: read-write remounts queued, every time, awaited (rename, delete)",
+        "async function me(e){(e==q&&0==H||e==M&&0==W)&&(!async function(e){H=e==q?1:H,W=e==M?1:W,"
+        'v("Changing  mount "+e+" to  RW (TEMP)"),await R("mount -o remount,rw "+e),await ae(6e4),'
+        "e==q&&2==H||e==M&&2==W||e==q&&0==H||e==M&&0==W||await fe(e)}(e),await ae(500))}",
+        "async function me(e){let w;(!async function(e){H=e==q?1:H,W=e==M?1:W,"
+        'v("Changing  mount "+e+" to  RW (TEMP)"),await(w=DLZMOD_rw((()=>R("mount -o remount,rw "+e)))'
+        '.catch((t=>console.error("dlzmod: read-write remount:",t.message)))),await ae(6e4),'
+        "e==q&&2==H||e==M&&2==W||e==q&&0==H||e==M&&0==W||await fe(e)}(e),await w,await ae(500))}",
+    ),
+    (
+        # fe(): the end of a rename/delete's 60 s and of the start's finalizer
+        "media: back to read-only for real (DLZMOD_roLater)",
+        'v("Changing  mount "+e+" back to  RO1"),v("DONE RO")',
+        'v("Changing  mount "+e+" back to  RO1"),DLZMOD_roLater(0),v("DONE RO")',
+    ),
+    (
+        # P(): every end of a recording (stop, a full or removed medium). #26: the file lists of every
+        # client again, once the recording has its final name (DLZMOD_dirsChanged; ee = stock's
+        # broadcaster, the one its own UPDATE_DIRS goes through)
+        "media: read-only after a recording (DLZMOD_roLater), file lists again",
+        'async function P(){T("recState",k.READY),await S(50),T("recFile",""),T("hw_rec",0),await S(500)}',
+        'async function P(){T("recState",k.READY),await S(50),T("recFile",""),T("hw_rec",0),await S(500),DLZMOD_roLater(),'
+        "DLZMOD_dirsChanged(ee,3e3)}",
+    ),
+    (
+        # #26: after a delete or a rename every client's file list again (stock refreshes only the
+        # list of the one that asked)
+        "media: file lists again after a delete",
+        "async MEDIA_DELETE(e){let t=await he(e.path);return t&&kt(e.bankKey),t}",
+        "async MEDIA_DELETE(e){let t=await he(e.path);return t&&(kt(e.bankKey),DLZMOD_dirsChanged(ee)),t}",
+    ),
+    (
+        "media: file lists again after a rename",
+        "}(e.path,e.newName);return t&&kt(e.bankKey),t}",
+        "}(e.path,e.newName);return t&&(kt(e.bankKey),DLZMOD_dirsChanged(ee)),t}",
+    ),
+    (
+        # the sample recorder stops into its keep/discard question; DLZMOD_roLater waits for the answer
+        "media: read-only after the sample recorder (DLZMOD_roLater)",
+        'async SAMPLE_REC_STOP(e){globalThis.setDataKey("sample.rec.state",ze.DECISION)}',
+        'async SAMPLE_REC_STOP(e){globalThis.setDataKey("sample.rec.state",ze.DECISION),DLZMOD_roLater()}',
+    ),
     (
         # /srv is served as it is: the originals patch.py and apply-mod.sh keep there stay private
         "files: kept originals not served (DLZMOD_noOrig)",
         'a=e();return a.get("/app.js",',
-        'a=e();a.use(DLZMOD_noOrig);return a.get("/app.js",',
+        # #45: other devices only with "Control from other devices" on and paired, and then only the
+        # UI's own files (not srv_data.json or the presets). #26: then the recordings, read only
+        # (DLZMOD_recHttp); ce() is a medium's mount point, "-" when empty. #114: a mod update sent
+        # to the SD card's dlzmod-update/ (DLZMOD_updateUpload)
+        'a=e();a.use(DLZMOD_noOrig);a.use(DLZMOD_remoteHttp);'
+        'a.use(DLZMOD_recHttp((()=>[ce("sd"),ce("usb")])));a.use(DLZMOD_updateUpload((()=>ce("sd"))));'
+        'return a.get("/app.js",',
+    ),
+    (
+        # #45: the socket.io handshake of another device needs the pairing cookie and the mixer's
+        # own page as its origin (DLZMOD_allowRequest)
+        "network: socket.io handshakes from other devices only when paired",
+        "ct=new r(rt,{cookie:!1,allowEIO3:!0})",
+        "ct=new r(rt,{cookie:!1,allowEIO3:!0,allowRequest:DLZMOD_allowRequest})",
+    ),
+    (
+        # #45: port 89 is the screen's connection only: loopback, IPv4 and IPv6 (DLZMOD_listen89)
+        "network: port 89 on loopback only",
+        "pt&&pt.listen(89);",
+        "pt&&DLZMOD_listen89(pt,da);",
     ),
     (
         # About's "Device IP Address" (polled every 5 s): Ethernet first as stock, else the Wi-Fi stick
@@ -220,9 +339,11 @@ SERVER_PATCHES = [
         """Ce("{ ip addr show eth0; ip addr show wlan0; } 2>/dev/null | grep -Pom 1 '[0-9.]{7,15}/'")""",
     ),
     (
-        "update: the popup's OK (DLZMOD_UPDATE_NOTE_OK); Network panel (DLZMOD_NET)",
+        "update: the popup's OK (DLZMOD_UPDATE_NOTE_OK); Install (DLZMOD_UPDATE_APPROVE); Network panel (DLZMOD_NET)",
         "async FIRMWARE_UPDATE_SUCCESS_OK(){",
         "DLZMOD_UPDATE_NOTE_OK(){DLZMOD_updateNoteSeen()},"
+        # #65: Install for the update waiting on the card, from the mixer's own screen only (i = its send)
+        "DLZMOD_UPDATE_APPROVE(e,t,a,i){DLZMOD_updateApprove(e,i)},"
         # Network panel (Wi-Fi, SSH): answers go to this screen only (i = its send); not awaited,
         # so a 45 s Wi-Fi connect does not hold up the screen's other commands
         "DLZMOD_NET(e,t,a,i){DLZMOD_net(e,i)},"

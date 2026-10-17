@@ -1,5 +1,7 @@
 # The checks that need no mixer, no dump and no Mackie files: the server mod's unit tests, the build
-# tools' key guards (tests/guards.sh), and a syntax check of every shell script and Python file. The
+# tools' key guards (tests/guards.sh), the updater checks (tests/update-checks.sh), the mixer-ssh
+# skill's read-only guard (offline), and a syntax check of every shell script, JavaScript and Python
+# file. The
 # rehearsals on card images run on a PC with the dump (tests/README.md).
 name: checks
 
@@ -21,12 +23,31 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 18
+      # and Python 3.10 (Ubuntu 22.04): the installer's ui.py and the card's python scripts run with it
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.10'
 
       - name: Server mod unit tests
         run: node install/server-mod/test-dlzmod-server.js
 
+      - name: App mod unit tests
+        run: node install/app-mod/test-dlzmod.js
+
       - name: Key guards of the build tools
         run: bash tests/guards.sh
+
+      # every released updater must accept the new one (the checkout is shallow and has no tags), and
+      # this one's checks in checks-only mode on a fixture tree (as the runner's normal user)
+      - name: Updater checks
+        run: |
+          command -v cpio > /dev/null || { sudo apt-get update -q && sudo apt-get install -yq cpio; }
+          git fetch --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+          bash tests/update-checks.sh
+
+      # never connects: an empty HOME has no mixer address
+      - name: Read-only guard of the mixer-ssh skill
+        run: bash .claude/skills/mixer-ssh/test-guard.sh
 
       - name: Shell syntax (by shebang)
         run: |
@@ -36,6 +57,7 @@ jobs:
             case $first in
               '#!'*bash*) sh=bash ;;
               '#!'*/sh|'#!'*/sh' '*|'#!/usr/bin/env sh'*|'#!/bin/busybox sh'*) sh=sh ;;
+              # checked in their own steps below
               '#!'*python*|'#!'*node*) continue ;;
               # an interpreter this step does not know must not slip through unchecked
               '#!'*) echo "::error file=$p::unknown interpreter: $first"; f=$((f + 1)); continue ;;
@@ -49,5 +71,32 @@ jobs:
           echo "shell scripts: $n checked, $f failed"
           [ "$f" = 0 ]
 
+      # the app mod and the sandbox are otherwise only parsed by tests/patches.sh, which needs the dump
+      - name: JavaScript syntax (*.js and node scripts)
+        run: |
+          f=0; n=0
+          while IFS= read -r p; do
+            case $p in
+              *.js|*.mjs|*.cjs) ;;
+              *) head -c 100 "$p" | head -n 1 | tr -d '\0' | grep -q '^#!.*node' || continue ;;
+            esac
+            n=$((n + 1))
+            node --check "$p" || { echo "::error file=$p::syntax error (node)"; f=$((f + 1)); }
+          done < <(git -c core.quotePath=off ls-files)
+          echo "JavaScript files: $n checked, $f failed"
+          [ "$n" -gt 0 ] && [ "$f" = 0 ]
+
+      # *.py and python scripts without the extension (by shebang), with the mixer's Python (3.10)
       - name: Python syntax
-        run: python3 -m py_compile $(git ls-files '*.py')
+        run: |
+          f=0; n=0
+          while IFS= read -r p; do
+            case $p in
+              *.py) ;;
+              *) head -c 100 "$p" | head -n 1 | tr -d '\0' | grep -q '^#!.*python' || continue ;;
+            esac
+            n=$((n + 1))
+            python3 -m py_compile "$p" || { echo "::error file=$p::syntax error (python)"; f=$((f + 1)); }
+          done < <(git -c core.quotePath=off ls-files)
+          echo "Python files: $n checked, $f failed"
+          [ "$n" -gt 0 ] && [ "$f" = 0 ]

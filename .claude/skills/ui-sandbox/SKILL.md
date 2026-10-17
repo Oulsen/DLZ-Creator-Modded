@@ -20,7 +20,10 @@ All from the repo root in Git Bash; `S=.claude/skills/ui-sandbox/sandbox.sh`.
    taken; the script would refuse the drive anyway).
 2. Start as a **background task**: `bash dev/ui-sandbox.sh` (XS layout), or
    `DLZ_FULLSIZE=1 bash dev/ui-sandbox.sh` (full-size, its own copy `dumps/sandbox-full`). Optional
-   argument: another drive letter (default `S`).
+   argument: another drive letter (default `S`). `DLZ_SANDBOX_REMOTE=1` in front: http://localhost/
+   plays another device on the network, a computer's browser (pairing, #45), http://127.0.0.1/
+   stays the mixer's screen. `DLZ_FAKE_MEDIA=sd` (or `usb`, `sd,usb`) in front: a pretend SD card /
+   USB stick with a few recordings (`notes/modding-guide.md`, "PC sandbox").
 3. `bash $S wait`: until http://127.0.0.1/ answers (first start: it copies `/srv` from the dump,
    which needs WSL distro Ubuntu and the read-only mount; that takes a while).
 4. `bash $S open`: the page in the user's browser (or tell them the address).
@@ -42,9 +45,15 @@ All from the repo root in Git Bash; `S=.claude/skills/ui-sandbox/sandbox.sh`.
 - Header shown: `905,60` Settings gear, `860,116` the Mod tab ("DLZ Creator Modded").
   Header hidden: `905,30` and `860,86` [PC: `905,60` with the header hidden lands on
   the Overview]
+- On the Mod tab, the sub-tabs (header hidden; shown: y `185`): `105,155` Display, `314,155`
+  Network, `513,155` Remote, `718,155` Mod; on Remote: `859,281` the switch, `583,523` Random PIN,
+  `795,523` Own PIN... (its pad: keys at x `436/512/588`, y `240/312/384/456`, ✓ at `588,456`)
 - `DLZ_SHOT_EVAL='<js>'` runs JS in the page before the taps, for states the PC cannot produce,
   e.g. `Data.set("sd",1)` (SD card inserted); `DLZ_SHOT_WAIT=<ms>` after it, `DLZ_SHOT_AFTER=<ms>`
   after the last tap
+- The paired browser (started with `DLZ_SANDBOX_REMOTE=1`): `T=$(node dev/ui-sandbox/pair.js)`, then
+  `DLZ_SHOT_URL=http://localhost/ DLZ_SHOT_COOKIE=$T node dev/ui-sandbox/shot.js ...` (browser
+  layout, no knob panel: Media tab `505,60`). `DLZ_SHOT_DOWNLOADS=<folder>` keeps its downloads
 - Look at the PNG with the Read tool before saying a change looks right; `build/` is git-ignored
 
 ## Stop

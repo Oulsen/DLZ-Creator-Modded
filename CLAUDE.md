@@ -3,7 +3,8 @@
 Reverse engineering and modding the Mackie DLZ Creator and DLZ Creator XS (Allwinner A40i,
 Armbian/Ubuntu 22.04 armhf; one firmware for both, the factory marks an XS with `/root/.dlzlite`).
 Mods run from a microSD clone of the eMMC; the eMMC stays stock. Our dump and test mixer are an XS;
-the full-size runs the same firmware (build 1731) but is untested.
+the full-size runs the same firmware (build 1731); one owner's full-size installed and ran v0.1.0
+(`notes/hardware.md`, "Full-size DLZ Creator").
 
 ## Read first
 
@@ -27,8 +28,14 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   asks for (no agent where the tests and the sandbox fully show the change, 1 combined reviewer for
   other logic, up to 2 informed + 2 blind, all at once, for new write paths and boot routes; the
   brick angle is part of every review), claims verified, findings fixed or consciously accepted.
-- `VERSION` is the mod version shown on the boot screens and in Settings (`v0.1.0` .. `v9.99.99`);
-  bump it only when functionality is added or changed, not for cosmetic tweaks.
+- Card rehearsals (`tests/README.md`: card images, minutes each) only for what the mixer must not
+  be the first to try: failure, restore and power-cut paths, new write paths, the brick angles. What
+  a normal run on the mixer shows (a name, a text, a screen, an update or install that goes through)
+  is tested on the mixer itself, after the fast tests, the sandbox and the device review. Say why
+  before starting a rehearsal.
+- `VERSION` is the mod version shown in Settings and on the installer's screens (`v0.1.0` .. `v9.99.99`);
+  bumped in `develop` right after a release (below); a new version is released only when
+  functionality is added or changed, not for cosmetic tweaks.
 - The install guide (`docs/INSTALL.md`) shows the installer's screens (`docs/images/install/`, with
   the version sticker). When an installer text, its look or `VERSION` changes: copy changed texts
   into `dev/installer-mockup.py`, re-render with `--no-sheet docs/images/install`, and read the guide
@@ -46,19 +53,27 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   collapsed `<details>` block under "Technical notes"). There is no backlog file: to-dos are issues,
   progress is the board. A new
   roadmap item = a new issue (with `gh`, after the user agrees); when work starts or finishes, move
-  its card on the board. Never post Mackie code or dump secrets in issues. A defect found in what
+  its card on the board (Todo, Next Version, In progress; after the merge close the issue with
+  "Fixed in develop, comes with vX.Y.Z." and move it to Fixed in develop; Released at the
+  release). Never post Mackie code or dump secrets in issues. A defect found in what
   the release being worked on brings (not shipped yet) is simply fixed, without an issue; a defect
   in a released version, or in stock Mackie behaviour, gets a `MOD BUG` / `DLZ BUG` issue.
 - Never commit to `main` or `develop` directly: every change on its own branch from `develop`, a PR
   into `develop` (`/pr`, squash-merged by the user); a release is a PR `develop` → `main`,
   fast-forwarded by the user with `git push origin <commit>:main` (never the merge button), so `main`
-  and `develop` stay one commit (`docs/DEVELOPMENT.md`, "Branches" and "Releases"). Before a PR opens, one
-  review agent reads the branch's diff, docs-only PRs too; findings fixed or named in the PR body
-  (`docs/DEVELOPMENT.md`, "Review").
-- With every version bump, write a `## vX.Y.Z` section in `CHANGELOG.md` (newest version first)
-  from the milestone's issues: their titles as bullets, in the order DLZ FEATURE, DLZ BUG, MOD
-  FEATURE, MOD BUG (the release PR and the release notes use the same order, as sections). Update the README's "What the mod does" (the current mod, by
-  group) in the same bump.
+  and `develop` stay one commit (`docs/DEVELOPMENT.md`, "Branches" and "Releases"). Right after `/pr`,
+  start `/cr` (or `/code-review`) on the opened PR, docs-only PRs too, so the whole diff is read,
+  including changes made after a device review; findings fixed as new commits on the PR or named in
+  the PR description, before the merge; fixes that add new logic get one more pass
+  (`docs/DEVELOPMENT.md`, "Review"). The release PR `develop` → `main` too: once the milestone's
+  issues are done, one final `/cr` on it before the fast-forward ("Releases", step 2).
+- Right after a release, bump `VERSION` in `develop` as its own PR (`docs/vX.Y.Z-bump`), before any
+  other change of the new cycle; a feature or fix branch never bumps (`docs/DEVELOPMENT.md`,
+  "Version bump"). The bump PR opens a `## vX.Y.Z` section in `CHANGELOG.md` (newest version first);
+  every PR that finishes a milestone issue adds its title there as a bullet, in the order DLZ
+  FEATURE, DLZ BUG, MOD FEATURE, MOD BUG (the release PR and the release notes use the same order,
+  as sections). The same PR updates the README's "What the mod does" (the current mod, by group)
+  when it changes what the mod does.
 - `dumps/` and `build/` are private and git-ignored. Never commit Mackie binaries, dumps or `.upd`
   files; in notes, describe Mackie code and point to it (file, function, search string), never paste
   it. Names, paths, settings, message fields and `patch.py`'s anchors are fine; copied code lines are not.

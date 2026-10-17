@@ -223,6 +223,42 @@ function DLZMOD_showUpdateNote(n) {
   });
 }
 
+// #65: an update file on the card passed the updater's checks and waits for Install (dlzmod-server.js,
+// DLZMOD_updatePendingFrom; sent to the mixer's own screen only). Laid out as Mackie's firmware update
+// question (askConfirm: current and new version, an arrow on top), Install and Later. Later only
+// closes it: the question comes back at the next start and the Mod page keeps an Install button.
+function DLZMOD_askUpdate(p) {
+  if (!p || !p.sum) return;
+  askConfirm("", {
+    title: DLZMOD_tabLabel() + " update", font: Font.font(500, "17pt"), textDY: 32,
+    paintCustom: function (t) {
+      const x = this.w / 2 | 0, y = (this.h / 2 + 35 | 0) - 26;
+      t.drawText(lang.CURRENT_VERSION, x, y - 60, { color: Color.white, font: Font.font(500, "18pt"), align: "center", valign: "middle" });
+      t.drawText(DLZMOD_installed(), x, y - 20, { color: Color.main, font: Font.font(500, "18pt"), align: "center", valign: "middle" });
+      t.drawText(lang.UPDATE_VERSION, x, y + 20, { color: Color.white, font: Font.font(500, "18pt"), align: "center", valign: "middle" });
+      t.drawText(p.version, x, y + 60, { color: Color.main, font: Font.font(500, "18pt"), align: "center", valign: "middle" });
+      t.drawText($FA.arrow_to_top, x, 92, { font: Font.fa("36px"), color: Color.main, align: "center" });
+    },
+    buttons: [
+      { text: "Install", textStyle: { font: Font.font(600, "16pt") }, textColors: [Color.main, Color.white], colors: [Color.confirm, Color.main] },
+      { text: "Later", textStyle: { font: Font.font(600, "16pt") } },
+    ],
+  }, () => DLZMOD_approveUpdate(p.sum));
+}
+
+function DLZMOD_approveUpdate(sum) {
+  $NET.cmd("DLZMOD_UPDATE_APPROVE", { sum: sum });
+}
+
+// Install's answer: what to do now (switch off and on), or why not
+function DLZMOD_updateApproved(r) {
+  if (!r) return;
+  showMessage(r.text, {
+    title: DLZMOD_tabLabel() + " update", textColor: r.ok ? Color.green : Color.red2,
+    font: Font.font(500, "17pt"), textDY: 32,
+  });
+}
+
 // The card's check before the FPGA loader failed (sd-system/dlzmod-cardcheck): no audio this start.
 // Shown at every start while it fails, red as Mackie's failure popups; text from the check itself.
 function DLZMOD_showCardNote(text) {
@@ -232,21 +268,149 @@ function DLZMOD_showCardNote(text) {
   });
 }
 
-// "Installed: v0.1.0 (dev-b2f2852)" or "Last update not installed: ..." (dlzmod-server.js,
-// DLZMOD_updateStatusFrom); the Mod sub-page shows only the refusal (the rest repeats its version)
+// {installed: "v0.1.0 (dev-b2f2852)", failed: "Last update not installed: ...", pending: {sum, version,
+// approved} or null, local} (dlzmod-server.js, DLZMOD_updateStatusFrom), every start and after Install;
+// installed and failed may be ""
 function DLZMOD_setUpdateStatus(s) {
-  DLZMOD_setUpdateStatus.text = s || "";
+  DLZMOD_setUpdateStatus.s = s && typeof s === "object" ? s : {};
   const page = DLZMOD_page();
+  if (page) page.about.syncInstall();
   if (page && page.visible) page.about.update();
 }
 
 function DLZMOD_updateFailed() {
-  const s = DLZMOD_setUpdateStatus.text || "";
-  return s.startsWith("Last update not installed") ? s : "";
+  return (DLZMOD_setUpdateStatus.s || {}).failed || "";
+}
+
+// the update waiting for Install, or null
+function DLZMOD_updatePending() {
+  const p = (DLZMOD_setUpdateStatus.s || {}).pending;
+  return p && p.sum ? p : null;
+}
+
+// the Mod page's Updates row: [text, colour or null for grey]
+function DLZMOD_updateRow() {
+  const p = DLZMOD_updatePending();
+  if (p && p.approved) return [p.version + " installs at the next start: switch the mixer off and on", DLZMOD_yellow()];
+  if (p && (DLZMOD_setUpdateStatus.s || {}).local) return ["Update " + p.version + " is on the card", DLZMOD_yellow()];
+  if (p) return ["Update " + p.version + " is on the card: install it on the mixer's own screen", DLZMOD_yellow()];
+  const failed = DLZMOD_updateFailed();
+  if (failed) return [failed, Color.red2];
+  if (DLZMOD_external()) return ["Upload the update's .tar and .sig with the button below", null];
+  return ["Copy the update's .tar and .sig to DLZDATA/dlzmod-update", null];
+}
+
+// #114: Upload Update... (Mod page, in a browser): the browser's file picker for the update's two files.
+// In the page while open (a picker outside it can be dropped by some browsers before it answers); the
+// one of an earlier press (cancelled: no answer) goes. Not while one is being sent
+function DLZMOD_uploadPick() {
+  const s = DLZMOD_uploadPick;
+  if (DLZMOD_uploadBusy()) return;
+  if (s.input) s.input.remove();
+  const input = (s.input = document.createElement("input"));
+  input.type = "file";
+  input.multiple = !0;
+  input.accept = ".tar,.sig";
+  input.hidden = !0;
+  input.onchange = () => {
+    const files = Array.from(input.files || []);
+    input.remove();
+    s.input = null;
+    DLZMOD_uploadFiles(files);
+  };
+  document.body.appendChild(input);
+  input.click();
+}
+
+// the chosen files: {tar, sig}, or what is wrong with them (the server checks the same again)
+function DLZMOD_uploadCheck(files) {
+  const tar = files.filter((f) => /\.tar$/i.test(f.name));
+  const sig = files.filter((f) => /\.tar\.sig$/i.test(f.name));
+  if (files.length !== 2 || tar.length !== 1 || sig.length !== 1) {
+    return "Choose both files of the update together:\nits dlzmod-....tar and its .tar.sig.";
+  }
+  const t = tar[0];
+  const s = sig[0];
+  if (!/^dlzmod-[A-Za-z0-9][A-Za-z0-9._+-]{0,80}\.tar$/.test(t.name) || t.name.includes("..")) {
+    return t.name + " is not a mod update.\n(A copy the browser renamed, like \"(1)\", is not taken.)";
+  }
+  if (s.name !== t.name + ".sig") return s.name + " is not the signature of " + t.name + ".";
+  if (s.size !== 64) return s.name + " is not a signature file.";
+  if (!t.size || t.size > 64 * 1024 * 1024) return t.name + " is not a mod update (wrong size).";
+  return { tar: t, sig: s };
+}
+
+// sent as one request (dlzmod-server.js, DLZMOD_updateUpload): the signature, then the package. A
+// Blob of the two files: the browser sends them from disk, not read into the page first. One at a
+// time from this page
+function DLZMOD_uploadFiles(files) {
+  const s = DLZMOD_uploadFiles;
+  const title = "Upload Update";
+  if (DLZMOD_uploadBusy()) return;
+  const f = DLZMOD_uploadCheck(files);
+  if (typeof f === "string") return showMessage(f, { title: title });
+  askConfirm("Send " + f.tar.name + " (" + DLZMOD_size(f.tar.size) + ") to the mixer?\n" +
+    "It is installed only after Install on the mixer's own screen.", { title: title }, () => {
+    if (s.busy) return;
+    s.busy = !0;
+    showToast("Sending: " + f.tar.name);
+    fetch("/dlzmod-update-upload", { method: "POST", cache: "no-store", body: new Blob([f.sig, f.tar]),
+      headers: { "Content-Type": "application/octet-stream", "X-Dlzmod-Name": f.tar.name } })
+      .then((r) => r.text().then((text) => showMessage(DLZMOD_uploadReply(r, text), { title: title })))
+      .catch(() => showMessage("The upload did not get through. Try again.", { title: title }))
+      .finally(() => (s.busy = !1));
+  });
+}
+
+// an update being sent from this page: says so; true: stop there
+function DLZMOD_uploadBusy() {
+  if (!DLZMOD_uploadFiles.busy) return !1;
+  showMessage("An update is being sent to the mixer.\nWait for its answer.", { title: "Upload Update" });
+  return !0;
+}
+
+// what the mixer answered, for the popup: the upload's own text (text/plain); the pairing gate's
+// pages (HTML: no longer paired, control from other devices off) get a sentence instead
+function DLZMOD_uploadReply(r, text) {
+  const plain = /^text\/plain/i.test((r.headers && r.headers.get("content-type")) || "");
+  if (plain && text) return text;
+  if (r.ok) return "Sent.";
+  if (r.status === 403 || r.status === 421) {
+    return "This browser is not paired with the mixer any more,\nor control from other devices is off. Reload this page.";
+  }
+  return "The mixer refused it (HTTP " + r.status + ").";
+}
+
+// the installed build as the update popup names it ("v0.1.0" on a release card, the stamped VERSION
+// until the server has sent it)
+function DLZMOD_installed() {
+  return (DLZMOD_setUpdateStatus.s || {}).installed || DLZMOD_version();
 }
 
 function DLZMOD_page() {
   return typeof app !== "undefined" && app.pageSettings && app.pageSettings.dlzmod;
+}
+
+// On the device a closed popup stays on screen until the page below it draws again: on the Mod page,
+// which draws nothing until its next status, up to 3 s [device] (notes/modding-guide.md). A repaint
+// of the page right after it closes, only while the page is on screen.
+function DLZMOD_repaintSoon() {
+  setTimeout(() => {
+    const page = DLZMOD_page();
+    if (page && page.globalVisible()) page.update();
+  }, 0);
+}
+
+// every popup ends in onDestroy (a button, close(), a tap outside it): Mackie's own runs first, then
+// the repaint
+function DLZMOD_hookPopups() {
+  if (DLZMOD_hookPopups.done) return;
+  DLZMOD_hookPopups.done = !0;
+  const destroyed = PopupWindow.prototype.onDestroy;
+  PopupWindow.prototype.onDestroy = function () {
+    destroyed.call(this);
+    DLZMOD_repaintSoon();
+  };
 }
 
 // Mod page under Settings, after About. Unlike Mackie's pages (829 x 392 with wide margins) it fills
@@ -258,6 +422,7 @@ function DLZMOD_page() {
 // 300-600.
 function DLZMOD_settingsPage(parent, y) {
   DLZMOD_initKeys();
+  DLZMOD_hookPopups();
   Data.regWidget("dlzmod.hideHeader", DLZMOD_applyHeader);   // also when changed from a browser
   Data.regWidget("dlzmod.meterMarks", DLZMOD_applyMeterMarks);
   const top = 44 + 8;   // sub-tabs (44) and a gap, then the panels
@@ -268,8 +433,12 @@ function DLZMOD_settingsPage(parent, y) {
     paint: function () {},   // only the tabs and panels, the page's black between them
     _constructor: function () {
       this.sub = 0;
-      this.tabs = ["Display", "Network", "Mod"].map((text, i) => new ToggleButton(this, {
-        anchors: [i * 202, 0], w: 200, h: 44, text: text, opaque: !1,
+      // in a browser no Network and Remote: only the mixer's own screen changes those (the server
+      // refuses them from other devices)
+      const names = ["Display", "Network", "Remote", "Mod"];
+      const shown = DLZMOD_external() ? [0, 3] : [0, 1, 2, 3];
+      this.tabs = shown.map((i, k) => new ToggleButton(this, {
+        anchors: [k * 202, 0], w: 200, h: 44, text: names[i], opaque: !1,
         colors: [Color.buttonBg, DLZMOD_yellow()], textColor: Color.subNavButtonText, textColorON: Color.black,
         textStyle: { align: "left", valign: "middle", x: 7, y: 23, offsetX: 0, offsetY: 0, font: Font.font(600, "18px") },
         onToggleON: () => this.setSub(i), getVal: () => this.sub === i,
@@ -277,19 +446,24 @@ function DLZMOD_settingsPage(parent, y) {
       this.screen = DLZMOD_screenPanel(this, 0, top, 290);
       this.meters = DLZMOD_metersPanel(this, 290 + 12, top, 914 - 290 - 12);
       this.network = DLZMOD_networkPanel(this, 0, top, 914);
+      this.pair = DLZMOD_pairPanel(this, 0, top, 914);
       this.about = DLZMOD_aboutPanel(this, 0, top, 914);
-      this.groups = [[this.screen, this.meters], [this.network], [this.about]];
+      this.groups = [[this.screen, this.meters], [this.network], [this.pair], [this.about]];
       this.setSub(0);
-      // the Network panel's status, every 3 s while it is on screen
-      setInterval(() => this.network.globalVisible() && $NET.cmd("DLZMOD_NET", { op: "status" }), 3000);
+      // the Network and Remote Control panels' status, every 3 s while one is on screen (the PIN
+      // changes after each pairing)
+      setInterval(() => (this.network.globalVisible() || this.pair.globalVisible()) &&
+        $NET.cmd("DLZMOD_NET", { op: "status" }), 3000);
     },
     setSub: function (i) {
       this.sub = i;
+      if (this.pair) this.pair.revealPin(!1);   // leaving or opening Remote Control hides the PIN
       this.groups.forEach((g, j) => g.forEach((p) => p.setVisible(j === i)));
-      if (i === 1) $NET.cmd("DLZMOD_NET", { op: "status" });
+      if (i === 1 || i === 2) $NET.cmd("DLZMOD_NET", { op: "status" });
       this.update();
     },
     onShow: function () {
+      this.pair.revealPin(!1);
       $NET.cmd("DLZMOD_NET", { op: "status" });
     },
   });
@@ -394,21 +568,36 @@ function DLZMOD_metersPanel(parent, x, y, w) {
   });
 }
 
-// Mod: what is installed and how to update it
+// Mod: what is installed and how to update it; Install for an update waiting on the card (#65), on
+// the mixer's own screen only; Upload Update... in its place in a browser (#114)
 function DLZMOD_aboutPanel(parent, x, y, w) {
   return new Widget(parent, {
     anchors: [x, y],
     size: [w, DLZMOD_panelH()],
     bgColor: Color.bgDark,
+    _constructor: function () {
+      this.install = new E1Button(this, {
+        anchors: [0, 252, null, null, !0], size: [300, 56], text: "Install Update...",
+        onPress: () => DLZMOD_askUpdate(DLZMOD_updatePending()),
+      });
+      this.upload = new E1Button(this, {
+        anchors: [0, 252, null, null, !0], size: [300, 56], text: "Upload Update...",
+        visible: DLZMOD_external(), onPress: () => DLZMOD_uploadPick(),
+      });
+      this.syncInstall();
+    },
+    syncInstall: function () {
+      const p = DLZMOD_updatePending();
+      this.install.setVisible(!!p && !p.approved && !!(DLZMOD_setUpdateStatus.s || {}).local);
+    },
     paint: function (t) {
       DLZMOD_paintPanel(this, t, DLZMOD_tabLabel(), DLZMOD_yellow(), Font.font(600, "24pt"));
       t.drawText("Unofficial mod for the Mackie DLZ Creator", this.w / 2 | 0, 70,
         { color: "#888888", font: Font.font(500, "12pt"), align: "center", valign: "middle" });
       const max = this.w - 56;
-      DLZMOD_paintRow(t, 28, 136, "Version", DLZMOD_version(), max);
-      const failed = DLZMOD_updateFailed();
-      DLZMOD_paintRow(t, 28, 206, "Updates",
-        failed || "Copy the update's .tar and .sig to DLZDATA/dlzmod-update", max, failed ? Color.red2 : null);
+      DLZMOD_paintRow(t, 28, 136, "Version", DLZMOD_installed(), max);
+      const [text, color] = DLZMOD_updateRow();
+      DLZMOD_paintRow(t, 28, 206, "Updates", text, max, color);
       t.drawText("by Oulsen · github.com/Oulsen/DLZ-Creator-Modded", this.w / 2 | 0, this.h - 24,
         { color: "#666666", font: Font.font(500, "12pt"), align: "center", max: max });
     },
@@ -418,14 +607,22 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
 // Network panel: Wi-Fi (a USB stick) and SSH, both run by the server mod (DLZMOD_net in
 // dlzmod-server.js). The status comes from the server (DLZMOD_NET_STATE); the SSH switch shows it
 // and is no hub key, so nothing about it is sent to other clients or saved in srv_data.json.
+// An SSH change sent from here counts as running at once (DLZMOD_sshSend), not only from the server's
+// next status, until its outcome or the popup's time-out (DLZMOD_netIdle). Another network change's
+// spinner drops that mark too; the server's sshBusy brings it back with the next status.
 function DLZMOD_netState() {
-  return DLZMOD_netState.s || { stick: false, wifi: "", ssid: "", signal: 0, ip: "", ssh: false, sshKeep: false, unknown: true };
+  const s = DLZMOD_netState.s || { stick: false, wifi: "", ssid: "", signal: 0, ip: "", ssh: false, sshKeep: false,
+    sshBusy: "", unknown: true };
+  return DLZMOD_sshSend.busy && !s.sshBusy ? Object.assign({}, s, { sshBusy: DLZMOD_sshSend.busy }) : s;
 }
 
 function DLZMOD_setNetState(s) {
   DLZMOD_netState.s = s;
   const page = DLZMOD_page();
-  if (page) page.network.update();
+  if (page) {
+    page.network.update();
+    page.pair.update();
+  }
 }
 
 // Wi-Fi status on the Wi-Fi card: two short lines and their colour
@@ -438,6 +635,22 @@ function DLZMOD_wifiStatusText(s) {
   if (s.wifi === "connecting") return ["Connecting…", "", DLZMOD_yellow()];
   if (s.wifi === "unavailable") return ["Wi-Fi stick not ready", "", "#888888"];
   return ["Not connected", "", "#888888"];
+}
+
+// SSH status under "Remote login" and its colour. Other devices get no SSH state (DLZMOD_net), and a
+// change still running (sshBusy) shows as Wi-Fi's "Connecting…" does
+function DLZMOD_sshStatusText(s) {
+  if (s.remote) return ["Only on the mixer's own screen", "#888888"];
+  if (s.unknown) return ["…", "#888888"];
+  if (s.sshBusy === "on") return ["Setting up…", DLZMOD_yellow()];
+  if (s.sshBusy === "off") return ["Switching off…", DLZMOD_yellow()];
+  if (s.ssh) return ["On", "#888888"];
+  return [s.sshKeep ? "Off now, back on at the next start" : "Off", "#888888"];
+}
+
+// the SSH controls: not on another device, and not while a change runs
+function DLZMOD_sshIdle(s) {
+  return !s.remote && !s.sshBusy;
 }
 
 // Network page: two cards, Wi-Fi and SSH, in a container without paint of its own, so that
@@ -499,16 +712,15 @@ function DLZMOD_sshCard(parent, x, w) {
         anchors: [w - 24 - 72, 73], size: [72, 46], margin: 10,
         bgColors: [Color.buttonBg, DLZMOD_yellow()], knobMargin: 0,
         getState: function () {
-          this.value = !!DLZMOD_netState().ssh;
+          const s = DLZMOD_netState();
+          this.value = !!s.ssh;
+          this.enabled = DLZMOD_sshIdle(s);
         },
         setVal: function (v) {
           this.value = v;
         },
         onToggleON: () => DLZMOD_confirmSsh(),
-        onToggleOFF: () => {
-          DLZMOD_netBusy("Switching SSH off…", 60, $FA.lock);
-          $NET.cmd("DLZMOD_NET", { op: "ssh", on: !1 });
-        },
+        onToggleOFF: () => DLZMOD_sshSend(!1),
       });
       this.keepOn = new Switcher(this, {
         anchors: [w - 24 - 72, 206], size: [72, 46], margin: 10,
@@ -516,7 +728,7 @@ function DLZMOD_sshCard(parent, x, w) {
         getState: function () {
           const s = DLZMOD_netState();
           this.value = !!s.sshKeep;
-          this.enabled = !!s.ssh || !!s.sshKeep;   // a marker left behind can always go
+          this.enabled = DLZMOD_sshIdle(s) && (!!s.ssh || !!s.sshKeep);   // a marker left behind can always go
         },
         setVal: function (v) {
           this.value = v;
@@ -528,14 +740,16 @@ function DLZMOD_sshCard(parent, x, w) {
         anchors: [0, 300, null, null, !0], size: [w - 48, 56], text: "SSH Password...",
         onPress: () => DLZMOD_askSshPassword(),
         getState: function () {
-          this.enabled = !!DLZMOD_netState().ssh;
+          const s = DLZMOD_netState();
+          this.enabled = DLZMOD_sshIdle(s) && !!s.ssh;
         },
       });
     },
     paint: function (t) {
       DLZMOD_paintPanel(this, t, "SSH", Color.white, Font.font(500, "20pt"));
       const s = DLZMOD_netState(), max = this.w - 48;
-      DLZMOD_paintRow(t, 24, this.ssh.geomCenterY(), "Remote login", s.ssh ? "On" : s.sshKeep ? "Off now, back on at the next start" : "Off", this.w - 24 - 120);
+      const [status, color] = DLZMOD_sshStatusText(s);
+      DLZMOD_paintRow(t, 24, this.ssh.geomCenterY(), "Remote login", status, this.w - 24 - 120, color);
       const warn = { color: Color.red2, font: Font.font(500, "12pt"), align: "left", valign: "middle", max: max };
       t.drawText("Gives full root access to the mixer over the network.", 24, 140, warn);
       t.drawText("Only on a network you trust; normal use does not need it.", 24, 160, warn);
@@ -562,8 +776,7 @@ function DLZMOD_askPassword(title, onValue) {
   const reset = () => {
     if (kbd) kbd.maxInput = max;
     setKbdTitle("");
-    const page = DLZMOD_page();
-    if (page) page.network.update();   // a cancelled SSH switch goes back to the server's state
+    DLZMOD_repaintSoon();   // once the page is back: a cancelled SSH switch shows the server's state again
   };
   setKbdTitle(title);
   // the keyboard calls this before it closes its page (accept: onValue, then close → pageBack); a
@@ -591,9 +804,18 @@ function DLZMOD_confirmSsh() {
 function DLZMOD_askSshPassword() {
   DLZMOD_askPassword("New root password for SSH (8 or more characters)", (pw) => {
     if (pw.length < 8) return DLZMOD_netResult({ ok: !1, text: "An SSH password has 8 to 64 characters" });
-    DLZMOD_netBusy("Setting up SSH…\nThe first time takes up to a few minutes.", 240, $FA.lock);
-    $NET.cmd("DLZMOD_NET", { op: "ssh", on: !0, password: pw });
+    DLZMOD_sshSend(!0, pw);
   });
+}
+
+// SSH on or off: the spinner, the card's mark (DLZMOD_netState) and the command
+function DLZMOD_sshSend(on, password) {
+  if (on) DLZMOD_netBusy("Setting up SSH…\nThe first time takes up to a few minutes.", 240, $FA.lock);
+  else DLZMOD_netBusy("Switching SSH off…", 60, $FA.lock);
+  DLZMOD_sshSend.busy = on ? "on" : "off";
+  $NET.cmd("DLZMOD_NET", on ? { op: "ssh", on: !0, password: password } : { op: "ssh", on: !1 });
+  const page = DLZMOD_page();
+  if (page) page.network.update();
 }
 
 // Mackie's spinner popup (as showMessageWithSpinner) while a change runs; closed by its outcome,
@@ -609,16 +831,230 @@ function DLZMOD_netIdle() {
   const p = DLZMOD_netBusy.popup;
   clearTimeout(DLZMOD_netBusy.timer);
   DLZMOD_netBusy.popup = null;
+  DLZMOD_sshSend.busy = "";
   if (p) p.close();
 }
 
-// outcome of a network change, in the style of Mackie's popups
+// outcome of a network change, in the style of Mackie's popups. quiet (a PIN set): no popup, the
+// Remote panel shows the new PIN instead
 function DLZMOD_netResult(r) {
   DLZMOD_netIdle();
+  const pg = DLZMOD_page();
+  if (r.ok && r.quiet && pg && pg.pair.globalVisible()) return pg.pair.revealPin(!0);   // else the popup
   showMessage(r.text, { title: "Network", textColor: r.ok ? Color.green : Color.red2,
     font: Font.font(500, "17pt"), textDY: 32 });
   const page = DLZMOD_page();
-  if (page) page.network.update();
+  if (page) {
+    page.network.update();
+    page.pair.update();
+  }
+}
+
+// Remote Control (#45): a computer's web browser (phones and tablets: Mackie's web UI does not fit
+// them and misses touches yet, #52), run by the server mod
+// (DLZMOD_pair* in dlzmod-server.js). Off by default; on shows a PIN that pairs one device (then a
+// new one shows). The state comes with the Network status (pair: {on, pin, devices, wait, ips}),
+// which the server sends only to this screen; nothing of it is a hub key.
+function DLZMOD_pairPanel(parent, x, y, w) {
+  return new Widget(parent, {
+    anchors: [x, y],
+    size: [w, DLZMOD_panelH()],
+    bgColor: Color.bgDark,
+    _constructor: function () {
+      // as the SSH switch: the server's state; ON asks first, OFF switches off right away
+      this.on = new Switcher(this, {
+        anchors: [w - 24 - 72, 73], size: [72, 46], margin: 10,
+        bgColors: [Color.buttonBg, DLZMOD_yellow()], knobMargin: 0,
+        getState: function () {
+          const p = DLZMOD_netState().pair;
+          this.value = !!(p && p.on);
+          this.enabled = !!p;
+        },
+        setVal: function (v) {
+          this.value = v;
+        },
+        onToggleON: () => DLZMOD_confirmPair(),
+        onToggleOFF: () => {
+          DLZMOD_netBusy("Switching control from other devices off…", 30, $FA.lock);
+          $NET.cmd("DLZMOD_NET", { op: "pair", on: !1 });
+        },
+      });
+      this.forget = new E1Button(this, {
+        anchors: [24, 310], size: [280, 56], text: "Forget All Devices",
+        onPress: () => DLZMOD_confirmPairForget(),
+        getState: function () {
+          const p = DLZMOD_netState().pair;
+          this.enabled = !!(p && p.on);
+        },
+      });
+      // the owner's own PIN (stays until changed), or back to a random one (new after each pairing)
+      this.random = new E1Button(this, {
+        anchors: [w - 24 - 200 - 12 - 200, 310], size: [200, 56], text: "Random PIN",
+        onPress: () => {
+          DLZMOD_netBusy("Making a random PIN…", 30, $FA.lock);
+          $NET.cmd("DLZMOD_NET", { op: "pairPin" });   // no popup after: the panel shows the new PIN
+        },
+        getState: function () {
+          const p = DLZMOD_netState().pair;
+          this.enabled = !!(p && p.on && p.own);
+        },
+      });
+      this.ownPin = new E1Button(this, {
+        anchors: [w - 24 - 200, 310], size: [200, 56], text: "Own PIN...",
+        onPress: () => DLZMOD_askOwnPin(),
+        getState: function () {
+          const p = DLZMOD_netState().pair;
+          this.enabled = !!(p && p.on);
+        },
+      });
+      // the PIN stays hidden (the screen is often on camera) until asked for, then for 30 s. Above
+      // Random PIN, same size, centred on the PIN's line
+      this.showPin = new E1Button(this, {
+        anchors: [w - 24 - 200 - 12 - 200, 210], size: [200, 56], text: "Show PIN",
+        onPress: () => this.revealPin(!this.shown),
+        // enabled, never hidden: Mackie's widgets only run getState while visible, so a button that
+        // hides itself here stays hidden after the switch goes on [device]
+        getState: function () {
+          const p = DLZMOD_netState().pair;
+          this.enabled = !!(p && p.on);
+          this.text = this.parent.shown ? "Hide PIN" : "Show PIN";
+        },
+      });
+      this.shown = !1;
+    },
+    revealPin: function (on) {
+      clearTimeout(this.hideTimer);
+      this.shown = !!on;
+      if (on) this.hideTimer = setTimeout(() => this.revealPin(!1), 30000);
+      this.update();
+    },
+    paint: function (t) {
+      DLZMOD_paintPanel(this, t, "Remote Control", Color.white, Font.font(500, "20pt"));
+      const s = DLZMOD_netState(), p = s.pair, max = this.w - 48;
+      DLZMOD_paintRow(t, 24, this.on.geomCenterY(), "Control from other devices",
+        "A computer on the same network, in a web browser", this.w - 24 - 120);
+      const warn = { color: Color.red2, font: Font.font(500, "12pt"), align: "left", valign: "middle", max: max };
+      t.drawText("A paired device can change every setting and delete recordings, presets and snapshots.", 24, 140, warn);
+      t.drawText("Only on a network you trust: the connection is not encrypted.", 24, 160, warn);
+      const grey = { color: "#888888", font: Font.font(500, "14pt"), align: "left", valign: "middle", max: max };
+      if (s.remote) return t.drawText("Only on the mixer's own screen", 24, 220, grey);
+      if (!p) return t.drawText("…", 24, 220, grey);
+      if (!p.on) return t.drawText("Off: only this screen and the mixer's own controls work.", 24, 220, grey);
+      const addr = p.ips && p.ips.length ? p.ips.map((ip) => "http://" + ip).join("  or  ") : "the address in Settings, About";
+      DLZMOD_paintRow(t, 24, 222, "Open in a web browser", addr, this.w - 24 - 200 - 12 - 200 - 48);
+      t.drawText(p.devices === 1 ? "1 device paired" : p.devices ? p.devices + " devices paired" : "No devices paired yet",
+        24, 272, grey);
+      t.drawText(p.own ? "Your own PIN" : "PIN", this.w - 24, 200,
+        { color: "#888888", font: Font.font(500, "12pt"), align: "right", valign: "middle" });
+      t.drawText(this.shown ? p.pin.slice(0, 3) + " " + p.pin.slice(3) : "••• •••", this.w - 24, 238,
+        { color: DLZMOD_yellow(), font: Font.font(600, "34pt"), align: "right", valign: "middle" });
+      t.drawText(p.wait ? "Too many wrong PINs: wait " + p.wait + " s"
+        : p.own ? "Stays until you change it" : "A new one after each pairing", this.w - 24, 276,
+        { color: p.wait ? Color.red2 : "#888888", font: Font.font(500, "12pt"), align: "right", valign: "middle" });
+    },
+  });
+}
+
+// turning it on asks first, as SSH does; the switch goes back to the server's state meanwhile
+function DLZMOD_confirmPair() {
+  const page = DLZMOD_page();
+  if (page) page.pair.update();
+  new PopupConfirm(app, {
+    title: "Control from other devices",
+    text: "Computers on this network can control the mixer\nin a web browser after entering the PIN shown here.\nOnly on a network you trust.",
+    buttons: [{ text: "Turn on", colors: [Color.deny, Color.red] }, { text: lang.CANCEL }],
+    icon: $FA.exclamation,
+    func: () => {
+      DLZMOD_netBusy("Switching control from other devices on…", 30, $FA.lock);
+      $NET.cmd("DLZMOD_NET", { op: "pair", on: !0 });
+    },
+  });
+}
+
+// on a PIN pad in the layout of Mackie's System Lock (PopupLock: 3 x 4 keys, the digits above as
+// underscores), for 6 digits; the server checks it too (not an obvious one). Set: no popup, the
+// panel shows the new PIN (DLZMOD_netResult, quiet)
+function DLZMOD_askOwnPin() {
+  DLZMOD_pinPad("Your own PIN", (pin) => {
+    DLZMOD_netBusy("Setting your PIN…", 30, $FA.lock);
+    $NET.cmd("DLZMOD_NET", { op: "pairPin", pin: pin });
+  });
+}
+
+// Mackie's PopupLock layout and behaviour (the back key closes, a 7th digit starts over, the lock
+// key works once all digits are in), for n digits and its own action
+function DLZMOD_pinPad(title, onDone, n = 6) {
+  new PopupWindow(app, {
+    w: 350, h: 430, value: "", color: Color.main,
+    input: function (d) {
+      if (this.value.length >= n) this.value = "";
+      this.value += d;
+      this.done.enabled = this.value.length === n;
+      this.update();
+    },
+    initWidgets: function () {
+      const keys = [];
+      for (let i = 0; i < 9; i++) keys.push(["" + (i + 1), () => this.input(i + 1)]);
+      keys.push(["", () => this.close(), { paintOverlay: function (t) {
+        t.drawText($MI.arrow_back, this.w / 2 | 0, this.h / 2 | 0, { color: Color.white30, font: Font.mi("28px"),
+          align: "center", valign: "middle" });
+      } }]);
+      keys.push(["0", () => this.input(0)]);
+      keys.push(["", () => {
+        const v = this.value;
+        this.close();
+        setTimeout(() => onDone(v), 0);   // once the popup has closed
+      }, { enabled: !1, colors: [Color.confirm, Color.main], paintOverlay: function (t) {
+        t.drawText($FA.check, this.w / 2 | 0, this.h / 2 | 0, { color: this.state ? Color.white : Color.main,
+          font: Font.fa("28px"), align: "center", valign: "middle" });
+      } }]);
+      keys.forEach((k, i) => {
+        const b = new E1Button(this, Object.assign({ anchors: [76 * (i % 3 - 1), 72 * (i / 3 | 0) - 60, , , !0, !0],
+          size: [66, 60], text: k[0], font: Font.font(600, "15pt"), textColor: Color.white, onPress: k[1] }, k[2] || {}));
+        if (i === 11) this.done = b;
+      });
+    },
+    paint: function (t) {
+      PopupWindow.prototype.paint.call(this, t);
+      const c = this.w / 2 | 0, step = 34;
+      t.drawText(title, c, 26, { color: "#C2C2C2", font: Font.font(600, "16pt"), align: "center", valign: "middle" });
+      t.fRect(Color.bgDark, c - 120, 55, 240, 50, 8);
+      t.setParams({ color: this.color, font: Font.font(600, "24pt") });
+      (this.value + "_".repeat(n - this.value.length)).split("").forEach((ch, i) => {
+        t.drawText(ch, c + step * (i - (n - 1) / 2), 80);
+      });
+    },
+  });
+}
+
+// in a browser (Mackie's EXTERNAL: not the mixer's own screen; set before startGUI builds the
+// pages, so widgets can be left out when they are made)
+function DLZMOD_external() {
+  return typeof EXTERNAL !== "undefined" && !!EXTERNAL;
+}
+
+// what the server only takes from the screen and the browser still offers (unlocking a locked
+// mixer, patch.py) says so instead of acting as if it worked; true: stop there. System Lock, Factory
+// Reset and the Network and Remote tabs are not shown in a browser at all
+function DLZMOD_screenOnly() {
+  if (!DLZMOD_external()) return !1;
+  showMessage("Only on the mixer's own screen", { title: DLZMOD_tabLabel(), font: Font.font(500, "17pt"), textDY: 32 });
+  return !0;
+}
+
+function DLZMOD_confirmPairForget() {
+  const own = !!(DLZMOD_netState().pair || {}).own;
+  new PopupConfirm(app, {
+    title: "Forget all devices",
+    text: own ? "Every paired device is disconnected and needs your PIN again.\nChange the PIN too if others know it."
+      : "Every paired device is disconnected and needs the new PIN again.",
+    buttons: [{ text: "Forget", colors: [Color.deny, Color.red] }, { text: lang.CANCEL }],
+    icon: $FA.lock,
+    func: () => {
+      DLZMOD_netBusy("Forgetting all devices…", 30, $FA.lock);
+      $NET.cmd("DLZMOD_NET", { op: "pairForget" });
+    },
+  });
 }
 
 // Wi-Fi network list: a Mackie popup (modal: the page behind it takes no touches), up to 6
@@ -730,4 +1166,99 @@ function DLZMOD_wifiList() {
       });
     },
   });
+}
+
+// #26: recordings to a computer (dlzmod-server.js, DLZMOD_recHttp). A download button on the Media
+// page, left of Sort (patch.py; style: the page's own button style), only in a browser
+// (DLZMOD_external, known before the pages are built: never on the mixer's own screen), enabled in a
+// recordings folder only (the server serves nothing else), like stock's Rename and Delete. The path
+// label (520 wide around x 29) then ends left of it: Mackie shortens a longer path with " .. ".
+// A selected recording downloads on its own; nothing (or a folder) selected asks to download all
+// the folder's recordings
+function DLZMOD_mediaDownloadButton(page, style) {
+  const external = DLZMOD_external();
+  if (external && page.lPath) page.lPath.setSize(424, 40);
+  return new E1Button(page, Object.assign({}, style, {
+    // Font Awesome's "download" (in Mackie's font, not in its $FA list)
+    anchors: [264, -214, null, null, !0, !0], text: "\uf019", visible: external, regKey: ["player.path"],
+    getState: function () {
+      this.enabled = !!DLZMOD_recFolder(page.getPath());
+    },
+    onPress: () => DLZMOD_download(page),
+  }));
+}
+
+// the Media page's path ("sd:\DLZ_Creator_XS_Recordings") to {medium, dir} when it is a recordings
+// folder (dlzmod-server.js, DLZMOD_REC_DIRS), else null
+function DLZMOD_recFolder(path) {
+  const m = /^(sd|usb):\\(DLZ_Creator_Recordings|DLZ_Creator_XS_Recordings)$/.exec(path || "");
+  return m ? { medium: m[1], dir: m[2] } : null;
+}
+
+// the server's list first: it knows whether the mixer records and leaves out recordings still being
+// written, and gives the sizes for the question
+function DLZMOD_download(page) {
+  const f = DLZMOD_recFolder(page.getPath());
+  if (!f) return;
+  const sel = page.list.selected();
+  const title = "Download";
+  fetch("/dlzmod-rec", { cache: "no-store" })
+    .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
+    .then((list) => {
+      if (list.recording) {
+        return showMessage("The mixer is busy with a recording.\nDownload when it has finished.", { title: title });
+      }
+      const m = list.media.find((x) => x.medium === f.medium);
+      const files = m ? m.files.filter((x) => x.dir === f.dir) : [];
+      const all = () => DLZMOD_downloadFiles(f, files);
+      const allText = (files.length === 1 ? "1 recording" : "all " + files.length + " recordings") +
+        " (" + DLZMOD_size(files.reduce((s, x) => s + x.size, 0)) + ")";
+      const several = "Your browser may ask to allow several downloads.";
+      // a selected recording: that one or all of them (Mackie's list cannot be unselected)
+      if (sel && !sel.endsWith("\\")) {
+        const one = files.find((x) => x.name === sel);
+        if (!one) return showMessage(sel + "\ncannot be downloaded.", { title: title });
+        const just = () => (DLZMOD_downloadFiles(f, [one]), showToast("Downloading: " + sel));
+        if (files.length === 1) return just();
+        const style = { textStyle: { font: Font.font(600, "16pt") }, textColors: [Color.main, Color.white],
+          colors: [Color.confirm, Color.main] };
+        // three buttons of Mackie's fixed width: a wider popup
+        return askConfirm("Download " + sel + "\nor " + allText + "?\n" + several, { title: title, w: 760, buttons: [
+          Object.assign({ text: "This one", onPress: function () { this.parent.destroy(), just(); } }, style),
+          // All in Mackie's blue, darkened like its confirm green, so the two stand apart
+          Object.assign({}, style, { text: "All " + files.length, textColors: [Color.blue, Color.white],
+            colors: ["#1B455A", Color.blue], onPress: function () { this.parent.destroy(), all(); } }),
+          { text: $FA.times, textStyle: { font: Font.fa("36px") }, textColors: [Color.white, Color.white],
+            colors: [Color.deny, Color.red], onPress: function () { this.parent.destroy(); } },
+        ] });
+      }
+      if (!files.length) return showMessage("No recordings to download here.", { title: title });
+      askConfirm("Download " + allText + "?\n" + several, { title: title }, all);
+    })
+    .catch(() => showMessage("The mixer did not answer. Try again.", { title: title }));
+}
+
+// each file to the browser's downloads (it runs a few at a time, each can resume on its own)
+function DLZMOD_downloadFiles(f, files) {
+  files.forEach((x, i) => setTimeout(() => {
+    const a = document.createElement("a");
+    a.href = "/dlzmod-rec/" + f.medium + "/" + encodeURIComponent(f.dir) + "/" + encodeURIComponent(x.name);
+    a.download = x.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }, i * 400));
+}
+
+// one decimal below 10, the unit the number rounds to: 9.96 MB is "10 MB", 999.6 MB "1.0 GB"
+function DLZMOD_size(bytes) {
+  if (bytes < 1e3) return bytes + " bytes";
+  const units = ["KB", "MB", "GB", "TB"];
+  const fmt = (v) => (Number(v.toFixed(1)) >= 10 ? v.toFixed(0) : v.toFixed(1));
+  let v = bytes / 1e3, i = 0;
+  while (i < units.length - 1 && Number(fmt(v)) >= 1000) {
+    v /= 1e3;
+    i++;
+  }
+  return fmt(v) + " " + units[i];
 }

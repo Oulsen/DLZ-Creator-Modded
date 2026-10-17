@@ -44,7 +44,10 @@ echo "source: \$src (model \$IC_MODEL)"
 # a loop device has no CID: a fixed stand-in, as init computes it on the device (sha256 of the CID)
 IC_MIXER_ID=\$(echo rehearsal-emmc-cid | sha256sum | cut -d' ' -f1)
 . $R/install/installer/install-card.sh
+# the estimates' device times, for this PC (the copy ~7x faster here: 41 s for 2317 MiB)
+IC_COPY_MS=\${REH_COPY_MS:-18} IC_BUILD_SECS=\${REH_BUILD_SECS:-30}
 t=\$(cut -d' ' -f1 /proc/uptime)
+mark() { cut -d' ' -f1 /proc/uptime > "$W/t-\$1"; }
 step() { echo "== \$1 (\$(awk -v a=\$t -v b=\$(cut -d' ' -f1 /proc/uptime) 'BEGIN{printf "%.0f", b-a}') s)"; }
 # the progress lines with their time (uptime) in $W/prog-<name>.txt, the last one on stdout
 stamp() { awk -v f="$W/prog-\$1.txt" '{ getline u < "/proc/uptime"; close("/proc/uptime"); split(u, a, " "); print a[1] "\t" \$0 > f; last = \$0 } END { close(f); print last }'; }
@@ -57,17 +60,28 @@ gaps() { awk -F'\t' -v n="\$1" '\$2 !~ /^[0-9]+\$/ { next } { k++ } k > 2 { d = 
   c = (k > 2) ? k - 2 : 0; m = (c > 0) ? g / c : 0
   printf "  %s: %d progress lines, mean gap %.1f s, longest %.1f s\n", n, k, m, x
   if (c >= 3 && (m > 6 || x > 20)) { print "  " n ": progress rounds too slow or a blind stretch"; exit 1 } }' "$W/prog-\$1.txt"; }
+# the shown times left against the real ones (#66): the step's (until its end mark) and the whole
+# install's (until the bootloader is on), each line's "about N min" / "less than a minute" (30 s)
+# within twice the real time plus a minute, and the real time within twice the shown one plus two
+estimates() { awk -F'\t' -v n="\$1" -v e1="\$(cat $W/t-\$1)" -v ea="\$(cat $W/t-all)" '
+  function shown(s,   a) { if (s ~ /ess than a minute left/) return 30; if (match(s, /bout [0-9]+ min left/)) { split(substr(s, RSTART + 5), a, " "); return a[1] * 60 } return -1 }
+  function check(w, sh, real) { if (sh < 0) return; k++; if (sh > 2 * real + 60 || real > 2 * sh + 120) { bad++; printf "  %s: %s shown %d s, real %d s: %s\n", n, w, sh, real, \$3 } }
+  \$2 ~ /^[0-9]+\$/ { check("step", shown(\$3), e1 - \$1); check("whole install", shown(\$4), ea - \$1) }
+  END { printf "  %s: %d times left checked against the real ones, %d far off\n", n, k, bad; exit (bad > 0 || k < 4) }' "$W/prog-\$1.txt"; }
 step guard;      ic_guard || exit 1
 step clear;      ic_clear || exit 1
 step data;       ic_data || { tail -5 \$LOG; exit 1; }
-step copy;       rm -f /tmp/ic-copy-ok; ic_copy | stamp copy; [ -e /tmp/ic-copy-ok ] || { echo "copy FAILED"; exit 1; }
+step copy;       rm -f /tmp/ic-copy-ok; ic_copy | stamp copy; mark copy; [ -e /tmp/ic-copy-ok ] || { echo "copy FAILED"; exit 1; }
 gaps copy || exit 1
 step verify;     rm -f /tmp/ic-verify-ok; ic_verify | stamp verify; [ -e /tmp/ic-verify-ok ] || { echo "verify FAILED"; exit 1; }
 gaps verify || exit 1
-step backup;     rm -f /tmp/ic-bk-ok; ic_bk_finish | tail -1; [ -e /tmp/ic-bk-ok ] || { echo "backup FAILED"; tail -5 \$LOG; exit 1; }
+step backup;     rm -f /tmp/ic-bk-ok; ic_bk_finish | tail -1; mark verify; [ -e /tmp/ic-bk-ok ] || { echo "backup FAILED"; tail -5 \$LOG; exit 1; }
 step build;      ic_build | tail -12; [ -e /tmp/ic-build-ok ] || { cat /tmp/ic-build-fail; tail -20 \$LOG; exit 1; }
 step bootloader; ic_bootloader || exit 1
+mark all
 step done
+estimates copy && estimates verify || exit 1
+grep -q "progress: step 1, " \$LOG && grep -q "progress: step 2, " \$LOG || { echo "no progress lines in the install log"; exit 1; }
 EOF
 
 # the chroot's /dev as on the device: init's bare devtmpfs has the device nodes but none of udev's

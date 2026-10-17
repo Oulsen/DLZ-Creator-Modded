@@ -13,8 +13,9 @@ Creator Modded; **without the card** it starts its normal Mackie software, exact
 ## What you need
 
 - **A Mackie DLZ Creator XS or DLZ Creator with firmware 1.2.0** (build 1731, shown in Settings →
-  About). The full-size DLZ Creator is **untested**: it has the same hardware and firmware as the XS,
-  but nobody has run the mod on one yet, so you would be the first (tell us how it went). Other
+  About). The full-size DLZ Creator has the same main board and firmware as the XS; an owner has
+  installed and run the mod on one, but our own test mixer is an XS (reports from full-size owners
+  are welcome). Other
   firmware versions are not supported: the installer checks this and does not install. It can save a
   backup for analysis instead, see
   [Other firmware: backup for analysis](#other-firmware-backup-for-analysis).
@@ -26,7 +27,8 @@ Creator Modded; **without the card** it starts its normal Mackie software, exact
   [latest release](https://github.com/Oulsen/DLZ-Creator-Modded/releases/latest).
 - A free tool to write the image: [balenaEtcher](https://etcher.balena.io/) or
   [Raspberry Pi Imager](https://www.raspberrypi.com/software/).
-- Optional: a USB Wi-Fi stick, if you want Wi-Fi (the mixer has none of its own).
+- Optional: a USB Wi-Fi stick, if you want Wi-Fi (the mixer has none of its own); see
+  [Known good Wi-Fi sticks](../README.md#known-good-wi-fi-sticks).
 
 > ### ⚠ Never click "Format"
 > When the card is in your computer, **Windows may say a drive needs to be formatted. Never click
@@ -116,7 +118,7 @@ mixer has no other way to switch off; this is normal.
 ## 4. After the install
 
 - **Switch on with the card in** to start DLZ Creator Modded. The start-up screens show the
-  **MODDED** sticker with the version.
+  **MODDED** sticker.
 - In **Settings** you find the mod's own page with its options and the version.
 - **The card stays in the mixer.** Taking it out and switching on starts the normal Mackie software.
 - **The card belongs to this mixer.** In another mixer (also another DLZ Creator of the same model) it
@@ -128,12 +130,22 @@ mixer has no other way to switch off; this is normal.
   - `dlzmod-backup/`: the backup of your mixer's internal storage (about 1 GB).
     **Copy this folder to your computer and keep it.** It holds your settings (including the lock
     PIN), so don't post it anywhere.
-  - `dlzmod-logs/`: the install log (`install-1.txt`), a picture of the installer's last
+  - `dlzmod-logs/`: the install log (`install-1-vX.Y.Z.txt`: its number, then the mod version), a picture of the installer's last
     screen (`screen-1.png`) and start-up logs. Add these to a bug report.
   - Your recordings, when you record to the SD card.
 - Again: when the card is in your computer, **never click Format** in a Windows prompt.
 - **Updates keep your recordings**: when a release has update files, copy both
   (`dlzmod-vX.Y.Z.tar` and `dlzmod-vX.Y.Z.tar.sig`) into `DLZDATA/dlzmod-update/` and switch on.
+  (From v0.2.0 on, a computer paired with the mixer can send both instead, without taking the card
+  out: Settings → DLZ Creator Modded → **Mod** → **Upload Update...** in its web browser, then
+  switch the mixer off and on.) The screen asks whether to install it: tap **Install**, then switch the mixer off and on with the
+  switch on the back. The update installs while the logo shows (about 15 seconds), then a message
+  says whether it worked. **Later** keeps it on the card; the question comes back at the next start,
+  and Settings → DLZ Creator Modded → **Mod** has an **Install Update...** button meanwhile. (An
+  update from v0.1.0 installs at the first start without asking: the question comes with the update.
+  A card installed with v0.1.0 keeps "v0.1.0" on its start-up screens after an update; the version
+  in Settings is the right one. From v0.2.0 on the start-up screens show no version; a v0.1.0 card
+  only gets the new start-up screens with a full install.)
   A release with only the installer image needs a full install (its notes say so): writing the
   installer to the card again erases the whole card, **recordings included**: copy them to your
   computer first.
@@ -153,8 +165,8 @@ What to do depends on the text under the red lines:
 | "This card cannot start anything yet, so the mixer starts normally even with it inserted" | Stopped while writing the card | Write the installer to the card again ([step 1](#1-write-the-installer-to-the-card)) and retry. If it stops again at the same point, try another card |
 | "Remove this card before switching on again" | Stopped at the very last step | **Take the card out before switching on.** Then write the installer to it again and retry |
 
-The log is named at the bottom of the screen: `DLZDATA/dlzmod-logs/install-1.txt`, or
-`DLZLOG/dlzmod-logs/install-1.txt` when it stopped before DLZDATA was made. Next to it the installer
+The log is named at the bottom of the screen: `DLZDATA/dlzmod-logs/install-1-vX.Y.Z.txt`, or
+`DLZLOG/dlzmod-logs/install-1-vX.Y.Z.txt` when it stopped before DLZDATA was made. Next to it the installer
 saves a picture of its last screen, `screen-1.png`. Put the card in your computer to read them (and
 **never click Format**). Only when the bottom of the screen says "Log: not saved" is there no log and
 no picture: then take a photo of the screen.
