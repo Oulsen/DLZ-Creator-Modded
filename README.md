@@ -7,7 +7,8 @@ Alpha, at your own risk: read [DISCLAIMER.md](DISCLAIMER.md) first.
 ## What the mod does
 
 - **Recordings**: saved to the SD card by default, numbered across SD card and USB with unique
-  names like `REC_0003_otter`
+  names like `REC_0003_otter`, and downloaded to a computer over the network (after pairing,
+  from the Media page)
 - **Meters**: level before or after the fader, yellow and red zones, a dB scale
 - **Screen**: the header bar can be hidden for more room; a "DLZ Creator Modded" tab in Settings;
   its own startup screens and a startup log for bug reports

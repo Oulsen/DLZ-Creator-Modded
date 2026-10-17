@@ -26,6 +26,9 @@ jobs:
       - name: Server mod unit tests
         run: node install/server-mod/test-dlzmod-server.js
 
+      - name: App mod unit tests
+        run: node install/app-mod/test-dlzmod.js
+
       - name: Key guards of the build tools
         run: bash tests/guards.sh
 

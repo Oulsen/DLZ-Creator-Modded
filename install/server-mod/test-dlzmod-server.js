@@ -6,7 +6,8 @@ const os = require("os");
 const path = require("path");
 const vm = require("vm");
 
-const ctx = vm.createContext({ require, process, Buffer, setTimeout, clearTimeout, console: { log() {}, error() {} } });
+const ctx = vm.createContext({ require, process, Buffer, setTimeout, clearTimeout, setInterval, clearInterval,
+  console: { log() {}, error() {} } });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "dlzmod-server.js"), "utf8"), ctx);
 // the pairing state (#45) in a folder of its own, never this PC's /var/lib; pairIn() gives a test a fresh one
 const pairIn = (name) => {
@@ -1422,6 +1423,277 @@ test("read-only: the timer remounts once idle and looks again while busy", async
     clearTimeout(ctx.DLZMOD_roLater.timer);
     ctx.DLZMOD_roNow = roNow;
   }
+});
+
+// #26: recordings over the network, read only
+const { DLZMOD_recShown: recShown, DLZMOD_recFile: recFile, DLZMOD_recList: recList, DLZMOD_recHttp: recHttp } = ctx;
+const recMedia = () => {
+  const sd = fs.mkdtempSync(path.join(os.tmpdir(), "dlzrec-sd-"));
+  const dir = path.join(sd, "DLZ_Creator_XS_Recordings");
+  fs.mkdirSync(dir);
+  const put = (name, body, age) => {
+    fs.writeFileSync(path.join(dir, name), body);
+    const t = new Date(Date.UTC(2026, 9, 1) + age * 60000);
+    fs.utimesSync(path.join(dir, name), t, t);
+  };
+  put("REC_0001_otter.wav", "aaaa", 1);
+  put("REC_0002_owl.wav", "bbbbbbbb", 3);
+  put("Band take.wav", "cc", 2);
+  put("REC_0003_yak.wav.unfinished", "dd", 4);
+  put(".hidden.wav", "ee", 5);
+  fs.mkdirSync(path.join(dir, "REC_0004"));
+  fs.writeFileSync(path.join(sd, "notes.txt"), "not a recording");
+  return { sd, dir };
+};
+test("recordings: names shown and opened; recordings in progress, hidden files and FAT's trailing dots not", () => {
+  for (const n of ["REC_0001_otter.wav", "Band take.wav", "Vocals...wav", "REC_0002.WAV"]) assert.ok(recShown(n), n);
+  for (const n of ["REC_0003.wav.unfinished", "REC_0003.WAV.UNFINISHED", "REC_0003.wav.unfinished.", "REC_0003.wav.unfinished ",
+    "a.wav.", ".hidden.wav", "..", ".", "", "a/b.wav", "a\\b.wav", "a\0.wav", undefined, 7]) {
+    assert.ok(!recShown(n), JSON.stringify(n));
+  }
+});
+test("recordings: a download path only into a recordings folder on a mounted medium", () => {
+  const roots = ["/tmp/mnt/mmcblk0p2", "-"];
+  assert.deepStrictEqual(plain(recFile("/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/Band%20take.wav", roots)),
+    { dirPath: "/tmp/mnt/mmcblk0p2/DLZ_Creator_XS_Recordings", path: "/tmp/mnt/mmcblk0p2/DLZ_Creator_XS_Recordings/Band take.wav",
+      name: "Band take.wav" });
+  assert.strictEqual(recFile("/dlzmod-rec/sd/DLZ_Creator_Recordings/REC_0001.wav", roots).path,
+    "/tmp/mnt/mmcblk0p2/DLZ_Creator_Recordings/REC_0001.wav", "the full-size's folder too");
+  assert.strictEqual(recFile("/dlzmod-rec/usb/DLZ_Creator_XS_Recordings/REC_0001.wav", ["-", "/tmp/mnt/sda1"]).path,
+    "/tmp/mnt/sda1/DLZ_Creator_XS_Recordings/REC_0001.wav");
+  for (const p of ["/dlzmod-rec/usb/DLZ_Creator_XS_Recordings/REC_0001.wav", "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings",
+    "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/", "/dlzmod-rec/sd/dlz_creator_xs_recordings/REC_0001.wav",
+    "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/..%2F..%2Fetc%2Fshadow", "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/%2e%2e",
+    "/dlzmod-rec/sd/..%2Fdlzmod-update/x.tar", "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/REC_0004/track_1.wav",
+    "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/a%00.wav", "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/%E0%A4%A",
+    "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/REC_0003.wav.unfinished", "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/x.wav.unfinished.",
+    "/dlzmod-rec/hd/DLZ_Creator_XS_Recordings/a.wav", "/dlzmod-rec/constructor/DLZ_Creator_XS_Recordings/a.wav",
+    "/dlzmod-rec//DLZ_Creator_XS_Recordings/a.wav", "/x/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/a.wav", "", undefined]) {
+    assert.strictEqual(recFile(p, roots), null, String(p));
+  }
+});
+test("recordings: the list has each mounted medium's recordings, newest first, nothing else", async () => {
+  const { sd } = recMedia();
+  const list = plain(await recList([sd, "-"], false));
+  assert.strictEqual(list.recording, false);
+  assert.deepStrictEqual(list.media.map((m) => m.medium), ["sd"], "no stick: not listed");
+  assert.deepStrictEqual(list.media[0].files.map((f) => [f.dir, f.name, f.size]), [
+    ["DLZ_Creator_XS_Recordings", "REC_0002_owl.wav", 8], ["DLZ_Creator_XS_Recordings", "Band take.wav", 2],
+    ["DLZ_Creator_XS_Recordings", "REC_0001_otter.wav", 4]]);
+  assert.strictEqual(list.media[0].files[0].time, Date.UTC(2026, 9, 1) + 3 * 60000);
+  const both = plain(await recList([sd, path.join(sd, "nothing-here")], true));
+  assert.strictEqual(both.recording, true);
+  assert.deepStrictEqual(both.media.map((m) => [m.medium, m.files.length]), [["sd", 3], ["usb", 0]], "a stick without recordings");
+  assert.deepStrictEqual(plain(await recList(["-", "-"], false)), { recording: false, media: [] });
+});
+// express-like response for DLZMOD_recHttp; done resolves at the end of the answer or at res.download
+const recRes = () => {
+  const res = Object.assign(new (require("events"))(), { status: 0, headers: {}, body: "", headersSent: false });
+  res.done = new Promise((resolve) => {
+    res.writeHead = (status, headers) => {
+      res.status = status;
+      res.headersSent = true;
+      Object.assign(res.headers, headers);
+    };
+    res.end = (b) => {
+      res.body += b || "";
+      resolve(res);
+    };
+    res.download = (file, name, opts, cb) => {
+      res.sent = { file, name, opts };
+      res.cb = cb;
+      resolve(res);
+    };
+    res.destroy = () => {
+      res.destroyed = true;
+      res.emit("close");
+    };
+  });
+  return res;
+};
+const recCall = (keys, roots, p, method = "GET") => {
+  ctx.getDataKey = (k) => keys[k];
+  const res = recRes();
+  let next = false;
+  recHttp(() => roots)({ path: p, method }, res, () => (next = true));
+  return next ? "next" : res.done;
+};
+test("recordings: HTTP: the list, a download, and nothing while the mixer records", async () => {
+  const { sd, dir } = recMedia();
+  const roots = [sd, "-"];
+  assert.strictEqual(recCall({}, roots, "/app.js"), "next", "other paths: on to the rest");
+  assert.strictEqual(recCall({}, roots, "/dlzmod-recx"), "next");
+  const list = await recCall({}, roots, "/dlzmod-rec");
+  assert.strictEqual(list.status, 200);
+  assert.match(list.headers["Content-Type"], /^application\/json/);
+  assert.strictEqual(list.headers["Cache-Control"], "no-store");
+  assert.deepStrictEqual(JSON.parse(list.body).media[0].files.map((f) => f.name), ["REC_0002_owl.wav", "Band take.wav",
+    "REC_0001_otter.wav"]);
+  const dl = await recCall({}, roots, "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/Band%20take.wav");
+  assert.deepStrictEqual([dl.sent.file, dl.sent.name], [sd + "/DLZ_Creator_XS_Recordings/Band take.wav", "Band take.wav"]);
+  assert.ok(fs.existsSync(dl.sent.file), "the file itself: " + path.relative(dir, dl.sent.file));
+  dl.destroy();
+  for (const p of ["/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/REC_0004", "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/gone.wav",
+    "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/REC_0003_yak.wav.unfinished", "/dlzmod-rec/usb/DLZ_Creator_XS_Recordings/a.wav",
+    "/dlzmod-rec/sd/notes.txt"]) {
+    assert.strictEqual((await recCall({}, roots, p)).status, 404, p);
+  }
+  assert.strictEqual((await recCall({}, roots, "/dlzmod-rec", "POST")).status, 405, "read only");
+  assert.strictEqual((await recCall({}, roots, "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/x.wav", "DELETE")).status, 405);
+  // recording: the list says so, a download waits
+  assert.strictEqual(JSON.parse((await recCall({ recState: 1 }, roots, "/dlzmod-rec")).body).recording, true);
+  const busy = await recCall({ hw_rec: 1 }, roots, "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/Band%20take.wav");
+  assert.strictEqual(busy.status, 503);
+  assert.strictEqual(busy.headers["Retry-After"], "30");
+  assert.strictEqual(busy.sent, undefined, "nothing read");
+});
+test("recordings: a linked recordings folder or file (an ext4 stick) is neither listed nor served", async () => {
+  const system = fs.mkdtempSync(path.join(os.tmpdir(), "dlzrec-system-"));
+  fs.writeFileSync(path.join(system, "shadow"), "secret");
+  const stick = fs.mkdtempSync(path.join(os.tmpdir(), "dlzrec-usb-"));
+  // a junction needs no rights on Windows; Linux makes a plain symlink of it
+  fs.symlinkSync(system, path.join(stick, "DLZ_Creator_XS_Recordings"), "junction");
+  const roots = ["-", stick];
+  assert.deepStrictEqual(plain(await recList(roots, false)).media, [{ medium: "usb", files: [] }]);
+  assert.strictEqual((await recCall({}, roots, "/dlzmod-rec/usb/DLZ_Creator_XS_Recordings/shadow")).status, 404);
+  // a linked file in a real recordings folder (file links need rights on Windows: only where they can be made)
+  const { sd, dir } = recMedia();
+  let linked = true;
+  try {
+    fs.symlinkSync(path.join(system, "shadow"), path.join(dir, "notes.wav"), "file");
+  } catch (e) {
+    linked = false;
+  }
+  if (linked) {
+    assert.ok(!plain(await recList([sd, "-"], false)).media[0].files.some((f) => f.name === "notes.wav"));
+    assert.strictEqual((await recCall({}, [sd, "-"], "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/notes.wav")).status, 404);
+  }
+});
+test("recordings: HTTP: a running download is cut off when the mixer starts recording", async () => {
+  const { sd } = recMedia();
+  const keys = {};
+  const dl = await recCall(keys, [sd, "-"], "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/REC_0001_otter.wav");
+  assert.ok(dl.sent, "downloading");
+  await tick(1100);
+  assert.ok(!dl.destroyed, "not while nothing records");
+  keys["sample.rec.file"] = "sd:/Recorded_Samples/x.wav";
+  await tick(1100);
+  assert.ok(dl.destroyed, "cut off");
+  assert.strictEqual(ctx.DLZMOD_recWatch.timer, null, "no download left: no more checking");
+  dl.cb(Object.assign(new Error("aborted"), { code: "ECONNABORTED" }));
+});
+test("recordings: HTTP: nothing read while a recording file is being finished (wavfinalizer)", async () => {
+  const { sd } = recMedia();
+  ctx.DLZMOD_wavfinalize.running = 1;
+  try {
+    assert.strictEqual((await recCall({}, [sd, "-"], "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/Band%20take.wav")).status, 503);
+    assert.strictEqual(JSON.parse((await recCall({}, [sd, "-"], "/dlzmod-rec")).body).recording, true);
+  } finally {
+    ctx.DLZMOD_wavfinalize.running = 0;
+  }
+  const after = await recCall({}, [sd, "-"], "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/Band%20take.wav");
+  assert.ok(after.sent, "after it: downloads");
+  after.destroy();
+});
+test("recordings: HTTP: a client gone during the checks is not kept; errors end the answer, never the server", async () => {
+  const { sd } = recMedia();
+  ctx.getDataKey = () => undefined;
+  // gone while the folder and file were checked; first a client still there, the same wait: it
+  // reaches the download, so the wait is long enough to show the one gone does not
+  const get = (socket) => {
+    const r = recRes();
+    recHttp(() => [sd, "-"])({ path: "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/Band%20take.wav", method: "GET", socket }, r,
+      () => {});
+    return r;
+  };
+  const still = get({ destroyed: false });
+  const res = get({ destroyed: true });
+  await tick(100);
+  assert.ok(still.sent, "control: a client still there downloads within the wait");
+  still.destroy();
+  assert.strictEqual(res.sent, undefined, "no download started");
+  assert.ok(!(ctx.DLZMOD_recWatch.running || new Set()).has(res), "not watched");
+  // a read error halfway (headers sent): the connection is ended, not left hanging
+  const dl = await recCall({}, [sd, "-"], "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/Band%20take.wav");
+  dl.headersSent = true;
+  dl.cb(Object.assign(new Error("read error"), { code: "EIO" }));
+  assert.ok(dl.destroyed, "ended");
+  assert.strictEqual(ctx.DLZMOD_recWatch.timer, null, "and no longer watched");
+  // a throw where none is expected: a 500, no unhandled rejection
+  const bad = recRes();
+  bad.download = () => {
+    throw new Error("boom");
+  };
+  recHttp(() => [sd, "-"])({ path: "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/Band%20take.wav", method: "GET" }, bad, () => {});
+  assert.strictEqual((await bad.done).status, 500);
+  bad.destroy();
+});
+test("recordings: file lists again for every client after a change, one message for close calls, never a throw", async () => {
+  const sent = [];
+  const bus = { send: (m) => sent.push(plain(m)) };
+  ctx.DLZMOD_dirsChanged(bus);
+  ctx.DLZMOD_dirsChanged(bus);
+  await tick(20);
+  assert.deepStrictEqual(sent, [{ cmd: "UPDATE_DIRS", id: 0, args: {} }], "two at once: one message");
+  ctx.DLZMOD_dirsChanged(bus, 80);
+  await tick(30);
+  assert.strictEqual(sent.length, 1, "after a recording: not yet");
+  await tick(80);
+  assert.strictEqual(sent.length, 2, "then");
+  // a delete just after a recording stop: one message, at the recording's later time
+  ctx.DLZMOD_dirsChanged(bus, 80);
+  ctx.DLZMOD_dirsChanged(bus);
+  await tick(30);
+  assert.strictEqual(sent.length, 2, "not before the recording has its final name");
+  await tick(80);
+  assert.strictEqual(sent.length, 3, "one message for both");
+  // a failing send: tried, nothing thrown
+  let tried = 0;
+  ctx.DLZMOD_dirsChanged({ send() {
+    tried++;
+    throw new Error("socket gone");
+  } });
+  await tick(20);
+  assert.strictEqual(tried, 1, "the send was tried");
+  assert.strictEqual(ctx.DLZMOD_dirsChanged.timer, null, "and its throw stayed inside");
+  // a call from before the server ran (no broadcaster), then one with it: the message reaches it
+  ctx.DLZMOD_dirsChanged.bus = undefined;
+  const late = [];
+  ctx.DLZMOD_dirsChanged(null, 40);
+  ctx.DLZMOD_dirsChanged({ send: (m) => late.push(plain(m)) });
+  await tick(70);
+  assert.deepStrictEqual(late, [{ cmd: "UPDATE_DIRS", id: 0, args: {} }], "the later call's broadcaster");
+  // never a broadcaster: nothing sent, nothing thrown
+  ctx.DLZMOD_dirsChanged.bus = undefined;
+  ctx.DLZMOD_dirsChanged(null);
+  await tick(20);
+  assert.strictEqual(ctx.DLZMOD_dirsChanged.timer, null);
+});
+test("recordings: wavfinalizer that fails to start leaves no busy count behind", async () => {
+  ctx.DLZMOD_wavfinalize.running = 0;
+  // a NUL in a name makes execFile throw at once (ERR_INVALID_ARG_VALUE), before any callback
+  await assert.rejects(ctx.DLZMOD_wavfinalize("/tmp/a\0.wav.unfinished", "/tmp/a.wav"));
+  assert.strictEqual(ctx.DLZMOD_wavfinalize.running, 0, "downloads are not refused for good");
+  assert.ok(!ctx.DLZMOD_recNoRead(), "not busy");
+});
+test("recordings: HTTP: a paired device reaches them, others do not", () => {
+  pairIn("rec");
+  pairSet(true);
+  for (const p of ["/dlzmod-rec", "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/REC_0001.wav"]) {
+    assert.strictEqual(gate(httpReq("192.168.1.50", p)).status, 403, "not paired: " + p);
+  }
+  const token = pairOne();
+  const asPaired = (p) => gate(httpReq("192.168.1.50", p, { headers: { cookie: cookie(token) } }));
+  for (const p of ["/dlzmod-rec", "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/REC_0001.wav",
+    "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/Band%20take.wav"]) {
+    assert.strictEqual(asPaired(p), "next", p);
+  }
+  for (const p of ["/dlzmod-rec/", "/dlzmod-rec/sd/../../srv_data.json", "/dlzmod-rec/sd/%2e%2e/x", "/dlzmod-recx"]) {
+    const r = asPaired(p);
+    assert.ok(r !== "next" && r.status >= 400, p);
+  }
+  pairSet(false);
+  assert.strictEqual(gate(httpReq("192.168.1.50", "/dlzmod-rec", { headers: { cookie: cookie(token) } })).status, 403, "off");
 });
 
 (async () => {

@@ -2,6 +2,7 @@
 
 ## v0.2.0
 
+- (DLZ FEATURE) Download recordings from your computer over the network
 - (DLZ BUG) Anyone on the same network can control the mixer, without a PIN or password
 - (DLZ BUG) Once the SD card has recordings, it stays writable all the time and can be damaged by switching off
 - (MOD FEATURE) Quicker and broader automatic checks for every change to the mod
