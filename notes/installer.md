@@ -106,8 +106,11 @@ onto a card is checked by the `device-review` skill first.
   eMMC's p1, its store in RAM. `e2fsck -fy` replays the journal into the store (the mixer is switched
   off hard, so the journal is usually not replayed), and `e2image -ra` copies only the blocks the file
   system uses: 2322 of 7292 MiB. The compare reads the same view. Proven on the PC: the used blocks of
-  "copy everything, replay" and of this view are bit for bit the same. The eMMC is only read: the
-  kernel lock from `/init`, the read-only loop, and the snapshot target never writes its origin
+  "copy everything, replay" and of this view are bit for bit the same. The eMMC is only read
+  because the loop opens p1 read-only (`losetup -r`) and advertises no discard or write-zeroes
+  (`ic_ro_loop_ok`), and the plain `snapshot` target never writes its origin; the kernel lock from
+  `/init` and the loop's read-only flag do not cover this path (5.10: they refuse writes from user
+  space only, kernel-issued writes from dm or loop only warn) [static]
 - **The compare** reads card and eMMC side at the same time (two controllers) into GNU `cmp`, so it
   takes about the card's read time. `tests/compare-negative.sh` plants faults (a data byte, the group
   table, a backup superblock, p1's tail, a killed card side) that it must catch
