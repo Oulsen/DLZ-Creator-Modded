@@ -11,7 +11,7 @@ const path = require("path");
 const vm = require("vm");
 
 const ui = { buttons: [], popups: [], toasts: [], links: [], fetches: [], cmds: [], windows: [], progress: [],
-  widgets: [], inputs: [], titles: [] };
+  widgets: [], inputs: [], titles: [], destroyed: [] };
 const regs = {};   // Data.regWidget: key -> callbacks
 // Mackie's Widget: the parameters become properties, then _constructor runs
 function Widget(parent, p) {
@@ -53,9 +53,12 @@ Object.assign(PopupWindow.prototype, {
     this.closed = true;
     this.onDestroy();
   },
-  onDestroy() {},
+  onDestroy() {
+    ui.destroyed.push(this);
+  },
   paint() {},
 });
+const mackieOnDestroy = PopupWindow.prototype.onDestroy;
 const ctx = vm.createContext({
   setTimeout, clearTimeout, setInterval: () => 0, console: { log() {}, error() {} },
   EXTERNAL: false, app: undefined,
@@ -107,7 +110,16 @@ const ctx = vm.createContext({
 vm.runInContext(fs.readFileSync(path.join(__dirname, "dlzmod.js"), "utf8"), ctx);
 const plain = (o) => o && JSON.parse(JSON.stringify(o));   // objects from the vm context
 const tick = (ms) => new Promise((r) => setTimeout(r, ms));
+// a clean start, also after a test that failed halfway: no spinner or its timer, no open Wi-Fi list, no
+// server status, Mackie's own screen
 const reset = () => {
+  ctx.app = undefined;
+  ctx.EXTERNAL = false;
+  ctx.VU_STRUCT = undefined;
+  ctx.DLZMOD_netIdle();
+  ctx.DLZMOD_wifiList.popup = null;
+  ctx.DLZMOD_setNetState(undefined);
+  ctx.DLZMOD_setUpdateStatus(null);
   for (const k of Object.keys(ui)) ui[k].length = 0;
   for (const k of Object.keys(regs)) delete regs[k];
 };
@@ -562,7 +574,7 @@ test("PIN pad: a PIN set shows on the Remote panel instead of a popup; elsewhere
 });
 
 // Update and card popups (#65 and the card check)
-test("update popups: the result once after the start, green or red; OK tells the server it was seen", () => {
+test("update popups: the result after the start, green or red; OK tells the server it was seen", () => {
   reset();
   ctx.DLZMOD_showUpdateNote(null);
   assert.deepStrictEqual(ui.popups, []);
@@ -652,7 +664,10 @@ test("update popups: the Mod page's Updates row and Install button follow the se
 
 // Network and Remote Control (the server's status: DLZMOD_setNetState)
 const GREY = "#888888", YELLOW = "#FFD600";
+// Mackie runs getState only while a widget is on screen: a control checked on a hidden panel would hide a
+// getState that hides its own widget
 const enabled = (b) => {
+  assert.ok(b.globalVisible(), (b.text || "a control") + " is on screen");
   b.getState();
   return b.enabled;
 };
@@ -687,7 +702,9 @@ test("Network: the SSH card's status, also while a change runs", () => {
 test("Network: which Wi-Fi and SSH controls work in which state", () => {
   reset();
   settings();
-  const { wifi, ssh } = settingsPage().network;
+  const pg = settingsPage();
+  pg.tabs[1].onToggleON();
+  const { wifi, ssh } = pg.network;
   const base = { stick: true, wifi: "connected", ssh: false, sshKeep: false, sshBusy: "" };
   try {
     // [Wi-Fi Networks, SSH switch, its position, Keep on, SSH Password]
@@ -711,7 +728,9 @@ test("Network: which Wi-Fi and SSH controls work in which state", () => {
 test("Remote Control: which controls work in which state; Show PIN says Hide PIN while shown", () => {
   reset();
   settings();
-  const pair = settingsPage().pair;
+  const pg = settingsPage();
+  pg.tabs[2].onToggleON();
+  const pair = pg.pair;
   try {
     // [switch, its position, Forget All Devices, Random PIN, Own PIN, Show PIN]
     for (const [p, want] of [
@@ -738,7 +757,10 @@ test("Remote Control: which controls work in which state; Show PIN says Hide PIN
 test("Network: an SSH change counts as running at once, until its outcome; another change drops the mark, the server's brings it back", () => {
   reset();
   settings();
-  const ssh = settingsPage().network.ssh;
+  const pg = settingsPage();
+  pg.tabs[1].onToggleON();
+  ui.cmds.length = 0;   // the tab's status request
+  const ssh = pg.network.ssh;
   const s = { stick: true, wifi: "connected", ssh: true, sshKeep: false, sshBusy: "" };
   ctx.DLZMOD_setNetState(s);
   try {
@@ -930,13 +952,17 @@ test("Wi-Fi list: a tap closes it and connects, asks for the password, offers to
 test("popups: the Mod page repaints right after a popup closes, only while it is on screen", async () => {
   reset();
   settings();
+  PopupWindow.prototype.onDestroy = mackieOnDestroy;   // as before the first Mod page
+  ctx.DLZMOD_hookPopups.done = false;
   const pg = settingsPage();
+  assert.notStrictEqual(PopupWindow.prototype.onDestroy, mackieOnDestroy, "the Mod page hooks every popup's end");
   ctx.app = { pageSettings: { dlzmod: pg } };
   try {
-    ctx.DLZMOD_hookPopups();
     let n = pg.updates;
-    new ctx.PopupWindow(undefined, {}).close();
-    assert.strictEqual(pg.updates, n, "after Mackie's own close has run");
+    const p = new ctx.PopupWindow(undefined, {});
+    p.close();
+    assert.deepStrictEqual(ui.destroyed, [p], "Mackie's own end still runs");
+    assert.strictEqual(pg.updates, n, "the repaint comes after it");
     await tick(5);
     assert.strictEqual(pg.updates, n + 1);
     pg.visible = false;
