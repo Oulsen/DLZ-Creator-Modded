@@ -85,7 +85,9 @@ function run(cmd) {
       console.log(`[sandbox] fake: mounted ${d.name} at S:/tmp/mnt/${d.name}`);
       return '';
     }
-    if (/^mount -o remount,r[ow] \/tmp\/mnt\/\w+$/.test(cmd)) return '';
+    // by mount point (recording) or by device (rename, delete: unguarded, an error ends server.js)
+    const rm = /^mount -o remount,r[ow] (?:\/tmp\/mnt|\/dev)\/(\w+)$/.exec(cmd);
+    if (rm && FAKE_MEDIA.some((x) => x.name === rm[1])) return '';
     // Mackie's look for a firmware file on a new medium (unguarded: an error would end server.js)
     if (/^\s*find \/tmp\/mnt\/\w+ -name \*\.upd /.test(cmd)) return '';
     const df = /^df (\/tmp\/mnt\/\w+)$/.exec(cmd);

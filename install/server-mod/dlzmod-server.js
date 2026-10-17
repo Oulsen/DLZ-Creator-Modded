@@ -998,6 +998,23 @@ async function DLZMOD_recList(roots, busy) {
   return out;
 }
 
+// #26: every client's file lists again (stock's UPDATE_DIRS: the Media page and the sample browser
+// reload when shown), after a recording, a delete or a rename (patch.py). Stock sends it only when a
+// medium comes or goes, so a browser kept showing a recordings folder as it was. bus: server.js's
+// broadcaster (ee, null before the server runs); calls within `delay` ms make one message
+function DLZMOD_dirsChanged(bus, delay = 0) {
+  const s = DLZMOD_dirsChanged;
+  clearTimeout(s.timer);
+  s.timer = setTimeout(() => {
+    s.timer = null;
+    try {
+      if (bus && typeof bus.send === "function") bus.send({ cmd: "UPDATE_DIRS", id: 0, args: {} });
+    } catch (e) {
+      console.error("dlzmod: file lists:", e.message);
+    }
+  }, delay);
+}
+
 // running downloads: cut off once the mixer records or finishes a recording (one check a second
 // while any runs)
 function DLZMOD_recWatch(res) {

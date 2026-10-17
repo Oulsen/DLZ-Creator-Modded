@@ -1620,6 +1620,25 @@ test("recordings: HTTP: a client gone during the checks is not kept; errors end 
   assert.strictEqual((await bad.done).status, 500);
   bad.destroy();
 });
+test("recordings: file lists again for every client after a change, one message for close calls, never a throw", async () => {
+  const sent = [];
+  const bus = { send: (m) => sent.push(plain(m)) };
+  ctx.DLZMOD_dirsChanged(bus);
+  ctx.DLZMOD_dirsChanged(bus);
+  await tick(20);
+  assert.deepStrictEqual(sent, [{ cmd: "UPDATE_DIRS", id: 0, args: {} }], "two at once: one message");
+  ctx.DLZMOD_dirsChanged(bus, 80);
+  await tick(30);
+  assert.strictEqual(sent.length, 1, "after a recording: not yet");
+  await tick(80);
+  assert.strictEqual(sent.length, 2, "then");
+  ctx.DLZMOD_dirsChanged(null);
+  ctx.DLZMOD_dirsChanged({ send() {
+    throw new Error("socket gone");
+  } });
+  await tick(20);
+  assert.strictEqual(ctx.DLZMOD_dirsChanged.timer, null, "no server yet or a failing send: nothing thrown");
+});
 test("recordings: HTTP: a paired device reaches them, others do not", () => {
   pairIn("rec");
   pairSet(true);

@@ -271,6 +271,14 @@ pretend SD card, not yet on the mixer]:
   checks is not watched; a read error halfway (a pulled stick) closes the connection.
 - **The mixer's own screen** (127.0.0.1) reaches the routes without pairing, as everything else; it
   has no button.
+- **Lists stay current** (`DLZMOD_dirsChanged`): stock reloads a client's Media list only when it
+  navigates or gets `UPDATE_DIRS`, which server.js sent only when a medium came or went; a browser
+  kept showing a recordings folder without new, renamed or deleted recordings [device: new recordings
+  missing until up a folder and back]. The server now also sends `UPDATE_DIRS` through stock's own
+  broadcaster (`ee`) after a delete and a rename (patched into `MEDIA_DELETE` / `MEDIA_RENAME`) and 3 s
+  after a recording ends (`P()`, once it has its final name); calls close together make one message.
+  Every client with the Media page (or the sample browser) open reloads it, the screen too [static:
+  PC sandbox, the screen's port-89 connection gets it as well].
 - **Accepted** (device review of #26): plain HTTP, so a download can be read on the same network, as
   the remote control itself; a recording renamed or deleted on the screen while it downloads is served
   as it was opened; playing a recording from the card while several download is not held back

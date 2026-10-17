@@ -273,10 +273,25 @@ SERVER_PATCHES = [
         'v("Changing  mount "+e+" back to  RO1"),DLZMOD_roLater(0),v("DONE RO")',
     ),
     (
-        # P(): every end of a recording (stop, a full or removed medium)
-        "media: read-only after a recording (DLZMOD_roLater)",
+        # P(): every end of a recording (stop, a full or removed medium). #26: the file lists of every
+        # client again, once the recording has its final name (DLZMOD_dirsChanged; ee = stock's
+        # broadcaster, the one its own UPDATE_DIRS goes through)
+        "media: read-only after a recording (DLZMOD_roLater), file lists again",
         'async function P(){T("recState",k.READY),await S(50),T("recFile",""),T("hw_rec",0),await S(500)}',
-        'async function P(){T("recState",k.READY),await S(50),T("recFile",""),T("hw_rec",0),await S(500),DLZMOD_roLater()}',
+        'async function P(){T("recState",k.READY),await S(50),T("recFile",""),T("hw_rec",0),await S(500),DLZMOD_roLater(),'
+        "DLZMOD_dirsChanged(ee,3e3)}",
+    ),
+    (
+        # #26: after a delete or a rename every client's file list again (stock refreshes only the
+        # list of the one that asked)
+        "media: file lists again after a delete",
+        "async MEDIA_DELETE(e){let t=await he(e.path);return t&&kt(e.bankKey),t}",
+        "async MEDIA_DELETE(e){let t=await he(e.path);return t&&(kt(e.bankKey),DLZMOD_dirsChanged(ee)),t}",
+    ),
+    (
+        "media: file lists again after a rename",
+        "}(e.path,e.newName);return t&&kt(e.bankKey),t}",
+        "}(e.path,e.newName);return t&&(kt(e.bankKey),DLZMOD_dirsChanged(ee)),t}",
     ),
     (
         # the sample recorder stops into its keep/discard question; DLZMOD_roLater waits for the answer
