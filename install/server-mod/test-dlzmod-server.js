@@ -1361,10 +1361,11 @@ test("read-only: the limit is for the whole call, also with two stuck media (und
   ctx.DLZMOD_run = () => (started++, new Promise(() => {}));
   try {
     const t = Date.now();
-    assert.strictEqual(await ctx.DLZMOD_roNow(r.file, 200), false);
+    const pr = ctx.DLZMOD_roNow(r.file, 200);
+    assert.strictEqual(started, 2, "both media started before any wait, side by side");
+    assert.strictEqual(await pr, false);
     const took = Date.now() - t;
     assert.ok(took >= 190 && took < 350, "about one limit, not one per medium: " + took + " ms");
-    assert.strictEqual(started, 2, "both media tried, side by side");
   } finally {
     ctx.DLZMOD_run = run;
     delete ctx.DLZMOD_roLater.pending;
