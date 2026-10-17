@@ -1,5 +1,6 @@
 # The checks that need no mixer, no dump and no Mackie files: the server mod's unit tests, the build
-# tools' key guards (tests/guards.sh), the updater checks (tests/update-checks.sh), and a syntax check of every shell script and Python file. The
+# tools' key guards (tests/guards.sh), the updater checks (tests/update-checks.sh), the mixer-ssh
+# skill's read-only guard (offline), and a syntax check of every shell script and Python file. The
 # rehearsals on card images run on a PC with the dump (tests/README.md).
 name: checks
 
@@ -35,6 +36,10 @@ jobs:
           command -v cpio > /dev/null || { sudo apt-get update -q && sudo apt-get install -yq cpio; }
           git fetch --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
           bash tests/update-checks.sh
+
+      # never connects: an empty HOME has no mixer address
+      - name: Read-only guard of the mixer-ssh skill
+        run: bash .claude/skills/mixer-ssh/test-guard.sh
 
       - name: Shell syntax (by shebang)
         run: |

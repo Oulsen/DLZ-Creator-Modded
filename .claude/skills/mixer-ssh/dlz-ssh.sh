@@ -16,21 +16,147 @@
 # password never goes on a command line, not even this script's. The key is copied because WSL's ssh
 # refuses a key file on a Windows drive (its mode shows as 777); a stored key is used before a
 # password. Host keys: every install makes a new card with new keys.
-# "run" refuses commands that look like writes (see WRITE_RE) unless DLZ_SSH_WRITE=1 is set, which is
+# "run" lets only reading commands through (guard, below) unless DLZ_SSH_WRITE=1 is set, which is
 # only done after the user confirmed that exact command in the current turn (SKILL.md).
 set -u
 CONF=$HOME/.config/dlz-mixer-ssh
 HOSTF=$CONF/host
 TMPF=$CONF/tmpdir
 
-# a command word or construct that changes state; checked after removing harmless redirections
-# Only where a command starts: at the beginning, after ; & | ( ` or $(, after if/then/do/else/!, or
-# behind a launcher (xargs, exec, find -exec, env, sudo, timeout, ...); with or without a path. A unit
-# name like flash-fpga as an argument (systemctl status flash-fpga) is not a command
-CMDPOS='(^|[;&|(`!]|(^|[^[:alnum:]_.-])(if|then|do|else|xargs|exec|-exec|-execdir|-ok|env|nohup|nice|ionice|timeout|time|sudo|chroot|watch|stdbuf)([[:space:]][^;&|]*)?[[:space:]])[[:space:]]*([^[:space:];&|()]*/)?'
-# arguments that make a reading command write, wherever they stand
-ARG_RE='[[:space:]](-delete|-fprint[0-9]*|-fls)([[:space:]]|$)'
-WRITE_RE=$CMDPOS'(rm|mv|cp|dd|tee|install|ln|touch|mkdir|rmdir|truncate|shred|chmod|chown|chattr|mkfs[.a-z0-9]*|fsck[.a-z0-9]*|e2fsck|tune2fs|resize2fs|debugfs|mount|umount|swapon|swapoff|reboot|poweroff|shutdown|halt|init|telinit|apt|apt-get|dpkg|pip|pip3|npm|kill|killall|pkill|sysctl|hwclock|timedatectl|hostnamectl|nmcli|iw|ip[[:space:]]+(link|addr|route)[[:space:]]+(add|del|set|change|replace|flush)|blockdev|sfdisk|fdisk|parted|wipefs|losetup|dmsetup|mmc|openocd|gwprog|flash-[a-z0-9]*|crontab|passwd|chpasswd|useradd|usermod|scp|rsync|wget|curl|python3?|node|perl|bash|sh|busybox|sed[[:space:]]+-i|systemctl[[:space:]]+(start|stop|restart|reload|try-restart|enable|disable|mask|unmask|daemon-reload|isolate|kill|reset-failed|set-property|edit)|journalctl[[:space:]]+.*--(vacuum|rotate|flush))([.][[:alnum:]]+)?([[:space:]]|$|[;&|)])'
+# The read-only guard of "run" is an allowlist, not a list of known writes (those always miss one).
+# The command is split as the shell splits it (quotes, backslashes) into simple commands at ; | && ||
+# and newlines; each must be a program from READ_CMDS, or one of the programs seg_ok checks the
+# arguments of, by its bare name or from /bin, /sbin, /usr/bin or /usr/sbin. Refused outright: a
+# command inside another or a group (` $( ( ) { }), a variable or $'..' outside single quotes, an
+# unquoted < or >, except > to /dev/null and 2>&1, and a single & (background). The checked programs
+# also refuse unquoted * ? [ (a glob can expand to more names or to an option). A refused read is a
+# false positive: widen the list, with a case in test-guard.sh.
+# READ_CMDS have no option that writes a file or runs a program
+READ_CMDS=' cat head tail tac nl ls stat grep egrep fgrep zcat wc md5sum sha1sum sha256sum cmp diff strings od hexdump base64 cut paste tr fold rev basename dirname readlink realpath which uptime uname nproc id whoami who last pwd free df du ps pgrep pidof vmstat lsblk findmnt lsusb lsmod lsof getconf dpkg-query echo printf true false sleep cd test [ '
+
+# opts_ok <no-value flags> <word>...: every option is a flag from the list or --name=value, so no
+# option takes the next word as its value and hides the real verb behind it (-p status reboot; also
+# not -pX: in a cluster like -ap the p takes the next word)
+opts_ok() {
+  local flags=" $1 " a
+  shift
+  for a; do
+    case $a in
+      --*=*) ;;
+      -*) case $flags in *" $a "*) ;; *) return 1 ;; esac ;;
+    esac
+  done
+}
+
+# shortflag <arg> <letters>: arg is a short option cluster (-x, -abc) holding one of the letters
+shortflag() {
+  case $1 in --*) return 1 ;; -?*) case ${1#-} in *["$2"]*) return 0 ;; esac ;; esac
+  return 1
+}
+# seg_ok <word>...: one simple command, its words as the shell will see them
+seg_ok() {
+  local c=$1 a v b n
+  shift
+  case $c in */*) [[ $c =~ ^(/usr)?/s?bin/[A-Za-z0-9._-]+$ ]] || return 1; c=${c##*/} ;; esac
+  case $READ_CMDS in *" $c "*) return 0 ;; esac
+  [ -z "$glob" ] || return 1
+  case $c in
+    # -c names a cache file, which is written
+    blkid) for a; do shortflag "$a" c && return 1; case $a in --c*) return 1 ;; esac; done ;;
+    # without arguments it lists the mounts
+    mount) [ $# = 0 ] || return 1 ;;
+    find) for a; do case $a in -delete|-exec|-execdir|-ok|-okdir|-fprint|-fprint0|-fprintf|-fls) return 1 ;; esac; done ;;
+    # -C compiles a magic file into the current folder
+    file) for a; do shortflag "$a" C && return 1; case $a in --c*) return 1 ;; esac; done ;;
+    sort) for a; do shortflag "$a" o && return 1; case $a in --o*|--com*) return 1 ;; esac; done ;;
+    # uniq [INPUT [OUTPUT]]: a second name is written
+    uniq) n=0; for a; do case $a in -*) ;; *) n=$((n + 1)) ;; esac; done; [ $n -le 1 ] || return 1 ;;
+    date) for a; do shortflag "$a" s && return 1; case $a in --s*) return 1 ;; esac; done ;;
+    hostname) case "$*" in ''|-I|-i|-f|-s|-d) ;; *) return 1 ;; esac ;;
+    # -c/-C clear the ring buffer, -n/-D/-E change the console
+    dmesg) for a; do shortflag "$a" cCnDE && return 1; case $a in --cl*|--rea*|--con*) return 1 ;; esac; done ;;
+    # -K kills sockets, -D dumps to a file
+    ss) for a; do shortflag "$a" KD && return 1; case $a in --k*|--d*) return 1 ;; esac; done ;;
+    # batch mode only (no keys that kill or renice)
+    top) b=; for a; do shortflag "$a" b && b=1; done; [ -n "$b" ] || return 1 ;;
+    # line ranges only: sed -n 'N,Mp' [file...] (sed's w and e commands write and run)
+    sed) [ "${1:-}" = -n ] && [[ ${2:-} =~ ^([0-9]+|\$)(,([0-9]+|\$))?p$ ]] || return 1
+         shift 2; for a; do case $a in -*) return 1 ;; esac; done ;;
+    # a program that neither runs anything nor writes: only print/printf write (print > "file"), so a
+    # > after a print is refused, a comparison before it ($3>1) is not; no program files
+    awk) for a; do case $a in -F*|-v) ;; -*|*system*|*getline*|*'|'*|*@*|*print*'>'*) return 1 ;; esac; done ;;
+    # -H/-M (another host or container) take a value, so opts_ok refuses them; --host=/--machine= too
+    systemctl)
+      case "$*" in *--host=*|*--machine=*) return 1 ;; esac
+      opts_ok '-a --all -l --full -q --quiet -r --recursive --no-pager --no-legend --plain --value --failed --show-types --reverse --after --before --system' "$@" || return 1
+      v=; for a; do case $a in -*) ;; *) v=$a; break ;; esac; done
+      case $v in
+        ''|status|show|cat|help|is-active|is-enabled|is-failed|is-system-running|list-units|list-unit-files) ;;
+        list-sockets|list-timers|list-jobs|list-dependencies|list-paths|list-automounts|get-default|show-environment) ;;
+        *) return 1 ;;
+      esac ;;
+    # not log-level/log-target/service-watchdogs: with an argument they set it
+    systemd-analyze)
+      opts_ok '-q --quiet --no-pager --system --order --require' "$@" || return 1
+      v=; for a; do case $a in -*) ;; *) v=$a; break ;; esac; done
+      case $v in ''|time|blame|critical-chain|plot|dot|dump|cat-config|unit-paths|calendar|timespan|timestamp) ;; *) return 1 ;; esac ;;
+    # long options also work abbreviated: --rot is --rotate
+    journalctl) for a; do case $a in --va*|--rot*|--fl*|--syn*|--rel*|--sm*|--se*|--up*|--cursor-f*) return 1 ;; esac; done ;;
+    # ip [-brief, -details, ...] address|route|rule|neigh|link [show|list|get ...]; verbs and objects
+    # also work abbreviated (ip l s = link set), so only these exact words
+    ip)
+      while [ $# -gt 0 ]; do
+        case $1 in -4|-6|-s|-stats|-statistics|-d|-details|-o|-oneline|-c|-color|-j|-json|-p|-pretty|-br|-brief|-h|-human) shift ;; *) break ;; esac
+      done
+      case ${1:-} in a|addr|address|r|route|rule|n|neigh|neighbor|neighbour|l|link) ;; *) return 1 ;; esac
+      case ${2:-} in ''|show|list|ls|lst|get) ;; *) return 1 ;; esac ;;
+    *) return 1 ;;
+  esac
+}
+# guard <command>: 0 when every simple command in it is on the read-only list
+endword() { if [ -n "$inw" ]; then words+=("$w"); fi; w= inw=; }
+endseg() { if [ ${#words[@]} -gt 0 ]; then seg_ok "${words[@]}" || return 1; fi; words=() glob=; }
+guard() {
+  local s ch q= w= inw= glob= i=0 n words=()
+  # harmless redirections out first: to /dev/null (2>, >>, &>), and fd duplication like 2>&1; both
+  # only as a whole word
+  s=$(printf '%s' "$1" | sed -E 's#[0-9]*&?>>?[[:space:]]*/dev/null([[:space:];&|]|$)# \1#g; s#[0-9]*>&[0-9]+([[:space:];&|]|$)# \1#g')
+  case $s in *'`'*|*'$('*) return 1 ;; esac
+  n=${#s}
+  while [ $i -lt $n ]; do
+    ch=${s:i:1}; i=$((i + 1))
+    if [ "$q" = "'" ]; then
+      if [ "$ch" = "'" ]; then q=; else w+=$ch; fi
+    elif [ "$q" = '"' ]; then
+      case $ch in
+        '"') q= ;;
+        # a backslash only escapes $ ` " \ inside double quotes; otherwise it stays
+        '\') case ${s:i:1} in '$'|'`'|'"'|'\') w+=${s:i:1}; i=$((i + 1)) ;; *) w+=$ch ;; esac ;;
+        # a $ before the closing quote is literal; anything else expands
+        '$') [ "${s:i:1}" = '"' ] || return 1; w+=$ch ;;
+        *) w+=$ch ;;
+      esac
+    else
+      case $ch in
+        "'"|'"') q=$ch; inw=1 ;;
+        '\') [ $i -lt $n ] || return 1; w+=${s:i:1}; i=$((i + 1)); inw=1 ;;
+        # a $ at the end of a word is literal; anything else expands
+        '$') if [ $i -lt $n ]; then case ${s:i:1} in [[:space:]]|';'|'|'|'&') ;; *) return 1 ;; esac; fi
+             w+=$ch; inw=1 ;;
+        $'\n'|';'|'|'|'&')
+          if [ "$ch" = '&' ]; then [ "${s:i:1}" = '&' ] || return 1; i=$((i + 1)); fi
+          if [ "$ch" = '|' ] && [ "${s:i:1}" = '|' ]; then i=$((i + 1)); fi
+          endword; endseg || return 1 ;;
+        ' '|$'\t'|$'\r') endword ;;
+        '('|')'|'{'|'}'|'<'|'>') return 1 ;;
+        '*'|'?'|'[') glob=1; w+=$ch; inw=1 ;;
+        *) w+=$ch; inw=1 ;;
+      esac
+    fi
+  done
+  [ -z "$q" ] || return 1
+  endword; endseg
+}
 
 gethost() {
   host=$(cat "$HOSTF" 2>/dev/null)
@@ -117,21 +243,29 @@ case ${1:-} in
     else echo "password: none"; fi ;;
   run)
     cmd=${2:?command}
-    if [ "${DLZ_SSH_WRITE:-0}" != 1 ]; then
-      # harmless redirections out first: to /dev/null, and fd duplication like 2>&1
-      check=$(printf '%s' "$cmd" | sed -E 's/[0-9]*>+[[:space:]]*\/dev\/null//g; s/[0-9]*>&[0-9]+//g')
-      if printf '%s' "$check" | grep -q '>' || printf '%s' "$check" | grep -Eq "$WRITE_RE" \
-         || printf '%s' "$check" | grep -Eq "$ARG_RE"; then
-        echo "REFUSED (looks like a write or a program that could write): $cmd" >&2
-        echo "Only after the user confirms this exact command: DLZ_SSH_WRITE=1 bash dlz-ssh.sh run ..." >&2
-        exit 3
-      fi
+    if [ "${DLZ_SSH_WRITE:-0}" != 1 ] && ! guard "$cmd"; then
+      echo "REFUSED (not on the read-only list, or shell syntax the guard does not allow): $cmd" >&2
+      echo "Only after the user confirms this exact command: DLZ_SSH_WRITE=1 bash dlz-ssh.sh run ..." >&2
+      exit 3
     fi
     gethost; askpass
+    # a read that never ends (tail -f, journalctl -f, vmstat 1) must not hang the session; a confirmed
+    # write is never cut off halfway (the mixer could stop it with a file half written)
+    t=${DLZ_SSH_TIMEOUT:-120}
+    case $t in ''|*[!0-9]*|0) echo "DLZ_SSH_TIMEOUT must be a number of seconds: $t" >&2; exit 2 ;; esac
+    to=(timeout "$t")
+    [ "${DLZ_SSH_WRITE:-0}" != 1 ] || to=()
     # shellcheck disable=SC2046
-    SSH_ASKPASS=$ASK SSH_ASKPASS_REQUIRE=force DISPLAY=: ssh $(sshopts) "root@$host" "$cmd" < /dev/null ;;
+    SSH_ASKPASS=$ASK SSH_ASKPASS_REQUIRE=force DISPLAY=: "${to[@]}" ssh $(sshopts) "root@$host" "$cmd" < /dev/null
+    rc=$?
+    [ ${#to[@]} = 0 ] || [ $rc != 124 ] || echo "stopped after $t s (DLZ_SSH_TIMEOUT); a follow (-f, -w) or a count-less vmstat does not end" >&2
+    exit $rc ;;
   get)
     remote=${2:?remote file}; local=${3:?local file}
+    # the remote name goes through the mixer's shell with the old scp protocol (OpenSSH before 9.0),
+    # and a local name with a : is another host
+    case $remote in -*|*[!A-Za-z0-9_./+~-]*) echo "REFUSED (remote name with characters other than A-Z a-z 0-9 _ . / + ~ -): $remote" >&2; exit 3 ;; esac
+    case $local in -*|*:*) echo "REFUSED (local name starting with - or holding a :): $local" >&2; exit 3 ;; esac
     gethost; askpass
     # shellcheck disable=SC2046
     SSH_ASKPASS=$ASK SSH_ASKPASS_REQUIRE=force DISPLAY=: scp $(sshopts) "root@$host:$remote" "$local" < /dev/null ;;
