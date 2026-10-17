@@ -105,6 +105,9 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
 34. Why does a closed popup stay on the device's screen until the page below it draws again, when
     closing it clears the foreground layer and asks for a frame [static]? The mod works around it on
     the Mod page (modding-guide.md, "PC sandbox"); other quiet pages may show the same.
+35. Why does `glesgui` fail its first start with "Failed to init OpenGL" (about 11 s in) on 2 of 3
+    boots of a full-size's mod card, then start at systemd's restart [device: owner's logs]?
+    Not seen in our XS logs. Full-size timing, or does that mixer do it from the eMMC too?
 
 ## Installer boot
 

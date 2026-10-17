@@ -4,7 +4,7 @@
 
 **Alpha (early and experimental), use at your own risk.** No warranty of any kind. Modding may affect your device warranty.
 
-**Supported devices.** The Mackie DLZ Creator XS and DLZ Creator with firmware v1.2 build 1731. The XS is tested; the full-size DLZ Creator is untested: it has the same hardware and firmware as the XS, but the mod has not run on one yet. Other firmware builds are not supported; the mod refuses to install on them. On those the installer can save a backup of the internal storage for analysis instead (only read, not yet tried on such a mixer).
+**Supported devices.** The Mackie DLZ Creator XS and DLZ Creator with firmware v1.2 build 1731. The XS is tested; the full-size DLZ Creator has the same hardware and firmware as the XS and an owner has installed and run the mod on one, but it is not on our test bench. Other firmware builds are not supported; the mod refuses to install on them. On those the installer can save a backup of the internal storage for analysis instead (only read, not yet tried on such a mixer).
 
 **What it touches.** The mod runs from a microSD card. By design, the mixer's internal storage is only read, never written: take the card out and the mixer is stock again. This is how it is built, not a guarantee.
 

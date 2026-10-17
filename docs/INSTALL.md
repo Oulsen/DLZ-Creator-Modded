@@ -13,8 +13,8 @@ Creator Modded; **without the card** it starts its normal Mackie software, exact
 ## What you need
 
 - **A Mackie DLZ Creator XS or DLZ Creator with firmware 1.2.0** (build 1731, shown in Settings →
-  About). The full-size DLZ Creator is **untested**: it has the same hardware and firmware as the XS,
-  but nobody has run the mod on one yet, so you would be the first (tell us how it went). Other
+  About). The full-size DLZ Creator has the same hardware and firmware as the XS; an owner has
+  installed and run the mod on one, but our own test mixer is an XS (tell us how it went). Other
   firmware versions are not supported: the installer checks this and does not install. It can save a
   backup for analysis instead, see
   [Other firmware: backup for analysis](#other-firmware-backup-for-analysis).
