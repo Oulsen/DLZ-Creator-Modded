@@ -26,7 +26,7 @@ mkdir -p $R/mnt/dlzdata && mount --bind $D $R/mnt/dlzdata && mount -t proc proc 
 # /proc), a tmpfs /run holding daemon sockets
 mount -t binfmt_misc binfmt_misc $R/proc/sys/fs/binfmt_misc || echo "WARNING: no binfmt_misc mount: the hidden-mount case is not tested"
 mount -t tmpfs tmpfs $R/run && python3 -c "import socket,sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])" $R/run/fake.sock
-cleanup() { umount -R $R/dev 2>/dev/null; umount $R/proc/sys/fs/binfmt_misc $R/run 2>/dev/null; umount $R/tmp $R/proc $R/mnt/dlzdata 2>/dev/null; rmdir $R/mnt/dlzdata 2>/dev/null; umount $R $D; losetup -d $L; rm -rf $W; }
+cleanup() { umount $R/proc/sys/user/max_user_namespaces 2>/dev/null; umount -R $R/dev 2>/dev/null; umount $R/proc/sys/fs/binfmt_misc $R/run 2>/dev/null; umount $R/tmp $R/proc $R/mnt/dlzdata 2>/dev/null; rmdir $R/mnt/dlzdata 2>/dev/null; umount $R $D; losetup -d $L; rm -rf $W; }
 trap cleanup EXIT
 # every run: no temp files of the updater left in the card's /tmp afterwards (its report, work and
 # restore folders)
@@ -533,6 +533,9 @@ echo "not a tar" > $ST/previous.tar
 echo "gone-package" > $ST/inprogress
 run
 said "RESTORE INCOMPLETE" && ok "restore incomplete reported" || bad "no RESTORE INCOMPLETE"
+# tried again at every start, but said once: no new report with the same text
+n1=$(reports); run
+[ "$(reports)" = "$n1" ] && [ -s $ST/inprogress ] && ok "tried again, no second report" || bad "a report at every start, or the marker gone"
 rm -f $ST/inprogress   # the snapshot pair as it was before this case
 for f in previous.tar previous.list; do [ -e $W/$f.keep ] && mv $W/$f.keep $ST/$f || rm -f $ST/$f; done
 
@@ -584,6 +587,26 @@ echo "$S 1" > $ST/tries; mkdir $ST/inprogress.new; put $P; run
 said "progress marker not written" && [ "$(cat $ST/tries 2>/dev/null)" = "$S 1" ] && ok "this start's try given back, the earlier one kept" \
   || bad "tries now: $(cat $ST/tries 2>/dev/null || echo gone)"
 rmdir $ST/inprogress.new; rm -f $U/dlzmod-vrinc.tar $U/dlzmod-vrinc.tar.sig $ST/tries $ST/approved
+
+echo "== 69: a progress marker without its snapshot: cleared (it must not carry an Install over)"
+for f in previous.tar previous.list; do mv $ST/$f $W/$f.keep69; done
+echo "$S" > $ST/inprogress; run
+[ ! -e $ST/inprogress ] && ok "marker cleared" || bad "marker without a snapshot kept"
+for f in previous.tar previous.list; do mv $W/$f.keep69 $ST/$f; done
+
+echo "== 70: a resumed cut-off try stops for a reason not the package's: put back, Install kept, then installed"
+cutoff "$S"; put $P
+# the sandbox setup cannot switch user namespaces off this start (a read-only bind over the knob)
+echo 15000 > $W/uns; mount --bind $W/uns $R/proc/sys/user/max_user_namespaces && mount -o remount,bind,ro $R/proc/sys/user/max_user_namespaces
+rm -f $ST/approved; run_asking   # the marker carries the Install
+umount $R/proc/sys/user/max_user_namespaces
+said "NOT INSTALLED this time: user namespaces" && said "previous files restored" && ok "stopped and put back" || bad "not put back"
+backnow "resumed try stopped"
+[ "$(cat $ST/approved 2>/dev/null)" = "$S" ] && ok "its Install kept" || bad "Install not kept"
+run_asking   # no new Install
+said "INSTALLED: " && grep -q "rinc test" $R/srv/app.js && ok "installed at the next start without asking again" || bad "not installed at the next start"
+APP=$(sha $R/srv/app.js)
+rm -f $U/dlzmod-vrinc.tar $U/dlzmod-vrinc.tar.sig   # left only when this case failed
 
 echo "== 63: stops before DLZDATA (not on an SD card): no report file left in /tmp"
 chroot $R /usr/local/sbin/dlzmod-update > $W/run.out 2>&1

@@ -172,7 +172,13 @@ CHECK_STATE=""
 APPLYING=no
 LOGV=""   # the package's version and build for the report's name, once known (step 1)
 finish() {   # the report next to the other logs, then DLZDATA released
-  local n name f
+  local n name f last
+  # a put-back that keeps failing says so once, not at every start: no new report with the same
+  # text as the last one
+  last=$(cat "$STATE/last-report" 2>/dev/null)
+  if [ -s "$REPORT" ] && grep -q '^RESTORE INCOMPLETE' "$REPORT" && [ -n "$last" ] && cmp -s "$REPORT" "$DATA/dlzmod-logs/$last"; then
+    : > "$REPORT"
+  fi
   if [ -s "$REPORT" ] && writable; then
     mkdir -p "$DATA/dlzmod-logs"
     # one past the highest number, the names without a version (update-N.txt, before v0.2.0) included,
@@ -238,7 +244,13 @@ restore() {   # the snapshot back, and what the update added removed; not stoppe
 repair() {
   local inp
   inp=$(cat "$STATE/inprogress" 2>/dev/null)
-  [ -z "$CHECK_ONLY" ] && [ -n "$inp" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ] || return 0
+  [ -z "$CHECK_ONLY" ] && [ -n "$inp" ] || return 0
+  if [ ! -f "$STATE/previous.tar" ] || [ ! -f "$STATE/previous.list" ]; then
+    # a marker without its snapshot: nothing to put back, and it must not carry an Install over to a
+    # later copy of that file
+    rm -f "$STATE/inprogress"; sync
+    return 0
+  fi
   REPAIRED=yes
   log "$1: putting the files from before it back"
   if restore && guards_ok; then
@@ -266,10 +278,16 @@ fail() {
   [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/tries"
   sync; exit 0
 }
-# not the package's fault: tried again next start, and the try this start counted is given back
+# not the package's fault: tried again next start, and the try this start counted is given back. A
+# resumed cut-off try of this file is not left half-placed until the cause goes away: what it placed
+# goes back, and its Install is kept for this same file, so the next start begins a fresh try
 later() {
   local n
   log "NOT INSTALLED this time: $*"
+  if [ "$PLACED" = yes ] && [ "$(cat "$STATE/inprogress" 2>/dev/null)" = "$SUM" ] && repair "a try of this file placed files"; then
+    { echo "$SUM" > "$STATE/approved.dlzmod-new" && sync && mv -f "$STATE/approved.dlzmod-new" "$STATE/approved" && sync; } \
+      || log "its Install could not be kept: the screen asks again"
+  fi
   if [ "$COUNTED" = yes ] && [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" = "$SUM" ]; then
     n=$(( $(cut -d' ' -f2 "$STATE/tries") - 1 ))
     if [ "$n" -gt 0 ]; then

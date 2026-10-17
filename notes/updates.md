@@ -86,9 +86,11 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    one cut off by a power cut while placing, or one whose put-back failed (`RESTORE INCOMPLETE`: its
    progress marker stays for this). No file, more than one, a file without `.sig`, a different file,
    or the same file marked failed: the snapshot goes back before anything else, and a check that
-   refuses a resumed try of the same file puts back what it placed first. A put-back that fails again
-   is tried again at the next start [static, PC rehearsal: `tests/update.sh` cases 13, 17, 19, 34-35,
-   62, 64-67].
+   refuses a resumed try of the same file puts back what it placed first, and so does a `later` on
+   one (its Install kept for that same file, so the next start begins a fresh try without asking
+   again). A put-back that fails again is tried again at every start, its report written once (no
+   new report with the same `RESTORE INCOMPLETE` text as the last); a progress marker without its
+   snapshot is cleared [static, PC rehearsal: `tests/update.sh` cases 13, 17, 19, 34-35, 62, 64-70].
 
 Not covered by the drop-in (installer only): boot visuals, the installer itself, the card layout,
 the guards. A package can declare `REINSTALL=yes` for such changes; the drop-in refuses it.
