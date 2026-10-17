@@ -165,7 +165,8 @@ UNS_OLD=""   # user namespaces are off while the sandbox runs (step 3); finish p
 SUM=""
 COUNTED=no    # this start counted one of the file's 3 tries (step 0)
 REPAIRED=""   # a cut-off try was put back (or tried) this start: its report is kept
-PLACED=no     # files of this file may be on the card: a try of it was cut off, or placing began
+REPAIR_FAILED=""   # a put-back failed this start: not tried again until the next start
+PLACED=no    # files of this file may be on the card: a try of it was cut off, or placing began
 
 WORK=""
 CHECK_STATE=""
@@ -174,9 +175,11 @@ LOGV=""   # the package's version and build for the report's name, once known (s
 finish() {   # the report next to the other logs, then DLZDATA released
   local n name f last
   # a put-back that keeps failing says so once, not at every start: no new report with the same
-  # text as the last one
+  # text as the last one (the files it removed or placed only show at the first try, so those lines
+  # do not count)
   last=$(cat "$STATE/last-report" 2>/dev/null)
-  if [ -s "$REPORT" ] && grep -q '^RESTORE INCOMPLETE' "$REPORT" && [ -n "$last" ] && cmp -s "$REPORT" "$DATA/dlzmod-logs/$last"; then
+  if [ -s "$REPORT" ] && grep -q '^RESTORE INCOMPLETE' "$REPORT" && [ -n "$last" ] && [ -f "$DATA/dlzmod-logs/$last" ] \
+     && [ "$(grep -Ev '^(removed|placed) ' "$REPORT")" = "$(grep -Ev '^(removed|placed) ' "$DATA/dlzmod-logs/$last")" ]; then
     : > "$REPORT"
   fi
   if [ -s "$REPORT" ] && writable; then
@@ -237,14 +240,17 @@ restore() {   # the snapshot back, and what the update added removed; not stoppe
   trap on_term TERM INT
   [ "$ok" = yes ]
 }
-# repair <why>: a try that was cut off (or whose put-back failed) and that this start does not go on
-# with: the files from before it go back, so the card never keeps a half-placed update. 0 when
+# repair <why> [keep]: a try that was cut off (or whose put-back failed) and that this start does not
+# go on with: the files from before it go back, so the card never keeps a half-placed update. 0 when
 # there is nothing to put back (or checks only) or it is back; 1 when the files could not all be
-# put back (the progress marker stays: the next start tries again)
+# put back (the progress marker stays: the next start tries again, not this one). With keep (the
+# starts that stop before looking at a file, and later), the Install that try had is kept for that
+# same file (its record: tar + sig): unless another Install is there, or that file failed
 repair() {
   local inp
   inp=$(cat "$STATE/inprogress" 2>/dev/null)
   [ -z "$CHECK_ONLY" ] && [ -n "$inp" ] || return 0
+  [ -z "$REPAIR_FAILED" ] || return 1
   if [ ! -f "$STATE/previous.tar" ] || [ ! -f "$STATE/previous.list" ]; then
     # a marker without its snapshot: nothing was placed behind it (the marker is written after the
     # snapshot), so there is nothing to put back; cleared here, on the paths that call repair (a
@@ -258,8 +264,13 @@ repair() {
     [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" != "$inp" ] || rm -f "$STATE/tries"
     rm -f "$STATE/inprogress"; sync
     log "previous files restored"
+    if [ "${2:-}" = keep ] && [ ! -s "$STATE/approved" ] && [ "$(cat "$STATE/failed" 2>/dev/null)" != "$inp" ]; then
+      { echo "$inp" > "$STATE/approved.dlzmod-new" && sync && mv -f "$STATE/approved.dlzmod-new" "$STATE/approved" && sync; } \
+        || log "its Install could not be kept: the screen asks again"
+    fi
     return 0
   fi
+  REPAIR_FAILED=yes
   log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"
   return 1
 }
@@ -286,10 +297,7 @@ fail() {
 later() {
   local n
   log "NOT INSTALLED this time: $*"
-  if [ "$PLACED" = yes ] && [ "$(cat "$STATE/inprogress" 2>/dev/null)" = "$SUM" ] && repair "a try of this file placed files"; then
-    { echo "$SUM" > "$STATE/approved.dlzmod-new" && sync && mv -f "$STATE/approved.dlzmod-new" "$STATE/approved" && sync; } \
-      || log "its Install could not be kept: the screen asks again"
-  fi
+  [ "$PLACED" = yes ] && [ "$(cat "$STATE/inprogress" 2>/dev/null)" = "$SUM" ] && repair "a try of this file placed files" keep
   if [ "$COUNTED" = yes ] && [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" = "$SUM" ]; then
     n=$(( $(cut -d' ' -f2 "$STATE/tries") - 1 ))
     if [ "$n" -gt 0 ]; then
@@ -326,7 +334,7 @@ fi
 mkdir -p "$STATE"
 [ -n "$CHECK_ONLY" ] || clean_new
 if [ -z "$CHECK_ONLY" ] && [ -s "$STATE/inprogress" ] && ! guards_ok > /dev/null; then
-  repair "the guards are not as installed after a try that was cut off"
+  repair "the guards are not as installed after a try that was cut off" keep
 fi
 pkgs=("$U"/dlzmod-*.tar)
 if [ ${#pkgs[@]} = 0 ]; then   # nothing to do (every normal start)
@@ -351,7 +359,7 @@ if [ -z "$ROOT" ] && [ -z "${DLZMOD_DATA:-}" ]; then
 fi
 # none of the files below is tried this start: a cut-off try (of any file) is not left half-placed
 if [ ${#pkgs[@]} -gt 1 ]; then
-  repair "an update was cut off while placing its files, and more than one update file is there now"
+  repair "an update was cut off while placing its files, and more than one update file is there now" keep
   names=$(printf '%s\n' "${pkgs[@]##*/}")
   if [ "$(cat "$STATE/multiple" 2>/dev/null)" = "$names" ]; then [ -n "$REPAIRED" ] || : > "$REPORT"; exit 0; fi   # said so already
   printf '%s\n' "$names" > "$STATE/multiple"
@@ -361,7 +369,7 @@ fi
 rm -f "$STATE/multiple"
 SRC=${pkgs[0]}
 if [ ! -f "$SRC.sig" ]; then
-  repair "an update was cut off while placing its files, and the update file there now has no signature"
+  repair "an update was cut off while placing its files, and the update file there now has no signature" keep
   if [ "$(cat "$STATE/unsigned" 2>/dev/null)" = "${SRC##*/}" ]; then [ -n "$REPAIRED" ] || : > "$REPORT"; exit 0; fi   # said so already
   printf '%s\n' "${SRC##*/}" > "$STATE/unsigned"
   log "update file ${SRC##*/} has no signature file (${SRC##*/}.sig) next to it: not installed, copy both files"

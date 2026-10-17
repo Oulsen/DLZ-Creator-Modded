@@ -588,7 +588,7 @@ said "progress marker not written" && [ "$(cat $ST/tries 2>/dev/null)" = "$S 1" 
   || bad "tries now: $(cat $ST/tries 2>/dev/null || echo gone)"
 rmdir $ST/inprogress.new; rm -f $U/dlzmod-vrinc.tar $U/dlzmod-vrinc.tar.sig $ST/tries $ST/approved
 
-echo "== 69: a progress marker without its snapshot: cleared (it must not carry an Install over)"
+echo "== 69: a progress marker without its snapshot, no file there: cleared (nothing was placed behind it)"
 for f in previous.tar previous.list; do mv $ST/$f $W/$f.keep69; done
 echo "$S" > $ST/inprogress; run
 [ ! -e $ST/inprogress ] && ok "marker cleared" || bad "marker without a snapshot kept"
@@ -597,7 +597,8 @@ for f in previous.tar previous.list; do mv $W/$f.keep69 $ST/$f; done
 echo "== 70: a resumed cut-off try stops for a reason not the package's: put back, Install kept, then installed"
 cutoff "$S"; put $P
 # the sandbox setup cannot switch user namespaces off this start (a read-only bind over the knob)
-echo 15000 > $W/uns; mount --bind $W/uns $R/proc/sys/user/max_user_namespaces && mount -o remount,bind,ro $R/proc/sys/user/max_user_namespaces
+echo 15000 > $W/uns
+if mount --bind $W/uns $R/proc/sys/user/max_user_namespaces && mount -o remount,bind,ro $R/proc/sys/user/max_user_namespaces; then
 rm -f $ST/approved; run_asking   # the marker carries the Install
 umount $R/proc/sys/user/max_user_namespaces
 said "NOT INSTALLED this time: user namespaces" && said "previous files restored" && ok "stopped and put back" || bad "not put back"
@@ -606,7 +607,38 @@ backnow "resumed try stopped"
 run_asking   # no new Install
 said "INSTALLED: " && grep -q "rinc test" $R/srv/app.js && ok "installed at the next start without asking again" || bad "not installed at the next start"
 APP=$(sha $R/srv/app.js)
+else
+  umount $R/proc/sys/user/max_user_namespaces 2>/dev/null; bad "case 70 setup: the read-only bind over max_user_namespaces failed (case skipped)"
+  rm -f $ST/inprogress   # the cut-off state of this case
+fi
 rm -f $U/dlzmod-vrinc.tar $U/dlzmod-vrinc.tar.sig   # left only when this case failed
+
+echo "== 71: a cut-off try of this file, then a second file next to it: put back with its Install kept; the copy removed: installed"
+P=$(craft dlzmod-vkeep "printf '\n// keep test\n' >> mod/app-mod/dlzmod.js"); S=$(key $P)
+cutoff "$S"; rm -f $ST/approved
+put $P; cp $P $U/dlzmod-vkeep2.tar; cp $P.sig $U/dlzmod-vkeep2.tar.sig; run_asking
+said "more than one update file" && said "previous files restored" && ok "put back, the two files named" || bad "not put back"
+backnow "same file next to another"
+[ "$(cat $ST/approved 2>/dev/null)" = "$S" ] && ok "its Install kept" || bad "Install not kept: $(cat $ST/approved 2>/dev/null || echo none)"
+rm -f $U/dlzmod-vkeep2.tar $U/dlzmod-vkeep2.tar.sig; run_asking   # no new Install
+said "INSTALLED: " && grep -q "keep test" $R/srv/app.js && ok "installed without asking again" || bad "not installed"
+APP=$(sha $R/srv/app.js)
+rm -f $U/dlzmod-vkeep.tar $U/dlzmod-vkeep.tar.sig   # left only when this case failed
+
+echo "== 72: a put-back that fails (app.js cannot be replaced): reported once; tried once per start, also with broken guards"
+cutoff gone-package3
+echo "added" > $R/usr/local/sbin/dlzmod-added   # an update's new file: removed at the first try
+chattr +i $R/srv/app.js
+n1=$(reports); run
+said "RESTORE INCOMPLETE" && said "removed /usr/local/sbin/dlzmod-added" && [ "$(reports)" = "$((n1 + 1))" ] && ok "reported" || bad "no report of the failed put-back"
+run; [ "$(reports)" = "$((n1 + 1))" ] && ok "the next start: the same news, no new report (without the removed line)" || bad "a second report for the same failure"
+printf '[Service]\nExecStart=/bin/false\n' > $R/etc/systemd/system/flash-gd32.service.d/zz.conf   # guards not as installed
+run
+[ "$(grep -c 'putting the files from before it back' "$(last)")" = 1 ] && ok "with broken guards: put back once this start, not again on the next path" \
+  || bad "put back $(grep -c 'putting the files from before it back' "$(last)") times in one start"
+chattr -i $R/srv/app.js; run
+said "previous files restored" && [ ! -e $ST/inprogress ] && [ "$(sha $R/srv/app.js)" = "$APP" ] && ok "put back once app.js can be replaced" || bad "not put back afterwards"
+[ ! -e $R/etc/systemd/system/flash-gd32.service.d/zz.conf ] && ok "extra drop-in gone" || bad "EXTRA DROP-IN LEFT"
 
 echo "== 63: stops before DLZDATA (not on an SD card): no report file left in /tmp"
 chroot $R /usr/local/sbin/dlzmod-update > $W/run.out 2>&1

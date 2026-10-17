@@ -84,13 +84,21 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    that start counted (the earlier ones stay counted).
    A try that a start does not go on with is put back at that start, whatever the folder holds (#108):
    one cut off by a power cut while placing, or one whose put-back failed (`RESTORE INCOMPLETE`: its
-   progress marker stays for this). No file, more than one, a file without `.sig`, a different file,
-   or the same file marked failed: the snapshot goes back before anything else, and a check that
-   refuses a resumed try of the same file puts back what it placed first, and so does a `later` on
-   one (its Install kept for that same file, so the next start begins a fresh try without asking
-   again). A put-back that fails again is tried again at every start, its report written once (no
-   new report with the same `RESTORE INCOMPLETE` text as the last); a progress marker without its
-   snapshot is cleared [static, PC rehearsal: `tests/update.sh` cases 13, 17, 19, 34-35, 62, 64-70].
+   progress marker stays for this). Broken guards or no file: right at the start (as in v0.1.0).
+   With a file there, after the eMMC-lock check (a `later` there leaves it for a start that sees the
+   eMMC locked): more than one file or a file without `.sig` before they are named, a different file
+   or the same file marked failed before that file is checked. A check that refuses a resumed try of
+   the same file puts back what it placed first, and so does a `later` on one (its count of 3 starts
+   fresh: the cause is not the package).
+   Where a start stops before looking at a file (broken guards, more than one file, no `.sig`) and in
+   that `later`, the put-back keeps the cut-off try's Install for that same file (its record: tar +
+   `.sig`), so the next start with only that file begins a fresh try without asking again: unless
+   another file's Install is there or that file failed; a start without any file drops it, as below.
+   A put-back that fails is tried once per start and again at the next one; its report is written
+   once (no new report with the same text as the last, not counting the `removed`/`placed` lines of
+   the first try). A progress marker without its snapshot (nothing placed behind it) is cleared by
+   those put-backs; a start of that same file goes on by it with a fresh snapshot [static, PC
+   rehearsal: `tests/update.sh` cases 13, 17, 19, 34-35, 62, 64-72].
 
 Not covered by the drop-in (installer only): boot visuals, the installer itself, the card layout,
 the guards. A package can declare `REINSTALL=yes` for such changes; the drop-in refuses it.
@@ -142,6 +150,8 @@ rehearsal: `tests/update.sh` case 3a]:
   package's fault, e.g. the eMMC not seen yet) keeps it, and so do the starts that stop before the
   checks (more than one file, a file without `.sig`, a file that failed before): accepted, the
   approval names exactly one tar and `.sig`, so it can only ever install the file it was given for.
+  The same goes for a cut-off try's Install that a put-back keeps (#108, step 7 above): it is written
+  back only for that try's own record, never over another file's Install.
 - When another file's try was cut off (that file removed since), the files from before that try go
   back at the start, before this file is checked, so they are back while it waits for Install too
   (#108).
