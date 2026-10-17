@@ -6,6 +6,11 @@
 // DLZ_SHOT_EVAL: optional JS expression run in the page before the taps, e.g. to fake a state the
 // PC cannot produce: DLZ_SHOT_EVAL='Data.set("sd",1)' (SD card inserted). DLZ_SHOT_WAIT=<ms> waits
 // after it, so the page can draw; DLZ_SHOT_AFTER=<ms> waits after the last tap. The moving fake meter levels (fake-vu-live.js) load on their own.
+// DLZ_SHOT_COOKIE=<token>: a pairing cookie (dlzmod_pair, #45) for the page's host first, so a shot
+// of http://localhost/ (DLZ_SANDBOX_REMOTE=1: another device on the network) shows the paired UI;
+// the token comes from pairing with the PIN: dev/ui-sandbox/pair.js.
+// DLZ_SHOT_DOWNLOADS=<folder>: downloads the page starts land there (headless Chrome refuses them
+// otherwise), e.g. to check the recordings download (#26).
 'use strict';
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -22,7 +27,8 @@ async function main() {
   if (!out) throw new Error('usage: node shot.js <out.png> [x,y ...]');
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'dlz-shot-'));
   const chrome = spawn(CHROME, [
-    '--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run',
+    // no component updates: they would land in DLZ_SHOT_DOWNLOADS's folder
+    '--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--disable-component-update',
     `--user-data-dir=${profile}`, `--remote-debugging-port=${PORT}`,
     '--window-size=1200,700', 'about:blank',
   ], { stdio: 'ignore' });
@@ -52,6 +58,13 @@ async function main() {
     });
 
     await send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 700, deviceScaleFactor: 1, mobile: false });
+    if (process.env.DLZ_SHOT_COOKIE) {
+      await send('Network.setCookie', { name: 'dlzmod_pair', value: process.env.DLZ_SHOT_COOKIE, url: URL,
+        httpOnly: true, sameSite: 'Strict' });
+    }
+    if (process.env.DLZ_SHOT_DOWNLOADS) {
+      await send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: path.resolve(process.env.DLZ_SHOT_DOWNLOADS) });
+    }
     await send('Page.navigate', { url: URL });
     await sleep(5000);
     const box = JSON.parse((await send('Runtime.evaluate', {

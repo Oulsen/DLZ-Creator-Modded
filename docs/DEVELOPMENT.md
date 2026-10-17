@@ -172,9 +172,10 @@ The repo is public, so what goes into it is limited by what the project may publ
 
 | Tool | Runs on | Purpose |
 |---|---|---|
-| `ui-sandbox.sh` | Git Bash + Node | Run the mixer UI on this PC at http://127.0.0.1/ in the on-device layout (copy of `/srv` in `dumps/sandbox`, shell commands blocked, localhost only); `DLZ_FULLSIZE=1` shows the full-size DLZ Creator's UI from its own copy (`dumps/sandbox-full`) |
+| `ui-sandbox.sh` | Git Bash + Node | Run the mixer UI on this PC at http://127.0.0.1/ in the on-device layout (copy of `/srv` in `dumps/sandbox`, shell commands blocked, localhost only); `DLZ_FULLSIZE=1` shows the full-size DLZ Creator's UI from its own copy (`dumps/sandbox-full`); `DLZ_SANDBOX_REMOTE=1` makes http://localhost/ another device on the network; `DLZ_FAKE_MEDIA=sd` (`usb`, `sd,usb`) a pretend SD card / USB stick with a few recordings |
 | `push.sh` | Git Bash + WSL | Build HEAD, push it over Wi-Fi to a dev card as a drop-in update, wait for the mixer to be switched off and on (`--restart`: from software, #81) and show the update's report ("Dev card" below); settings in `dev/push.env` (git-ignored, from `push.env.example`) |
-| `ui-sandbox/shot.js` | Node + Chrome | Headless screenshot of the sandbox UI, optionally after taps |
+| `ui-sandbox/shot.js` | Node + Chrome | Headless screenshot of the sandbox UI, optionally after taps; also as a paired other device (`DLZ_SHOT_COOKIE`) and keeping its downloads (`DLZ_SHOT_DOWNLOADS`) |
+| `ui-sandbox/pair.js` | Node | Pair the sandbox's other device with the PIN, as a real one pairs; prints the token for `shot.js` |
 | `ui-sandbox/fake-vu-live.js` | browser | Moving fake meter levels that follow the faders, loaded into the sandbox page by the shim (off with `/?novu`) |
 | `installer-shot.py` | WSL (Pillow) | Render an installer screen (`ui.py`) as a PNG, upright, as it will look on the mixer |
 | `installer-mockup.py` | WSL (Pillow) | Every screen of a real install as PNGs, an animated spinner and one overview sheet (look checks); `--no-sheet docs/images/install` renders the install guide's screens, `--check docs/images/install` says whether they are current, and fails when a progress line does not fit one row |

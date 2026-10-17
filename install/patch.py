@@ -146,6 +146,13 @@ APP_PATCHES = [
         "text:lang.FACTORY_RESET,",
     ),
     (
+        # #26: a download button on the Media page, left of Sort, in a browser and in a recordings
+        # folder only (DLZMOD_mediaDownloadButton); e = the page's button style
+        "media: download recordings in a browser",
+        "this.bSort=new E1ToggleButton(this,{anchors:[316,-214,",
+        "this.bDownload=DLZMOD_mediaDownloadButton(this,e),this.bSort=new E1ToggleButton(this,{anchors:[316,-214,",
+    ),
+    (
         # next to Mackie's firmware popups: the drop-in update's result (DLZMOD_UPDATE_NOTE, once,
         # until its OK) and the installed build, last refusal and waiting update for the Mod page
         # (DLZMOD_UPDATE_STATUS), sent by the server mod when the screen has loaded
@@ -282,8 +289,10 @@ SERVER_PATCHES = [
         "files: kept originals not served (DLZMOD_noOrig)",
         'a=e();return a.get("/app.js",',
         # #45: other devices only with "Control from other devices" on and paired, and then only the
-        # UI's own files (not srv_data.json or the presets)
-        'a=e();a.use(DLZMOD_noOrig);a.use(DLZMOD_remoteHttp);return a.get("/app.js",',
+        # UI's own files (not srv_data.json or the presets). #26: then the recordings, read only
+        # (DLZMOD_recHttp); ce() is a medium's mount point, "-" when empty
+        'a=e();a.use(DLZMOD_noOrig);a.use(DLZMOD_remoteHttp);'
+        'a.use(DLZMOD_recHttp((()=>[ce("sd"),ce("usb")])));return a.get("/app.js",',
     ),
     (
         # #45: the socket.io handshake of another device needs the pairing cookie and the mixer's
