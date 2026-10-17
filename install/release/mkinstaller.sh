@@ -35,13 +35,13 @@ BUILD=$(pkgval BUILD)
 # release image only from the clean commit its package was built from, as mkpackage.sh's RELEASE=1
 if [ "$BUILD" = release ]; then
   git=(git -C "$REPO" -c safe.directory="$REPO" -c core.autocrlf=true)
+  head=$("${git[@]}" rev-parse HEAD) || { echo "release image: git cannot read $REPO" >&2; exit 1; }
   if ! "${git[@]}" diff --quiet HEAD -- install VERSION \
      || [ -n "$("${git[@]}" ls-files --others --exclude-standard -- install VERSION)" ]; then
     echo "release image needs a clean tree (install/ or VERSION has changes or new files)" >&2
     exit 1
   fi
   pkgcommit=$(pkgval COMMIT)
-  head=$("${git[@]}" rev-parse HEAD)
   if ! [[ $pkgcommit =~ ^[0-9a-f]{7,40}$ ]] \
      || [ "$("${git[@]}" rev-parse --verify -q "$pkgcommit^{commit}")" != "$head" ]; then
     echo "package was built from commit '$pkgcommit', this tree is at ${head:0:12}:" \

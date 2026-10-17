@@ -139,7 +139,7 @@ The repo is public, so what goes into it is limited by what the project may publ
 
 | Tool | Runs on | Purpose |
 |---|---|---|
-| `stage2-backup.txt` | U-Boot | Full eMMC backup in 64 MiB chunks; backlight toggles per chunk, powers off when done. Reads the eMMC's data (switching to its boot areas sets a register that resets at power-off), writes to the SD card |
+| `stage2-backup.txt` | U-Boot | Full eMMC user-area backup in 64 MiB chunks (not the boot areas boot0/boot1, like the installer's backup); backlight toggles per chunk, powers off when done. Only reads the eMMC, writes to the SD card |
 | `mkscr.py` | any | Plain-text U-Boot script -> `boot.scr` |
 | `mksdimg.py` | any | Dumper card image: U-Boot at 8 KiB + empty FAT32 partition |
 | `mkenv.py` | any | `uboot.env` for our cards: U-Boot's default environment with overrides (`boot_targets=mmc0`: never boot the eMMC) |
@@ -219,8 +219,8 @@ built-in defaults never boot the eMMC, never start USB and never probe the netwo
    the card.
 
 The mixer writes the user area as `emmc_<block>.bin` (the start block in hex: 64 MiB chunks, then
-1 MiB for the tail) and powers off when done (`done2.txt`). Not the boot areas boot0/boot1, as the
-installer's backup: they are empty on the XS, and selecting them is a write to the eMMC's EXT_CSD
+1 MiB for the tail) and powers off when done (`done2.txt`). Like the installer's backup, it skips the
+boot areas boot0/boot1: they are empty on the XS, and selecting them is a write to the eMMC's EXT_CSD
 register (`notes/installer.md`). Join the user area in block order (WSL, in a copy of the card's
 files):
 

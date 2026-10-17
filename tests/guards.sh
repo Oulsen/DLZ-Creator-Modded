@@ -108,7 +108,7 @@ mkdir -p "$R/install/release" "$R/install/installer"
 cp "$REPO/install/release/mkinstaller.sh" "$REPO/install/release/vendor.sh" "$R/install/release/"
 cp "$REPO/install/installer/boot.txt" "$R/install/installer/"
 cp "$REPO/VERSION" "$R/"
-g() { git -C "$R" -c user.name=guards -c user.email=guards@localhost -c core.autocrlf=false "$@" > /dev/null; }
+g() { git -C "$R" -c user.name=guards -c user.email=guards@localhost -c core.autocrlf=false -c commit.gpgsign=false "$@" > /dev/null; }
 g init -q && g add -A && g commit -qm one && g commit -q --allow-empty -m two
 # pkg <BUILD> <COMMIT>: a package directory with a manifest that matches
 pkg() {
@@ -118,7 +118,7 @@ pkg() {
     "$(tr -d '\r' < "$REPO/VERSION")" "$1" "$2" > "$T/ipkg/package.env"
   (cd "$T/ipkg" && sha256sum initrd.cpio.gz package.env > manifest)
 }
-MI() { bash "$R/install/release/mkinstaller.sh" "$T/ipkg" "$T/inst-out"; }
+MI() { env -u ALLOW_PLACEHOLDER bash "$R/install/release/mkinstaller.sh" "$T/ipkg" "$T/inst-out"; }
 head=$(git -C "$R" rev-parse --short HEAD)
 pkg release "$head"; expect "clean tree at the package's commit accepted (stops at the placeholder)" "placeholder" MI
 pkg release "$(git -C "$R" rev-parse HEAD)"; expect "the full commit hash accepted too" "placeholder" MI
@@ -133,6 +133,8 @@ g checkout -q -- install/installer/boot.txt
 touch "$R/install/new-file"
 pkg release "$head"; expect "a new file under install/ is refused" "needs a clean tree" MI
 rm "$R/install/new-file"
+rm -rf "$R/.git"
+pkg release "$head"; expect "a tree git cannot read is refused" "git cannot read" MI
 [ ! -e "$T/inst-out" ] && ok "no image started" || bad "mkinstaller wrote $T/inst-out"
 
 echo "== the repo"
