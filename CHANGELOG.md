@@ -1,5 +1,7 @@
 # Changelog
 
+## v0.3.0
+
 ## v0.2.0
 
 - (DLZ FEATURE) Download recordings from your computer over the network
