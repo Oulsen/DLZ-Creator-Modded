@@ -339,8 +339,10 @@ ic_copy_tick() {
 
 # The eMMC's p1 as the card gets it: a device-mapper snapshot over a read-only loop on the eMMC's p1,
 # its copy-on-write store a sparse file in the chroot's /tmp (RAM), checked into it (e2fsck -fy). The
-# eMMC is only read (the kernel lock from /init plus the read-only loop: the snapshot target never
-# writes its origin, the replay's writes land in the RAM store). From this view only the blocks the
+# eMMC is only read because of the read-only loop and the plain snapshot target, which never writes
+# its origin (the replay's writes land in the RAM store). The kernel lock from /init does not cover
+# this path: on 5.10 it refuses writes from user space only, writes the kernel issues itself (dm,
+# loop) still go through, with a warning. From this view only the blocks the
 # file system uses go to the card (e2image -ra), and the compare reads the same view: the stock
 # mixer is switched off by its power switch, so its journal is usually not replayed, and a copy by
 # the on-disk bitmaps alone could miss blocks only the journal marks as used. Proven on the PC: the

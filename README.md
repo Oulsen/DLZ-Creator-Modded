@@ -76,7 +76,8 @@ The mod keeps the card's recordings part read-only except while it records, rena
 switching off is safe then. A card that was switched off while writable (during a recording, or with
 older versions and the stock software whenever it held recordings) stays marked as "not properly
 unmounted". The mixer works with it as before; to clear the mark, put the card in a computer, **copy
-your recordings off first**, then let the computer scan and fix it (a repair can shorten a recording
+your recordings off first**, then let the computer scan and fix it, only the DLZDATA drive (**never
+click Format**; a repair can shorten a recording
 that was cut off).
 
 ### Known good cards

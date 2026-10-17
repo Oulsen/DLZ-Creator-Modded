@@ -1,6 +1,7 @@
 # The checks that need no mixer, no dump and no Mackie files: the server mod's unit tests, the build
 # tools' key guards (tests/guards.sh), the updater checks (tests/update-checks.sh), the mixer-ssh
-# skill's read-only guard (offline), and a syntax check of every shell script and Python file. The
+# skill's read-only guard (offline), and a syntax check of every shell script, JavaScript and Python
+# file. The
 # rehearsals on card images run on a PC with the dump (tests/README.md).
 name: checks
 
@@ -52,6 +53,7 @@ jobs:
             case $first in
               '#!'*bash*) sh=bash ;;
               '#!'*/sh|'#!'*/sh' '*|'#!/usr/bin/env sh'*|'#!/bin/busybox sh'*) sh=sh ;;
+              # checked in their own steps below
               '#!'*python*|'#!'*node*) continue ;;
               # an interpreter this step does not know must not slip through unchecked
               '#!'*) echo "::error file=$p::unknown interpreter: $first"; f=$((f + 1)); continue ;;
@@ -65,5 +67,28 @@ jobs:
           echo "shell scripts: $n checked, $f failed"
           [ "$f" = 0 ]
 
+      # the app mod and the sandbox are otherwise only parsed by tests/patches.sh, which needs the dump
+      - name: JavaScript syntax (*.js and node scripts)
+        run: |
+          f=0; n=0
+          while IFS= read -r p; do
+            case $p in
+              *.js|*.mjs|*.cjs) ;;
+              *) head -c 100 "$p" | head -n 1 | tr -d '\0' | grep -q '^#!.*node' || continue ;;
+            esac
+            n=$((n + 1))
+            node --check "$p" || { echo "::error file=$p::syntax error (node)"; f=$((f + 1)); }
+          done < <(git ls-files)
+          echo "JavaScript files: $n checked, $f failed"
+          [ "$f" = 0 ]
+
+      # *.py and python scripts without the extension (by shebang)
       - name: Python syntax
-        run: python3 -m py_compile $(git ls-files '*.py')
+        run: |
+          files=$(git ls-files | while IFS= read -r p; do
+            case $p in
+              *.py) echo "$p" ;;
+              *) if head -c 100 "$p" | head -n 1 | tr -d '\0' | grep -q '^#!.*python'; then echo "$p"; fi ;;
+            esac
+          done)
+          python3 -m py_compile $files
