@@ -23,6 +23,7 @@
 - (MOD BUG) The backup card recipe can start the mixer's own system
 - (MOD BUG) An installer image is not tied to the release it is named after
 - (MOD BUG) After a failed update the mixer does not always get its old files back
+- (MOD BUG) Running the update tests side by side can switch off a setting in WSL
 
 ## v0.1.0
 
