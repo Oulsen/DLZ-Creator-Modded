@@ -302,9 +302,10 @@ function DLZMOD_updateRow() {
 
 // #114: Upload Update... (Mod page, in a browser): the browser's file picker for the update's two files.
 // In the page while open (a picker outside it can be dropped by some browsers before it answers); the
-// one of an earlier press (cancelled: no answer) goes
+// one of an earlier press (cancelled: no answer) goes. Not while one is being sent
 function DLZMOD_uploadPick() {
   const s = DLZMOD_uploadPick;
+  if (DLZMOD_uploadBusy()) return;
   if (s.input) s.input.remove();
   const input = (s.input = document.createElement("input"));
   input.type = "file";
@@ -345,7 +346,7 @@ function DLZMOD_uploadCheck(files) {
 function DLZMOD_uploadFiles(files) {
   const s = DLZMOD_uploadFiles;
   const title = "Upload Update";
-  if (s.busy) return showMessage("An update is being sent to the mixer.\nWait for its answer.", { title: title });
+  if (DLZMOD_uploadBusy()) return;
   const f = DLZMOD_uploadCheck(files);
   if (typeof f === "string") return showMessage(f, { title: title });
   askConfirm("Send " + f.tar.name + " (" + DLZMOD_size(f.tar.size) + ") to the mixer?\n" +
@@ -359,6 +360,13 @@ function DLZMOD_uploadFiles(files) {
       .catch(() => showMessage("The upload did not get through. Try again.", { title: title }))
       .finally(() => (s.busy = !1));
   });
+}
+
+// an update being sent from this page: says so; true: stop there
+function DLZMOD_uploadBusy() {
+  if (!DLZMOD_uploadFiles.busy) return !1;
+  showMessage("An update is being sent to the mixer.\nWait for its answer.", { title: "Upload Update" });
+  return !0;
 }
 
 // what the mixer answered, for the popup: the upload's own text (text/plain); the pairing gate's

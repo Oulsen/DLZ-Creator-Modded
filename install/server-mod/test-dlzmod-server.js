@@ -1810,7 +1810,7 @@ test("update upload: the medium must be in the mount table as a writable FAT one
 test("update upload: refused before anything is written, with a text for the browser", async () => {
   const cases = [
     [{ method: "GET" }, 405, /^$/], [{ method: "PUT" }, 405, /^$/],
-    [{ headers: { origin: "http://evil.example" } }, 403, /^$/],
+    [{ headers: { origin: "http://evil.example" } }, 403, /^Only from the mixer's own page/],
     [{ headers: { "x-dlzmod-name": "dlzmod-v0.2.0 (1).tar" } }, 400, /not a mod update/],
     [{ headers: { "x-dlzmod-name": undefined } }, 400, /not a mod update/],
     [{ len: "" }, 411, /^$/], [{ len: "12abc" }, 411, /^$/], [{ len: "-5" }, 411, /^$/],
@@ -1879,6 +1879,24 @@ test("update upload: refused before anything is written, with a text for the bro
   // the mixer itself: no Origin check (its own page has none to give here); an empty inprogress goes ahead
   const local = await upCall(up, upReq([SIG, PKG], { address: "127.0.0.1", headers: { origin: "http://evil.example" } }));
   assert.strictEqual(local.status, 200, local.body);
+});
+test("update upload: a failure after the old update files are removed leaves no update files at all", async () => {
+  const up = upMedia();
+  fs.mkdirSync(up.dir);
+  for (const f of ["dlzmod-v0.1.0.tar", "dlzmod-v0.1.0.tar.sig", "README.txt"]) fs.writeFileSync(path.join(up.dir, f), "old");
+  const fsp = fs.promises;
+  const rename = fsp.rename;
+  // the package's rename fails (the signature's went through)
+  fsp.rename = async (a, b) => (String(b).endsWith(".tar") ? Promise.reject(new Error("EIO: i/o error")) : rename(a, b));
+  try {
+    const r = await upCall(up, upReq([SIG, PKG]));
+    assert.strictEqual(r.status, 500);
+    assert.match(r.body, /could not store the update\. Nothing was kept/);
+  } finally {
+    fsp.rename = rename;
+  }
+  assert.deepStrictEqual(ls(up.dir), ["README.txt"], "no package, no signature without one, no temp files: the updater sees nothing");
+  assert.ok(!ctx.DLZMOD_updateUpload.running);
 });
 test("update upload: cut off, a failed remount, a full card: nothing of it kept, the old update stays", async () => {
   const old = (up) => {
@@ -1951,7 +1969,8 @@ test("update upload: cut off, a failed remount, a full card: nothing of it kept,
 });
 test("update upload: a recording that starts stops the writing; the rest of the body is thrown away, then the text", async () => {
   const up = upMedia();
-  const req = upReq([SIG, PKG.subarray(0, 10)], { wait: 1500, late: [PKG.subarray(10)] });
+  // the late part well after the watch's first look (1 s after the start; later under qemu)
+  const req = upReq([SIG, PKG.subarray(0, 10)], { wait: 3000, late: [PKG.subarray(10)] });
   const p = upCall(up, req);
   await tick(100);
   ctx.getDataKey = (k) => (k === "recState" ? 2 : undefined);

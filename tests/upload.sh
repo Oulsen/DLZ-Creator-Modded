@@ -17,26 +17,29 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(dirname "$HERE")
 DUMP=${DUMP:-/mnt/dlz}
 [ -x "$DUMP/usr/bin/node" ] || { echo "no dump at $DUMP: wsl -d Ubuntu -u root -e bash install/mount-ro.sh"; exit 2; }
-for t in mkfs.vfat fsck.fat curl losetup; do command -v $t > /dev/null || { echo "missing: $t"; exit 2; }; done
+for t in mkfs.vfat fsck.fat curl losetup qemu-arm awk; do command -v $t > /dev/null || { echo "missing: $t"; exit 2; }; done
 LIB=$DUMP/usr/lib/arm-linux-gnueabihf
+# everything this run sets up, undone at its end however it ends: the server, the mounts, the loop
+# devices (the card's and a snapshot's), the card images
+SPID=""; LOOP=""; SLOOP=""; TMPFS=""
+cleanup() {
+  [ -z "$SPID" ] || { kill $SPID 2> /dev/null; wait $SPID 2> /dev/null; }
+  umount $W/s 2> /dev/null; umount $MP 2> /dev/null
+  [ -z "$SLOOP" ] || losetup -d $SLOOP 2> /dev/null
+  [ -z "$LOOP" ] || losetup -d $LOOP 2> /dev/null
+  [ -z "$TMPFS" ] || umount /tmp/mnt 2> /dev/null
+  rm -rf $W
+}
 W=$(mktemp -d /root/upload-rh.XXXXXX)   # the card images: on WSL's disk, deleted at the end
+MP=/tmp/mnt/dlzdata
+trap cleanup EXIT
 F=0
 ok() { echo "  ok: $*"; }; bad() { echo "  FAIL: $*"; F=$((F + 1)); }
-mkdir -p /tmp/mnt && mount -t tmpfs tmpfs /tmp/mnt || { echo "no tmpfs on /tmp/mnt"; exit 2; }
-MP=/tmp/mnt/dlzdata
+mkdir -p /tmp/mnt && mount -t tmpfs tmpfs /tmp/mnt && TMPFS=1 || { echo "no tmpfs on /tmp/mnt"; exit 2; }
 U=$MP/dlzmod-update
 ST=$W/state
 PORT=8114
 mkdir -p $MP $ST $W/s
-SPID=""; LOOP=""
-cleanup() {
-  [ -z "$SPID" ] || kill $SPID 2> /dev/null
-  umount $W/s 2> /dev/null; umount $MP 2> /dev/null
-  [ -z "$LOOP" ] || losetup -d $LOOP 2> /dev/null
-  umount /tmp/mnt 2> /dev/null
-  rm -rf $W
-}
-trap cleanup EXIT
 
 # the files: an older update already on the card, and the new one (any bytes: the upload does not
 # check the signature, the updater does at the next start)
@@ -108,7 +111,7 @@ echo "== C: the upload cut off (the computer goes away halfway)"
 card 128; pkg 8
 n=$(grep -c "update upload:" $W/server.log)
 # curl itself in the background (exec), so the kill reaches it and not only a subshell around it
-(exec curl -s -o /dev/null --limit-rate 1M -H "Expect:" -H "Content-Type: application/octet-stream" -H "X-Dlzmod-Name: $NEW" \
+(exec curl -s -o /dev/null --max-time 120 --limit-rate 1M -H "Expect:" -H "Content-Type: application/octet-stream" -H "X-Dlzmod-Name: $NEW" \
   --data-binary @$W/body http://127.0.0.1:$PORT/dlzmod-update-upload) & CP=$!
 sleep 3
 [ -n "$(temps)" ] && ok "halfway: the package being written to its temp file" || bad "halfway: no temp file (did the upload start?)"
@@ -124,8 +127,8 @@ card 128; pkg 16
 # snap <when>: the card as it is now, mounted read-only from a copy; its update folder judged
 snap() {
   cp --sparse=always $W/card.img $W/snap.img
-  local l; l=$(losetup -r -f --show $W/snap.img)
-  fsck.fat -n $l > $W/snapfsck.out 2>&1
+  SLOOP=$(losetup -r -f --show $W/snap.img)
+  fsck.fat -n $SLOOP > $W/snapfsck.out 2>&1
   # a card cut off while mounted writable has the dirty bit set (FAT32 keeps it in the boot sector's
   # byte 65, so the backup boot sector differs there): that alone is no damage. Clusters of a file
   # still being written are lost (allocated, in no folder entry): space, as for any write a power cut
@@ -134,7 +137,7 @@ snap() {
   grep -o "Reclaimed [0-9]* unused clusters" $W/snapfsck.out >> $W/lost
   grep -v -iE "^Free cluster summary wrong|^ *Auto-correcting\.? *$|dirty bit|not properly unmounted|^fsck\.fat|^/dev/loop|files, .* clusters|^Leaving filesystem unchanged|^$|differences between boot sector and its backup|mostly harmless|^Differences: \(offset:original/backup\)|^ *65:01/00 *$|Not automatically fixing this|Reclaimed [0-9]* unused clusters|^Automatically removing dirty bit|^Perform changes|^\*\*\* Filesystem was changed" $W/snapfsck.out > $W/snaperr
   [ -s $W/snaperr ] && bad "a power cut here ($1) leaves FAT errors: $(tr '\n' ' ' < $W/snaperr | cut -c1-400)"
-  if mount -o ro $l $W/s 2> /dev/null; then
+  if mount -o ro $SLOOP $W/s 2> /dev/null; then
     local d=$W/s/dlzmod-update tars state
     tars=$(cd $d && ls dlzmod-*.tar 2> /dev/null | tr '\n' ' ')
     case "$tars" in
@@ -147,10 +150,10 @@ snap() {
   else
     state="BAD: does not mount"
   fi
-  losetup -d $l
+  losetup -d $SLOOP; SLOOP=""
   echo "$1 $state" >> $W/states
 }
-(exec curl -s -o $W/answer -w '%{http_code}' --limit-rate 3M -H "Expect:" -H "Content-Type: application/octet-stream" \
+(exec curl -s -o $W/answer -w '%{http_code}' --max-time 300 --limit-rate 3M -H "Expect:" -H "Content-Type: application/octet-stream" \
   -H "X-Dlzmod-Name: $NEW" --data-binary @$W/body http://127.0.0.1:$PORT/dlzmod-update-upload > $W/dstatus) & CP=$!
 while kill -0 $CP 2> /dev/null; do snap during; sleep 0.2; done
 # after the answer: what the page called done must survive a power cut from here on

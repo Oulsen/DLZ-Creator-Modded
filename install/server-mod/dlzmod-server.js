@@ -1075,6 +1075,8 @@ function DLZMOD_updateUpload(root, state = "/var/lib/dlzmod-update", mounts = "/
     if (String(req.path || "") !== "/dlzmod-update-upload") return next();
     const s = DLZMOD_updateUpload;
     // not an upload of the page's (method, origin, name, size): answered at once, the connection closes
+    // (a browser still sending may show a network error instead of the text: the page checks name and
+    // size itself first, so these are for other clients)
     const bad = (status, text) => {
       req.resume();
       DLZMOD_uploadAnswer(res, status, text, true);
@@ -1082,7 +1084,9 @@ function DLZMOD_updateUpload(root, state = "/var/lib/dlzmod-update", mounts = "/
     const refuse = (status, text) => DLZMOD_uploadDrain(req, () => DLZMOD_uploadAnswer(res, status, text));
     if (req.method !== "POST") return bad(405, "");
     const h = req.headers || {};
-    if (!DLZMOD_isLocal(req.socket && req.socket.remoteAddress) && !DLZMOD_originOk(h)) return bad(403, "");
+    if (!DLZMOD_isLocal(req.socket && req.socket.remoteAddress) && !DLZMOD_originOk(h)) {
+      return bad(403, "Only from the mixer's own page: open the mixer by its IP address or its .local name.");
+    }
     const name = String(h["x-dlzmod-name"] || "");
     if (!DLZMOD_uploadName(name)) {
       return bad(400, "This is not a mod update: choose its dlzmod-....tar and .tar.sig.");
@@ -1236,8 +1240,8 @@ async function DLZMOD_uploadRun(req, dir, name, len, mounts) {
     if ((await fh.stat()).size !== len - 64) throw new Error("the package on the card is not the size sent");
     await fh.close();
     fh = null;
-    clearInterval(watch);
-    watch = null;
+    // the watch runs on (its "recently writable" mark) until the end: a read-only remount between
+    // removing the old update files and the renames would leave none
     // the signature in its own synced temp file, then the update files replaced: never two packages
     // (the update refuses both), a package only with its complete signature
     const sh = await fsp.open(sig, "w");

@@ -787,6 +787,10 @@ test("update upload: one at a time from the page: a second one while the first i
   ctx.DLZMOD_uploadFiles.busy = true;
   late.yes();
   assert.strictEqual(ui.fetches.length, 1, "nothing sent twice");
+  // Upload Update... pressed meanwhile: the message, no picker
+  ctx.DLZMOD_uploadPick();
+  assert.deepStrictEqual(ui.pickers, [], "no picker while one is sent");
+  assert.match(ui.popups.at(-1).text, /^An update is being sent to the mixer\./);
 });
 
 // Network and Remote Control (the server's status: DLZMOD_setNetState)
