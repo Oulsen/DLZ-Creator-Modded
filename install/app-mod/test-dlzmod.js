@@ -11,7 +11,7 @@ const path = require("path");
 const vm = require("vm");
 
 const ui = { buttons: [], popups: [], toasts: [], links: [], fetches: [], cmds: [], windows: [], progress: [],
-  widgets: [], inputs: [], titles: [], destroyed: [] };
+  widgets: [], inputs: [], titles: [], destroyed: [], pickers: [], attached: [] };
 const regs = {};   // Data.regWidget: key -> callbacks
 // Mackie's Widget: the parameters become properties, then _constructor runs
 function Widget(parent, p) {
@@ -100,11 +100,21 @@ const ctx = vm.createContext({
   $FA: { times: "times", lock: "lock", check: "check", arrow_to_top: "arrow_to_top", wifi: "wifi",
     exclamation: "exclamation" },
   fetch: () => Promise.reject(new Error("no fetch set")),
+  Blob: function (parts) {
+    this.parts = parts;
+  },
   document: {
-    createElement: () => ({ click() {
+    // a file picker (input) is kept as it was opened; a link as what it downloads; ui.attached: what
+    // is in the page
+    createElement: (tag) => Object.assign(tag === "input" ? { click() {
+      ui.pickers.push(this);
+    } } : { click() {
       ui.links.push({ href: this.href, download: this.download });
-    }, remove() {} }),
-    body: { appendChild() {} },
+    } }, { remove() {
+      const i = ui.attached.indexOf(this);
+      if (i >= 0) ui.attached.splice(i, 1);
+    } }),
+    body: { appendChild: (el) => ui.attached.push(el) },
   },
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "dlzmod.js"), "utf8"), ctx);
@@ -120,6 +130,8 @@ const reset = () => {
   ctx.DLZMOD_wifiList.popup = null;
   ctx.DLZMOD_setNetState(undefined);
   ctx.DLZMOD_setUpdateStatus(null);
+  ctx.DLZMOD_uploadFiles.busy = false;
+  ctx.DLZMOD_uploadPick.input = null;
   for (const k of Object.keys(ui)) ui[k].length = 0;
   for (const k of Object.keys(regs)) delete regs[k];
 };
@@ -656,10 +668,125 @@ test("update popups: the Mod page's Updates row and Install button follow the se
     assert.deepStrictEqual(ui.cmds.at(-1), ["DLZMOD_UPDATE_APPROVE", { sum: "abc" }]);
     ctx.DLZMOD_setUpdateStatus({});
     assert.strictEqual(ctx.DLZMOD_installed(), "%%DLZMOD_VERSION%%", "until the server says: the stamped VERSION");
+    assert.strictEqual(pg.about.upload.visible, false, "Upload Update...: not on the mixer's own screen");
   } finally {
     ctx.app = undefined;
     ctx.DLZMOD_setUpdateStatus(null);
   }
+});
+
+// #114: Upload Update... in a browser (dlzmod-server.js, DLZMOD_updateUpload)
+const TAR = { name: "dlzmod-v0.2.0.tar", size: 1200000 };
+const SIGF = { name: "dlzmod-v0.2.0.tar.sig", size: 64 };
+// the mixer's answer: the upload's own texts are text/plain, the pairing gate's pages HTML (o.type)
+const uploadAnswer = (status, text, o = {}) => {
+  ctx.fetch = (url, opts) => {
+    ui.fetches.push({ url, opts });
+    if (o.fail) return Promise.reject(new Error("offline"));
+    if (o.hold) return new Promise(() => {});
+    const type = o.type || "text/plain; charset=utf-8";
+    return Promise.resolve({ ok: status === 200, status, text: () => Promise.resolve(text),
+      headers: { get: (k) => (k.toLowerCase() === "content-type" ? type : null) } });
+  };
+};
+test("update upload: the Mod page's Upload Update... in a browser opens a picker for the two files", () => {
+  reset();
+  settings();
+  ctx.EXTERNAL = true;
+  try {
+    const pg = settingsPage();
+    assert.strictEqual(pg.about.upload.visible, true);
+    assert.strictEqual(pg.about.upload.text, "Upload Update...");
+    assert.deepStrictEqual(plain(ctx.DLZMOD_updateRow()), ["Upload the update's .tar and .sig with the button below", null]);
+    pg.about.upload.onPress();
+    assert.strictEqual(ui.pickers.length, 1);
+    const p = ui.pickers[0];
+    assert.deepStrictEqual([p.type, p.multiple, p.accept, p.hidden], ["file", true, ".tar,.sig", true]);
+    assert.deepStrictEqual(ui.attached, [p], "in the page while open");
+    // cancelled (no answer), then pressed again: the first one goes
+    pg.about.upload.onPress();
+    const p2 = ui.pickers[1];
+    assert.deepStrictEqual(ui.attached, [p2], "one picker in the page");
+    p2.files = [SIGF, TAR];
+    p2.onchange();
+    assert.deepStrictEqual(ui.attached, [], "answered: out of the page");
+    assert.strictEqual(ui.popups.length, 1, "the two files chosen: asks first");
+    assert.match(ui.popups[0].text, /^Send dlzmod-v0\.2\.0\.tar \(1\.\d MB\) to the mixer\?\nIt is installed only after Install/);
+  } finally {
+    ctx.EXTERNAL = false;
+  }
+});
+test("update upload: the wrong files get a message and are not sent", () => {
+  for (const [files, text] of [
+    [[], /^Choose both files/], [[TAR], /^Choose both files/], [[TAR, SIGF, SIGF], /^Choose both files/],
+    [[TAR, { name: "dlzmod-v0.2.0.tar", size: 5 }], /^Choose both files/],
+    [[{ name: "dlzmod-v0.2.0 (1).tar", size: 9 }, { name: "dlzmod-v0.2.0 (1).tar.sig", size: 64 }], /is not a mod update\.\n\(A copy the browser renamed/],
+    [[{ name: "notes.tar", size: 9 }, { name: "notes.tar.sig", size: 64 }], /^notes\.tar is not a mod update/],
+    [[TAR, { name: "dlzmod-v0.1.0.tar.sig", size: 64 }], /^dlzmod-v0\.1\.0\.tar\.sig is not the signature of dlzmod-v0\.2\.0\.tar\.$/],
+    [[TAR, { name: SIGF.name, size: 65 }], /is not a signature file/],
+    [[{ name: TAR.name, size: 0 }, SIGF], /wrong size/], [[{ name: TAR.name, size: 64 * 1024 * 1024 + 1 }, SIGF], /wrong size/],
+  ]) {
+    reset();
+    uploadAnswer(200, "");
+    ctx.DLZMOD_uploadFiles(files);
+    assert.strictEqual(ui.popups.length, 1, JSON.stringify(files));
+    assert.strictEqual(ui.popups[0].kind, "message");
+    assert.match(ui.popups[0].text, text, JSON.stringify(files));
+    assert.strictEqual(ui.popups[0].opts.title, "Upload Update");
+    assert.deepStrictEqual(ui.fetches, []);
+  }
+});
+test("update upload: Yes sends the signature, then the package, and shows the mixer's answer", async () => {
+  reset();
+  uploadAnswer(200, "dlzmod-v0.2.0.tar is on the mixer's card.");
+  ctx.DLZMOD_uploadFiles([TAR, SIGF]);
+  assert.deepStrictEqual(ui.fetches, [], "nothing before Yes");
+  ui.popups[0].yes();
+  await tick(20);
+  assert.deepStrictEqual(ui.toasts, ["Sending: dlzmod-v0.2.0.tar"]);
+  assert.strictEqual(ui.fetches.length, 1);
+  const { url, opts } = ui.fetches[0];
+  assert.strictEqual(url, "/dlzmod-update-upload");
+  assert.strictEqual(opts.method, "POST");
+  assert.strictEqual(opts.headers["X-Dlzmod-Name"], "dlzmod-v0.2.0.tar");
+  assert.strictEqual(opts.body.parts[0], SIGF, "the signature first");
+  assert.strictEqual(opts.body.parts[1], TAR);
+  assert.strictEqual(opts.body.parts.length, 2);
+  assert.strictEqual(ui.popups.at(-1).text, "dlzmod-v0.2.0.tar is on the mixer's card.");
+  const gone = "This browser is not paired with the mixer any more,\nor control from other devices is off. Reload this page.";
+  for (const [status, text, o, want] of [[503, "The mixer is busy with a recording.", {}, "The mixer is busy with a recording."],
+    [403, "", {}, gone], [500, "", {}, "The mixer refused it (HTTP 500)."],
+    // the pairing gate's HTML pages: never shown as text
+    [403, "<!DOCTYPE html><html>...Not paired with this mixer...", { type: "text/html; charset=utf-8" }, gone],
+    [421, "<!DOCTYPE html><html>...", { type: "text/html; charset=utf-8" }, gone],
+    [404, "<!DOCTYPE html><html>...", { type: "text/html; charset=utf-8" }, "The mixer refused it (HTTP 404)."],
+    [0, "", { fail: true }, "The upload did not get through. Try again."]]) {
+    reset();
+    uploadAnswer(status, text, o);
+    ctx.DLZMOD_uploadFiles([TAR, SIGF]);
+    ui.popups[0].yes();
+    await tick(20);
+    assert.strictEqual(ui.popups.at(-1).text, want, status + " " + JSON.stringify(o));
+    assert.strictEqual(ctx.DLZMOD_uploadFiles.busy, false, "the next one may go");
+  }
+});
+test("update upload: one at a time from the page: a second one while the first is sent gets a message", async () => {
+  reset();
+  uploadAnswer(200, "", { hold: true });
+  ctx.DLZMOD_uploadFiles([TAR, SIGF]);
+  ui.popups[0].yes();
+  await tick(20);
+  assert.strictEqual(ui.fetches.length, 1);
+  ctx.DLZMOD_uploadFiles([TAR, SIGF]);
+  assert.strictEqual(ui.popups.at(-1).kind, "message");
+  assert.match(ui.popups.at(-1).text, /^An update is being sent to the mixer\.\nWait for its answer\./);
+  // a question still open from before: its Yes sends nothing more
+  ctx.DLZMOD_uploadFiles.busy = false;
+  ctx.DLZMOD_uploadFiles([TAR, SIGF]);
+  const late = ui.popups.at(-1);
+  ctx.DLZMOD_uploadFiles.busy = true;
+  late.yes();
+  assert.strictEqual(ui.fetches.length, 1, "nothing sent twice");
 });
 
 // Network and Remote Control (the server's status: DLZMOD_setNetState)

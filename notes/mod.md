@@ -188,7 +188,8 @@ screen, Forget and Off locking the browser out; the screen, faders and audio unc
   PIN or switching off. Wrong PINs, counted for all devices together: after 5 a pause of 60 s,
   doubling up to 15 min, on the panel too; a successful pairing starts the doubling at 60 s again.
 - **Paired**: the browser loads only the UI's own files (`/`, `index.html`, `app.js`, `style.css`,
-  `favicon.ico`, `libs/`, `fonts/`, `img1x/`) and the recordings (`/dlzmod-rec`, #26, below), not
+  `favicon.ico`, `libs/`, `fonts/`, `img1x/`), the recordings (`/dlzmod-rec`, #26, below) and the
+  update upload (`/dlzmod-update-upload`, #114, below), not
   `srv_data.json`, the presets or anything else in `/srv`. Before pairing only the PIN page's own
   files: the model's logo (`img1x/DLZ_XS.png` /
   `DLZ_Creator.png`) and Proxima Nova Regular and Semibold (`DLZMOD_loginFileOk`); the page is in
@@ -290,6 +291,71 @@ recording starts, the 503 while `wavfinalizer` runs, linked folders and files, t
   as it was opened; playing a recording from the card while several download is not held back
   [guess: no dropouts, to be heard on the mixer]; a name that is not valid UTF-8 on the card (the FAT
   mount has no `iocharset`) is left out of the list without a word [guess].
+
+## An update from a computer (#114)
+
+A paired computer sends a mod update to the card; installing it stays the drop-in update's
+([updates.md](updates.md), "Drop-in update"): its signature and version checks, and Install on the
+mixer's own screen (#65). Nothing is checked or installed live: the next start finds the files [static:
+unit tests on node 18 (the dump's, under qemu), card rehearsal and the mixer still to come]:
+
+- **Where**: Upload Update... on the Mod page, in the place of Install Update..., only in a browser
+  (`DLZMOD_external`); the Updates row then says to upload the `.tar` and `.sig`. The browser's file
+  picker takes both files at once; the page checks the pair first (`DLZMOD_uploadCheck`: one
+  `dlzmod-*.tar` with a plain name, its own `.tar.sig` of 64 bytes, at most 64 MiB; a copy the
+  browser renamed, `(1)`, is refused by name), asks, then sends.
+- **One request**: `POST /dlzmod-update-upload`, the body the signature and then the package (a `Blob`
+  of the two `File`s, so the browser sends them from disk), the name in `X-Dlzmod-Name`. No multipart
+  parser on the mixer. The page shows the mixer's text (`text/plain`); the pairing gate's HTML pages
+  (no longer paired, control off) get a sentence instead (`DLZMOD_uploadReply`). One send at a time
+  per page; the picker is in the page while open (some browsers drop one outside it).
+- **Server** (`DLZMOD_updateUpload(ce("sd"))`, behind `DLZMOD_remoteHttp`, whose path allowlist has
+  the one path): POST only; from another device only with the mixer's own page as `Origin`
+  (`DLZMOD_originOk`, as the pairing form); the name as the updater's glob takes it
+  (`DLZMOD_uploadName`); a `Content-Length` (no chunked body) of more than 64 bytes and at most
+  64 bytes + 64 MiB (the updater's `MAX_PKG`). Those are answered at once and the connection closed
+  (not an upload of the page's). Refused before anything is touched: while the mixer records
+  (`DLZMOD_recNoRead`), while another upload runs, while the updater's `inprogress` is set (a try cut
+  off that the next start must finish or put back first), with no SD medium. These, and every failure
+  below, are answered only once the rest of the body has come in, thrown away as it comes
+  (`DLZMOD_uploadDrain`): a server that closes while a browser still sends makes it show a network
+  error instead of the text [static: node's http; to see in a browser with a large file].
+- **Write path**: the SD medium (DLZDATA) remounted writable through the mount queue (`DLZMOD_rw`),
+  then it must be in `/proc/mounts` as a writable vfat mount (`DLZMOD_uploadMounted`: never a mount
+  point left on `/tmp`'s tmpfs, which is RAM). The body streamed to
+  `dlzmod-update/.dlzmod-upload.tar.part` (never held in memory: about 120 MB is free), the first 64
+  bytes kept apart for the signature; each piece written to its end (`DLZMOD_writeAll`: a nearly full
+  card can write less without an error). Only when the whole body is there: the tar synced and its
+  size checked, the signature written to its own synced temp file, every `dlzmod-*.tar` and
+  `.tar.sig` in the folder removed (never two packages, which the updater refuses), the signature
+  renamed, then the package, the folder synced. A power cut at any point leaves at most hidden temp
+  files (removed by the next upload) or a signature without a package: never a package the updater
+  takes for a complete update; a package with a signature that does not match it is refused by the
+  updater. Other files and folders in `dlzmod-update/` (its README) stay.
+- **Failure**: cut off (the computer went away: no answer, no one to give it to; fewer bytes than
+  announced), a full card (`ENOSPC`, 507), a failed remount, a medium not in the mount table: the
+  temp files removed, a text that nothing was kept. The old update files stay, except after a
+  failure between their removal and the new files' renames: then there is none, which the updater
+  takes as nothing to do. A recording that starts stops the writing (checked every second while it
+  runs, as running downloads), the rest of the body is thrown away and the page gets the text. The
+  medium goes back to read-only after every upload (`DLZMOD_roLater`); while one writes, its 10 s
+  "recently writable" mark is kept fresh.
+- **Never ends the server**: the run ends in a `.catch`, as the recordings' routes.
+- **Accepted** (device review of #114, no brick or eMMC path found by any reviewer): a power cut in
+  the instant a FAT rename has written the new folder entry but not yet removed the old one leaves two
+  entries on one cluster chain, and the next upload's removal of the temp file then frees the
+  package's clusters; the damage stays on DLZDATA, a damaged package fails its signature check, and
+  both entries normally sit in one sector written at once (recordings carry the same FAT risk). A bad
+  package left on the card is copied to `/tmp` and hashed again at every start until it is replaced
+  (up to 64 MiB, before the mixer software starts; the same for one copied with a card reader). The
+  upload runs inside evolve-node at its real-time priority, so playback from the card could stutter
+  while one writes [guess: to listen for on the mixer]. Node 18's 300 s `requestTimeout` ends a body
+  that takes longer (a 64 MiB one below about 1.7 Mbit/s; a real package is about 1 MB), which also
+  bounds how long a stalled client keeps the card writable. No free-space check first: a full card is
+  `ENOSPC`, cleaned up.
+- **Then**: switch off and on; the start finds the package (pending), the screen asks Install, and
+  the start after that installs it. The upload changes nothing about an approval: that is bound to
+  the package's and signature's sha256, so an Install given for an earlier file does not carry over.
 
 ## The card gate (`dlzmod-cardcheck`)
 
