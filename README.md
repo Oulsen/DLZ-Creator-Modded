@@ -91,6 +91,16 @@ recording worked.
 | SanDisk Ultra microSDXC UHS-I, A1, U1, Class 10 | 128 GB | v0.1.0 | 9 min | about 13 MB/s | yes |
 | Gigastone 4K UHD Video microSDXC, U3 | 64 GB | v0.1.0 | 9 min | about 11 MB/s | not tried yet |
 
+### Known good Wi-Fi sticks
+
+USB Wi-Fi sticks that connected on a real mixer with the mod. Other sticks may work too, but have not
+been tried. Tested a stick? Open an issue with its exact name and version (on the box or the stick),
+the mod version and whether Wi-Fi connected.
+
+| Wi-Fi stick | Mod version | Wi-Fi | Notes |
+|---|---|---|---|
+| TP-Link Archer T3U (AC1300) | v0.1.0 | yes | the mixer's stock software does not recognise it, the mod does |
+
 ## Help and contact
 
 - **Chat, questions, contact:** [Discord](https://discord.gg/Qa2fjzVbGp)
