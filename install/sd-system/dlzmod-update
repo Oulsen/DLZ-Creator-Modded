@@ -160,23 +160,12 @@ writable() {   # DLZDATA read-write from here on
   [ -n "${DLZMOD_DATA:-}" ] || mount -o remount,rw "$DATA" || return 1
   WROTE=yes
 }
-SUM=""
 UNS=/proc/sys/user/max_user_namespaces
 UNS_OLD=""   # user namespaces are off while the sandbox runs (step 3); finish puts this back
-# only this file's own try markers: a different file's cut-off try keeps its snapshot (step 3 puts it back)
-fail() {
-  log "NOT INSTALLED: $*"; echo "$SUM" > "$STATE/failed"
-  [ "$(cat "$STATE/approved" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/approved"
-  [ "$(cat "$STATE/inprogress" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/inprogress"
-  [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/tries"
-  sync; exit 0
-}
-# not the package's fault: tried again next start, without using up one of its 3 tries
-later() {
-  log "NOT INSTALLED this time: $*"
-  [ -z "$SUM" ] || [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/tries"
-  exit 0
-}
+SUM=""
+COUNTED=no    # this start counted one of the file's 3 tries (step 0)
+REPAIRED=""   # a cut-off try was put back (or tried) this start: its report is kept
+PLACED=no     # files of this file may be on the card: a try of it was cut off, or placing began
 
 WORK=""
 CHECK_STATE=""
@@ -242,6 +231,53 @@ restore() {   # the snapshot back, and what the update added removed; not stoppe
   trap on_term TERM INT
   [ "$ok" = yes ]
 }
+# repair <why>: a try that was cut off (or whose put-back failed) and that this start does not go on
+# with: the files from before it go back, so the card never keeps a half-placed update. 0 when
+# there is nothing to put back (or checks only) or it is back; 1 when the files could not all be
+# put back (the progress marker stays: the next start tries again)
+repair() {
+  local inp
+  inp=$(cat "$STATE/inprogress" 2>/dev/null)
+  [ -z "$CHECK_ONLY" ] && [ -n "$inp" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ] || return 0
+  REPAIRED=yes
+  log "$1: putting the files from before it back"
+  if restore && guards_ok; then
+    [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" != "$inp" ] || rm -f "$STATE/tries"
+    rm -f "$STATE/inprogress"; sync
+    log "previous files restored"
+    return 0
+  fi
+  log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"
+  return 1
+}
+# only this file's own try markers: a different file's cut-off try is put back by repair (before this
+# file's checks). What a try of this file placed (cut off earlier, or this one) goes back first; if
+# that fails, its progress marker stays, so the next start tries to put it back again
+fail() {
+  if [ "$PLACED" = yes ] && [ "$(cat "$STATE/inprogress" 2>/dev/null)" = "$SUM" ] && ! repair "a try of this file placed files"; then
+    log "NOT INSTALLED: $* (the next start tries to put the files back again)"
+    echo "$SUM" > "$STATE/failed"
+    [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/tries"
+    sync; exit 0
+  fi
+  log "NOT INSTALLED: $*"; echo "$SUM" > "$STATE/failed"
+  [ "$(cat "$STATE/approved" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/approved"
+  [ "$(cat "$STATE/inprogress" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/inprogress"
+  [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" != "$SUM" ] || rm -f "$STATE/tries"
+  sync; exit 0
+}
+# not the package's fault: tried again next start, and the try this start counted is given back
+later() {
+  local n
+  log "NOT INSTALLED this time: $*"
+  if [ "$COUNTED" = yes ] && [ "$(cut -d' ' -f1 "$STATE/tries" 2>/dev/null)" = "$SUM" ]; then
+    n=$(( $(cut -d' ' -f2 "$STATE/tries") - 1 ))
+    if [ "$n" -gt 0 ]; then
+      echo "$SUM $n" > "$STATE/tries.new" && sync && mv -f "$STATE/tries.new" "$STATE/tries" && sync
+    else rm -f "$STATE/tries"; fi
+  fi
+  exit 0
+}
 # systemd's timeout (or a stop) during the apply: put things back first
 on_term() { if [ "$APPLYING" = yes ]; then log "stopped while applying: putting the previous files back"; restore; fi; exit 1; }
 trap on_term TERM INT
@@ -269,10 +305,8 @@ if [ -n "$CHECK_ONLY" ]; then
 fi
 mkdir -p "$STATE"
 [ -n "$CHECK_ONLY" ] || clean_new
-if [ -z "$CHECK_ONLY" ] && [ -s "$STATE/inprogress" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ] && ! guards_ok > /dev/null; then
-  log "the guards are not as installed after a try that was cut off: putting the files from before it back"
-  if restore && guards_ok; then log "previous files restored"; rm -f "$STATE/inprogress"; sync
-  else log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"; fi
+if [ -z "$CHECK_ONLY" ] && [ -s "$STATE/inprogress" ] && ! guards_ok > /dev/null; then
+  repair "the guards are not as installed after a try that was cut off"
 fi
 pkgs=("$U"/dlzmod-*.tar)
 if [ ${#pkgs[@]} = 0 ]; then   # nothing to do (every normal start)
@@ -280,11 +314,7 @@ if [ ${#pkgs[@]} = 0 ]; then   # nothing to do (every normal start)
   rm -f "$STATE/unsigned" "$STATE/multiple" "$STATE/approved"
   # a try cut off while placing, and its file removed since (the guards may be fine, so the repair
   # above did not run): the files from before it go back, or the card keeps a half-placed update
-  if [ -z "$CHECK_ONLY" ] && [ -s "$STATE/inprogress" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ]; then
-    log "an update was cut off while placing its files and is no longer there: putting the files from before it back"
-    if restore && guards_ok; then log "previous files restored"; rm -f "$STATE/inprogress" "$STATE/tries"; sync
-    else log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"; fi
-  fi
+  repair "an update was cut off while placing its files and is no longer there"
   exit 0
 fi
 # on the mixer (a PC rehearsal sets DLZMOD_ROOT or DLZMOD_DATA): never change anything while the eMMC
@@ -299,9 +329,11 @@ if [ -z "$ROOT" ] && [ -z "${DLZMOD_DATA:-}" ]; then
   # (it is probed asynchronously: not seen yet means not locked yet, 60-dlzmod-emmc-ro.rules does that)
   [ "$emmc" -gt 0 ] || later "the internal storage (eMMC) is not visible this start, so it is not known to be locked"
 fi
+# none of the files below is tried this start: a cut-off try (of any file) is not left half-placed
 if [ ${#pkgs[@]} -gt 1 ]; then
+  repair "an update was cut off while placing its files, and more than one update file is there now"
   names=$(printf '%s\n' "${pkgs[@]##*/}")
-  if [ "$(cat "$STATE/multiple" 2>/dev/null)" = "$names" ]; then : > "$REPORT"; exit 0; fi   # said so already
+  if [ "$(cat "$STATE/multiple" 2>/dev/null)" = "$names" ]; then [ -n "$REPAIRED" ] || : > "$REPORT"; exit 0; fi   # said so already
   printf '%s\n' "$names" > "$STATE/multiple"
   log "more than one update file in dlzmod-update: none installed, leave only one there"
   exit 0
@@ -309,7 +341,8 @@ fi
 rm -f "$STATE/multiple"
 SRC=${pkgs[0]}
 if [ ! -f "$SRC.sig" ]; then
-  if [ "$(cat "$STATE/unsigned" 2>/dev/null)" = "${SRC##*/}" ]; then : > "$REPORT"; exit 0; fi   # said so already
+  repair "an update was cut off while placing its files, and the update file there now has no signature"
+  if [ "$(cat "$STATE/unsigned" 2>/dev/null)" = "${SRC##*/}" ]; then [ -n "$REPAIRED" ] || : > "$REPORT"; exit 0; fi   # said so already
   printf '%s\n' "${SRC##*/}" > "$STATE/unsigned"
   log "update file ${SRC##*/} has no signature file (${SRC##*/}.sig) next to it: not installed, copy both files"
   exit 0
@@ -325,9 +358,22 @@ head -c $((MAX_PKG + 1)) "$SRC" > "$PKG" && head -c 65 "$SRC.sig" > "$SIGF" || l
 # another signature counts as a different try
 SUM=$(cat "$PKG" "$SIGF" | sha256sum | cut -d' ' -f1)
 log "update file ${SRC##*/} (sha256 $(sha256sum < "$PKG" | cut -d' ' -f1))"
+# a cut-off try of another file goes back before this one is looked at (whatever happens to this one
+# below: refused, waiting for Install or tried); one of this file whose put-back failed earlier
+# (failed, with its progress marker kept) is put back again now. Only a try of this file that was cut
+# off goes on (step 3)
+inp=$(cat "$STATE/inprogress" 2>/dev/null)
+if [ -n "$inp" ] && [ "$inp" != "$SUM" ]; then
+  repair "an earlier update file was cut off while applying" \
+    || later "the files from before an earlier cut-off update could not be put back"
+elif [ -n "$inp" ] && [ "$(cat "$STATE/failed" 2>/dev/null)" = "$SUM" ]; then
+  repair "this file failed earlier and the files from before it could not all be put back then"
+elif [ -n "$inp" ]; then
+  PLACED=yes   # a try of this file was cut off: it goes on in step 3, or fail puts it back
+fi
 if [ "$(cat "$STATE/failed" 2>/dev/null)" = "$SUM" ]; then
   echo "dlzmod-update: ${SRC##*/} failed before, not tried again"
-  : > "$REPORT"   # no new report for the same failure at every start
+  [ -n "$REPAIRED" ] || : > "$REPORT"   # no new report for the same failure at every start
   exit 0
 fi
 # #65: installed only after Install on the mixer's own screen: the server mod writes this file's
@@ -343,18 +389,9 @@ if [ "$APPROVED" = yes ]; then
   if [ "${t% *}" = "$SUM" ]; then tries=$(( ${t#* } + 1 )); else tries=1; fi
   if [ "$tries" -gt 3 ]; then
     log "stopped 3 times before it finished"
-    if [ "$(cat "$STATE/inprogress" 2>/dev/null)" = "$SUM" ]; then
-      log "putting the previous files back"
-      if ! { restore && guards_ok; }; then
-        log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"
-        log "NOT INSTALLED: it never finished (the next start tries to put the files back again)"
-        echo "$SUM" > "$STATE/failed"; rm -f "$STATE/tries"; sync   # inprogress stays for the start-up repair
-        exit 0
-      fi
-    fi
-    fail "it never finished"
+    fail "it never finished"   # (puts back what its tries placed first)
   fi
-  echo "$SUM $tries" > "$STATE/tries.new" && sync && mv -f "$STATE/tries.new" "$STATE/tries" && sync
+  echo "$SUM $tries" > "$STATE/tries.new" && sync && mv -f "$STATE/tries.new" "$STATE/tries" && sync && COUNTED=yes
 fi
 
 # 1. the package: size and signature before anything reads its contents, then only plain files and
@@ -463,19 +500,11 @@ if [ -n "$CHECK_ONLY" ]; then log "CHECKS PASSED (checks only: nothing applied)"
 # Install the next start finds "approved" and goes on. No try counted, no report (the question on the
 # screen is the news; only an earlier cut-off try put back below writes one), the package stays.
 wait_for_approval() {
-  local other label
-  # a different file's try that was cut off (that file removed since) is not left half-placed while
-  # this one waits: the files from before it go back now, as step 3 would before this one's try
-  other=$(cat "$STATE/inprogress" 2>/dev/null)
-  if [ -n "$other" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ]; then
-    log "an earlier update file was cut off while applying: putting the files from before it back"
-    { restore && guards_ok; } || later "the files from before an earlier cut-off update could not be put back"
-    rm -f "$STATE/inprogress"; sync
-    log "previous files restored"
-    log "NOT INSTALLED yet: ${SRC##*/} waits for Install on the mixer's screen"
-  else
-    : > "$REPORT"
-  fi
+  local label
+  # (a different file's cut-off try was put back above, before this file's checks: then the report
+  # says so; otherwise there is none)
+  if [ -n "$REPAIRED" ]; then log "NOT INSTALLED yet: ${SRC##*/} waits for Install on the mixer's screen"
+  else : > "$REPORT"; fi
   # an Install for another file (one replaced since) does not carry over to a later one
   rm -f "$STATE/approved"
   # named as the installed file names a build ("v0.2.0 (dev-c0e3084)"; a release: "v0.2.0")
@@ -493,19 +522,12 @@ wait_for_approval() {
 # from before the first try), then apply in a subshell run as a plain command (bash ignores set -e
 # inside a subshell whose status is tested), then the guard check with this script's own list
 other=$(cat "$STATE/inprogress" 2>/dev/null)
-RESUMED=no
 if [ "$other" = "$SUM" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ]; then
   log "a try of this file was interrupted: keeping the snapshot from before it"
-  RESUMED=yes
 else
-  # a different file's try was cut off (that file removed since): its half-applied files would end up
-  # in this snapshot, so the files from before it go back first
-  if [ -n "$other" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ]; then
-    log "an earlier update file was cut off while applying: putting the files from before it back first"
-    { restore && guards_ok; } || later "the files from before an earlier cut-off update could not be put back"
-    rm -f "$STATE/inprogress"; sync
-    log "previous files restored"
-  fi
+  # (a different file's cut-off try was put back before this file's checks, so its half-applied
+  # files do not end up in this snapshot; a progress marker without a snapshot has nothing to put
+  # back and is replaced)
   snap_list > "$STATE/previous.list.new" && tar -cpf "$STATE/previous.tar.new" -C "$ROOT/" -T "$STATE/previous.list.new" \
     && sync && mv -f "$STATE/previous.list.new" "$STATE/previous.list" && mv -f "$STATE/previous.tar.new" "$STATE/previous.tar" \
     || { rm -f "$STATE/previous.list.new" "$STATE/previous.tar.new"; later "snapshot not written (card full?)"; }
@@ -526,20 +548,8 @@ rm -f "$STATE/approved"
 # anything outside its allowlist refuses the whole package before the card is touched; the rest is
 # placed by this script, file by file and atomically, the guards first and its own new copy last.
 # refused from here on: nothing of this try is on the card yet, but a cut-off earlier try of this same
-# file may have placed part of it, so that goes back first
-refuse() {
-  if [ "$RESUMED" = yes ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previous.list" ]; then
-    log "putting back what the cut-off earlier try of this file placed"
-    if ! { restore && guards_ok; }; then
-      log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"
-      log "NOT INSTALLED: $* (the next start tries to put the files back again)"
-      echo "$SUM" > "$STATE/failed"; sync   # inprogress stays: the start-up repair runs again
-      exit 0
-    fi
-    log "previous files restored"
-  fi
-  fail "$@"
-}
+# file may have placed part of it: fail puts that back first
+refuse() { fail "$@"; }
 SB=$WORK/sandbox
 S=$SB/stage
 mkdir -p "$S" "$SB/tmp" || later "no room for the update's stage"
@@ -735,7 +745,7 @@ keys_before=$(key_sums)
 grep -E "$guards" <<< "$changed" > "$SB/place-guards"
 grep -Ev "$guards|$self" <<< "$changed" | grep . > "$SB/place-rest"
 grep -E "$self" <<< "$changed" > "$SB/place-self"
-APPLYING=yes
+APPLYING=yes PLACED=yes
 rc=0
 while IFS= read -r p; do place "$p" || rc=1; done < "$SB/place-guards"
 sync
@@ -762,12 +772,8 @@ if [ "$rc" = 0 ]; then
   log "changed startup units from the next start"
   [ -n "$ROOT" ] || udevadm control --reload 2>/dev/null
 else
-  log "applying failed: putting the previous files back"
-  if restore && guards_ok; then log "previous files restored"; fail "see the lines above"; fi
-  log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"
-  log "NOT INSTALLED: see the lines above (the next start tries to put the files back again)"
-  echo "$SUM" > "$STATE/failed"; sync   # inprogress stays: the start-up repair above runs again
-  exit 0
+  log "applying failed"
+  fail "see the lines above"   # (puts the previous files back first)
 fi
 exit 0
 }

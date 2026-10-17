@@ -331,14 +331,19 @@ for ch in release dev none builddev bad envwins; do
   rm -rf $F33/mnt
 done
 
-echo "== 35: a different file's try was cut off; a refused file must not clear its marker"
-chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
-echo "other-package" > $ST/inprogress
-echo "# half applied by the cut-off file" > $R/etc/udev/rules.d/99-dlzmod-halfa.rules
+halfa() {   # a different file's try cut off after it placed a udev rule
+  chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
+  echo "other-package" > $ST/inprogress
+  echo "# half applied by the cut-off file" > $R/etc/udev/rules.d/99-dlzmod-halfa.rules
+}
+echo "== 35: a different file's try was cut off, then a file that is refused: the cut-off try is put back first (#108)"
+halfa
 P=$(craft dlzmod-vearly ":"); echo x >> $P.sig; put $P; run; refused dlzmod-vearly "not an ed25519 signature"
-[ "$(cat $ST/inprogress 2>/dev/null)" = other-package ] && ok "the other file's marker kept" || bad "OTHER FILE'S MARKER CLEARED"
+said "an earlier update file was cut off" && said "previous files restored" && [ ! -e $R/etc/udev/rules.d/99-dlzmod-halfa.rules ] \
+  && [ ! -e $ST/inprogress ] && ok "the cut-off file's leftover removed, its marker cleared" || bad "CUT-OFF TRY NOT PUT BACK before the refusal"
 
-echo "== 34: then a good file, not yet approved (#65): the cut-off file's leftovers go while it waits; then Install"
+echo "== 34: a different file's try was cut off, then a good file, not yet approved (#65): the leftovers go while it waits; then Install"
+halfa
 P=$(craft dlzmod-vafterother "printf '\n// after other test\n' >> mod/app-mod/dlzmod.js"); put $P; rm -f $ST/approved; run_asking
 said "an earlier update file was cut off" && said "previous files restored" && said "waits for Install" && ! said "INSTALLED: " && ok "rolled back while it waits, not installed" || bad "not rolled back, or installed without Install"
 [ ! -e $R/etc/udev/rules.d/99-dlzmod-halfa.rules ] && ok "the cut-off file's leftover removed" || bad "LEFTOVER KEPT"
@@ -530,6 +535,55 @@ run
 said "RESTORE INCOMPLETE" && ok "restore incomplete reported" || bad "no RESTORE INCOMPLETE"
 rm -f $ST/inprogress   # the snapshot pair as it was before this case
 for f in previous.tar previous.list; do [ -e $W/$f.keep ] && mv $W/$f.keep $ST/$f || rm -f $ST/$f; done
+
+# #108: a try that was cut off (or whose put-back failed) and that a start does not go on with is put
+# back, whatever lies in dlzmod-update; the state each case starts from: a snapshot of the card as
+# it is, a progress marker, and app.js half placed
+cutoff() {   # cutoff <progress marker>
+  chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
+  echo "$1" > $ST/inprogress
+  echo "// half placed" >> $R/srv/app.js
+}
+backnow() {   # backnow <what>: app.js as before the cut-off try, its marker gone
+  [ "$(sha $R/srv/app.js)" = "$APP" ] && [ ! -e $ST/inprogress ] && ok "$1: app.js as before, marker cleared" || bad "$1: app.js NOT put back or marker left"
+}
+echo "== 64: a failed try whose put-back failed, its file still there: put back at the next start"
+P=$(craft dlzmod-vrinc "printf '\n// rinc test\n' >> mod/app-mod/dlzmod.js"); S=$(key $P)
+cutoff "$S"; echo "$S" > $ST/failed
+put $P; run
+said "could not all be put back then" && said "previous files restored" && ok "put back with the failed file still there" || bad "not put back"
+backnow "failed file"
+n1=$(reports); run; [ "$(reports)" = "$n1" ] && ok "no new report once it is back" || bad "a report at every start"
+rm -f $U/dlzmod-vrinc.tar $U/dlzmod-vrinc.tar.sig $ST/failed $ST/approved
+
+echo "== 65: a cut-off try of another file, then an update file without its signature: put back"
+cutoff other-package
+cp $P $U/dlzmod-vnosig2.tar; run
+said "has no signature file" && said "previous files restored" && ok "put back, the missing signature named" || bad "not put back"
+backnow "unsigned file"
+rm -f $U/dlzmod-vnosig2.tar
+
+echo "== 66: a cut-off try of another file, then two update files: put back"
+cutoff other-package
+put $P; cp $P $U/dlzmod-vrinc2.tar; cp $P.sig $U/dlzmod-vrinc2.tar.sig; run
+said "more than one update file" && said "previous files restored" && ok "put back, the two files named" || bad "not put back"
+backnow "two files"
+rm -f $U/dlzmod-vrinc.tar $U/dlzmod-vrinc.tar.sig $U/dlzmod-vrinc2.tar $U/dlzmod-vrinc2.tar.sig
+
+echo "== 67: a cut-off try of this file, and its own check of the card refuses it now: put back"
+P2=$(craft dlzmod-vchk "echo 'exit 1' > mod/check-rootfs.sh"); S2=$(key $P2)
+cutoff "$S2"
+put $P2; rm -f $ST/approved; run_asking   # the marker carries the Install
+said "does not pass the package's check" && said "a try of this file placed files" && said "previous files restored" \
+  && ok "refused and put back" || bad "refused without putting back"
+backnow "refused resumed try"
+rm -f $U/dlzmod-vchk.tar $U/dlzmod-vchk.tar.sig
+
+echo "== 68: a start that stops for a reason not the package's gives its try back (the earlier ones stay)"
+echo "$S 1" > $ST/tries; mkdir $ST/inprogress.new; put $P; run
+said "progress marker not written" && [ "$(cat $ST/tries 2>/dev/null)" = "$S 1" ] && ok "this start's try given back, the earlier one kept" \
+  || bad "tries now: $(cat $ST/tries 2>/dev/null || echo gone)"
+rmdir $ST/inprogress.new; rm -f $U/dlzmod-vrinc.tar $U/dlzmod-vrinc.tar.sig $ST/tries $ST/approved
 
 echo "== 63: stops before DLZDATA (not on an SD card): no report file left in /tmp"
 chroot $R /usr/local/sbin/dlzmod-update > $W/run.out 2>&1

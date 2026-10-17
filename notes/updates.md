@@ -80,7 +80,15 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    reading the package; N one past the highest, so the newest report has the highest number).
    Failure restores the snapshot and removes what the update added; the files stay, and the same file
    is not tried again until a different one is there. A package gets 3 tries; a failure that is not
-   the package's fault (no eMMC seen yet, the sandbox setup failing) is `later` and uses up no try.
+   the package's fault (no eMMC seen yet, the sandbox setup failing) is `later` and gives back the try
+   that start counted (the earlier ones stay counted).
+   A try that a start does not go on with is put back at that start, whatever the folder holds (#108):
+   one cut off by a power cut while placing, or one whose put-back failed (`RESTORE INCOMPLETE`: its
+   progress marker stays for this). No file, more than one, a file without `.sig`, a different file,
+   or the same file marked failed: the snapshot goes back before anything else, and a check that
+   refuses a resumed try of the same file puts back what it placed first. A put-back that fails again
+   is tried again at the next start [static, PC rehearsal: `tests/update.sh` cases 13, 17, 19, 34-35,
+   62, 64-67].
 
 Not covered by the drop-in (installer only): boot visuals, the installer itself, the card layout,
 the guards. A package can declare `REINSTALL=yes` for such changes; the drop-in refuses it.
@@ -132,8 +140,9 @@ rehearsal: `tests/update.sh` case 3a]:
   package's fault, e.g. the eMMC not seen yet) keeps it, and so do the starts that stop before the
   checks (more than one file, a file without `.sig`, a file that failed before): accepted, the
   approval names exactly one tar and `.sig`, so it can only ever install the file it was given for.
-- While a package waits and another file's try was cut off (that file removed since), the files from
-  before that try go back right away, as step 4 would do before this one's try.
+- When another file's try was cut off (that file removed since), the files from before that try go
+  back at the start, before this file is checked, so they are back while it waits for Install too
+  (#108).
 - The approval check is one of the gates a new updater copy must keep (by its text, like the other
   gates: it catches a mistake, not a hostile signer).
 - An unseen result popup and a new question can open at the same start, one over the other

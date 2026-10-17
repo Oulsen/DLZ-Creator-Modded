@@ -17,6 +17,7 @@
 - (MOD BUG) Update: the check that a new updater keeps its safety checks can be fooled by its own list
 - (MOD BUG) After an update the start screens still show the old version
 - (MOD BUG) The developer helper for looking at the mixer can still change it
+- (MOD BUG) After a failed update the mixer does not always get its old files back
 
 ## v0.1.0
 
