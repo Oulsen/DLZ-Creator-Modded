@@ -97,8 +97,9 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    snapshot is only cleared: then the screen asks again); a start without any file drops it, as below.
    A put-back that fails is tried once per start (once more after this start placed files) and again
    at the next one; its report is written once (no new report with the same text as the last, not
-   counting the `removed`/`placed` lines of the first try). A progress marker without its snapshot (nothing placed behind it) is cleared by
-   those put-backs; a start of that same file goes on by it with a fresh snapshot [static, PC
+   counting the `removed`/`placed` lines of the first try). A progress marker without its snapshot
+   (nothing placed behind it) is cleared by those put-backs; a start of that same file goes on by it
+   with a fresh snapshot [static, PC
    rehearsal: `tests/update.sh` cases 13, 17, 19, 34-35, 62, 64-74].
 
 Not covered by the drop-in (installer only): boot visuals, the installer itself, the card layout,

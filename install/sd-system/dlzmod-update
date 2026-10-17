@@ -243,7 +243,8 @@ restore() {   # the snapshot back, and what the update added removed; not stoppe
 # repair <why> [keep]: a try that was cut off (or whose put-back failed) and that this start does not
 # go on with: the files from before it go back, so the card never keeps a half-placed update. 0 when
 # there is nothing to put back (or checks only) or it is back; 1 when the files could not all be
-# put back (the progress marker stays: the next start tries again, not this one). With keep (the
+# put back (the progress marker stays: the next start tries again; this one only once more, after it
+# placed files). With keep (the
 # starts that stop before looking at a file, and later), the Install that try had is kept for that
 # same file (its record: tar + sig): unless another Install is there, or that file failed
 repair() {
