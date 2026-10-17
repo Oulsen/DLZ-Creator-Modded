@@ -3,7 +3,8 @@
 Reverse engineering and modding the Mackie DLZ Creator and DLZ Creator XS (Allwinner A40i,
 Armbian/Ubuntu 22.04 armhf; one firmware for both, the factory marks an XS with `/root/.dlzlite`).
 Mods run from a microSD clone of the eMMC; the eMMC stays stock. Our dump and test mixer are an XS;
-the full-size runs the same firmware (build 1731) but is untested.
+the full-size runs the same firmware (build 1731); one owner's full-size installed and ran v0.1.0
+(`notes/hardware.md`, "Full-size DLZ Creator").
 
 ## Read first
 
