@@ -42,7 +42,7 @@ What is planned and what is being worked on, all on GitHub:
 | Mixer | Firmware (Settings → About) | Status |
 |---|---|---|
 | DLZ Creator XS | 1.2.0, build 1731 | Supported, tested |
-| DLZ Creator (full-size) | 1.2.0, build 1731 | Untested: same hardware and firmware as the XS |
+| DLZ Creator (full-size) | 1.2.0, build 1731 | Supported: installed and running on an owner's mixer (v0.1.0); our test mixer is an XS |
 | Either model | another build, such as 1794 | Not supported: the installer can save a backup so we can add it |
 
 ## Install

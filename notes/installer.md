@@ -98,7 +98,8 @@ onto a card is checked by the `device-review` skill first.
      after Debian's SPL has set the PMIC. Evidence that the SPL is safe on the full-size: one software
      image and one bootloader package for both models, the XS image ships the full-size's GD32 and
      FPGA files too [static], the full-size's board is an `EVOLVE-A1_A40i` like the XS's [web]
-   - The full-size on build 1731 gets the full install (#50); not tried on a full-size yet
+   - The full-size on build 1731 gets the full install (#50); installed and running on an
+     owner's full-size (hardware.md, "Full-size DLZ Creator") [device]
 
 ## Copy and compare
 
