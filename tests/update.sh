@@ -26,7 +26,7 @@ mkdir -p $R/mnt/dlzdata && mount --bind $D $R/mnt/dlzdata && mount -t proc proc 
 # /proc), a tmpfs /run holding daemon sockets
 mount -t binfmt_misc binfmt_misc $R/proc/sys/fs/binfmt_misc || echo "WARNING: no binfmt_misc mount: the hidden-mount case is not tested"
 mount -t tmpfs tmpfs $R/run && python3 -c "import socket,sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])" $R/run/fake.sock
-cleanup() { umount $R/proc/sys/user/max_user_namespaces 2>/dev/null; umount -R $R/dev 2>/dev/null; umount $R/proc/sys/fs/binfmt_misc $R/run 2>/dev/null; umount $R/tmp $R/proc $R/mnt/dlzdata 2>/dev/null; rmdir $R/mnt/dlzdata 2>/dev/null; umount $R $D; losetup -d $L; rm -rf $W; }
+cleanup() { chattr -i $R/srv/app.js 2>/dev/null; umount $R/proc/sys/user/max_user_namespaces 2>/dev/null; umount -R $R/dev 2>/dev/null; umount $R/proc/sys/fs/binfmt_misc $R/run 2>/dev/null; umount $R/tmp $R/proc $R/mnt/dlzdata 2>/dev/null; rmdir $R/mnt/dlzdata 2>/dev/null; umount $R $D; losetup -d $L; rm -rf $W; }
 trap cleanup EXIT
 # every run: no temp files of the updater left in the card's /tmp afterwards (its report, work and
 # restore folders)
@@ -639,6 +639,28 @@ run
 chattr -i $R/srv/app.js; run
 said "previous files restored" && [ ! -e $ST/inprogress ] && [ "$(sha $R/srv/app.js)" = "$APP" ] && ok "put back once app.js can be replaced" || bad "not put back afterwards"
 [ ! -e $R/etc/systemd/system/flash-gd32.service.d/zz.conf ] && ok "extra drop-in gone" || bad "EXTRA DROP-IN LEFT"
+
+echo "== 73: the start-up put-back fails, the same file goes on and its placing fails too: put back again after placing"
+P3=$(craft dlzmod-vplace "printf '\n// place test\n' >> mod/app-mod/dlzmod.js"); S3=$(key $P3)
+cutoff "$S3"
+printf '[Service]\nExecStart=/bin/false\n' > $R/etc/systemd/system/flash-gd32.service.d/zz.conf   # the start-up put-back runs
+chattr +i $R/srv/app.js   # it fails, and so does placing app.js
+put $P3; run
+said "applying failed" && [ "$(grep -c 'putting the files from before it back' "$(last)")" = 2 ] \
+  && ok "put back at the start, and once more after placing" || bad "put back $(grep -c 'putting the files from before it back' "$(last)") times (want 2)"
+chattr -i $R/srv/app.js; run
+said "could not all be put back then" && said "previous files restored" && ok "put back at the next start" || bad "not put back at the next start"
+backnow "placing failed after a failed put-back"
+rm -f $U/dlzmod-vplace.tar $U/dlzmod-vplace.tar.sig $ST/failed $ST/approved
+
+echo "== 74: a put-back keeps no Install over another file's, and none for a file that failed"
+cutoff "$S"; echo other-record > $ST/approved
+cp $P $U/dlzmod-vkeepa.tar; cp $P.sig $U/dlzmod-vkeepa.tar.sig; cp $P $U/dlzmod-vkeepb.tar; cp $P.sig $U/dlzmod-vkeepb.tar.sig; run_asking
+said "previous files restored" && [ "$(cat $ST/approved 2>/dev/null)" = other-record ] && ok "another file's Install not overwritten" || bad "approved now: $(cat $ST/approved 2>/dev/null || echo none)"
+rm -f $ST/approved
+cutoff "$S"; echo "$S" > $ST/failed; run_asking
+said "previous files restored" && [ ! -e $ST/approved ] && ok "no Install kept for a file that failed" || bad "an Install kept for a failed file"
+rm -f $U/dlzmod-vkeep[ab].tar $U/dlzmod-vkeep[ab].tar.sig $ST/failed $ST/approved
 
 echo "== 63: stops before DLZDATA (not on an SD card): no report file left in /tmp"
 chroot $R /usr/local/sbin/dlzmod-update > $W/run.out 2>&1

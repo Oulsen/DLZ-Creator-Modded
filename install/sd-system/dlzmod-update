@@ -165,7 +165,7 @@ UNS_OLD=""   # user namespaces are off while the sandbox runs (step 3); finish p
 SUM=""
 COUNTED=no    # this start counted one of the file's 3 tries (step 0)
 REPAIRED=""   # a cut-off try was put back (or tried) this start: its report is kept
-REPAIR_FAILED=""   # a put-back failed this start: not tried again until the next start
+REPAIR_FAILED=""   # a put-back failed this start: not tried again until the next start (or placing)
 PLACED=no    # files of this file may be on the card: a try of it was cut off, or placing began
 
 WORK=""
@@ -773,7 +773,8 @@ keys_before=$(key_sums)
 grep -E "$guards" <<< "$changed" > "$SB/place-guards"
 grep -Ev "$guards|$self" <<< "$changed" | grep . > "$SB/place-rest"
 grep -E "$self" <<< "$changed" > "$SB/place-self"
-APPLYING=yes PLACED=yes
+# (placing changes the card again: a put-back that failed earlier this start is worth another try)
+APPLYING=yes PLACED=yes REPAIR_FAILED=""
 rc=0
 while IFS= read -r p; do place "$p" || rc=1; done < "$SB/place-guards"
 sync

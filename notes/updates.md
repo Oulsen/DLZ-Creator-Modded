@@ -91,14 +91,15 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    the same file puts back what it placed first, and so does a `later` on one (its count of 3 starts
    fresh: the cause is not the package).
    Where a start stops before looking at a file (broken guards, more than one file, no `.sig`) and in
-   that `later`, the put-back keeps the cut-off try's Install for that same file (its record: tar +
-   `.sig`), so the next start with only that file begins a fresh try without asking again: unless
-   another file's Install is there or that file failed; a start without any file drops it, as below.
-   A put-back that fails is tried once per start and again at the next one; its report is written
-   once (no new report with the same text as the last, not counting the `removed`/`placed` lines of
-   the first try). A progress marker without its snapshot (nothing placed behind it) is cleared by
+   that `later`, a put-back that really put files back keeps the cut-off try's Install for that same
+   file (its record: tar + `.sig`), so the next start with only that file begins a fresh try without
+   asking again: unless another file's Install is there or that file failed (a marker without its
+   snapshot is only cleared: then the screen asks again); a start without any file drops it, as below.
+   A put-back that fails is tried once per start (once more after this start placed files) and again
+   at the next one; its report is written once (no new report with the same text as the last, not
+   counting the `removed`/`placed` lines of the first try). A progress marker without its snapshot (nothing placed behind it) is cleared by
    those put-backs; a start of that same file goes on by it with a fresh snapshot [static, PC
-   rehearsal: `tests/update.sh` cases 13, 17, 19, 34-35, 62, 64-72].
+   rehearsal: `tests/update.sh` cases 13, 17, 19, 34-35, 62, 64-74].
 
 Not covered by the drop-in (installer only): boot visuals, the installer itself, the card layout,
 the guards. A package can declare `REINSTALL=yes` for such changes; the drop-in refuses it.
@@ -151,7 +152,9 @@ rehearsal: `tests/update.sh` case 3a]:
   checks (more than one file, a file without `.sig`, a file that failed before): accepted, the
   approval names exactly one tar and `.sig`, so it can only ever install the file it was given for.
   The same goes for a cut-off try's Install that a put-back keeps (#108, step 7 above): it is written
-  back only for that try's own record, never over another file's Install.
+  back only for that try's own record, never over another file's Install. It stays until a start
+  finds no file or asks about another one; a refused other file in between leaves it, so that same
+  file and `.sig`, put back unchanged, installs without asking again: accepted, as above.
 - When another file's try was cut off (that file removed since), the files from before that try go
   back at the start, before this file is checked, so they are back while it waits for Install too
   (#108).
