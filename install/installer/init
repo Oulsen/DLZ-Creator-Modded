@@ -203,7 +203,10 @@ done
 IC_CID=$(cat /sys/block/$sd/device/cid 2>/dev/null)
 [ -n "$IC_CID" ] || fail "The SD card has no identity (CID)"
 
-# 3. lock the eMMC before anything is mounted (same script as the mod card), then verify it
+# 3. lock the eMMC before anything is mounted (same script as the mod card), then verify it. The lock
+# refuses writes from user space only (5.10): what keeps the eMMC unwritten during the copy is the
+# loop it is read through (opened read-only, no discard or write-zeroes) and the plain snapshot over
+# it (install-card.sh, ic_snap_up and ic_ro_loop_ok)
 sh $PKG/mod/sd-system/dlzmod-emmc-ro >> "$LOG" 2>&1 || fail "Internal storage could not be locked read-only"
 for b in /dev/$emmc /dev/${emmc}p*; do
   [ "$(blockdev --getro "$b")" = 1 ] || fail "$b is still writable"
@@ -438,8 +441,10 @@ if [ "$DRYRUN" != yes ]; then
     umount /sd || fail "The installer card could not be released (nothing was written)"
   fi
   LOGNAME_SHOWN="not saved"
-  if ! ic_guard; then   # nothing written: the installer card is intact, put the log back on it
-    if mount -t vfat -o iocharset=ascii,flush "/dev/${sd}p1" /sd && mkdir -p /sd/dlzmod-logs        && cat "$LOG" > "/sd/dlzmod-logs/$LOGF"; then
+  # nothing written: the log goes back onto the installer card, unless the guard failed because a
+  # different card is in the slot now (then it stays in RAM: no write to a card nobody chose)
+  if ! ic_guard; then
+    if ic_card_same && mount -t vfat -o iocharset=ascii,flush "/dev/${sd}p1" /sd && mkdir -p /sd/dlzmod-logs        && cat "$LOG" > "/sd/dlzmod-logs/$LOGF"; then
       LOGDIR=/sd/dlzmod-logs LOG=/sd/dlzmod-logs/$LOGF
       LOGNAME_SHOWN="dlzmod-logs/$LOGF"
     fi

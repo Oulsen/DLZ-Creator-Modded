@@ -2,12 +2,14 @@
 
 ## v0.2.0
 
+- (DLZ FEATURE) Download recordings from your computer over the network
 - (DLZ BUG) Anyone on the same network can control the mixer, without a PIN or password
 - (DLZ BUG) Once the SD card has recordings, it stays writable all the time and can be damaged by switching off
 - (MOD FEATURE) Quicker and broader automatic checks for every change to the mod
 - (MOD FEATURE) Ask before installing an update
 - (MOD FEATURE) A development card that takes new test builds over Wi-Fi
 - (MOD FEATURE) The Mod page and the logs on the card show which build is installed
+- (MOD FEATURE) Automatic checks for the mod's own screens and settings
 - (MOD BUG) Recordings, presets and snapshots can only be deleted or renamed on the mixer's own screen
 - (MOD BUG) Install time estimate far too high at the start of a step
 - (MOD BUG) SSH card shows nothing while SSH is being set up
@@ -17,6 +19,9 @@
 - (MOD BUG) Update: the check that a new updater keeps its safety checks can be fooled by its own list
 - (MOD BUG) After an update the start screens still show the old version
 - (MOD BUG) The developer helper for looking at the mixer can still change it
+- (MOD BUG) Small fixes found in the review of v0.1.0
+- (MOD BUG) The backup card recipe can start the mixer's own system
+- (MOD BUG) An installer image is not tied to the release it is named after
 - (MOD BUG) After a failed update the mixer does not always get its old files back
 
 ## v0.1.0

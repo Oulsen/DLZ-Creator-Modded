@@ -26,7 +26,8 @@ Creator Modded; **without the card** it starts its normal Mackie software, exact
   [latest release](https://github.com/Oulsen/DLZ-Creator-Modded/releases/latest).
 - A free tool to write the image: [balenaEtcher](https://etcher.balena.io/) or
   [Raspberry Pi Imager](https://www.raspberrypi.com/software/).
-- Optional: a USB Wi-Fi stick, if you want Wi-Fi (the mixer has none of its own).
+- Optional: a USB Wi-Fi stick, if you want Wi-Fi (the mixer has none of its own); see
+  [Known good Wi-Fi sticks](../README.md#known-good-wi-fi-sticks).
 
 > ### ⚠ Never click "Format"
 > When the card is in your computer, **Windows may say a drive needs to be formatted. Never click

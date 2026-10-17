@@ -23,7 +23,8 @@ report it privately, see [SECURITY.md](SECURITY.md).
 
 Tested a microSD card? Open an issue with the card's exact name and size, the mod version, the
 install time (from `dlzmod-logs/install-N-vX.Y.Z.txt`) and whether recording worked; it goes into the
-README's list of known good cards.
+README's list of known good cards. The same for a USB Wi-Fi stick: its exact name and version, the
+mod version and whether Wi-Fi connected, for the list of known good Wi-Fi sticks.
 
 ## Code and notes
 

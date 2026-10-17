@@ -363,14 +363,24 @@ function DLZMOD_keyAllowed(key, value, send) {
 
 // stock runs "wavfinalizer <unfinished> <final>" through a shell, built from file names on the card
 // or stick: a name with ";" or "$(...)" would run as root. Same program, same arguments, no shell.
-// #98: each file counts as a read-write use, so DLZMOD_roNow leaves the medium writable between files
+// #98: each file counts as a read-write use, so DLZMOD_roNow leaves the medium writable between files.
+// #26: counted while it runs: the final file is being written, so no downloads (DLZMOD_recNoRead)
 function DLZMOD_wavfinalize(src, dst) {
   DLZMOD_roLater.lastRw = Date.now();
+  DLZMOD_wavfinalize.running = (DLZMOD_wavfinalize.running || 0) + 1;
   return new Promise((resolve, reject) => {
-    require("child_process").execFile("wavfinalizer", [src, dst], (e, out) => {
+    // counted down exactly once, also when execFile throws at once (bad arguments): a count left
+    // standing would refuse every download until the next start
+    const done = (e, out) => {
       DLZMOD_roLater.lastRw = Date.now();
+      DLZMOD_wavfinalize.running--;
       e ? reject(e) : resolve(out);
-    });
+    };
+    try {
+      require("child_process").execFile("wavfinalizer", [src, dst], (e, out) => done(e, out));
+    } catch (e) {
+      done(e);
+    }
   });
 }
 
@@ -758,11 +768,12 @@ function DLZMOD_remoteAdmit(socket, send) {
   return true;
 }
 
-// what a paired browser may load: the UI (index.html, app.js and its libraries, fonts and pictures).
-// Not srv_data.json (the System Lock PIN), presets, node_modules, package files, the demo pages
+// what a paired browser may load: the UI (index.html, app.js and its libraries, fonts and pictures)
+// and the recordings (DLZMOD_recHttp, #26). Not srv_data.json (the System Lock PIN), presets,
+// node_modules, package files, the demo pages
 function DLZMOD_remoteFileOk(p) {
   return !/(^|\/)\.\.?(\/|$)/.test(p) && !p.includes("\0") &&
-    /^\/(|index\.html|app\.js|style\.css|favicon\.ico|(libs|fonts|img1x)\/.+)$/.test(p);
+    /^\/(|index\.html|app\.js|style\.css|favicon\.ico|(libs|fonts|img1x)\/.+|dlzmod-rec(\/.+)?)$/.test(p);
 }
 
 // what the PIN and switch-off pages load before any pairing: Mackie's logo and the two font weights
@@ -871,6 +882,174 @@ function DLZMOD_remotePage(res, status, text, form) {
     "<p class=\"f\"><span>DLZ Creator Modded</span></p></div></body></html>";
   res.writeHead(status, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
   res.end(html);
+}
+
+// Recordings over the network (#26), read only: GET /dlzmod-rec lists the recordings on the SD card
+// and the USB stick (JSON), GET /dlzmod-rec/<sd|usb>/<recordings folder>/<name> downloads one
+// (express's res.download: Range and ETag, so a cut download resumes). Other devices only paired:
+// DLZMOD_remoteHttp runs first. While the mixer records no file is read, so a download cannot cause
+// dropouts: the list says so, a download gets 503 and running ones are cut off (the browser marks them
+// failed; they can be resumed from its downloads once the recording has finished). roots: () => [SD
+// card, USB stick] mount points ("-" when empty), server.js's ce()
+function DLZMOD_recHttp(roots) {
+  return (req, res, next) => {
+    const p = String(req.path || "");
+    if (p !== "/dlzmod-rec" && !p.startsWith("/dlzmod-rec/")) return next();
+    const end = (status, headers) => {
+      res.writeHead(status, Object.assign({ "Cache-Control": "no-store" }, headers));
+      res.end();
+    };
+    if (req.method !== "GET" && req.method !== "HEAD") return end(405, { Allow: "GET, HEAD" });
+    const busy = DLZMOD_recNoRead();
+    // node 18 ends the whole server on an unhandled rejection
+    const failed = (e) => {
+      console.error("dlzmod: recordings:", e && e.message);
+      if (!res.headersSent) end(500);
+      else res.destroy();
+    };
+    if (p === "/dlzmod-rec") {
+      return DLZMOD_recList(roots(), busy).then((list) => {
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+        res.end(JSON.stringify(list));
+      }).catch(failed);
+    }
+    const f = DLZMOD_recFile(p, roots());
+    if (!f) return end(404);
+    if (busy) return end(503, { "Retry-After": "30" });
+    DLZMOD_recReal(f.dirPath, f.path).then((ok) => {
+      // gone while the checks ran: its "close" has passed, DLZMOD_recWatch would keep it for good
+      if (req.socket && req.socket.destroyed) return;
+      if (!ok) return end(404);
+      DLZMOD_recWatch(res);
+      res.download(f.path, f.name, { headers: { "Cache-Control": "no-store" } }, (err) => {
+        if (!err) return;
+        // not found before the answer started; a read error halfway (a pulled stick): end the
+        // connection, the browser sees a broken download. A client that went away is no error
+        if (!res.headersSent) end(404);
+        else res.destroy();
+      });
+    }).catch(failed);
+  };
+}
+
+// nothing is read from the media now: the mixer records (DLZMOD_recBusy) or finishes a recording
+// file (DLZMOD_wavfinalize: after a power cut, at the start)
+function DLZMOD_recNoRead() {
+  return DLZMOD_recBusy(globalThis.getDataKey) || (DLZMOD_wavfinalize.running || 0) > 0;
+}
+
+// the recordings folder a real folder and (when given) the file in it a real file, neither a link:
+// a USB stick may be ext4, and a recordings folder linked to / would serve the system's files. The
+// mount point itself is server.js's own
+async function DLZMOD_recReal(dirPath, filePath) {
+  const fsp = require("fs").promises;
+  try {
+    if (!(await fsp.lstat(dirPath)).isDirectory()) return false;
+    return !filePath || (await fsp.lstat(filePath)).isFile();
+  } catch (e) {
+    return false;
+  }
+}
+
+// a name the list shows and a download may open: a plain name, not hidden, not a recording still
+// being written (*.wav.unfinished). Not ending in a dot or space: FAT ignores those when looking a
+// name up, so "x.wav.unfinished." would open the unfinished file
+function DLZMOD_recShown(name) {
+  return DLZMOD_plainName(name) && !name.startsWith(".") && !/[. ]$/.test(name) && !/\.unfinished$/i.test(name);
+}
+
+// /dlzmod-rec/<sd|usb>/<folder>/<name> (each part URL-encoded on its own) to {dirPath, path, name},
+// or null
+function DLZMOD_recFile(p, roots) {
+  const seg = String(p).split("/");
+  if (seg.length !== 5 || seg[0] !== "" || seg[1] !== "dlzmod-rec") return null;
+  let medium, dir, name;
+  try {
+    [medium, dir, name] = seg.slice(2).map(decodeURIComponent);
+  } catch (e) {
+    return null;
+  }
+  const i = ["sd", "usb"].indexOf(medium);
+  const root = i < 0 ? "" : roots[i];
+  if (!root || root === "-" || !DLZMOD_REC_DIRS.includes(dir) || !DLZMOD_recShown(name)) return null;
+  return { dirPath: root + "/" + dir, path: root + "/" + dir + "/" + name, name: name };
+}
+
+// the recordings of each mounted medium, newest first: {recording, media: [{medium, files: [{dir,
+// name, size, time}]}]}
+async function DLZMOD_recList(roots, busy) {
+  const fsp = require("fs").promises;
+  const out = { recording: !!busy, media: [] };
+  for (const [i, medium] of ["sd", "usb"].entries()) {
+    const root = roots[i];
+    if (!root || root === "-") continue;
+    const files = [];
+    for (const dir of DLZMOD_REC_DIRS) {
+      let names;
+      if (!(await DLZMOD_recReal(root + "/" + dir))) continue;
+      try {
+        names = await fsp.readdir(root + "/" + dir);
+      } catch (e) {
+        continue;
+      }
+      for (const name of names) {
+        if (!DLZMOD_recShown(name)) continue;
+        try {
+          const st = await fsp.lstat(root + "/" + dir + "/" + name);
+          if (st.isFile()) files.push({ dir: dir, name: name, size: st.size, time: Math.round(st.mtimeMs) });
+        } catch (e) {}
+      }
+    }
+    files.sort((a, b) => b.time - a.time || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    out.media.push({ medium: medium, files: files });
+  }
+  return out;
+}
+
+// #26: every client's file lists again (stock's UPDATE_DIRS: the Media page and the sample browser
+// reload when shown), after a recording, a delete or a rename (patch.py). Stock sends it only when a
+// medium comes or goes, so a browser kept showing a recordings folder as it was. bus: server.js's
+// broadcaster (ee, null before the server runs). Calls while one waits make one message, at the
+// later of their times: a delete just after a recording stop must not send before the recording has
+// its final name. The message goes to the last broadcaster given (one from before the server ran is
+// null). Times on the monotonic clock: the mixer's clock jumps when NTP sets it after a start
+function DLZMOD_dirsChanged(bus, delay = 0) {
+  const s = DLZMOD_dirsChanged;
+  if (bus) s.bus = bus;
+  const due = require("perf_hooks").performance.now() + delay;
+  if (s.timer && s.due >= due) return;
+  clearTimeout(s.timer);
+  s.due = due;
+  s.timer = setTimeout(() => {
+    s.timer = null;
+    const b = s.bus;
+    try {
+      if (b && typeof b.send === "function") b.send({ cmd: "UPDATE_DIRS", id: 0, args: {} });
+    } catch (e) {
+      console.error("dlzmod: file lists:", e.message);
+    }
+  }, delay);
+}
+
+// running downloads: cut off once the mixer records or finishes a recording (one check a second
+// while any runs)
+function DLZMOD_recWatch(res) {
+  const s = DLZMOD_recWatch;
+  s.running = s.running || new Set();
+  s.running.add(res);
+  res.on("close", () => {
+    s.running.delete(res);
+    if (!s.running.size && s.timer) {
+      clearInterval(s.timer);
+      s.timer = null;
+    }
+  });
+  if (s.timer) return;
+  s.timer = setInterval(() => {
+    if (!DLZMOD_recNoRead()) return;
+    console.log("dlzmod: recording: " + s.running.size + " download(s) cut off");
+    for (const r of [...s.running]) r.destroy();
+  }, 1000);
 }
 
 // port 89 (the screen's connection) on loopback only, IPv4 and IPv6: app.js connects to

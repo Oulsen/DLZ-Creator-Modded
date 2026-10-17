@@ -188,8 +188,9 @@ screen, Forget and Off locking the browser out; the screen, faders and audio unc
   PIN or switching off. Wrong PINs, counted for all devices together: after 5 a pause of 60 s,
   doubling up to 15 min, on the panel too; a successful pairing starts the doubling at 60 s again.
 - **Paired**: the browser loads only the UI's own files (`/`, `index.html`, `app.js`, `style.css`,
-  `favicon.ico`, `libs/`, `fonts/`, `img1x/`), not `srv_data.json`, the presets or anything else in
-  `/srv`. Before pairing only the PIN page's own files: the model's logo (`img1x/DLZ_XS.png` /
+  `favicon.ico`, `libs/`, `fonts/`, `img1x/`) and the recordings (`/dlzmod-rec`, #26, below), not
+  `srv_data.json`, the presets or anything else in `/srv`. Before pairing only the PIN page's own
+  files: the model's logo (`img1x/DLZ_XS.png` /
   `DLZ_Creator.png`) and Proxima Nova Regular and Semibold (`DLZMOD_loginFileOk`); the page is in
   Mackie's look with the mod's yellow marker at the bottom; socket.io takes it with the cookie and, from a browser, only with the mixer's own page as
   `Origin` (a web page elsewhere cannot drive the mixer). The connection is checked once more when it
@@ -233,6 +234,62 @@ screen, Forget and Off locking the browser out; the screen, faders and audio unc
   System Lock is a screen overlay plus a block on the hardware buttons (stock's server reads `lock`
   only in `HWREC`, `PADPRSD` and `ALT`), so a paired browser still controls a mixer locked on its
   screen, as stock's open web UI did [static].
+
+## Recordings to a computer (#26)
+
+A paired computer downloads recordings from the Media page, read only [device: the button only in
+the browser, one recording and all of a folder, no download while recording, the lists refreshing
+in the browser and on the screen after a recording, rename or delete, the card read-only again after
+each recording; static (unit tests, PC sandbox) for the rest: a running download cut off when a
+recording starts, the 503 while `wavfinalizer` runs, linked folders and files, the error paths]:
+
+- **Where**: a download button on Mackie's Media page, left of Sort, only in a browser
+  (`DLZMOD_external`, decided when the page is built: Mackie asks a widget's `getState` only while it
+  is visible, so a button hidden from there never comes back). Enabled in a recordings folder
+  (`DLZ_Creator_Recordings` / `DLZ_Creator_XS_Recordings` on the SD card or USB stick), greyed
+  elsewhere like Rename and Delete; the path label is 424 instead of 520 wide there, so a long path is
+  shortened before it reaches the button.
+- **What**: nothing (or a folder) selected asks "Download all N recordings (size)?"; a selected
+  recording asks "This one" (green) or "All N" (Mackie's blue): Mackie's list cannot be unselected,
+  so all stays one tap away (only one recording there: it downloads at once). Each file goes to the
+  browser's downloads, 400 ms apart. Not one after
+  another: a page cannot see a download finish, and saving into a folder (File System Access) needs
+  HTTPS; the browser runs a few at a time per host and each one resumes on its own. Those take the
+  browser's connections to the mixer (6 per host over HTTP/1.1): while a large folder downloads,
+  another request of that page (the list for a second press) can wait behind them.
+- **Server** (`DLZMOD_recHttp`, behind `DLZMOD_remoteHttp`): `GET /dlzmod-rec` lists each mounted
+  medium's recordings (name, size, time, newest first) and whether the mixer records;
+  `GET /dlzmod-rec/<sd|usb>/<folder>/<name>` sends the file with express's `res.download` (Range,
+  ETag, `Content-Disposition`). Each path part is decoded on its own; the folder must be one of
+  `DLZMOD_REC_DIRS`, the name plain, not hidden, not `*.unfinished` (a recording still being written)
+  and not ending in a dot or space (FAT ignores those on lookup: `x.wav.unfinished.` would open the
+  unfinished file). The folder must be a real folder and the file a real file (`DLZMOD_recReal`,
+  `lstat`): an ext4 stick could link the recordings folder to `/`. GET and HEAD only.
+- **While recording** (`DLZMOD_recNoRead`: `DLZMOD_recBusy`, i.e. recording, paused, the sample
+  recorder; or `wavfinalizer` finishing a recording file, after a power cut at the start) nothing is
+  read from the media: the list says so (the button shows "The mixer is busy with a recording"), a
+  download gets 503 with `Retry-After: 30`, and running downloads are cut off (`DLZMOD_recWatch`,
+  checked every second while one runs, so up to a second of reading after a start; the browser can
+  resume them). Reading does not keep the media writable: only a file open for writing makes the
+  read-only remount (#98) fail [static].
+- **Never ends the server**: node 18 ends server.js on an unhandled rejection, so both routes end in
+  a `.catch` (500, or the connection closed once the answer has started); a client gone during the
+  checks is not watched; a read error halfway (a pulled stick) closes the connection.
+- **The mixer's own screen** (127.0.0.1) reaches the routes without pairing, as everything else; it
+  has no button.
+- **Lists stay current** (`DLZMOD_dirsChanged`): stock reloads a client's Media list only when it
+  navigates or gets `UPDATE_DIRS`, which server.js sent only when a medium came or went; a browser
+  kept showing a recordings folder without new, renamed or deleted recordings [device: new recordings
+  missing until up a folder and back]. The server now also sends `UPDATE_DIRS` through stock's own
+  broadcaster (`ee`) after a delete and a rename (patched into `MEDIA_DELETE` / `MEDIA_RENAME`) and 3 s
+  after a recording ends (`P()`, once it has its final name); calls close together make one message.
+  Every client with the Media page (or the sample browser) open reloads it, the screen too [static:
+  PC sandbox, the screen's port-89 connection gets it as well].
+- **Accepted** (device review of #26): plain HTTP, so a download can be read on the same network, as
+  the remote control itself; a recording renamed or deleted on the screen while it downloads is served
+  as it was opened; playing a recording from the card while several download is not held back
+  [guess: no dropouts, to be heard on the mixer]; a name that is not valid UTF-8 on the card (the FAT
+  mount has no `iocharset`) is left out of the list without a word [guess].
 
 ## The card gate (`dlzmod-cardcheck`)
 

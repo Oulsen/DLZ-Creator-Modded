@@ -270,13 +270,27 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
   leaves `index.html` to Mackie's server, so it opens in remote mode), while http://127.0.0.1/ stays
   the mixer's screen. Turn "Control from other devices" on in the screen's Remote tab and pair
   the localhost tab with the PIN; the browser keeps a cookie per host, so the two stay apart. Still
-  this PC only.
+  this PC only. Without clicking: `node dev/ui-sandbox/pair.js` turns it on from the screen's side
+  (port 89), pairs with the PIN as localhost and prints the token; `DLZ_SHOT_URL=http://localhost/
+  DLZ_SHOT_COOKIE=<token> node dev/ui-sandbox/shot.js ...` then shoots the paired browser UI, and
+  `DLZ_SHOT_DOWNLOADS=<folder>` keeps what it downloads.
+- **A pretend SD card and/or USB stick**: `DLZ_FAKE_MEDIA=sd` (or `usb`, `sd,usb`) in front of the
+  start. The shim reports a FAT partition in `lsblk`, lets server.js "mount" it at
+  `/tmp/mnt/mmcblk0p2` / `sda1` (a folder on the sandbox drive, seeded once with a few short silent
+  recordings, a `*.unfinished` one and a sub-folder), answers its remounts and `df`, and its look for
+  a firmware file (`find ... *.upd`: unguarded in server.js, an error there ends the server).
+  `/proc/mounts` lists them read-only for the mod's read-only watcher. Mackie's `wavfinalizer` stays
+  blocked. Off by default: other screens expect no media.
 - Works: the whole UI, state changes, presets/snapshots, port-89 clients (state persists in the
-  sandbox's `srv_data.json`). Not there: dspserver, faderlink, glesgui, so no audio, hardware
-  buttons or USB media. Meters show moving fake levels that follow the faders and mutes
-  (`dev/ui-sandbox/fake-vu-live.js`, injected by the shim; off with `http://127.0.0.1/?novu`).
+  sandbox's `srv_data.json`). Not there: dspserver, faderlink, glesgui, so no audio or hardware
+  buttons, and no media without `DLZ_FAKE_MEDIA`. Meters show moving fake levels that follow the
+  faders and mutes (`dev/ui-sandbox/fake-vu-live.js`, injected by the shim; off with
+  `http://127.0.0.1/?novu`): on a fresh copy most channels are muted or their faders down (the dump's
+  state), so only a few meters move until they are opened.
 - Patch `dumps/sandbox/srv/app.js` and reload the browser; restart the script for `server.js`.
-  Reset: delete `dumps/sandbox/` and run the script again (it re-copies `/srv` from the dump).
+  Reset: delete `dumps/sandbox/` and run the script again (it re-copies `/srv` from the dump). A
+  worktree has no `dumps/`: the first start there copies a fresh `/srv` (patch it with `repatch`
+  before the first start).
 - Observed [static, sandbox]: the hub does not echo a key write back to its sender; writing
   `i.0.mute` produced a broadcast with a different value (mute groups?), not yet understood.
 

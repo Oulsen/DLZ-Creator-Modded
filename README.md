@@ -7,7 +7,8 @@ Alpha, at your own risk: read [DISCLAIMER.md](DISCLAIMER.md) first.
 ## What the mod does
 
 - **Recordings**: saved to the SD card by default, numbered across SD card and USB with unique
-  names like `REC_0003_otter`
+  names like `REC_0003_otter`, and downloaded to a computer over the network (after pairing,
+  from the Media page)
 - **Meters**: level before or after the fader, yellow and red zones, a dB scale
 - **Screen**: the header bar can be hidden for more room; a "DLZ Creator Modded" tab in Settings;
   its own startup screens and a startup log for bug reports
@@ -75,8 +76,9 @@ The mod keeps the card's recordings part read-only except while it records, rena
 switching off is safe then. A card that was switched off while writable (during a recording, or with
 older versions and the stock software whenever it held recordings) stays marked as "not properly
 unmounted". The mixer works with it as before; to clear the mark, put the card in a computer, **copy
-your recordings off first**, then let the computer scan and fix it (a repair can shorten a recording
-that was cut off).
+your recordings off first**, then let the computer scan and fix the DLZDATA drive only. If the
+computer offers to format a drive of the card, **never click Format**. A repair can shorten a
+recording that was cut off.
 
 ### Known good cards
 
@@ -88,6 +90,16 @@ recording worked.
 |---|---|---|---|---|---|
 | SanDisk Ultra microSDXC UHS-I, A1, U1, Class 10 | 128 GB | v0.1.0 | 9 min | about 13 MB/s | yes |
 | Gigastone 4K UHD Video microSDXC, U3 | 64 GB | v0.1.0 | 9 min | about 11 MB/s | not tried yet |
+
+### Known good Wi-Fi sticks
+
+USB Wi-Fi sticks that connected on a real mixer with the mod. Other sticks may work too, but have not
+been tried. Tested a stick? Open an issue with its exact name and version (on the box or the stick),
+the mod version and whether Wi-Fi connected.
+
+| Wi-Fi stick | Mod version | Wi-Fi | Notes |
+|---|---|---|---|
+| TP-Link Archer T3U (AC1300) | v0.1.0 | yes | the mixer's stock software does not recognise it, the mod does |
 
 ## Help and contact
 

@@ -1081,3 +1081,98 @@ function DLZMOD_wifiList() {
     },
   });
 }
+
+// #26: recordings to a computer (dlzmod-server.js, DLZMOD_recHttp). A download button on the Media
+// page, left of Sort (patch.py; style: the page's own button style), only in a browser
+// (DLZMOD_external, known before the pages are built: never on the mixer's own screen), enabled in a
+// recordings folder only (the server serves nothing else), like stock's Rename and Delete. The path
+// label (520 wide around x 29) then ends left of it: Mackie shortens a longer path with " .. ".
+// A selected recording downloads on its own; nothing (or a folder) selected asks to download all
+// the folder's recordings
+function DLZMOD_mediaDownloadButton(page, style) {
+  const external = DLZMOD_external();
+  if (external && page.lPath) page.lPath.setSize(424, 40);
+  return new E1Button(page, Object.assign({}, style, {
+    // Font Awesome's "download" (in Mackie's font, not in its $FA list)
+    anchors: [264, -214, null, null, !0, !0], text: "\uf019", visible: external, regKey: ["player.path"],
+    getState: function () {
+      this.enabled = !!DLZMOD_recFolder(page.getPath());
+    },
+    onPress: () => DLZMOD_download(page),
+  }));
+}
+
+// the Media page's path ("sd:\DLZ_Creator_XS_Recordings") to {medium, dir} when it is a recordings
+// folder (dlzmod-server.js, DLZMOD_REC_DIRS), else null
+function DLZMOD_recFolder(path) {
+  const m = /^(sd|usb):\\(DLZ_Creator_Recordings|DLZ_Creator_XS_Recordings)$/.exec(path || "");
+  return m ? { medium: m[1], dir: m[2] } : null;
+}
+
+// the server's list first: it knows whether the mixer records and leaves out recordings still being
+// written, and gives the sizes for the question
+function DLZMOD_download(page) {
+  const f = DLZMOD_recFolder(page.getPath());
+  if (!f) return;
+  const sel = page.list.selected();
+  const title = "Download";
+  fetch("/dlzmod-rec", { cache: "no-store" })
+    .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
+    .then((list) => {
+      if (list.recording) {
+        return showMessage("The mixer is busy with a recording.\nDownload when it has finished.", { title: title });
+      }
+      const m = list.media.find((x) => x.medium === f.medium);
+      const files = m ? m.files.filter((x) => x.dir === f.dir) : [];
+      const all = () => DLZMOD_downloadFiles(f, files);
+      const allText = (files.length === 1 ? "1 recording" : "all " + files.length + " recordings") +
+        " (" + DLZMOD_size(files.reduce((s, x) => s + x.size, 0)) + ")";
+      const several = "Your browser may ask to allow several downloads.";
+      // a selected recording: that one or all of them (Mackie's list cannot be unselected)
+      if (sel && !sel.endsWith("\\")) {
+        const one = files.find((x) => x.name === sel);
+        if (!one) return showMessage(sel + "\ncannot be downloaded.", { title: title });
+        const just = () => (DLZMOD_downloadFiles(f, [one]), showToast("Downloading: " + sel));
+        if (files.length === 1) return just();
+        const style = { textStyle: { font: Font.font(600, "16pt") }, textColors: [Color.main, Color.white],
+          colors: [Color.confirm, Color.main] };
+        // three buttons of Mackie's fixed width: a wider popup
+        return askConfirm("Download " + sel + "\nor " + allText + "?\n" + several, { title: title, w: 760, buttons: [
+          Object.assign({ text: "This one", onPress: function () { this.parent.destroy(), just(); } }, style),
+          // All in Mackie's blue, darkened like its confirm green, so the two stand apart
+          Object.assign({}, style, { text: "All " + files.length, textColors: [Color.blue, Color.white],
+            colors: ["#1B455A", Color.blue], onPress: function () { this.parent.destroy(), all(); } }),
+          { text: $FA.times, textStyle: { font: Font.fa("36px") }, textColors: [Color.white, Color.white],
+            colors: [Color.deny, Color.red], onPress: function () { this.parent.destroy(); } },
+        ] });
+      }
+      if (!files.length) return showMessage("No recordings to download here.", { title: title });
+      askConfirm("Download " + allText + "?\n" + several, { title: title }, all);
+    })
+    .catch(() => showMessage("The mixer did not answer. Try again.", { title: title }));
+}
+
+// each file to the browser's downloads (it runs a few at a time, each can resume on its own)
+function DLZMOD_downloadFiles(f, files) {
+  files.forEach((x, i) => setTimeout(() => {
+    const a = document.createElement("a");
+    a.href = "/dlzmod-rec/" + f.medium + "/" + encodeURIComponent(f.dir) + "/" + encodeURIComponent(x.name);
+    a.download = x.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }, i * 400));
+}
+
+// one decimal below 10, the unit the number rounds to: 9.96 MB is "10 MB", 999.6 MB "1.0 GB"
+function DLZMOD_size(bytes) {
+  if (bytes < 1e3) return bytes + " bytes";
+  const units = ["KB", "MB", "GB", "TB"];
+  const fmt = (v) => (Number(v.toFixed(1)) >= 10 ? v.toFixed(0) : v.toFixed(1));
+  let v = bytes / 1e3, i = 0;
+  while (i < units.length - 1 && Number(fmt(v)) >= 1000) {
+    v /= 1e3;
+    i++;
+  }
+  return fmt(v) + " " + units[i];
+}
