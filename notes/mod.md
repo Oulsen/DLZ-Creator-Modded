@@ -189,7 +189,8 @@ screen, Forget and Off locking the browser out; the screen, faders and audio unc
   doubling up to 15 min, on the panel too; a successful pairing starts the doubling at 60 s again.
 - **Paired**: the browser loads only the UI's own files (`/`, `index.html`, `app.js`, `style.css`,
   `favicon.ico`, `libs/`, `fonts/`, `img1x/`) and the recordings (`/dlzmod-rec`, #26, below), not
-  `srv_data.json`, the presets or anything else in `/srv`. Before pairing only the PIN page's own files: the model's logo (`img1x/DLZ_XS.png` /
+  `srv_data.json`, the presets or anything else in `/srv`. Before pairing only the PIN page's own
+  files: the model's logo (`img1x/DLZ_XS.png` /
   `DLZ_Creator.png`) and Proxima Nova Regular and Semibold (`DLZMOD_loginFileOk`); the page is in
   Mackie's look with the mod's yellow marker at the bottom; socket.io takes it with the cookie and, from a browser, only with the mixer's own page as
   `Origin` (a web page elsewhere cannot drive the mixer). The connection is checked once more when it
@@ -236,8 +237,11 @@ screen, Forget and Off locking the browser out; the screen, faders and audio unc
 
 ## Recordings to a computer (#26)
 
-A paired computer downloads recordings from the Media page, read only [static: PC sandbox with a
-pretend SD card, not yet on the mixer]:
+A paired computer downloads recordings from the Media page, read only [device: the button only in
+the browser, one recording and all of a folder, no download while recording, the lists refreshing
+in the browser and on the screen after a recording, rename or delete, the card read-only again after
+each recording; static (unit tests, PC sandbox) for the rest: a running download cut off when a
+recording starts, the 503 while `wavfinalizer` runs, linked folders and files, the error paths]:
 
 - **Where**: a download button on Mackie's Media page, left of Sort, only in a browser
   (`DLZMOD_external`, decided when the page is built: Mackie asks a widget's `getState` only while it
@@ -250,7 +254,9 @@ pretend SD card, not yet on the mixer]:
   so all stays one tap away (only one recording there: it downloads at once). Each file goes to the
   browser's downloads, 400 ms apart. Not one after
   another: a page cannot see a download finish, and saving into a folder (File System Access) needs
-  HTTPS; the browser runs a few at a time per host and each one resumes on its own.
+  HTTPS; the browser runs a few at a time per host and each one resumes on its own. Those take the
+  browser's connections to the mixer (6 per host over HTTP/1.1): while a large folder downloads,
+  another request of that page (the list for a second press) can wait behind them.
 - **Server** (`DLZMOD_recHttp`, behind `DLZMOD_remoteHttp`): `GET /dlzmod-rec` lists each mounted
   medium's recordings (name, size, time, newest first) and whether the mixer records;
   `GET /dlzmod-rec/<sd|usb>/<folder>/<name>` sends the file with express's `res.download` (Range,

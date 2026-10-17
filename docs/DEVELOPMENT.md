@@ -24,7 +24,7 @@ backup the installer makes.
 
 - A DLZ Creator XS or DLZ Creator on firmware 1.2.0 build 1731 (Settings → About), a microSD card of
   16 GB or more and a card reader
-- Windows with Git Bash, Node.js 18 or later (the UI sandbox and the server mod's unit tests) and
+- Windows with Git Bash, Node.js 18 or later (the UI sandbox and the app and server mods' unit tests) and
   Chrome (sandbox screenshots; another Chromium with `CHROME=<path>`)
 - WSL 2 with the distro **Ubuntu** (Docker Desktop's `docker-desktop` distro can be the default:
   always pass `-d Ubuntu`), with:
@@ -48,7 +48,8 @@ backup the installer makes.
    card below makes it too.
 2. **Mount it read-only**: `wsl -d Ubuntu -u root -e bash install/mount-ro.sh` (repo root) gives
    `/mnt/dlz`. An idle WSL drops the mount: keep `wsl -d Ubuntu -u root -e sleep 7000` running.
-3. **Run the tests that need no mixer**: `node install/server-mod/test-dlzmod-server.js` (Windows),
+3. **Run the tests that need no mixer**: `node install/server-mod/test-dlzmod-server.js` and
+   `node install/app-mod/test-dlzmod.js` (Windows),
    `bash tests/guards.sh`, `bash tests/cardcheck.sh` and `bash tests/patches.sh` (WSL, as root),
    `tests/update-checks.sh` (as a normal user: in WSL as `nobody`, see tests/README.md); the rest,
    and which to run for which change: [tests/README.md](../tests/README.md). GitHub runs the unit
@@ -165,8 +166,9 @@ The repo is public, so what goes into it is limited by what the project may publ
 | `apply-mod.sh` | WSL / device | The mod's own changes to a rootfs (guards and units, app/server patches, mod defaults, Mackie's factory Wi-Fi network and SSH access removed once), shared by `card-core.sh` and the drop-in update so both apply the same files; every file written atomically and only when it differs |
 | `sd-system/` | device | Installed by `card-core.sh`: eMMC read-only unit (and a udev rule that locks it whenever it appears), first-boot `DLZDATA` grower, boot log copy to `DLZDATA/dlzmod-logs/`, dspserver start guard (waits for server.js), drop-ins that stop GD32 flashing and Mackie updates, the card bound to its mixer (`dlzmod-cardcheck` before Mackie's FPGA loader: the flag matches the GD32 marker, both match the eMMC's own (read-only), and the eMMC's CID hash matches `/etc/dlzmod/mixer-id`, else no FPGA load, faderlink or dspserver and a red popup), the drop-in update (`dlzmod-update`: a package in `DLZDATA/dlzmod-update/` is checked and applied at startup, only with a valid signature from a key the card trusts; its steps run in a sandbox on a copy, then only allowlisted files are placed), USB Wi-Fi ids the stock driver lacks, an eject rule for Realtek sticks that start as a driver CD, and an SSH drop-in that gives each card its own host keys, slows down password guessing and starts SSH only when turned on from the screen (off again after a restart unless kept on) |
 | `mount-ro.sh` | WSL (root) | Mount a dump's rootfs read-only |
-| `patch.py` | any | `patch.py app <app.js>`: our UI mods (`app-mod/dlzmod.js` + anchor patches). `patch.py server <server.js>`: our server mods (`server-mod/dlzmod-server.js` + anchor patches): FORMAT SD and firmware updates refused, free and unique recording names, the update popup, Wi-Fi and SSH for the Mod page's Network panel, control from other devices only when switched on and paired with a PIN (HTTP, socket.io and port 89 on loopback; the Remote Control panel), and Mackie's file commands checked (deleting and renaming only from the mixer's own screen and paired devices, recordings only in their folders, preset folders and names checked, no shell for file names, the kept `*.orig` originals not served) |
-| `server-mod/test-dlzmod-server.js` | Node | Unit tests for the server mod: recording names, update popup, Network panel, pairing (PIN, pause, cookie, Origin, which files other devices get), file command checks (`node install/server-mod/test-dlzmod-server.js`) |
+| `patch.py` | any | `patch.py app <app.js>`: our UI mods (`app-mod/dlzmod.js` + anchor patches). `patch.py server <server.js>`: our server mods (`server-mod/dlzmod-server.js` + anchor patches): FORMAT SD and firmware updates refused, free and unique recording names, the update popup, Wi-Fi and SSH for the Mod page's Network panel, control from other devices only when switched on and paired with a PIN (HTTP, socket.io and port 89 on loopback; the Remote Control panel), and Mackie's file commands checked (deleting and renaming only from the mixer's own screen and paired devices, recordings only in their folders, preset folders and names checked, no shell for file names, the kept `*.orig` originals not served), recordings downloaded by paired computers (read only, nothing read while recording) and every client's recording list refreshed after a recording, rename or delete |
+| `server-mod/test-dlzmod-server.js` | Node | Unit tests for the server mod: recording names, update popup, Network panel, pairing (PIN, pause, cookie, Origin, which files other devices get), file command checks, the recordings download and list refresh (`node install/server-mod/test-dlzmod-server.js`) |
+| `app-mod/test-dlzmod.js` | Node | Unit tests for the app mod, with stand-ins for Mackie's UI: so far the recordings download button and its questions (`node install/app-mod/test-dlzmod.js`) |
 
 ### `dev/`: develop mods on a PC
 

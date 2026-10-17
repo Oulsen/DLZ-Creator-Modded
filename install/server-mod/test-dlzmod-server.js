@@ -1598,11 +1598,19 @@ test("recordings: HTTP: nothing read while a recording file is being finished (w
 test("recordings: HTTP: a client gone during the checks is not kept; errors end the answer, never the server", async () => {
   const { sd } = recMedia();
   ctx.getDataKey = () => undefined;
-  // gone while the folder and file were checked
-  const res = recRes();
-  recHttp(() => [sd, "-"])({ path: "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/Band%20take.wav", method: "GET",
-    socket: { destroyed: true } }, res, () => {});
+  // gone while the folder and file were checked; first a client still there, the same wait: it
+  // reaches the download, so the wait is long enough to show the one gone does not
+  const get = (socket) => {
+    const r = recRes();
+    recHttp(() => [sd, "-"])({ path: "/dlzmod-rec/sd/DLZ_Creator_XS_Recordings/Band%20take.wav", method: "GET", socket }, r,
+      () => {});
+    return r;
+  };
+  const still = get({ destroyed: false });
+  const res = get({ destroyed: true });
   await tick(100);
+  assert.ok(still.sent, "control: a client still there downloads within the wait");
+  still.destroy();
   assert.strictEqual(res.sent, undefined, "no download started");
   assert.ok(!(ctx.DLZMOD_recWatch.running || new Set()).has(res), "not watched");
   // a read error halfway (headers sent): the connection is ended, not left hanging
@@ -1632,12 +1640,26 @@ test("recordings: file lists again for every client after a change, one message 
   assert.strictEqual(sent.length, 1, "after a recording: not yet");
   await tick(80);
   assert.strictEqual(sent.length, 2, "then");
+  // a delete just after a recording stop: one message, at the recording's later time
+  ctx.DLZMOD_dirsChanged(bus, 80);
+  ctx.DLZMOD_dirsChanged(bus);
+  await tick(30);
+  assert.strictEqual(sent.length, 2, "not before the recording has its final name");
+  await tick(80);
+  assert.strictEqual(sent.length, 3, "one message for both");
   ctx.DLZMOD_dirsChanged(null);
   ctx.DLZMOD_dirsChanged({ send() {
     throw new Error("socket gone");
   } });
   await tick(20);
   assert.strictEqual(ctx.DLZMOD_dirsChanged.timer, null, "no server yet or a failing send: nothing thrown");
+});
+test("recordings: wavfinalizer that fails to start leaves no busy count behind", async () => {
+  ctx.DLZMOD_wavfinalize.running = 0;
+  // a NUL in a name makes execFile throw at once (ERR_INVALID_ARG_VALUE), before any callback
+  await assert.rejects(ctx.DLZMOD_wavfinalize("/tmp/a\0.wav.unfinished", "/tmp/a.wav"));
+  assert.strictEqual(ctx.DLZMOD_wavfinalize.running, 0, "downloads are not refused for good");
+  assert.ok(!ctx.DLZMOD_recNoRead(), "not busy");
 });
 test("recordings: HTTP: a paired device reaches them, others do not", () => {
   pairIn("rec");

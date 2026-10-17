@@ -30,6 +30,8 @@ const FAKE_MEDIA = (process.env.DLZ_FAKE_MEDIA || '').split(',').filter((m) => m
   .map((m) => m === 'sd'
     ? { name: 'mmcblk0p2', parent: 'mmcblk0', subsystems: 'block:mmc:mmc_host:platform', label: 'DLZDATA', mounted: false }
     : { name: 'sda1', parent: 'sda', subsystems: 'block:scsi:usb:platform', label: 'STICK', mounted: false });
+// an earlier run's list (the sandbox folder is shared between sessions): none until something mounts
+fs.rmSync('/proc/mounts', { force: true });
 function fakeLsblk() {
   return JSON.stringify({ blockdevices: FAKE_MEDIA.map((d) => ({
     name: d.parent, path: '/dev/' + d.parent, fstype: null, mountpoint: null, subsystems: d.subsystems, size: '59.5G',

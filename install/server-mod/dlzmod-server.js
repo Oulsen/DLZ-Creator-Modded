@@ -369,11 +369,18 @@ function DLZMOD_wavfinalize(src, dst) {
   DLZMOD_roLater.lastRw = Date.now();
   DLZMOD_wavfinalize.running = (DLZMOD_wavfinalize.running || 0) + 1;
   return new Promise((resolve, reject) => {
-    require("child_process").execFile("wavfinalizer", [src, dst], (e, out) => {
+    // counted down exactly once, also when execFile throws at once (bad arguments): a count left
+    // standing would refuse every download until the next start
+    const done = (e, out) => {
       DLZMOD_roLater.lastRw = Date.now();
       DLZMOD_wavfinalize.running--;
       e ? reject(e) : resolve(out);
-    });
+    };
+    try {
+      require("child_process").execFile("wavfinalizer", [src, dst], (e, out) => done(e, out));
+    } catch (e) {
+      done(e);
+    }
   });
 }
 
@@ -881,8 +888,9 @@ function DLZMOD_remotePage(res, status, text, form) {
 // and the USB stick (JSON), GET /dlzmod-rec/<sd|usb>/<recordings folder>/<name> downloads one
 // (express's res.download: Range and ETag, so a cut download resumes). Other devices only paired:
 // DLZMOD_remoteHttp runs first. While the mixer records no file is read, so a download cannot cause
-// dropouts: the list says so, a download gets 503 and running ones are cut off (the browser resumes
-// them later). roots: () => [SD card, USB stick] mount points ("-" when empty), server.js's ce()
+// dropouts: the list says so, a download gets 503 and running ones are cut off (the browser marks them
+// failed; they can be resumed from its downloads once the recording has finished). roots: () => [SD
+// card, USB stick] mount points ("-" when empty), server.js's ce()
 function DLZMOD_recHttp(roots) {
   return (req, res, next) => {
     const p = String(req.path || "");
@@ -1001,10 +1009,15 @@ async function DLZMOD_recList(roots, busy) {
 // #26: every client's file lists again (stock's UPDATE_DIRS: the Media page and the sample browser
 // reload when shown), after a recording, a delete or a rename (patch.py). Stock sends it only when a
 // medium comes or goes, so a browser kept showing a recordings folder as it was. bus: server.js's
-// broadcaster (ee, null before the server runs); calls within `delay` ms make one message
+// broadcaster (ee, null before the server runs). Calls while one waits make one message, at the
+// later of their times: a delete just after a recording stop must not send before the recording has
+// its final name
 function DLZMOD_dirsChanged(bus, delay = 0) {
   const s = DLZMOD_dirsChanged;
+  const due = Date.now() + delay;
+  if (s.timer && s.due >= due) return;
   clearTimeout(s.timer);
+  s.due = due;
   s.timer = setTimeout(() => {
     s.timer = null;
     try {

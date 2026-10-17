@@ -1164,8 +1164,15 @@ function DLZMOD_downloadFiles(f, files) {
   }, i * 400));
 }
 
+// one decimal below 10, the unit the number rounds to: 9.96 MB is "10 MB", 999.6 MB "1.0 GB"
 function DLZMOD_size(bytes) {
-  const units = [["GB", 1e9], ["MB", 1e6], ["KB", 1e3]];
-  for (const [u, n] of units) if (bytes >= n) return (bytes / n).toFixed(bytes >= 10 * n ? 0 : 1) + " " + u;
-  return bytes + " bytes";
+  if (bytes < 1e3) return bytes + " bytes";
+  const units = ["KB", "MB", "GB", "TB"];
+  const fmt = (v) => (Number(v.toFixed(1)) >= 10 ? v.toFixed(0) : v.toFixed(1));
+  let v = bytes / 1e3, i = 0;
+  while (i < units.length - 1 && Number(fmt(v)) >= 1000) {
+    v /= 1e3;
+    i++;
+  }
+  return fmt(v) + " " + units[i];
 }
