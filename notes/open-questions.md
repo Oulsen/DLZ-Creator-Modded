@@ -100,8 +100,8 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
     SD system and confirm the logo stays while audio keeps running; after a real freeze, read
     `/var/log/syslog` and `kern.log` (persist on disk) for the cause (OOM, segfault, kernel oops).
     Known: in the freezes during a start (components/glesgui.md, "Bad starts after a software
-    restart") the syslog stops before the cause, so a freeze needs a log that does not go through
-    the card [device].
+    restart") the syslog stops before the cause (its last ~10-40 s never reach the card), so a
+    freeze needs a log written through at once or one that does not go through the card [device].
 34. Why does a closed popup stay on the device's screen until the page below it draws again, when
     closing it clears the foreground layer and asks for a frame [static]? The mod works around it on
     the Mod page (modding-guide.md, "PC sandbox"); other quiet pages may show the same.

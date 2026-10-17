@@ -40,13 +40,25 @@ shapes, maybe one cause; why is not known.
 
 - **Counts** on the mod card [device] (cold vs warm from the clock lines, system.md, Clock):
   software restarts 6: 2 fine, 1 GUI stall, 3 frozen. Starts with the switch ~15 (incl. 4 with
-  Wi-Fi off and 9 older boot logs): 1 GUI stall, 1 frozen, the rest fine. Stock from the eMMC,
-  started with the switch: once or twice in two years of use, by the user's account.
+  Wi-Fi off and 9 older boot logs): 1 GUI stall, 1 frozen, the rest fine. Later, on v0.2 builds,
+  3 more frozen starts with the switch on the dev card (starts not counted), and a fresh v0.2.0 card
+  hung in its 2nd of 3 starts. Stock from the eMMC, started with the switch: once or twice in two
+  years of use, by the user's account.
+- **Not caused by v0.2's own paths** [device]: that fresh card had never had an update, upload or
+  Wi-Fi, and no recordings folder (so no read-write remount and no #98 read-only remount at start);
+  it ran only what v0.1.0 also runs at every start, and stock.
 - **Frozen** [device]: the syslog stops mid-boot (~18-40 s in, cut mid-line, NUL bytes after it)
   although the mixer runs on for minutes: ping answers, sshd accepts but drops logins during the key
   exchange, the screen shows the spinner or a UI without touch, then the spinner stops. The SD card
   is set up the same on warm and cold starts ("high speed SDXC", no UHS); no MMC or I/O errors
-  before the cut. Nothing reaches the card after it, so the cause is probably not in the log [guess].
+  before the cut. Where the syslog stops is not when it froze: the last ~10-40 s never reach the card
+  (system.md, "Filesystem and persistence"); a start that hung at ~11 s left no line at all.
+- **Spinner stops and stays** [device]: the boot spinner stops turning and stays on screen, nothing
+  follows. In a good start Weston takes the display over right after the boot log copy (~10 s; the
+  kernel's spinner stops then) and needs ~6.6 s to load its GL renderer and bring up the Mali-400
+  before it draws. So this hang sits at Weston's GL/GPU start [guess]; the frozen start whose log
+  ended as Weston started, the GUI stalls (GL context creation) and glesgui's "Failed to init
+  OpenGL" at ~11 s on a full-size (open-questions.md, 35) point the same way [guess].
 - **GUI stall** [device]: between glesgui's "Graphics initialised. Opening GUI..." and "Context
   renderer string" (GLFW creating its X11 window and GL context through XWayland). Normally 1-3 s
   apart; in a stall 90 s (then it went on by itself and the UI came up) or more than 2.5 min.
@@ -61,8 +73,9 @@ shapes, maybe one cause; why is not known.
 - **Not the trigger on its own** [device]: chrony stepping the clock while glesgui opens its
   window. Both GUI stalls had a step in that window, but a cold start with a +234 s step in the same
   window went through normally; a step adding to it is not ruled out.
-- **Next**: a log that survives a freeze (the card's log stops, so over the network or kept in
-  RAM over a restart), or a series of software restarts with single parts reset first.
+- **Next**: a log that survives a freeze: every syslog line written through to the card at once
+  (dev card only, for the card's wear) or the kernel log over the network (netconsole); then starts
+  with the switch until one hangs. After that, software restarts with single parts reset first.
 
 ### Mod angles
 

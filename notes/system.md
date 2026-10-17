@@ -180,7 +180,11 @@ Implication: keep the mixer on a trusted LAN, and never port-forward it.
 - `/` is ext4 **read-write** (`noatime,commit=10,errors=remount-ro`), no overlay; `/tmp` is tmpfs [static]
 - journald `Storage=volatile` (RAM), but rsyslog writes `/var/log/{syslog,kern.log,auth.log}` to
   eMMC; armbian-ramlog is **disabled** [static]. So the syslog of a session that ended in a freeze
-  survives the reboot (unless the freeze stopped rsyslog first): the first place to look after a crash
+  survives the reboot (unless the freeze stopped rsyslog first): the first place to look after a crash.
+  But not its end: with `commit=10` and the kernel's delayed write-back of file data (up to ~30 s),
+  a power cut loses the last ~10-40 s, and a start that freezes early can leave nothing at all; the
+  last line kept is the last write-back, not the moment of the freeze [device: a start hung at ~11 s
+  left no line in the card's syslog; its first 10 s survive only in the boot log copy]
 
 ### What changes at runtime
 
