@@ -7,6 +7,7 @@
 #   the dev.pem next to it
 # - card-core.sh (install_update_keys, run on its own): which keys a card gets per channel;
 #   DLZMOD_DEV_PUB only without a package.env, never a private key
+# - mkinstaller.sh: a release package's image only from a clean tree at the package's COMMIT
 # Needs: Linux or WSL (not Git Bash: the tools it checks run there), bash, openssl, git, python3.
 # Usage: bash tests/guards.sh (from anywhere)
 set -uo pipefail
@@ -98,6 +99,41 @@ r=$(keys none 2>&1)
 grep -q "update keys unknown" <<< "$r" && ok "no package.env and no DLZMOD_CHANNEL: refused" || bad "no channel: $r"
 r=$(keys beta 2>&1)
 grep -q "bad CHANNEL" <<< "$r" && ok "an unknown CHANNEL is refused" || bad "bad channel: $r"
+
+echo "== mkinstaller.sh (release package)"
+# a copy of the tool in its own small git repo; every package says PLACEHOLDER=yes, so a package that
+# passes the commit check stops at the next refusal, before any download or loop device
+R=$T/inst-repo
+mkdir -p "$R/install/release" "$R/install/installer"
+cp "$REPO/install/release/mkinstaller.sh" "$REPO/install/release/vendor.sh" "$R/install/release/"
+cp "$REPO/install/installer/boot.txt" "$R/install/installer/"
+cp "$REPO/VERSION" "$R/"
+g() { git -C "$R" -c user.name=guards -c user.email=guards@localhost -c core.autocrlf=false "$@" > /dev/null; }
+g init -q && g add -A && g commit -qm one && g commit -q --allow-empty -m two
+# pkg <BUILD> <COMMIT>: a package directory with a manifest that matches
+pkg() {
+  rm -rf "$T/ipkg"; mkdir -p "$T/ipkg"
+  echo initrd > "$T/ipkg/initrd.cpio.gz"
+  printf 'DLZMOD_VERSION=%s\nBUILD=%s\nCOMMIT=%s\nPLACEHOLDER=yes\nBUILT=2026-01-01T00:00:00Z\n' \
+    "$(tr -d '\r' < "$REPO/VERSION")" "$1" "$2" > "$T/ipkg/package.env"
+  (cd "$T/ipkg" && sha256sum initrd.cpio.gz package.env > manifest)
+}
+MI() { bash "$R/install/release/mkinstaller.sh" "$T/ipkg" "$T/inst-out"; }
+head=$(git -C "$R" rev-parse --short HEAD)
+pkg release "$head"; expect "clean tree at the package's commit accepted (stops at the placeholder)" "placeholder" MI
+pkg release "$(git -C "$R" rev-parse HEAD)"; expect "the full commit hash accepted too" "placeholder" MI
+pkg release "$(git -C "$R" rev-parse --short HEAD~1)"; expect "a package from another commit is refused" "package was built from commit" MI
+pkg release "$head+dirty"; expect "a +dirty commit is refused" "package was built from commit" MI
+pkg release HEAD; expect "a commit name that is not a hash is refused" "package was built from commit" MI
+pkg release ""; expect "a package without COMMIT is refused" "package was built from commit" MI
+echo "# changed" >> "$R/install/installer/boot.txt"
+pkg release "$head"; expect "a changed boot.txt is refused" "needs a clean tree" MI
+pkg "dev-$head+dirty" "$head+dirty"; expect "a dev package's image may come from a changed tree" "placeholder" MI
+g checkout -q -- install/installer/boot.txt
+touch "$R/install/new-file"
+pkg release "$head"; expect "a new file under install/ is refused" "needs a clean tree" MI
+rm "$R/install/new-file"
+[ ! -e "$T/inst-out" ] && ok "no image started" || bad "mkinstaller wrote $T/inst-out"
 
 echo "== the repo"
 [ "$(cd "$REPO" && git status --porcelain -- install/keys; sha256sum install/keys/*.pub)" = "$keys_before" ] \

@@ -199,23 +199,30 @@ card below, fetch them once by hand (WSL, repo root):
 ## Build the dumper card
 
 ```bash
-python install/dumper/mksdimg.py vendor/u-boot-sunxi-with-spl.bin build/dlz-sdboot.img
+python install/dumper/mksdimg.py vendor/u-boot-safe.bin build/dlz-sdboot.img
 python install/dumper/mkscr.py -n "DLZ stage2" install/dumper/stage2-backup.txt build/boot.scr
-python install/dumper/mkenv.py vendor/u-boot-sunxi-with-spl.bin build/uboot.env boot_targets=mmc0 \
+python install/dumper/mkenv.py vendor/u-boot-safe.bin build/uboot.env boot_targets=mmc0 \
   "bootcmd=run distro_bootcmd; poweroff" bootdelay=-2 preboot= stdin=serial
 ```
+
+Both use the safe U-Boot, as the installer image does (`notes/installer.md`, "Safe U-Boot"): its
+built-in defaults never boot the eMMC, never start USB and never probe the network, also when
+`uboot.env` is missing or its FAT cannot be read.
 
 ## Prepare a card
 
 1. Flash `build/dlz-sdboot.img` with balenaEtcher.
 2. Format the 16 GiB partition as FAT32 (formatting does not touch the bootloader).
-3. Copy `build/boot.scr` and `build/uboot.env` to the card root. `uboot.env` keeps U-Boot on the SD
-   card and stops it from waiting at a prompt (no autoboot delay, no USB keyboard): without it, a
-   missing or failing `boot.scr` makes U-Boot boot the eMMC's own system with the wrong device tree.
+3. Copy `build/boot.scr` and `build/uboot.env` to the card root. `uboot.env` stops U-Boot from
+   waiting at a prompt (no autoboot delay, no USB keyboard) and powers the mixer off when `boot.scr`
+   fails; without it, a missing or failing `boot.scr` leaves U-Boot at a prompt with no input: pull
+   the card.
 
 The mixer writes the user area as `emmc_<block>.bin` (the start block in hex: 64 MiB chunks, then
-1 MiB for the tail), the two boot partitions as `emmcboot<N>_<block>.bin`, and powers off when done
-(`done2.txt`). Join the user area in block order (WSL, in a copy of the card's files):
+1 MiB for the tail) and powers off when done (`done2.txt`). Not the boot areas boot0/boot1, as the
+installer's backup: they are empty on the XS, and selecting them is a write to the eMMC's EXT_CSD
+register (`notes/installer.md`). Join the user area in block order (WSL, in a copy of the card's
+files):
 
 ```bash
 for h in $(ls emmc_*.bin | sed 's/^emmc_//; s/\.bin$//' | while read h; do echo $((16#$h)) $h; done \

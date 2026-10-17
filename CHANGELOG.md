@@ -20,6 +20,8 @@
 - (MOD BUG) After an update the start screens still show the old version
 - (MOD BUG) The developer helper for looking at the mixer can still change it
 - (MOD BUG) Small fixes found in the review of v0.1.0
+- (MOD BUG) The backup card recipe can start the mixer's own system
+- (MOD BUG) An installer image is not tied to the release it is named after
 
 ## v0.1.0
 
