@@ -80,7 +80,27 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    reading the package; N one past the highest, so the newest report has the highest number).
    Failure restores the snapshot and removes what the update added; the files stay, and the same file
    is not tried again until a different one is there. A package gets 3 tries; a failure that is not
-   the package's fault (no eMMC seen yet, the sandbox setup failing) is `later` and uses up no try.
+   the package's fault (no eMMC seen yet, the sandbox setup failing) is `later` and gives back the try
+   that start counted (the earlier ones stay counted).
+   A try that a start does not go on with is put back at that start, whatever the folder holds (#108):
+   one cut off by a power cut while placing, or one whose put-back failed (`RESTORE INCOMPLETE`: its
+   progress marker stays for this). Broken guards or no file: right at the start (as in v0.1.0).
+   With a file there, after the eMMC-lock check (a `later` there leaves it for a start that sees the
+   eMMC locked): more than one file or a file without `.sig` before they are named, a different file
+   or the same file marked failed before that file is checked. A check that refuses a resumed try of
+   the same file puts back what it placed first, and so does a `later` on one (its count of 3 starts
+   fresh: the cause is not the package).
+   Where a start stops before looking at a file (broken guards, more than one file, no `.sig`) and in
+   that `later`, a put-back that really put files back keeps the cut-off try's Install for that same
+   file (its record: tar + `.sig`), so the next start with only that file begins a fresh try without
+   asking again: unless another file's Install is there or that file failed (a marker without its
+   snapshot is only cleared: then the screen asks again); a start without any file drops it, as below.
+   A put-back that fails is tried once per start (once more after this start placed files) and again
+   at the next one; its report is written once (no new report with the same text as the last, not
+   counting the `removed`/`placed` lines of the first try). A progress marker without its snapshot
+   (nothing placed behind it) is cleared by those put-backs; a start of that same file goes on by it
+   with a fresh snapshot [static, PC
+   rehearsal: `tests/update.sh` cases 13, 17, 19, 34-35, 62, 64-74].
 
 Not covered by the drop-in (installer only): boot visuals, the installer itself, the card layout,
 the guards. A package can declare `REINSTALL=yes` for such changes; the drop-in refuses it.
@@ -132,8 +152,13 @@ rehearsal: `tests/update.sh` case 3a]:
   package's fault, e.g. the eMMC not seen yet) keeps it, and so do the starts that stop before the
   checks (more than one file, a file without `.sig`, a file that failed before): accepted, the
   approval names exactly one tar and `.sig`, so it can only ever install the file it was given for.
-- While a package waits and another file's try was cut off (that file removed since), the files from
-  before that try go back right away, as step 4 would do before this one's try.
+  The same goes for a cut-off try's Install that a put-back keeps (#108, step 7 above): it is written
+  back only for that try's own record, never over another file's Install. It stays until a start
+  finds no file or asks about another one; a refused other file in between leaves it, so that same
+  file and `.sig`, put back unchanged, installs without asking again: accepted, as above.
+- When another file's try was cut off (that file removed since), the files from before that try go
+  back at the start, before this file is checked, so they are back while it waits for Install too
+  (#108).
 - The approval check is one of the gates a new updater copy must keep (by its text, like the other
   gates: it catches a mistake, not a hostile signer).
 - An unseen result popup and a new question can open at the same start, one over the other

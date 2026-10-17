@@ -22,6 +22,7 @@
 - (MOD BUG) Small fixes found in the review of v0.1.0
 - (MOD BUG) The backup card recipe can start the mixer's own system
 - (MOD BUG) An installer image is not tied to the release it is named after
+- (MOD BUG) After a failed update the mixer does not always get its old files back
 
 ## v0.1.0
 
