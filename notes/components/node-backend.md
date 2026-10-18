@@ -193,6 +193,15 @@ Whether the `HAVE_*` flags unlock anything without native support is unknown [gu
   `setValue(main, second)`); stock never turns it on [static]. The mod uses it for its meter modes ([../mod.md](../mod.md), "Mod settings").
 - `modVuByDb(v, db)` adds 1/80 per dB, so the meter is dB-linear over 80 dB, with 0 dBFS at the
   top [device: test tones at -6 and -30 dBFS].
+- **Unused spectrum (RTA) overlay**: two widgets can draw a spectrum behind their curve (`setRTA`,
+  `paintRTA`, `paintRTAoverlay`, `resetRTA`): the parametric EQ curve (overlay on, data clears
+  itself 250 ms after the last update) and a 31-band widget with keys `peak.0`-`peak.30` (overlay
+  off, 200 ms). The meter code has `parseRTA` (base64 bytes, value = byte / ~240), an uncalled
+  `demoRTA` (100 points; `startRTAdemo` runs at start-up but only ticks the meters) and an empty
+  `putRTA`; the network layer keeps `"RTA"` next to `"VU"` out of its log.
+  Nothing calls `setRTA`, `server.js` never mentions RTA and the graph has no analyser block
+  ([mixergraph.md](mixergraph.md)), so the overlay never shows [static]. Probably shared code from
+  another Mackie product [guess]. Feeding it is issue #131.
 
 ## Patchability
 
