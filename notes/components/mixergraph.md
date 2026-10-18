@@ -41,11 +41,12 @@ The binary embeds a JSON descriptor per plugin (name, description, params with `
 | Debug | Measure |
 
 There is **no limiter** block. `Compressor` goes up to ratio 20, attack 1-500 ms, with dry/wet.
-There is **no analyser** block either: only `MaxMeter`/`MinMeter` measure, and they give a level.
-JUCE's `dsp::FFT` is linked into dspserver, but no block exposes it (the only "analysis" in the
-descriptors is a `Vocoder` parameter). A spectrum for app.js's unused RTA overlay
-([node-backend.md](node-backend.md), "Look and meters") has to be built from stock blocks, e.g.
-band-pass `EqBand`s each followed by a `MaxMeter` (#131).
+There is **no analyser** block either: `MaxMeter`/`MinMeter` give a level, and the debug `Measure`
+block appears only commented out in the graph. JUCE's `dsp::FFT` is linked into dspserver, but no
+block exposes it (the only "analysis" in the descriptors is a `Vocoder` parameter) [static]. A
+spectrum for app.js's unused RTA overlay ([node-backend.md](node-backend.md), "Look and meters")
+would have to be built from stock blocks, e.g. band-pass `EqBand`s each followed by a `MaxMeter`
+(#131) [guess: untested, CPU cost unknown].
 Unused blocks are available to mods, but their CPU cost on the A40i is unknown.
 
 ## Hardware I/O map
