@@ -41,6 +41,11 @@ The binary embeds a JSON descriptor per plugin (name, description, params with `
 | Debug | Measure |
 
 There is **no limiter** block. `Compressor` goes up to ratio 20, attack 1-500 ms, with dry/wet.
+There is **no analyser** block either: only `MaxMeter`/`MinMeter` measure, and they give a level.
+JUCE's `dsp::FFT` is linked into dspserver, but no block exposes it (the only "analysis" in the
+descriptors is a `Vocoder` parameter). A spectrum for app.js's unused RTA overlay
+([node-backend.md](node-backend.md), "Look and meters") has to be built from stock blocks, e.g.
+band-pass `EqBand`s each followed by a `MaxMeter` (#131).
 Unused blocks are available to mods, but their CPU cost on the A40i is unknown.
 
 ## Hardware I/O map
@@ -132,4 +137,4 @@ headphone 1 and 2 mixes.
   key leaves the block at its default. A Mod page toggle can thus drive a new block.
 - Unknowns before the first audio mod: CPU headroom of the DSP thread, and whether the full
   (non-"Economy") dynamics blocks fit. Test on the device.
-- Candidates that are issues: limiter and gate on the main output (#59), headphone 2 solo and its own computer send (#60), robot voice (#61), a 4th EQ band (#25), more sources per strip (#24), reassigning faders (#23).
+- Candidates that are issues: limiter and gate on the main output (#59), headphone 2 solo and its own computer send (#60), robot voice (#61), a 4th EQ band (#25), a spectrum behind the EQ curve (#131), more sources per strip (#24), reassigning faders (#23).
