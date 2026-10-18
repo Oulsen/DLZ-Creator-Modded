@@ -147,8 +147,9 @@ All [static].
   `settings.rec.autoDucking` sets both to its own value and keeps the ducking pad lit, so ducking can
   already stay on without a pad; what the setting is called in the UI is still to check in the sandbox.
 - **NDI name**: key `settings.ndi.devicename` (default "DLZ Creator XS", "DLZ Creator" on the
-  full-size). Stock's NDI settings already edit it: the "NDI output name" button opens the on-screen
-  keyboard (app.js, search `lang.NDI_OUTPUT_NAME`) [static].
+  full-size). Stock's NDI settings already edit it: the button under the "NDI Output Name" label
+  shows the current name and opens the on-screen keyboard; an empty input changes nothing (app.js,
+  search `lang.NDI_OUTPUT_NAME`) [static].
 
 ## app.js
 
