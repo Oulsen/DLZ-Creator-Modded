@@ -49,14 +49,24 @@ systemctl --failed --no-pager --no-legend --plain 2>&1 | head -n 20
 # dspserver logs at priority info, so a chip that did not answer ("Couldn't initialise AKM DAC
 # (possibly dead)", I2C retries) never shows among the warnings below; its service stays running
 say "--- audio chips (dspserver)"
-# (a chip that does not answer gives ~99 equal retry lines: those collapse into one and a count, so the
-# failure after them stays within the cap)
+# A chip that does not answer gives ~99 retry lines: lines that differ only in their numbers (attempt,
+# address) collapse into one and a count; the first 30 lines, then the failure lines whatever comes
+# before them
 journalctl -b -u dspserver.service --no-pager -q -o short-monotonic 2>/dev/null |
-  grep -iE 'lite detected|initialis|i2c|possibly dead|audio hardware' | grep -v 'for graphics' |
-  awk '{ m = $0; sub(/^\[[^]]*\] /, "", m) }
+  grep -iE 'lite detected|initialis|i2c|possibly dead|audio hardware' |
+  grep -vE 'for graphics|MediaReader|DSP effect' |
+  awk 'function flush() { if (n) line[++c] = "  (the line above, " n " more like it)"; n = 0 }
+    { m = $0; sub(/^\[[^]]*\] [^:]*: /, "", m); gsub(/0x[0-9A-Fa-f]+|[0-9]+/, "#", m) }
     m == p { n++; next }
-    { if (n) print "  (the line above " n " more times)"; print; p = m; n = 0 }
-    END { if (n) print "  (the line above " n " more times)" }' | head -n 40
+    { flush(); line[++c] = $0; p = m }
+    END {
+      flush()
+      for (i = 1; i <= c; i++)
+        if (i <= 30) print line[i]
+        else if (line[i] ~ /possibly dead|audio hardware/ && shown < 10) { print line[i]; shown++ }
+        else skipped++
+      if (skipped) print "  (" skipped " more lines in the log)"
+    }'
 # without the body of kernel stack dumps (set_cpus_allowed_ptr ones come at every start; the body of
 # any other dump goes too, it stays in the syslog); each dump's "CPU: ... Tainted" line stays
 STACK='kernel: (\[<[0-9a-f]+>\]|Exception stack\(|[0-9a-f]{4}:( +[0-9a-f]{8})+ *$|Hardware name:)'

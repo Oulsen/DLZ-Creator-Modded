@@ -35,12 +35,17 @@ esac
 EOF
 cat > "$TMP/bin/journalctl" << 'EOF'
 #!/bin/sh
-# dspserver's own lines (-u): a good chip start, or with CHIP_FAIL=1 the DAC not answering
+# dspserver's own lines (-u): a good chip start, or the DAC not answering: CHIP_FAIL=1 99 equal retry
+# lines, 2 retries numbered and alternating between two addresses, 3 40 different lines before it
 case " $* " in *" -u "*)
   echo "[   27.04] host dspserver[726]: DLZ Lite detected"
   echo "[   27.05] host dspserver[726]: new CPU PLL: 90001510"
-  if [ "${CHIP_FAIL:-0}" = 1 ]; then
-    i=0; while [ $i -lt 99 ]; do echo "[   27.10] host dspserver[726]: i2c: retrying address 22"; i=$((i + 1)); done
+  if [ "${CHIP_FAIL:-0}" != 0 ]; then
+    case $CHIP_FAIL in
+      1) i=0; while [ $i -lt 99 ]; do echo "[   27.10] host dspserver[726]: i2c: retrying address 22"; i=$((i + 1)); done ;;
+      2) i=0; while [ $i -lt 99 ]; do echo "[   27.10] host dspserver[726]: i2c: retrying attempt $i (addr=$((22 + i % 2 * 4)))"; i=$((i + 1)); done ;;
+      3) awk 'BEGIN { for (i = 0; i < 40; i++) printf "[   27.10] host dspserver[726]: Initialising part %c%c\n", 97 + int(i / 26), 97 + i % 26 }' ;;
+    esac
     echo "[   27.15] host dspserver[726]: Couldn't initialise AKM DAC (possibly dead): failed to send I2C data"
   else
     echo "[   27.15] host dspserver[726]: Initialising AKM DAC..."
@@ -119,14 +124,26 @@ grep -q ": warning 1$" "$o" && ok "dump: other warnings kept" || bad "dump: othe
 grep -q "kernel: beef: a message" "$o" && ok "dump: a hex-looking message kept" || bad "dump: hex-looking message dropped"
 
 # 4. a chip that does not answer: shown in the report (dspserver logs it at priority info, so it is
-# not among the warnings), the 99 retries capped
-mkdir -p "$TMP/chip"
-STATE=$TMP/chip FINISHED_AFTER=0 WARN_LINES=0 CHIP_FAIL=1 PATH="$TMP/bin:$PATH" sh "$SCRIPT" > "$TMP/chip.out" 2>&1
-o=$TMP/chip.out
-c=$(sed -n '/--- audio chips/,/--- warnings/p' "$o")
+# not among the warnings), the retries collapsed, the failure shown whatever comes before it
+# chip <mode>: the audio chip section of a run with CHIP_FAIL=<mode>
+chip() {
+  mkdir -p "$TMP/chip$1"
+  STATE=$TMP/chip$1 FINISHED_AFTER=0 WARN_LINES=0 CHIP_FAIL=$1 PATH="$TMP/bin:$PATH" sh "$SCRIPT" > "$TMP/chip$1.out" 2>&1
+  sed -n '/--- audio chips/,/--- warnings/p' "$TMP/chip$1.out"
+}
+c=$(chip 1)
 echo "$c" | grep -q "Couldn't initialise AKM DAC (possibly dead)" && ok "chip: the failure shown" || bad "chip: failure not shown"
-[ "$(echo "$c" | grep -c 'retrying address')" = 1 ] && echo "$c" | grep -q "the line above 98 more times" \
-  && ok "chip: the 99 retries as one line and a count" || bad "chip: retries: $(echo "$c" | grep -E 'retrying|more times')"
+[ "$(echo "$c" | grep -c 'retrying address')" = 1 ] && echo "$c" | grep -q "the line above, 98 more like it" \
+  && ok "chip: 99 equal retries as one line and a count" || bad "chip: retries: $(echo "$c" | grep -E 'retrying|more like')"
+c=$(chip 2)
+[ "$(echo "$c" | grep -c 'retrying attempt')" = 1 ] && echo "$c" | grep -q "the line above, 98 more like it" \
+  && echo "$c" | grep -q "possibly dead" \
+  && ok "chip: numbered retries on two addresses as one line, the failure shown" || bad "chip 2: $c"
+c=$(chip 3)
+echo "$c" | grep -q "possibly dead" && echo "$c" | grep -q "Initialising part aa" && ! echo "$c" | grep -q "part bn" \
+  && echo "$c" | grep -q "more lines in the log" \
+  && ok "chip: 40 different lines capped at 30, the failure still shown" || bad "chip 3: $(echo "$c" | tail -4)"
+echo "$c" | grep -q "Audio initialisation is done" && bad "chip 3: a line past the cap shown" || ok "chip: other lines past the cap left out"
 
 # 5. a start that never finishes: gives up after 5 min, names the waiting jobs, still reports
 run hung 1000 5
