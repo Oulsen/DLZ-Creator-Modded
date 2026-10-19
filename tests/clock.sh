@@ -4,8 +4,8 @@
 # time the start would set are run.
 # - save: fake-hwclock's format (its load reads it back), no temp file left, the old file kept when
 #   the new one cannot be written
-# - newest: a file written after the last save moves the clock just past it; older files, files
-#   too far ahead (a computer in another time zone) or none leave it
+# - newest: a file written after the last save moves the clock just past it (+ 2 s: FAT's steps);
+#   older files, files too far ahead (a computer in another time zone) or none leave it
 # Needs: Linux or WSL, bash, the sh the mixer has (dash), GNU find, touch and date.
 # Usage: bash tests/clock.sh (from anywhere)
 set -uo pipefail
@@ -54,17 +54,17 @@ is "only older files: nothing" "" "$(sh "$CLOCK" newest "$d" $now)"
 at $now "$d/Recordings/REC_0002_heron.wav"
 is "a file at the clock's own second: nothing" "" "$(sh "$CLOCK" newest "$d" $now)"
 at $((now + 40)) "$d/Recordings/REC_0003_lynx.wav"
-is "a recording 40 s ahead: just past it" $((now + 41)) "$(sh "$CLOCK" newest "$d" $now)"
+is "a recording 40 s ahead: just past it" $((now + 42)) "$(sh "$CLOCK" newest "$d" $now)"
 at $((now + 90)) "$d/Recorded_Samples/RS_0004.wav"
-is "a sample further ahead counts too" $((now + 91)) "$(sh "$CLOCK" newest "$d" $now)"
+is "a sample further ahead counts too" $((now + 92)) "$(sh "$CLOCK" newest "$d" $now)"
 at $((now + 600)) "$d/preset.json"
-is "10 min ahead still counts" $((now + 601)) "$(sh "$CLOCK" newest "$d" $now)"
+is "10 min ahead still counts" $((now + 602)) "$(sh "$CLOCK" newest "$d" $now)"
 at $((now + 7200)) "$d/from-a-computer.wav"
-is "2 h ahead (another time zone) is left out" $((now + 601)) "$(sh "$CLOCK" newest "$d" $now)"
+is "2 h ahead (another time zone) is left out" $((now + 602)) "$(sh "$CLOCK" newest "$d" $now)"
 at $((now + 601)) "$d/preset.json"
-is "just over 10 min ahead is left out" $((now + 91)) "$(sh "$CLOCK" newest "$d" $now)"
+is "just over 10 min ahead is left out" $((now + 92)) "$(sh "$CLOCK" newest "$d" $now)"
 mkdir "$d/folder-ahead" && at $((now + 300)) "$d/folder-ahead"
-is "folders do not count" $((now + 91)) "$(sh "$CLOCK" newest "$d" $now)"
+is "folders do not count" $((now + 92)) "$(sh "$CLOCK" newest "$d" $now)"
 is "no such folder: nothing" "" "$(sh "$CLOCK" newest "$T/none" $now)"
 
 echo "== usage"

@@ -1,0 +1,16 @@
+[Unit]
+Description=dlzmod: move the clock past DLZDATA's newest file (a power-off after the last save)
+After=local-fs.target fake-hwclock.service dlzmod-grow-data.service
+# before anything writes to DLZDATA, and before the saver's first save
+Before=dlzmod-clock.service dlzmod-update.service dlzmod-bootlog.service evolve-node.service evolve-app.service dspserver.service
+
+[Service]
+# once per start (not again when the saver restarts); a failure leaves the clock as fake-hwclock
+# loaded it
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=30
+ExecStart=/usr/local/sbin/dlzmod-clock floor
+
+[Install]
+WantedBy=multi-user.target

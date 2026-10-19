@@ -46,12 +46,10 @@ install_sd_system() {
   for f in dlzmod-grow-data dlzmod-bootlog dlzmod-clock dlzmod-wait-hub; do
     put_file 755 "$s/$f" "$MNT/usr/local/sbin/$f"
   done
-  for f in dlzmod-grow-data dlzmod-bootlog dlzmod-clock; do
+  for f in dlzmod-grow-data dlzmod-bootlog dlzmod-clock-floor dlzmod-clock; do
     put_file 644 "$s/$f.service" "$MNT/etc/systemd/system/$f.service"
     put_link "/etc/systemd/system/$f.service" "$MNT/etc/systemd/system/multi-user.target.wants/$f.service"
   done
-  # the clock is saved by dlzmod-clock (written next to its file, then renamed), not in place at shutdown
-  put_file 644 "$s/fake-hwclock.service.d/dlzmod.conf" "$MNT/etc/systemd/system/fake-hwclock.service.d/dlzmod.conf"
   # the update installs its own new copy itself, last, once everything else passed its checks
   [ "${DLZMOD_SELF_LAST:-}" = 1 ] || install_update_unit
   # USB Wi-Fi sticks the stock driver drives but does not list (sd-system/90-dlzmod-usb-wifi.rules)

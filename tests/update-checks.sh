@@ -31,6 +31,31 @@ for t in $tags; do
   out=$(gate "$old" "$NEW") && ok "the $t updater accepts this one (the tags here: $(echo $tags); newer ones: git fetch --tags)" \
     || bad "the $t updater refuses this one: $out"
 done
+# Every file and link this version's sd-system step installs is one each released updater may place
+# (its allowlist, `allowed`): a card on that version takes it as a new file. (#1: a new drop-in folder
+# would have made every card refuse the update; the card rehearsals start from a card that already
+# has every file.) Installed into an empty tree with the factory-access step done before, as on any
+# card the mod runs on.
+tree=$TMP/tree
+mkdir -p "$tree/var/lib/dlzmod-update" && : > "$tree/var/lib/dlzmod-update/factory-access-removed"
+if MNT=$tree TOOLS=install bash -c 'set -e; . install/apply-mod.sh; install_sd_system' > "$TMP/sd.out" 2>&1; then
+  paths=$(cd "$tree" && find . \( -type f -o -type l \) ! -path ./var/lib/dlzmod-update/factory-access-removed \
+    | sed 's#^\./##' | LC_ALL=C sort)
+  for t in $tags current; do
+    if [ $t = current ]; then old=$(cat "$NEW"); else old=$(git -c safe.directory="$PWD" show "$t:$NEW" 2>/dev/null) || continue; fi
+    fn=$(sed -n '/^allowed() {$/,/^}$/p' <<< "$old")
+    [ -n "$fn" ] || { bad "the $t updater: its allowlist was not found"; continue; }
+    no=$(bash -c "$fn"'
+      while IFS= read -r p; do allowed "$p" || echo "$p"; done' <<< "$paths")
+    [ -z "$no" ] && ok "the $t updater may place every sd-system file ($(wc -l <<< "$paths") paths)" \
+      || bad "the $t updater refuses: $(echo $no)"
+  done
+  # the check can fail: a drop-in for a unit no updater knows
+  no=$(bash -c "$(sed -n '/^allowed() {$/,/^}$/p' "$NEW")"'; allowed etc/systemd/system/cron.service.d/dlzmod.conf || echo refused')
+  [ "$no" = refused ] && ok "and refuses a drop-in for another unit" || bad "the allowlist takes a drop-in for another unit"
+else
+  bad "install_sd_system into an empty tree failed: $(tail -3 "$TMP/sd.out")"
+fi
 # the check itself must be able to fail: this copy's own gate against copies that drop a gate string
 # or change the guard list
 # (a refusal is exit 1; 2 = this copy's own gate was not found, which must not count as a refusal)

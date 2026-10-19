@@ -2,6 +2,8 @@
 
 ## v0.3.0
 
+- (DLZ BUG) Clock jumps back to November 2023 after every power-off
+
 ## v0.2.0
 
 - (DLZ FEATURE) Download recordings from your computer over the network

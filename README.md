@@ -22,7 +22,9 @@ Alpha, at your own risk: read [DISCLAIMER.md](DISCLAIMER.md) first.
 - **Fixes for stock bugs**: the recording crash after take 9,999; new recordings overwriting old
   ones; anyone on the network (or a prepared SD card or USB stick) changing files on the mixer;
   anyone on the network controlling the mixer without a PIN; the SD card or USB stick staying
-  writable once it holds recordings, so switching off could damage it
+  writable once it holds recordings, so switching off could damage it; the clock jumping back to
+  November 2023 after every power-off (it now goes on from where it was, so new recordings sort
+  after older ones)
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 

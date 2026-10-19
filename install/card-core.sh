@@ -107,7 +107,7 @@ preflight() {
       sd-system/dlzmod-wait-hub sd-system/dlzmod-update sd-system/dlzmod-update.service \
       sd-system/dlzmod-emmc-ro.service sd-system/dlzmod-grow-data.service \
       sd-system/dlzmod-bootlog.service sd-system/dlzmod-clock sd-system/dlzmod-clock.service \
-      sd-system/fake-hwclock.service.d/dlzmod.conf sd-system/flash-gd32.service.d/dlzmod.conf \
+      sd-system/dlzmod-clock-floor.service sd-system/flash-gd32.service.d/dlzmod.conf \
       sd-system/dlzmod-cardcheck sd-system/flash-fpga.service.d/dlzmod.conf \
       sd-system/upgradedaemon.service.d/dlzmod.conf sd-system/upgraderun.service.d/dlzmod.conf \
       sd-system/dspserver.service.d/dlzmod.conf sd-system/90-dlzmod-usb-wifi.rules \
