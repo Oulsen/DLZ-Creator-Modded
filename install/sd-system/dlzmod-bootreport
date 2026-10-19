@@ -43,7 +43,13 @@ for u in $UNITS; do
 done
 say "--- failed units"
 systemctl --failed --no-pager --no-legend --plain 2>&1 | head -n 20
-n=$(journalctl -b -p warning --no-pager -q 2>/dev/null | wc -l)
-say "--- warnings and errors of this start: $n (first $WARN_MAX)"
-journalctl -b -p warning --no-pager -q -o short-monotonic 2>/dev/null | head -n "$WARN_MAX"
+# without the body of kernel stack dumps (the harmless set_cpus_allowed_ptr ones come at every start);
+# each dump's "CPU: ... Tainted" line stays
+STACK='kernel: (\[<[0-9a-f]+>\]|Exception stack\(|[0-9a-f]{4}: |Hardware name:)'
+all=$(journalctl -b -p warning --no-pager -q -o short-monotonic 2>/dev/null)
+warn=$(printf '%s\n' "$all" | grep -vE "$STACK")
+n_all=$(printf '%s\n' "$all" | grep -c .)
+n=$(printf '%s\n' "$warn" | grep -c .)
+say "--- warnings and errors of this start: $n (first $WARN_MAX; $((n_all - n)) lines of kernel stack dumps left out)"
+printf '%s\n' "$warn" | grep . | head -n "$WARN_MAX"
 say "===== end of report ====="

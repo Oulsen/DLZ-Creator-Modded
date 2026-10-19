@@ -59,6 +59,7 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   loses the buffer). ffmpeg's lines (stderr) are not affected. The mod line-buffers stdout from the
   `dspserver` drop-in (`LD_PRELOAD=/usr/libexec/coreutils/libstdbuf.so _STDBUF_O=L`; proven on the PC
   with the dump's own `sed` under qemu: without it the lines of a killed process are lost) (#136).
+  On the device the chip start lines now come at ~27 s of every start, `Done.` at ~30 s [device].
 - **XS start order** [device]: `DLZ Lite detected` → old/new CPU, DDR and GPU PLL → `Initialising AKM
   DAC...` → `Initialising AKM ADC...` → `Initialising THAT preamps...` → `Audio initialisation is
   done.` → `THAT[n] = ...`. No bus scan line on the XS. The other chips' messages (Sabre, Everest,

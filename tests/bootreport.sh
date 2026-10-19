@@ -36,6 +36,16 @@ EOF
 cat > "$TMP/bin/journalctl" << 'EOF'
 #!/bin/sh
 i=0; while [ $i -lt "$WARN_LINES" ]; do echo "[ $i.0] host prog[1]: warning $i"; i=$((i + 1)); done
+# one kernel stack dump as the mixer logs it at every start: the CPU line stays, 6 lines go
+if [ "${STACK_DUMP:-0}" = 1 ]; then
+  echo "[   27.078292] host kernel: CPU: 1 PID: 848 Comm: dspserver Tainted: G     U            5.10.197-sunxi #trunk"
+  echo "[   27.078299] host kernel: Hardware name: Allwinner sun8i Family"
+  echo "[   27.078331] host kernel: [<c010c84d>] (unwind_backtrace) from [<c0109279>] (show_stack+0x11/0x14)"
+  echo "[   27.078349] host kernel: [<c0109279>] (show_stack) from [<c09c6ccd>] (dump_stack+0x71/0x7e)"
+  echo "[   27.078350] host kernel: Exception stack(0xc15bdfb0 to 0xc15bdff8)"
+  echo "[   27.078351] host kernel: dfa0:                                     00000000 00000000 00000000 00000000"
+  echo "[   27.078352] host kernel: dfe0: 00000000 00000000 00000000 00000000 00000013 00000000"
+fi
 EOF
 cat > "$TMP/bin/sleep" << 'EOF'
 #!/bin/sh
@@ -62,7 +72,8 @@ grep -qE '^dspserver +start +24\.9  up +24\.9  restarts 0  active/running  resul
 [ "$(grep -cE '^(flash-gd32|flash-fpga|faderlink|dspserver|evolve-node|evolve-app|weston-mackie|glesgui|dlzmod-[a-z-]+|NetworkManager|ssh) +start' "$o")" = 14 ] \
   && ok "normal: 14 services" || bad "normal: not 14 service lines"
 grep -q "dlzmod-x.service loaded failed" "$o" && ok "normal: failed units" || bad "normal: no failed units"
-grep -q "warnings and errors of this start: 250 (first 100)" "$o" && ok "normal: warnings counted" || bad "normal: warning count"
+grep -q "warnings and errors of this start: 250 (first 100; 0 lines of kernel stack dumps left out)" "$o" \
+  && ok "normal: warnings counted" || bad "normal: warning count"
 [ "$(grep -c ': warning [0-9]*$' "$o")" = 100 ] && ok "normal: warnings capped at 100" || bad "normal: warnings not capped"
 grep -q "end of report" "$o" && ok "normal: complete" || bad "normal: no end line"
 [ "$(slept normal)" = 90 ] && ok "normal: waited 90 s, no polling" || bad "normal: slept $(slept normal) s"
@@ -72,7 +83,18 @@ run late 3 0
 o=$TMP/late.out
 [ "$(slept late)" = 135 ] && ok "late: polled until done (90 + 3 x 15 s)" || bad "late: slept $(slept late) s"
 grep -q "not finished" "$o" && bad "late: says not finished" || ok "late: no 'not finished'"
-grep -q "warnings and errors of this start: 0" "$o" && ok "late: zero warnings" || bad "late: warning count"
+grep -q "warnings and errors of this start: 0 (first 100; 0 lines" "$o" && ok "late: zero warnings" || bad "late: warning count"
+[ "$(sed -n '/warnings and errors/,/end of report/p' "$o" | wc -l)" = 2 ] && ok "late: no empty warning line" || bad "late: lines between the warning header and the end"
+
+# 3a. the kernel stack dump at every start: its body left out and counted, its CPU line kept
+mkdir -p "$TMP/dump"
+STATE=$TMP/dump FINISHED_AFTER=0 WARN_LINES=2 STACK_DUMP=1 PATH="$TMP/bin:$PATH" sh "$SCRIPT" > "$TMP/dump.out" 2>&1
+o=$TMP/dump.out
+grep -q "warnings and errors of this start: 3 (first 100; 6 lines of kernel stack dumps left out)" "$o" \
+  && ok "dump: 6 lines left out, 3 counted" || bad "dump: $(grep 'warnings and errors' "$o")"
+grep -q "Comm: dspserver Tainted" "$o" && ok "dump: its CPU line kept" || bad "dump: CPU line gone"
+grep -qE "unwind_backtrace|Hardware name|Exception stack|dfa0:" "$o" && bad "dump: stack lines still there" || ok "dump: stack lines gone"
+grep -q ": warning 1$" "$o" && ok "dump: other warnings kept" || bad "dump: other warnings gone"
 
 # 3. a start that never finishes: gives up after 5 min, names the waiting jobs, still reports
 run hung 1000 5
