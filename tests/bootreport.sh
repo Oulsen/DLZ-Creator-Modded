@@ -35,7 +35,24 @@ esac
 EOF
 cat > "$TMP/bin/journalctl" << 'EOF'
 #!/bin/sh
+# dspserver's own lines (-u): a good chip start, or with CHIP_FAIL=1 the DAC not answering
+case " $* " in *" -u "*)
+  echo "[   27.04] host dspserver[726]: DLZ Lite detected"
+  echo "[   27.05] host dspserver[726]: new CPU PLL: 90001510"
+  if [ "${CHIP_FAIL:-0}" = 1 ]; then
+    i=0; while [ $i -lt 99 ]; do echo "[   27.10] host dspserver[726]: i2c: retrying address 22"; i=$((i + 1)); done
+    echo "[   27.15] host dspserver[726]: Couldn't initialise AKM DAC (possibly dead): failed to send I2C data"
+  else
+    echo "[   27.15] host dspserver[726]: Initialising AKM DAC..."
+  fi
+  echo "[   27.49] host dspserver[726]: Audio initialisation is done."
+  echo "[   30.24] host dspserver[726]: Waiting for graphics to initialise..."
+  echo "[   30.44] host dspserver[726]: Done."
+  exit 0 ;;
+esac
 i=0; while [ $i -lt "$WARN_LINES" ]; do echo "[ $i.0] host prog[1]: warning $i"; i=$((i + 1)); done
+# a kernel line that starts with 4 hex digits but is no register dump: it stays
+[ "${STACK_DUMP:-0}" = 1 ] && echo "[   12.000000] host kernel: beef: a message that only looks like a dump line"
 # one kernel stack dump as the mixer logs it at every start: the CPU line stays, 6 lines go
 if [ "${STACK_DUMP:-0}" = 1 ]; then
   echo "[   27.078292] host kernel: CPU: 1 PID: 848 Comm: dspserver Tainted: G     U            5.10.197-sunxi #trunk"
@@ -77,6 +94,10 @@ grep -q "warnings and errors of this start: 250 (first 100; 0 lines of kernel st
 [ "$(grep -c ': warning [0-9]*$' "$o")" = 100 ] && ok "normal: warnings capped at 100" || bad "normal: warnings not capped"
 grep -q "end of report" "$o" && ok "normal: complete" || bad "normal: no end line"
 [ "$(slept normal)" = 90 ] && ok "normal: waited 90 s, no polling" || bad "normal: slept $(slept normal) s"
+c=$(sed -n '/--- audio chips/,/--- warnings/p' "$o")
+echo "$c" | grep -q "Lite detected" && echo "$c" | grep -q "Initialising AKM DAC" && echo "$c" | grep -q "Audio initialisation is done" \
+  && ok "normal: the audio chips' start" || bad "normal: chip section: $c"
+echo "$c" | grep -qE "for graphics|PLL|Done\." && bad "normal: other dspserver lines in the chip section" || ok "normal: only chip lines"
 
 # 2. a start that finishes late: polled every 15 s, then the report
 run late 3 0
@@ -86,21 +107,32 @@ grep -q "not finished" "$o" && bad "late: says not finished" || ok "late: no 'no
 grep -q "warnings and errors of this start: 0 (first 100; 0 lines" "$o" && ok "late: zero warnings" || bad "late: warning count"
 [ "$(sed -n '/warnings and errors/,/end of report/p' "$o" | wc -l)" = 2 ] && ok "late: no empty warning line" || bad "late: lines between the warning header and the end"
 
-# 3a. the kernel stack dump at every start: its body left out and counted, its CPU line kept
+# 3. the kernel stack dump at every start: its body left out and counted, its CPU line kept
 mkdir -p "$TMP/dump"
 STATE=$TMP/dump FINISHED_AFTER=0 WARN_LINES=2 STACK_DUMP=1 PATH="$TMP/bin:$PATH" sh "$SCRIPT" > "$TMP/dump.out" 2>&1
 o=$TMP/dump.out
-grep -q "warnings and errors of this start: 3 (first 100; 6 lines of kernel stack dumps left out)" "$o" \
-  && ok "dump: 6 lines left out, 3 counted" || bad "dump: $(grep 'warnings and errors' "$o")"
+grep -q "warnings and errors of this start: 4 (first 100; 6 lines of kernel stack dumps left out)" "$o" \
+  && ok "dump: 6 lines left out, 4 counted" || bad "dump: $(grep 'warnings and errors' "$o")"
 grep -q "Comm: dspserver Tainted" "$o" && ok "dump: its CPU line kept" || bad "dump: CPU line gone"
 grep -qE "unwind_backtrace|Hardware name|Exception stack|dfa0:" "$o" && bad "dump: stack lines still there" || ok "dump: stack lines gone"
 grep -q ": warning 1$" "$o" && ok "dump: other warnings kept" || bad "dump: other warnings gone"
+grep -q "kernel: beef: a message" "$o" && ok "dump: a hex-looking message kept" || bad "dump: hex-looking message dropped"
 
-# 3. a start that never finishes: gives up after 5 min, names the waiting jobs, still reports
+# 4. a chip that does not answer: shown in the report (dspserver logs it at priority info, so it is
+# not among the warnings), the 99 retries capped
+mkdir -p "$TMP/chip"
+STATE=$TMP/chip FINISHED_AFTER=0 WARN_LINES=0 CHIP_FAIL=1 PATH="$TMP/bin:$PATH" sh "$SCRIPT" > "$TMP/chip.out" 2>&1
+o=$TMP/chip.out
+c=$(sed -n '/--- audio chips/,/--- warnings/p' "$o")
+echo "$c" | grep -q "Couldn't initialise AKM DAC (possibly dead)" && ok "chip: the failure shown" || bad "chip: failure not shown"
+[ "$(echo "$c" | grep -c 'retrying address')" = 1 ] && echo "$c" | grep -q "the line above 98 more times" \
+  && ok "chip: the 99 retries as one line and a count" || bad "chip: retries: $(echo "$c" | grep -E 'retrying|more times')"
+
+# 5. a start that never finishes: gives up after 5 min, names the waiting jobs, still reports
 run hung 1000 5
 o=$TMP/hung.out
 [ "$(slept hung)" = 300 ] && ok "hung: gave up after 300 s" || bad "hung: slept $(slept hung) s"
-grep -q "start not finished after 300 s" "$o" && grep -q "glesgui.service start running" "$o" \
+grep -q "start not finished 300 s after this report began waiting" "$o" && grep -q "glesgui.service start running" "$o" \
   && ok "hung: names the waiting jobs" || bad "hung: no jobs list"
 grep -q "end of report" "$o" && ok "hung: still reports" || bad "hung: no report"
 

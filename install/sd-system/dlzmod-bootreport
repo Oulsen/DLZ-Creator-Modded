@@ -1,21 +1,24 @@
 #!/bin/sh
 # One report per start, into the log (and so, through dlzmod-bootlog, into DLZDATA/dlzmod-logs/ at the
 # next start): how long the start took and what it waited for, when each mixer service started, its
-# restarts and status, failed units, and this start's warnings and errors. Started by its unit as
-# Type=exec at the lowest priority, so it holds nothing up; it waits here until the start is done.
+# restarts and status, failed units, how the audio chips started, and this start's warnings and
+# errors. Started by its unit as Type=exec at the lowest priority, so it holds nothing up; it waits
+# here until the start is done.
 set -u
 
 say() { echo "dlzmod-bootreport: $*"; }
 WARN_MAX=${DLZMOD_BOOTREPORT_WARN_MAX:-100}
+DELAY=${DLZMOD_BOOTREPORT_DELAY:-90}
 UNITS="flash-gd32 flash-fpga faderlink dspserver evolve-node evolve-app weston-mackie glesgui
 dlzmod-emmc-ro dlzmod-grow-data dlzmod-bootlog dlzmod-update NetworkManager ssh"
 
-# systemd-analyze answers only once the start is finished: at least 90 s, at most 5 min
-sleep "${DLZMOD_BOOTREPORT_DELAY:-90}"
+# systemd-analyze answers only once the start is finished: wait at least 90 s, at most 5 min (from
+# this script's own start, a few seconds after basic.target)
+sleep "$DELAY"
 waited=0
 until systemd-analyze time > /dev/null 2>&1; do
   if [ $waited -ge 210 ]; then
-    say "start not finished after $((90 + waited)) s, jobs still waiting:"
+    say "start not finished $((DELAY + waited)) s after this report began waiting, jobs still waiting:"
     systemctl list-jobs --no-pager --no-legend 2>&1 | head -n 30
     break
   fi
@@ -43,9 +46,20 @@ for u in $UNITS; do
 done
 say "--- failed units"
 systemctl --failed --no-pager --no-legend --plain 2>&1 | head -n 20
-# without the body of kernel stack dumps (the harmless set_cpus_allowed_ptr ones come at every start);
-# each dump's "CPU: ... Tainted" line stays
-STACK='kernel: (\[<[0-9a-f]+>\]|Exception stack\(|[0-9a-f]{4}: |Hardware name:)'
+# dspserver logs at priority info, so a chip that did not answer ("Couldn't initialise AKM DAC
+# (possibly dead)", I2C retries) never shows among the warnings below; its service stays running
+say "--- audio chips (dspserver)"
+# (a chip that does not answer gives ~99 equal retry lines: those collapse into one and a count, so the
+# failure after them stays within the cap)
+journalctl -b -u dspserver.service --no-pager -q -o short-monotonic 2>/dev/null |
+  grep -iE 'lite detected|initialis|i2c|possibly dead|audio hardware' | grep -v 'for graphics' |
+  awk '{ m = $0; sub(/^\[[^]]*\] /, "", m) }
+    m == p { n++; next }
+    { if (n) print "  (the line above " n " more times)"; print; p = m; n = 0 }
+    END { if (n) print "  (the line above " n " more times)" }' | head -n 40
+# without the body of kernel stack dumps (set_cpus_allowed_ptr ones come at every start; the body of
+# any other dump goes too, it stays in the syslog); each dump's "CPU: ... Tainted" line stays
+STACK='kernel: (\[<[0-9a-f]+>\]|Exception stack\(|[0-9a-f]{4}:( +[0-9a-f]{8})+ *$|Hardware name:)'
 all=$(journalctl -b -p warning --no-pager -q -o short-monotonic 2>/dev/null)
 warn=$(printf '%s\n' "$all" | grep -vE "$STACK")
 n_all=$(printf '%s\n' "$all" | grep -c .)
