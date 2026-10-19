@@ -1,0 +1,72 @@
+#!/bin/sh
+# Keeps the clock going forward over a power-off (#1). The mixer has no clock battery and the power
+# switch never gives a clean shutdown, the only time stock's fake-hwclock saves the time, so every
+# cold start went back to the saved time of the factory (notes/system.md, "Clock").
+#   floor  at start: a file on DLZDATA newer than the clock (written after the last save, before the
+#          power went) moves the clock to just past it, so new files sort after the old ones
+#   run    saves the time now and then every minute (dlzmod-clock.service)
+#   save   saves the time once (the unit's stop, instead of fake-hwclock's own save at shutdown)
+#   newest <dir> <now>  the time floor would set, or nothing (for the tests)
+# The saved file keeps fake-hwclock's format: its load at the next start (sysinit, forward only)
+# reads it. Written next to it and renamed over it, so a power cut leaves the old or the new time,
+# never an empty file (fake-hwclock's save writes it in place).
+set -u
+
+FILE=${DLZMOD_CLOCK_FILE:-/etc/fake-hwclock.data}
+INTERVAL=60
+# Only files at most this far ahead of the clock count: the time lost at a power-off is at most one
+# interval. A file further ahead was written elsewhere (a computer in another time zone, a wrong
+# clock) and must not throw the clock into the future, where the forward-only clock would stay.
+AHEAD=600
+
+log() { echo "dlzmod-clock: $*"; }
+
+save() {
+  local tmp=$FILE.dlzmod-new
+  date -u '+%Y-%m-%d %H:%M:%S' > "$tmp" && sync "$tmp" && mv -f "$tmp" "$FILE" \
+    && sync "$(dirname "$FILE")" || { rm -f "$tmp"; log "cannot save the time to $FILE"; return 1; }
+}
+
+# newest <dir> <now>: one second past the newest file in <dir> that is ahead of <now> by at most AHEAD
+# seconds (FAT keeps times in steps of 2 s), nothing when there is none
+newest() {
+  find "$1" -xdev -type f -printf '%T@\n' 2>/dev/null |
+    awk -v now="$2" -v ahead="$AHEAD" '
+      { t = int($1) } t > now && t <= now + ahead && t > best { best = t }
+      END { if (best) print best + 1 }'
+}
+
+floor() {
+  local t0 root_part disk part mnt now to
+  t0=$(date +%s%3N)
+  root_part=$(findmnt -no SOURCE /)
+  disk=/dev/$(lsblk -no PKNAME "$root_part")
+  part=${disk}p2
+  if [ "$(blkid -o value -s LABEL "$part" 2>/dev/null)" != DLZDATA ]; then
+    log "$part is not DLZDATA, clock left at $(date -u '+%F %T')"
+    return 0
+  fi
+  mnt=$(mktemp -d)
+  if ! mount -t vfat -o ro "$part" "$mnt"; then
+    log "cannot mount $part, clock left at $(date -u '+%F %T')"
+    rmdir "$mnt"
+    return 0
+  fi
+  now=$(date +%s)
+  to=$(newest "$mnt" "$now")
+  umount "$mnt"
+  rmdir "$mnt"
+  if [ -n "$to" ]; then
+    date -u -s "@$to" > /dev/null && log "clock moved forward $((to - now)) s, past the newest file on DLZDATA ($(( $(date +%s%3N) - t0 )) ms)"
+  else
+    log "no newer file on DLZDATA, clock stays at $(date -u '+%F %T') ($(( $(date +%s%3N) - t0 )) ms)"
+  fi
+}
+
+case ${1:-} in
+  floor) floor ;;
+  save) save ;;
+  run) save; while sleep "$INTERVAL"; do save; done ;;
+  newest) newest "$2" "$3" ;;
+  *) echo "usage: dlzmod-clock floor|save|run|newest <dir> <now>" >&2; exit 2 ;;
+esac

@@ -1,0 +1,18 @@
+[Unit]
+Description=dlzmod: keep the clock going forward over a power-off
+After=local-fs.target fake-hwclock.service dlzmod-grow-data.service
+# the clock moved past DLZDATA's newest file before anything writes there
+Before=dlzmod-update.service dlzmod-bootlog.service evolve-node.service evolve-app.service dspserver.service
+
+[Service]
+Type=simple
+# a failed floor leaves the clock as fake-hwclock loaded it; the saves still run
+ExecStartPre=-/usr/local/sbin/dlzmod-clock floor
+ExecStart=/usr/local/sbin/dlzmod-clock run
+ExecStop=/usr/local/sbin/dlzmod-clock save
+TimeoutStartSec=30
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

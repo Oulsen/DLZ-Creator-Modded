@@ -498,7 +498,8 @@ if [ -n "$OLDV" ] && [ "$(printf '%s\n%s\n' "$OLDV" "$NEWV" | sort -V | head -n 
 fi
 for f in apply-mod.sh check-rootfs.sh patch.py modversion.py app-mod/dlzmod.js server-mod/dlzmod-server.js \
     sd-system/dlzmod-grow-data sd-system/dlzmod-grow-data.service sd-system/dlzmod-bootlog \
-    sd-system/dlzmod-bootlog.service sd-system/dlzmod-wait-hub sd-system/dlzmod-update \
+    sd-system/dlzmod-bootlog.service sd-system/dlzmod-clock sd-system/dlzmod-clock.service \
+    sd-system/fake-hwclock.service.d/dlzmod.conf sd-system/dlzmod-wait-hub sd-system/dlzmod-update \
     sd-system/dlzmod-update.service sd-system/90-dlzmod-usb-wifi.rules sd-system/dspserver.service.d/dlzmod.conf \
     sd-system/dlzmod-zerocd-eject sd-system/70-dlzmod-wifi-zerocd.rules \
     sd-system/ssh.service.d/dlzmod.conf $GUARD_SRC; do
