@@ -1,5 +1,6 @@
 # The checks that need no mixer, no dump and no Mackie files: the server mod's unit tests, the build
-# tools' key guards (tests/guards.sh), the updater checks (tests/update-checks.sh), the mixer-ssh
+# tools' key guards (tests/guards.sh), the report of each start (tests/bootreport.sh), the updater
+# checks (tests/update-checks.sh), the mixer-ssh
 # skill's read-only guard (offline), and a syntax check of every shell script, JavaScript and Python
 # file. The
 # rehearsals on card images run on a PC with the dump (tests/README.md).
@@ -36,6 +37,9 @@ jobs:
 
       - name: Key guards of the build tools
         run: bash tests/guards.sh
+
+      - name: Report of each start
+        run: bash tests/bootreport.sh
 
       # every released updater must accept the new one (the checkout is shallow and has no tags), and
       # this one's checks in checks-only mode on a fixture tree (as the runner's normal user)

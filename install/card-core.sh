@@ -104,6 +104,7 @@ preflight() {
   for f in check-rootfs.sh mkvisuals.sh logobbox.py bootsplash.py patch.py modversion.py \
       cpio-replace.py apply-mod.sh app-mod/dlzmod.js server-mod/dlzmod-server.js \
       sd-system/dlzmod-emmc-ro sd-system/dlzmod-grow-data sd-system/dlzmod-bootlog \
+      sd-system/dlzmod-bootreport sd-system/dlzmod-bootreport.service \
       sd-system/dlzmod-wait-hub sd-system/dlzmod-update sd-system/dlzmod-update.service \
       sd-system/dlzmod-emmc-ro.service sd-system/dlzmod-grow-data.service \
       sd-system/dlzmod-bootlog.service sd-system/flash-gd32.service.d/dlzmod.conf \

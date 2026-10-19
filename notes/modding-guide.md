@@ -205,7 +205,9 @@ the start, because server.js holds DLZDATA mounted read-only and remounts it rea
 it writes itself (stock leaves it writable once a recordings folder exists; the mod puts it back,
 #98; open-questions Q28). Only boots of the
 SD system are copied (sections with `dlzmod-grow-data`, which runs at every boot), not the dump's
-own history. Always on.
+own history. Always on. Each boot that ran ~2 min or longer holds a `dlzmod-bootreport` block (times,
+what the start waited for, services, failed units, warnings and errors): search for
+`report of this start` (#136).
 
 Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var/log/syslog`
 (`wsl --mount` does not support USB card readers, `0x8007000f`). rsyslog persists across reboots

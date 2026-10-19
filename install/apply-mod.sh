@@ -27,7 +27,8 @@ put_link() {
 }
 
 # Brick guards (notes/modding-guide.md, Brick risks), the first-boot DLZDATA grower, the boot log copy
-# to DLZDATA (dlzmod-logs/, readable in a card reader) and the drop-in update. The guards go first
+# to DLZDATA (dlzmod-logs/, readable in a card reader), the report of each start and the drop-in
+# update. The guards go first
 # and are flushed before anything else changes
 install_sd_system() {
   local s=$TOOLS/sd-system u f
@@ -43,10 +44,10 @@ install_sd_system() {
   put_file 644 "$s/60-dlzmod-emmc-ro.rules" "$MNT/etc/udev/rules.d/60-dlzmod-emmc-ro.rules"
   sync
   # dspserver waits for server.js before starting (dlzmod-wait-hub, its drop-in above)
-  for f in dlzmod-grow-data dlzmod-bootlog dlzmod-wait-hub; do
+  for f in dlzmod-grow-data dlzmod-bootlog dlzmod-bootreport dlzmod-wait-hub; do
     put_file 755 "$s/$f" "$MNT/usr/local/sbin/$f"
   done
-  for f in dlzmod-grow-data dlzmod-bootlog; do
+  for f in dlzmod-grow-data dlzmod-bootlog dlzmod-bootreport; do
     put_file 644 "$s/$f.service" "$MNT/etc/systemd/system/$f.service"
     put_link "/etc/systemd/system/$f.service" "$MNT/etc/systemd/system/multi-user.target.wants/$f.service"
   done

@@ -2,6 +2,8 @@
 
 ## v0.3.0
 
+- (MOD FEATURE) Each start leaves a clear log: start order, timings, errors and how the audio chips started
+
 ## v0.2.0
 
 - (DLZ FEATURE) Download recordings from your computer over the network

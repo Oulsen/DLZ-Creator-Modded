@@ -1,0 +1,15 @@
+[Unit]
+Description=dlzmod: write a report of this start to the log, once the start is done
+# Type=exec: the start counts as done once the script runs; the script itself waits for the end of
+# the start, so nothing waits for it
+After=multi-user.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/sbin/dlzmod-bootreport
+Nice=19
+IOSchedulingClass=idle
+RuntimeMaxSec=600
+
+[Install]
+WantedBy=multi-user.target

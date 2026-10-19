@@ -1,0 +1,49 @@
+#!/bin/sh
+# One report per start, into the log (and so, through dlzmod-bootlog, into DLZDATA/dlzmod-logs/ at the
+# next start): how long the start took and what it waited for, when each mixer service started, its
+# restarts and status, failed units, and this start's warnings and errors. Started by its unit as
+# Type=exec at the lowest priority, so it holds nothing up; it waits here until the start is done.
+set -u
+
+say() { echo "dlzmod-bootreport: $*"; }
+WARN_MAX=${DLZMOD_BOOTREPORT_WARN_MAX:-100}
+UNITS="flash-gd32 flash-fpga faderlink dspserver evolve-node evolve-app weston-mackie glesgui
+dlzmod-emmc-ro dlzmod-grow-data dlzmod-bootlog dlzmod-update NetworkManager ssh"
+
+# systemd-analyze answers only once the start is finished: at least 90 s, at most 5 min
+sleep "${DLZMOD_BOOTREPORT_DELAY:-90}"
+waited=0
+until systemd-analyze time > /dev/null 2>&1; do
+  if [ $waited -ge 210 ]; then
+    say "start not finished after $((90 + waited)) s, jobs still waiting:"
+    systemctl list-jobs --no-pager --no-legend 2>&1 | head -n 30
+    break
+  fi
+  sleep 15
+  waited=$((waited + 15))
+done
+
+say "===== report of this start ====="
+systemd-analyze time 2>&1 | head -n 3
+say "--- what the start waited for"
+systemd-analyze critical-chain --no-pager multi-user.target dspserver.service glesgui.service 2>&1 | head -n 60
+say "--- slowest units"
+systemd-analyze blame --no-pager 2>&1 | head -n 15
+say "--- mixer services (s after the kernel start; restarts; state)"
+for u in $UNITS; do
+  systemctl show "$u.service" --property=ActiveEnterTimestampMonotonic,InactiveExitTimestampMonotonic,NRestarts,ActiveState,SubState,Result,ExecMainStatus 2>/dev/null |
+    awk -v u="$u" -F= '
+      { v[$1] = $2 }
+      function s(us) { return us > 0 ? sprintf("%.1f", us / 1e6) : "-" }
+      END {
+        printf "%-17s start %6s  up %6s  restarts %s  %s/%s  result %s  exit %s\n", u,
+          s(v["InactiveExitTimestampMonotonic"]), s(v["ActiveEnterTimestampMonotonic"]),
+          v["NRestarts"] == "" ? "-" : v["NRestarts"], v["ActiveState"], v["SubState"], v["Result"], v["ExecMainStatus"]
+      }'
+done
+say "--- failed units"
+systemctl --failed --no-pager --no-legend --plain 2>&1 | head -n 20
+n=$(journalctl -b -p warning --no-pager -q 2>/dev/null | wc -l)
+say "--- warnings and errors of this start: $n (first $WARN_MAX)"
+journalctl -b -p warning --no-pager -q -o short-monotonic 2>/dev/null | head -n "$WARN_MAX"
+say "===== end of report ====="
