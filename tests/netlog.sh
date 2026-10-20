@@ -70,7 +70,7 @@ grep -q "sending this start's log to 127.0.0.1:$port" "$TMP/out" && ok "says whe
 [ "$(cat "$TMP/ip")" = 3 ] && [ "$(cat "$TMP/slept")" = "$(printf '1\n1')" ] && ok "waited for the route (1 s steps)" \
   || bad "route: $(cat "$TMP/ip") tries, slept $(tr '\n' ' ' < "$TMP/slept")"
 got=$(cat "$TMP/rx")
-[ "$got" = "args: -b -f -q --no-pager -o short-monotonic
+[ "$got" = "args: -b -f -n all -q --no-pager -o short-monotonic
 |[    0.000000] host kernel: Booting Linux on physical CPU 0x0
 |a line with a \\ backslash
 |" ] && ok "this start, followed, one datagram per line, backslashes kept" || bad "received: $got"

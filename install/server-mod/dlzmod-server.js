@@ -1354,8 +1354,13 @@ async function DLZMOD_bootlogWrite(src, dir, root, mounts) {
     try {
       await DLZMOD_writeAll(fh, data);
       await fh.sync();
+    } catch (e) {
+      // a full card: no orphan of the log's size left behind
+      await fh.close().catch(() => {});
+      await fsp.rm(part, { force: true }).catch(() => {});
+      throw e;
     } finally {
-      await fh.close();
+      await fh.close().catch(() => {});
     }
     // each file synced under its new name: over an existing .prev, FAT's rename frees the old file's
     // clusters but writes the reused folder entry only with the renamed file's own inode, which a

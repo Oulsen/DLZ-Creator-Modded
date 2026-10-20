@@ -36,8 +36,11 @@ case ${1:-} in
     # SSH_CLIENT: this PC's address as the card sees it; the file written whole (temp, sync, rename)
     mixer "set -e; set -- \$SSH_CLIENT; mkdir -p /var/lib/dlzmod; echo \"\$1 $PORT\" > /var/lib/dlzmod/netlog.new;
       sync /var/lib/dlzmod/netlog.new; mv -f /var/lib/dlzmod/netlog.new /var/lib/dlzmod/netlog; sync /var/lib/dlzmod;
-      systemctl restart dlzmod-netlog.service; cat /var/lib/dlzmod/netlog" \
-      | { read -r ip port; echo "netlog: on, the card sends to $ip:$port from now on and at every start"; }
+      systemctl restart dlzmod-netlog.service > /dev/null 2>&1 && echo now || echo next; cat /var/lib/dlzmod/netlog" \
+      | { read -r when; read -r ip port
+          [ -n "${ip:-}" ] || die "the card did not take it (an IPv6 SSH login? the card needs this PC's IPv4 address)"
+          [ "$when" = now ] && when="from now on and" || when="from the next start (the unit is not loaded yet) and"
+          echo "netlog: on, the card sends to $ip:$port $when at every start"; }
     echo "netlog: listen with: powershell -ExecutionPolicy Bypass -File dev/netlog.ps1 -Port $PORT"
     ;;
   off)

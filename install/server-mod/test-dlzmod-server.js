@@ -2096,6 +2096,24 @@ test("boot log: a failed remount is no crash and writes nothing", async () => {
   assert.deepStrictEqual(ls(b.logs), []);
   assert.ok(!ctx.DLZMOD_bootlogCopy.running);
 });
+test("boot log: a write that fails (a full card) leaves no temp file and keeps the last copy", async () => {
+  const b = bootRig();
+  fs.mkdirSync(b.logs);
+  fs.writeFileSync(path.join(b.logs, "syslog-last-boots.txt"), "last\n");
+  fs.writeFileSync(b.src, "new\n");
+  const writeAll = ctx.DLZMOD_writeAll;
+  ctx.DLZMOD_writeAll = async () => {
+    throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+  };
+  try {
+    await b.tick();
+  } finally {
+    ctx.DLZMOD_writeAll = writeAll;
+  }
+  assert.deepStrictEqual(ls(b.logs), ["syslog-last-boots.txt"]);
+  assert.strictEqual(fs.readFileSync(path.join(b.logs, "syslog-last-boots.txt"), "utf8"), "last\n");
+  assert.ok(!ctx.DLZMOD_bootlogCopy.running);
+});
 
 (async () => {
   let failed = 0;

@@ -47,6 +47,13 @@ while read -r from to; do
   sed -n "${from},${to}p" "$raw"
 done < "$raw.ranges" > "$tmp"
 rm -f "$raw" "$raw.ranges"
+# no SD start found (a syslog cut short): keep the last file, an empty one would push the good copy
+# on DLZDATA out to .prev
+if [ "$total" = 0 ]; then
+  rm -f "$tmp"
+  log "no start of the SD system in $SYSLOG, nothing new for DLZDATA/dlzmod-logs"
+  exit 0
+fi
 # complete or not there: server.js copies whatever file it finds
 if ! mv -f "$tmp" "$OUT/syslog-last-boots.txt"; then
   log "cannot write $OUT/syslog-last-boots.txt"

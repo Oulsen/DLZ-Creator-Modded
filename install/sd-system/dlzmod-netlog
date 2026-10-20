@@ -20,6 +20,7 @@ fi
 echo "dlzmod-netlog: sending this start's log to $host:$port once the network is up"
 until ip route get "$host" > /dev/null 2>&1; do sleep 1; done
 # bash's /dev/udp: a socket per line, no connection to lose when Wi-Fi drops
-journalctl -b -f -q --no-pager -o short-monotonic | while IFS= read -r line; do
+# -n all: in follow mode journalctl starts with only the last 10 lines
+journalctl -b -f -n all -q --no-pager -o short-monotonic | while IFS= read -r line; do
   { printf '%s\n' "$line" > "/dev/udp/$host/$port"; } 2> /dev/null || :
 done

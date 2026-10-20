@@ -186,5 +186,12 @@ grep -q "a stock start" "$o" && bad "bootlog: the stock start copied" || ok "boo
 [ "$(ls "$TMP/run")" = syslog-last-boots.txt ] && ok "bootlog: only the final file" || bad "bootlog: $(ls "$TMP/run")"
 grep -q "dlzmod-bootlog: 4 boot(s), [0-9]* bytes ready" "$TMP/bootlog.out" && ok "bootlog: says what it wrote" || bad "bootlog: $(cat "$TMP/bootlog.out")"
 grep -v '^ *#' "$BL" | grep -qwE 'mount|umount' && bad "bootlog: still mounts something" || ok "bootlog: mounts nothing"
+# a syslog without an SD start (cut short): the last file stays, no empty one
+cp "$o" "$TMP/last.txt"
+echo "Oct 3 host kernel: Booting Linux on physical CPU 0x0" > "$TMP/syslog"
+DLZMOD_BOOTLOG_DIR=$TMP/run DLZMOD_BOOTLOG_SYSLOG=$TMP/syslog sh "$BL" > "$TMP/bootlog.out" 2>&1 || bad "bootlog none: exit $?"
+cmp -s "$o" "$TMP/last.txt" && [ "$(ls "$TMP/run")" = syslog-last-boots.txt ] && ok "bootlog: no SD start, the last file kept" \
+  || bad "bootlog none: $(ls "$TMP/run"), $(wc -c < "$o") bytes"
+grep -q "no start of the SD system" "$TMP/bootlog.out" && ok "bootlog: says so" || bad "bootlog none: $(cat "$TMP/bootlog.out")"
 
 [ $fail = 0 ] && echo "ALL OK" || { echo "FAILED"; exit 1; }
