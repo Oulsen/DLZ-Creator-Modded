@@ -70,16 +70,31 @@ on the dev card no longer rarely. Three shapes, maybe one cause; why is not know
   `/proc/<tid>/syscall` reads `running`, more system than user time, and over 3 s it took ~11,500
   minor and 48 major page faults, ~600 reads and ~500 voluntary context switches: busy, not frozen.
   SSH logins can fail during the key exchange while it lasts. No strace/gdb/perf on the rootfs.
+  A third stall on the XS dev card (v0.3.0-dev, a start with the switch, right after a start that
+  stuck on the spinner and left no line): "Opening GUI" at ~17 s, no context in the 2.5 min until it
+  was switched off; everything else came up (dspserver, the audio chips, node, the boot report:
+  no failed or restarted mixer service) [device]. A fourth on the same card (the first start after a
+  chkdsk of DLZDATA, no SSH login during it): "Opening GUI", then a clock step at ~33 s, no context
+  until it was switched off; the next start came up [device].
+- **A freeze after the UI was up** [device]: the start that installed a drop-in update showed the UI,
+  then froze (screen stuck); its syslog on the card ends at ~60 s, at an SSH login, with no error
+  line (no I/O error, OOM or hung task), and a second login at ~130 s stalled. Another shape than the
+  GUI stall; whether the login triggers it or only coincides, the card's log cannot say.
 - **Lead** [guess]: a software restart leaves the GPU/display, touch, the USB Wi-Fi, the USB audio
   chip and the FPGA side powered, so something starts in a state a cold start never gives it; the
   GPU, given the GL/GPU start above, first of all. The
   rare cold-start cases say it is not only that.
 - **Not the trigger on its own** [device]: chrony stepping the clock while glesgui opens its
-  window. Both GUI stalls had a step in that window, but a cold start with a +234 s step in the same
-  window went through normally; a step adding to it is not ruled out.
-- **Next**: a log that survives a freeze: every syslog line written through to the card at once
-  (dev card only, for the card's wear) or the kernel log over the network (netconsole); then starts
-  with the switch until one hangs. After that, software restarts with single parts reset first.
+  window. All four GUI stalls had a step in that window (the third: +4.2 days at 32.8 s, while
+  stalled; the fourth: at ~33 s, after "Opening GUI"), but a cold start with a +234 s step in the
+  same window went through normally, and so did the start right after the third stall (step at
+  37.8 s, after the context at 30.4 s) and a start with the step at 32.4 s, 0.2 s before "Opening
+  GUI" (context at 33.5 s); a step adding to it is not ruled out. Testable: hold chrony's step back
+  until the context is there, then count stalls.
+- **Next**: the dev card's journal now reaches the PC as it happens, the whole start from the kernel's
+  first line, without a login (`dlzmod-netlog`, `dev/netlog.sh`; the kernel has no netconsole)
+  [device]; starts with the switch until one hangs with it on. After that, software restarts with
+  single parts reset first.
 
 ### Mod angles
 

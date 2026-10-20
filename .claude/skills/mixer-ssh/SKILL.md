@@ -9,6 +9,27 @@ Talk to the running mixer over SSH, **read-only**. The mixer is a real device in
 write can cost the mixer or its user's data. Look, never touch, unless the user says yes to the
 exact command first.
 
+## Logs: the network log first (dev card)
+
+A login is not free on this mixer, and logins while a start settles coincided with hangs (#81,
+#136). On a dev card, read logs from its **network log** instead: the card sends its journal line by
+line to the PC (`dlzmod-netlog`, turned on once with `bash dev/netlog.sh on`, a write: ask first), the
+whole start from the kernel's first line, a start that hangs included, with no login.
+
+- Listener: `powershell -NoProfile -ExecutionPolicy Bypass -File dev/netlog.ps1` as a background task
+  (one per session; check `Get-NetUDPEndpoint -LocalPort 5140` first). It writes
+  `build/device-logs/netlog-<date>-<time>.txt` with a `===== new start of the mixer` line before each
+  start; every line starts with the uptime (`[  32.418027]`). Read the newest file from the last
+  marker on; never print the whole file.
+- `bash dev/netlog.sh status` / `off`; `off` when the dev card leaves home or the PC changes.
+- SSH stays for what the log cannot give: a file (`get`: update reports, DLZDATA logs), a state
+  question, turning the log on or off.
+- **No login in the first 5 minutes of a start**, network log or not; wait for the user to say it is
+  up, then one login with all reads in it. The wrapper refuses `run` and `get` while the newest
+  network log shows an uptime under 300 s (exit 4); `DLZ_SSH_EARLY=1` only when the user agrees to an
+  earlier login. The guard cannot see a start whose first lines have not arrived yet (before Wi-Fi,
+  ~15-25 s; the log still shows the previous start), so the rule stands without it.
+
 ## Connect
 
 Everything runs from WSL distro **Ubuntu** through `dlz-ssh.sh` (next to this file), from the repo
@@ -114,9 +135,11 @@ The project's hard rules (`CLAUDE.md`) apply over SSH too; point to them and ref
   NAME,LABEL,SIZE,RO,MOUNTPOINT` before relying on it
 - DLZDATA's mount point: find it (`findmnt -rno TARGET -S LABEL=DLZDATA` or `lsblk`); Mackie's
   server mounts it. Logs in its `dlzmod-logs/`: `install-N-<version>.txt` (the installer, highest N =
-  newest), boot logs from `dlzmod-bootlog`, update results; the backup in `dlzmod-backup/`
+  newest), boot logs from `dlzmod-bootlog` (copied ~2.5 min into a start that finished, by server.js;
+  each start that got that far holds a `report of this start` block from `dlzmod-bootreport`; the
+  current one is in `/run/dlzmod-bootlog/` before the copy), update results; the backup in `dlzmod-backup/`
 - Fetched logs go to `build/device-logs/` (git-ignored, private), e.g. `install4.txt`
-- Mod units: `dlzmod-*` (bootlog, cardcheck, emmc-ro, grow-data, update), Mackie's `evolve-node`
+- Mod units: `dlzmod-*` (bootlog, bootreport, cardcheck, emmc-ro, grow-data, netlog, update), Mackie's `evolve-node`
   (server.js/app), `dspserver`, `faderlink`, `flash-fpga`
 
 ## Known normal readings (do not chase these)

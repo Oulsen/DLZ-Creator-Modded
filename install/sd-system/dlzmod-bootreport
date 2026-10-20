@@ -1,0 +1,96 @@
+#!/bin/sh
+# One report per start, into the log (and then, through dlzmod-bootlog and server.js, into
+# DLZDATA/dlzmod-logs/): how long the start took and what it waited for, when each mixer service started, its
+# restarts and status, failed units, how the audio chips started, and this start's warnings and
+# errors. Started by its unit as Type=exec at the lowest priority, so it holds nothing up; it waits
+# here until the start is done.
+set -u
+
+say() { echo "dlzmod-bootreport: $*"; }
+WARN_MAX=${DLZMOD_BOOTREPORT_WARN_MAX:-100}
+DELAY=${DLZMOD_BOOTREPORT_DELAY:-90}
+UNITS="flash-gd32 flash-fpga faderlink dspserver evolve-node evolve-app weston-mackie glesgui
+dlzmod-emmc-ro dlzmod-grow-data dlzmod-update dlzmod-netlog NetworkManager ssh"
+SYSLOG=${DLZMOD_BOOTREPORT_SYSLOG:-/var/log/syslog}
+
+# while it waits, the syslog written through to the card every 10-15 s (ext4, the system partition;
+# the kernel alone holds it back up to ~30 s): a start that hangs keeps its log up to ~15 s before
+# the hang (#81). Before #136 only dlzmod-bootlog's early copy to DLZDATA kept a hung start's first
+# ~10 s, and a freeze during that copy damaged the FAT
+keep() { sync "$SYSLOG" 2> /dev/null || :; }
+
+# systemd-analyze answers only once the start is finished: wait at least 90 s, at most 5 min (from
+# this script's own start, a few seconds after basic.target)
+w=0
+while [ $w -lt "$DELAY" ]; do
+  keep
+  sleep 10
+  w=$((w + 10))
+done
+waited=0
+until systemd-analyze time > /dev/null 2>&1; do
+  if [ $waited -ge 210 ]; then
+    say "start not finished $((DELAY + waited)) s after this report began waiting, jobs still waiting:"
+    systemctl list-jobs --no-pager --no-legend 2>&1 | head -n 30
+    break
+  fi
+  keep
+  sleep 15
+  waited=$((waited + 15))
+done
+
+say "===== report of this start ====="
+systemd-analyze time 2>&1 | head -n 3
+say "--- what the start waited for"
+systemd-analyze critical-chain --no-pager multi-user.target dspserver.service glesgui.service 2>&1 | head -n 60
+say "--- slowest units"
+systemd-analyze blame --no-pager 2>&1 | head -n 15
+say "--- mixer services (s after the kernel start; restarts; state)"
+for u in $UNITS; do
+  systemctl show "$u.service" --property=ActiveEnterTimestampMonotonic,InactiveExitTimestampMonotonic,NRestarts,ActiveState,SubState,Result,ExecMainStatus 2>/dev/null |
+    awk -v u="$u" -F= '
+      { v[$1] = $2 }
+      function s(us) { return us > 0 ? sprintf("%.1f", us / 1e6) : "-" }
+      END {
+        printf "%-17s start %6s  up %6s  restarts %s  %s/%s  result %s  exit %s\n", u,
+          s(v["InactiveExitTimestampMonotonic"]), s(v["ActiveEnterTimestampMonotonic"]),
+          v["NRestarts"] == "" ? "-" : v["NRestarts"], v["ActiveState"], v["SubState"], v["Result"], v["ExecMainStatus"]
+      }'
+done
+say "--- failed units"
+systemctl --failed --no-pager --no-legend --plain 2>&1 | head -n 20
+# dspserver logs at priority info, so a chip that did not answer ("Couldn't initialise AKM DAC
+# (possibly dead)", I2C retries) never shows among the warnings below; its service stays running
+say "--- audio chips (dspserver)"
+# A chip that does not answer gives ~99 retry lines: lines that differ only in their numbers (attempt,
+# address) collapse into one and a count; the first 30 lines, then the failure lines whatever comes
+# before them
+journalctl -b -u dspserver.service --no-pager -q -o short-monotonic 2>/dev/null |
+  grep -iE 'lite detected|initialis|i2c|possibly dead|audio hardware' |
+  grep -vE 'for graphics|MediaReader|DSP effect' |
+  awk 'function flush() { if (n) line[++c] = "  (the line above, " n " more like it)"; n = 0 }
+    { m = $0; sub(/^\[[^]]*\] [^:]*: /, "", m); gsub(/0x[0-9A-Fa-f]+|[0-9]+/, "#", m) }
+    m == p { n++; next }
+    { flush(); line[++c] = $0; p = m }
+    END {
+      flush()
+      for (i = 1; i <= c; i++)
+        if (i <= 30) print line[i]
+        else if (line[i] ~ /possibly dead|audio hardware/ && shown < 10) { print line[i]; shown++ }
+        else skipped++
+      if (skipped) print "  (" skipped " more lines in the log)"
+    }'
+# without the body of kernel stack dumps (set_cpus_allowed_ptr ones come at every start; the body of
+# any other dump goes too, it stays in the syslog); each dump's "CPU: ... Tainted" line stays
+STACK='kernel: (\[<[0-9a-f]+>\]|Exception stack\(|[0-9a-f]{4}:( +[0-9a-f]{8})+ *$|Hardware name:)'
+all=$(journalctl -b -p warning --no-pager -q -o short-monotonic 2>/dev/null)
+warn=$(printf '%s\n' "$all" | grep -vE "$STACK")
+n_all=$(printf '%s\n' "$all" | grep -c .)
+n=$(printf '%s\n' "$warn" | grep -c .)
+say "--- warnings and errors of this start: $n (first $WARN_MAX; $((n_all - n)) lines of kernel stack dumps left out)"
+printf '%s\n' "$warn" | grep . | head -n "$WARN_MAX"
+say "===== end of report ====="
+# the last starts' syslog, this report included, for server.js to copy to DLZDATA (dlzmod-bootlog);
+# a few seconds first, so rsyslog has written the report's last lines
+sleep 5
+systemctl start dlzmod-bootlog.service 2>&1 | head -n 5

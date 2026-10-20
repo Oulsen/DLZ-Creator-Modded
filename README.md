@@ -11,7 +11,8 @@ Alpha, at your own risk: read [DISCLAIMER.md](DISCLAIMER.md) first.
   from the Media page)
 - **Meters**: level before or after the fader, yellow and red zones, a dB scale
 - **Screen**: the header bar can be hidden for more room; a "DLZ Creator Modded" tab in Settings;
-  its own startup screens and a startup log for bug reports
+  its own startup screens and a startup log for bug reports, with a report of each start (timings,
+  errors, how the audio chips started)
 - **Network**: Wi-Fi from the screen (with a USB Wi-Fi stick), remote login (SSH), and control from
   a computer's web browser after pairing with a PIN (phones and tablets not yet,
   [#52](https://github.com/Oulsen/DLZ-Creator-Modded/issues/52)); all off by default

@@ -1,14 +1,12 @@
 [Unit]
-Description=dlzmod: copy the last boots' syslog to DLZDATA
-After=local-fs.target dlzmod-grow-data.service
-# Done before server.js mounts DLZDATA; dspserver waits as well, see dlzmod-grow-data.service
-Before=evolve-node.service evolve-app.service dspserver.service
+Description=dlzmod: the last starts' syslog, for server.js to copy to DLZDATA
+# Not part of the start: dlzmod-bootreport starts it once its report is in the log (#136), so it
+# never runs while a start can still hang. No [Install]: apply-mod.sh removes the old
+# multi-user.target.wants link. The file stays in every package: v0.2.0's updater requires it
 
 [Service]
 Type=oneshot
-RemainAfterExit=yes
-TimeoutStartSec=30
+TimeoutStartSec=60
+Nice=19
+IOSchedulingClass=idle
 ExecStart=/usr/local/sbin/dlzmod-bootlog
-
-[Install]
-WantedBy=multi-user.target

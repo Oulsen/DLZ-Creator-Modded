@@ -49,6 +49,31 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
 - Harmless at every boot: a kernel stack dump `set_cpus_allowed_ptr: core 4 is set in the mask`
   (dspserver asks for an affinity mask with a 5th core on this 4-core SoC), and
   `Watchdog triggered, thread switching logic requested` [device]
+
+## Log and audio chip start
+
+- **Buffered log** [device]: dspserver writes its own lines through glibc's stdio (`printf`, `puts`,
+  `fwrite` from the shared `libc.so.6`), block-buffered into the journal pipe, so they reach the
+  syslog only when ~4 KB have piled up. In the card's syslog (769 boots, the dump's history included) the chip start lines showed
+  up once, 18 min after that start, after a recording; on other boots they never did (a switch-off
+  loses the buffer). ffmpeg's lines (stderr) are not affected. The mod line-buffers stdout from the
+  `dspserver` drop-in (`LD_PRELOAD=/usr/libexec/coreutils/libstdbuf.so _STDBUF_O=L`; proven on the PC
+  with the dump's own `sed` under qemu: without it the lines of a killed process are lost) (#136).
+  On the device the chip start lines now come at ~27 s of every start, `Done.` at ~30 s [device].
+- **XS start order** [device]: `DLZ Lite detected` → old/new CPU, DDR and GPU PLL → `Initialising AKM
+  DAC...` → `Initialising AKM ADC...` → `Initialising THAT preamps...` → `Audio initialisation is
+  done.` → `THAT[n] = ...`. No bus scan line on the XS. The other chips' messages (Sabre, Everest,
+  "Initial I2C scan") belong to other board variants [guess].
+- **A chip that does not answer does not stop it** [device]: one factory boot in the card's syslog
+  (hostname still `mackie-evolve-a1`) shows `i2c: retrying address 22` ×99, `i2c: (!!!) error sending
+  data to 0x22`, `Couldn't initialise AKM DAC (possibly dead): failed to send I2C data`, then the same
+  for the AKM ADC at `0x26`, and dspserver carried on. Only `Couldn't initialise audio hardware,
+  exiting` ends it [static]. So a chip that fails at start gives moving meters and a silent output
+  until the next start [guess on the effect]. AKM DAC = I2C `0x22`, AKM ADC = `0x26` [device].
+- The FPGA loaded on the first try in all 769 starts of that syslog [device].
+
+## Recordings
+
 - Recordings: the file named by the hub key `recFile` (see [node-backend.md](node-backend.md)).
   `MediaRecorder` splits at **2 GB** on its own ("File size limit reached (2GBs), thus recording
   will be split"), independent of the filesystem; formats `.wav .bwf`. How the split parts are named

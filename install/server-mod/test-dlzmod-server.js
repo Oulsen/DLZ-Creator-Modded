@@ -1997,6 +1997,124 @@ test("update upload: a paired device reaches it, others do not", () => {
   assert.strictEqual(post({ cookie: cookie(token) }).status, 403, "off");
 });
 
+// #136: the boot log copied to the SD card once a start has finished (DLZMOD_bootlogCopy). Same rig
+// as the upload: the medium a temp folder, its remount stubbed; the timer never fires, tick() is
+// called by hand
+const bootRig = () => {
+  const up = upMedia();
+  const src = path.join(up.state, "syslog-last-boots.txt");
+  const uptime = path.join(up.state, "uptime");
+  fs.writeFileSync(uptime, "150.20 300.10\n");
+  ctx.DLZMOD_bootlogCopy(() => up.root, src, up.mounts, 1e9, uptime);
+  clearInterval(ctx.DLZMOD_bootlogCopy.timer);
+  const tick = async () => {
+    await ctx.DLZMOD_bootlogCopy.tick();
+    clearTimeout(ctx.DLZMOD_roLater.timer);
+  };
+  return Object.assign(up, { src, uptime, tick, logs: path.join(up.root, "dlzmod-logs") });
+};
+const setMtime = (f, s) => fs.utimesSync(f, s, s);
+test("boot log: nothing to copy, nothing remounted", async () => {
+  const b = bootRig();
+  await b.tick();
+  assert.deepStrictEqual(b.remounts, []);
+  assert.deepStrictEqual(ls(b.logs), []);
+});
+test("boot log: copied once, through a read-write remount; the next file moves the old one to .prev", async () => {
+  const b = bootRig();
+  fs.writeFileSync(b.src, "start 1\n");
+  await b.tick();
+  assert.deepStrictEqual(ls(b.logs), ["syslog-last-boots.txt"]);
+  assert.strictEqual(fs.readFileSync(path.join(b.logs, "syslog-last-boots.txt"), "utf8"), "start 1\n");
+  assert.deepStrictEqual(b.remounts.map((x) => x.slice(1).join(" ")), ["-o remount,rw " + b.root]);
+  await b.tick();
+  assert.strictEqual(b.remounts.length, 1, "the same file once");
+  fs.writeFileSync(b.src, "start 2\n");
+  setMtime(b.src, Date.now() / 1000 + 5);
+  await b.tick();
+  assert.deepStrictEqual(ls(b.logs), ["syslog-last-boots.prev.txt", "syslog-last-boots.txt"]);
+  assert.strictEqual(fs.readFileSync(path.join(b.logs, "syslog-last-boots.txt"), "utf8"), "start 2\n");
+  assert.strictEqual(fs.readFileSync(path.join(b.logs, "syslog-last-boots.prev.txt"), "utf8"), "start 1\n");
+});
+test("boot log: not in the first 90 s after power-on (an early file from the start that installs the update)", async () => {
+  const b = bootRig();
+  fs.writeFileSync(b.uptime, "25.03 60.00\n");
+  fs.writeFileSync(b.src, "early\n");
+  await b.tick();
+  assert.deepStrictEqual(b.remounts, []);
+  fs.writeFileSync(b.uptime, "garbage\n");
+  await b.tick();
+  assert.deepStrictEqual(b.remounts, [], "an unreadable uptime: not yet");
+  fs.writeFileSync(b.uptime, "90.00 60.00\n");
+  await b.tick();
+  assert.deepStrictEqual(ls(b.logs), ["syslog-last-boots.txt"]);
+});
+test("boot log: a temp file left by a power cut is replaced", async () => {
+  const b = bootRig();
+  fs.mkdirSync(b.logs);
+  fs.writeFileSync(path.join(b.logs, ".syslog-last-boots.txt.part"), "half");
+  fs.writeFileSync(b.src, "whole\n");
+  await b.tick();
+  assert.deepStrictEqual(ls(b.logs), ["syslog-last-boots.txt"]);
+});
+test("boot log: not while recording, an upload runs or there is no SD card; then it goes", async () => {
+  const b = bootRig();
+  fs.writeFileSync(b.src, "x\n");
+  ctx.getDataKey = (k) => (k === "recState" ? 1 : undefined);
+  await b.tick();
+  ctx.getDataKey = () => undefined;
+  ctx.DLZMOD_updateUpload.running = true;
+  await b.tick();
+  ctx.DLZMOD_updateUpload.running = false;
+  const root = b.root;
+  b.root = "-";
+  ctx.DLZMOD_bootlogCopy(() => b.root, b.src, b.mounts, 1e9, b.uptime);
+  clearInterval(ctx.DLZMOD_bootlogCopy.timer);
+  await b.tick();
+  assert.deepStrictEqual(b.remounts, [], "waited");
+  b.root = root;
+  await b.tick();
+  assert.deepStrictEqual(ls(b.logs), ["syslog-last-boots.txt"]);
+});
+test("boot log: a medium that stays read-only: 3 tries, then left until a new file", async () => {
+  const b = bootRig();
+  fs.writeFileSync(b.mounts, "/dev/mmcblk0p2 " + b.root + " vfat ro,relatime 0 0\n");
+  fs.writeFileSync(b.src, "x\n");
+  for (let i = 0; i < 5; i++) await b.tick();
+  assert.strictEqual(b.remounts.length, 3);
+  assert.deepStrictEqual(ls(b.logs), []);
+  setMtime(b.src, Date.now() / 1000 + 10);
+  await b.tick();
+  assert.strictEqual(b.remounts.length, 4, "a new file is tried again");
+});
+test("boot log: a failed remount is no crash and writes nothing", async () => {
+  const b = bootRig();
+  ctx.DLZMOD_run = async (f, args) => (b.remounts.push(args), { ok: false, out: "", err: "mount: busy" });
+  fs.writeFileSync(b.src, "x\n");
+  await b.tick();
+  assert.strictEqual(b.remounts.length, 1);
+  assert.deepStrictEqual(ls(b.logs), []);
+  assert.ok(!ctx.DLZMOD_bootlogCopy.running);
+});
+test("boot log: a write that fails (a full card) leaves no temp file and keeps the last copy", async () => {
+  const b = bootRig();
+  fs.mkdirSync(b.logs);
+  fs.writeFileSync(path.join(b.logs, "syslog-last-boots.txt"), "last\n");
+  fs.writeFileSync(b.src, "new\n");
+  const writeAll = ctx.DLZMOD_writeAll;
+  ctx.DLZMOD_writeAll = async () => {
+    throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+  };
+  try {
+    await b.tick();
+  } finally {
+    ctx.DLZMOD_writeAll = writeAll;
+  }
+  assert.deepStrictEqual(ls(b.logs), ["syslog-last-boots.txt"]);
+  assert.strictEqual(fs.readFileSync(path.join(b.logs, "syslog-last-boots.txt"), "utf8"), "last\n");
+  assert.ok(!ctx.DLZMOD_bootlogCopy.running);
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {

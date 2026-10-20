@@ -186,7 +186,8 @@ Implication: keep the mixer on a trusted LAN, and never port-forward it.
   last ~10-40 s [guess, from those two], and a start that freezes early can leave nothing at all; the
   last line kept is the last write-back, not the moment of the freeze [device: a start that hung
   after its boot log copy (10.4 s) left no line in the card's syslog; its first 10 s survive only in
-  the boot log copy]
+  the boot log copy]. Since #136 `dlzmod-bootreport` writes the syslog through (`sync <file>`) every
+  10-15 s until the start has finished, and the boot log copy to DLZDATA comes only after that
 
 ### What changes at runtime
 

@@ -26,8 +26,9 @@ put_link() {
   mv -Tf "$2.dlzmod-new" "$2"
 }
 
-# Brick guards (notes/modding-guide.md, Brick risks), the first-boot DLZDATA grower, the boot log copy
-# to DLZDATA (dlzmod-logs/, readable in a card reader) and the drop-in update. The guards go first
+# Brick guards (notes/modding-guide.md, Brick risks), the first-boot DLZDATA grower, the report of
+# each start and its boot log for DLZDATA (dlzmod-logs/, readable in a card reader), the network log
+# of a development card and the drop-in update. The guards go first
 # and are flushed before anything else changes
 install_sd_system() {
   local s=$TOOLS/sd-system u f
@@ -43,13 +44,16 @@ install_sd_system() {
   put_file 644 "$s/60-dlzmod-emmc-ro.rules" "$MNT/etc/udev/rules.d/60-dlzmod-emmc-ro.rules"
   sync
   # dspserver waits for server.js before starting (dlzmod-wait-hub, its drop-in above)
-  for f in dlzmod-grow-data dlzmod-bootlog dlzmod-wait-hub; do
+  for f in dlzmod-grow-data dlzmod-bootlog dlzmod-bootreport dlzmod-wait-hub dlzmod-netlog; do
     put_file 755 "$s/$f" "$MNT/usr/local/sbin/$f"
   done
-  for f in dlzmod-grow-data dlzmod-bootlog; do
+  for f in dlzmod-grow-data dlzmod-bootreport dlzmod-netlog; do
     put_file 644 "$s/$f.service" "$MNT/etc/systemd/system/$f.service"
     put_link "/etc/systemd/system/$f.service" "$MNT/etc/systemd/system/multi-user.target.wants/$f.service"
   done
+  # #136: the boot log is no longer a step of the start (dlzmod-bootreport starts it at the end)
+  put_file 644 "$s/dlzmod-bootlog.service" "$MNT/etc/systemd/system/dlzmod-bootlog.service"
+  rm -f "$MNT/etc/systemd/system/multi-user.target.wants/dlzmod-bootlog.service"
   # the update installs its own new copy itself, last, once everything else passed its checks
   [ "${DLZMOD_SELF_LAST:-}" = 1 ] || install_update_unit
   # USB Wi-Fi sticks the stock driver drives but does not list (sd-system/90-dlzmod-usb-wifi.rules)
