@@ -79,7 +79,14 @@ what in the diff answers it:
    - the logs of the tests and rehearsals from step 1
    - `facts.md`: what is already verified, each with its source (file:line, command, [device]);
      informed reviewers take these as given unless they find evidence against them
-   - so no reviewer has to build, unpack or decode anything: the initramfs tree
+   - `scope.md` (for every blind reviewer): a map of directions, no claims. It lists the changed
+     files and their entry points (a unit, a function, a patch hook, a script and who starts it);
+     which code is new in this build and which is unchanged since the last version that passed on
+     the device; which brick areas the change can reach at all (eMMC writes, U-Boot / `boot.scr` /
+     `uboot.env`, kernel / DTB, power / PMIC, GD32 / FPGA / Bluetooth / amplifiers, the card's system
+     and data partitions). No test results, no "verified", no "safe", no goal, no history, nothing
+     from `facts.md`: those stay for the informed reviewers.
+   - tier 3 and 4 only, so no reviewer has to build, unpack or decode anything: the initramfs tree
      and the image's FAT files; `boot.scr.txt` (without its 72-byte header) and `uboot.env.txt`
      (one variable per line) when the image has them; `patched/` (Mackie's `app.js` / `server.js`
      with the mod applied, `.orig` next to them, and `patch.py --check` output) when patches
@@ -88,9 +95,9 @@ what in the diff answers it:
    blind brick reviewer; tier 4 the informed combined and the blind brick reviewer, all at once.
    Give the informed reviewer the goal, the prepared folder, the hard rules and the scope: the diff
    plus its direct callers, not the whole history. The blind reviewer gets **no goal, no history, no
-   claims** and no `facts.md`: only the files, the unpacked artefacts, binaries and the read-only
-   dump, with the notes flagged as unverified author claims. Meanwhile, run the brick checklist
-   yourself.
+   claims** and no `facts.md`: only `scope.md`, the files, the unpacked artefacts, binaries and the
+   read-only dump, with the notes flagged as unverified author claims. Meanwhile, run the brick
+   checklist yourself.
 4. **Verify** every blocker/brick claim yourself (code, kernel config, DTB, U-Boot binary/env, qemu)
    before acting; findings reported by both an informed and a blind reviewer weigh more. Tell the
    user which claims held and which did not. Fix, rebuild, re-run the tests.
@@ -113,8 +120,8 @@ Fill in `<...>` from `CLAUDE.md` and the change at hand. Keep each report under 
 Repo: <repo path>; Git Bash on Windows, WSL distro "Ubuntu" with qemu-user, dtc, strings, readelf,
 python3, cpio, dpkg-deb, u-boot-tools.
 Files under review: <list>. Prepared for you (start here): build/review/<build name>/ (diff.txt,
-test and rehearsal logs<, facts.md: informed reviewers only><; tier 3-4: initramfs tree, image FAT
-files, decoded boot.scr/uboot.env, patched Mackie files>). Do not rebuild, re-unpack or re-patch;
+test and rehearsal logs<, facts.md: informed reviewers only><, scope.md: blind reviewers only><; tier
+3-4: initramfs tree, image FAT files, decoded boot.scr/uboot.env, patched Mackie files>). Do not rebuild, re-unpack or re-patch;
 spend the time on the review.
 Target device: Mackie DLZ Creator XS. Read-only image of its eMMC rootfs, mounted at /mnt/dlz in
 WSL (if dropped: <mount command from CLAUDE.md>) (kernel, config, System.map, DTBs, modules, boot
@@ -136,7 +143,11 @@ PLAUSIBLE), then SAFE TO RUN / SAFE WITH CHANGES / NOT SAFE with one paragraph."
 **2B, blind brick** (tier 3-4): shared block + "A real device its user cannot afford to brick. No
 explanation of the goal on purpose: work out what the files do, then find every way they could
 brick the device, damage hardware, modify its internal storage, or leave it unable to boot normally
-afterwards. Attack the design, not just the code; assume nothing is safe until checked." Areas:
+afterwards. Attack the design, not just the code; assume nothing is safe until checked. Start from
+the entry points in scope.md. Unchanged code is out of scope unless a trace from the changed code
+leads there; then follow it as far as it goes. For brick areas scope.md lists as unreachable,
+confirm there is no path from the changed code to them instead of auditing them in full. scope.md
+is a map, not a claim: if it is wrong or incomplete, say so and follow the code." Areas:
 every write path to the eMMC (U-Boot and its environment, kernel, filesystems, scripts,
 failure/fallback paths, races, missing or failing pieces); PMIC and voltages; the GD32, FPGA,
 Bluetooth, amplifiers and their buses/GPIOs; what U-Boot and the kernel do on their own;
