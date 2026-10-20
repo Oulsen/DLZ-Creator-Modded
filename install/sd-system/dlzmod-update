@@ -378,7 +378,9 @@ sched_dropins() {
        && sync "$t.dlzmod-new" && mv -f "$t.dlzmod-new" "$t"; then
       placed="$placed $u"
     else
-      rm -f "$t.dlzmod-new"; log "the scheduling drop-in of $u could not be placed"
+      # (the journal only, so the boot report shows it: a cause that stays would otherwise write a
+      # new report to DLZDATA at every start)
+      rm -f "$t.dlzmod-new"; echo "dlzmod-update: the scheduling drop-in of $u could not be placed"
     fi
   done
   sync

@@ -220,6 +220,7 @@ else
     && ok "a missing one put back, one that is there left as it is" || bad "a missing or changed drop-in handled wrong"
   cp $REPO/install/sd-system/glesgui.service.d/dlzmod.conf $R/etc/systemd/system/glesgui.service.d/dlzmod.conf
 fi
+APP=$(sha $R/srv/app.js)
 
 if [ -z "${QUICK:-}" ]; then   # QUICK=1: only the install, a good update, model/marker and guards
 echo "== 4: damaged package (one byte), then the next start"

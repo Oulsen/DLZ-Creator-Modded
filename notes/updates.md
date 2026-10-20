@@ -240,8 +240,10 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   lacks it; the new updater carries the file's text itself (`SCHED_CONF`, checked against the shipped
   files by `mkpackage.sh` and `update-checks.sh`) and places it at the next start without an update
   file: only where it is missing (one that is there is left as it is, so a later version's own
-  change is not undone), written next to it and renamed, never while a cut-off try waits to be put
-  back or the eMMC is not locked. systemd read the units before the updater ran, so they apply from
+  change is not undone; one deleted on purpose comes back, so to try stock scheduling, empty the
+  file instead), written next to it and renamed, never while a cut-off try waits to be put
+  back or the eMMC is not locked. A placing that fails says so in the journal only (the boot
+  report), not in a report on DLZDATA at every start. systemd read the units before the updater ran, so they apply from
   the start after [static, PC rehearsal: `tests/update.sh` case 3c].
 - **The new updater copy** must keep the installed one's `GUARDS` list exactly and contain its gates
   (signature check, the sandbox's uid, capability drop, user namespaces off, read-only remount, eMMC check, the refusal
