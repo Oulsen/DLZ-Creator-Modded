@@ -165,7 +165,7 @@ The repo is public, so what goes into it is limited by what the project may publ
 | `check-rootfs.sh` | WSL / device | Is a mounted rootfs the supported firmware (evolve-node 3297) on an XS or a full-size, with the GD32 marker of that model's firmware? Optionally: is it the expected model? |
 | `cpio-replace.py` | any | Replace one file in a cpio initrd, every other entry kept byte for byte (the bootsplash) |
 | `apply-mod.sh` | WSL / device | The mod's own changes to a rootfs (guards and units, app/server patches, mod defaults, Mackie's factory Wi-Fi network and SSH access removed once), shared by `card-core.sh` and the drop-in update so both apply the same files; every file written atomically and only when it differs |
-| `sd-system/` | device | Installed by `card-core.sh`: eMMC read-only unit (and a udev rule that locks it whenever it appears), first-boot `DLZDATA` grower, boot log copy to `DLZDATA/dlzmod-logs/`, dspserver start guard (waits for server.js), drop-ins that stop GD32 flashing and Mackie updates, the card bound to its mixer (`dlzmod-cardcheck` before Mackie's FPGA loader: the flag matches the GD32 marker, both match the eMMC's own (read-only), and the eMMC's CID hash matches `/etc/dlzmod/mixer-id`, else no FPGA load, faderlink or dspserver and a red popup), the drop-in update (`dlzmod-update`: a package in `DLZDATA/dlzmod-update/` is checked and applied at startup, only with a valid signature from a key the card trusts; its steps run in a sandbox on a copy, then only allowlisted files are placed), USB Wi-Fi ids the stock driver lacks, an eject rule for Realtek sticks that start as a driver CD, and an SSH drop-in that gives each card its own host keys, slows down password guessing and starts SSH only when turned on from the screen (off again after a restart unless kept on) |
+| `sd-system/` | device | Installed by `card-core.sh`: eMMC read-only unit (and a udev rule that locks it whenever it appears), first-boot `DLZDATA` grower, a report of each start and the boot log for `DLZDATA/dlzmod-logs/` (copied by server.js once the start has finished), a dev card's network log (`dlzmod-netlog`, off without `dev/netlog.sh`), dspserver start guard (waits for server.js), drop-ins that stop GD32 flashing and Mackie updates, the card bound to its mixer (`dlzmod-cardcheck` before Mackie's FPGA loader: the flag matches the GD32 marker, both match the eMMC's own (read-only), and the eMMC's CID hash matches `/etc/dlzmod/mixer-id`, else no FPGA load, faderlink or dspserver and a red popup), the drop-in update (`dlzmod-update`: a package in `DLZDATA/dlzmod-update/` is checked and applied at startup, only with a valid signature from a key the card trusts; its steps run in a sandbox on a copy, then only allowlisted files are placed), USB Wi-Fi ids the stock driver lacks, an eject rule for Realtek sticks that start as a driver CD, and an SSH drop-in that gives each card its own host keys, slows down password guessing and starts SSH only when turned on from the screen (off again after a restart unless kept on) |
 | `mount-ro.sh` | WSL (root) | Mount a dump's rootfs read-only |
 | `patch.py` | any | `patch.py app <app.js>`: our UI mods (`app-mod/dlzmod.js` + anchor patches). `patch.py server <server.js>`: our server mods (`server-mod/dlzmod-server.js` + anchor patches): FORMAT SD and firmware updates refused, free and unique recording names, the update popup, Wi-Fi and SSH for the Mod page's Network panel, control from other devices only when switched on and paired with a PIN (HTTP, socket.io and port 89 on loopback; the Remote Control panel), and Mackie's file commands checked (deleting and renaming only from the mixer's own screen and paired devices, recordings only in their folders, preset folders and names checked, no shell for file names, the kept `*.orig` originals not served), recordings downloaded by paired computers (read only, nothing read while recording) and every client's recording list refreshed after a recording, rename or delete |
 | `server-mod/test-dlzmod-server.js` | Node | Unit tests for the server mod: recording names, update popup, Network panel, pairing (PIN, pause, cookie, Origin, which files other devices get), file command checks, the recordings download and list refresh (`node install/server-mod/test-dlzmod-server.js`) |
@@ -177,6 +177,7 @@ The repo is public, so what goes into it is limited by what the project may publ
 |---|---|---|
 | `ui-sandbox.sh` | Git Bash + Node | Run the mixer UI on this PC at http://127.0.0.1/ in the on-device layout (copy of `/srv` in `dumps/sandbox`, shell commands blocked, localhost only); `DLZ_FULLSIZE=1` shows the full-size DLZ Creator's UI from its own copy (`dumps/sandbox-full`); `DLZ_SANDBOX_REMOTE=1` makes http://localhost/ another device on the network; `DLZ_FAKE_MEDIA=sd` (`usb`, `sd,usb`) a pretend SD card / USB stick with a few recordings |
 | `push.sh` | Git Bash + WSL | Build HEAD, push it over Wi-Fi to a dev card as a drop-in update, wait for the mixer to be switched off and on (`--restart`: from software, #81) and show the update's report ("Dev card" below); settings in `dev/push.env` (git-ignored, from `push.env.example`) |
+| `netlog.sh` / `netlog.ps1` | Git Bash / PowerShell | A dev card's network log ("Dev card" below): `netlog.sh on` (`off`, `status`) makes the card send each start's log to this PC, `netlog.ps1` receives it into `build/device-logs/netlog-*.txt` |
 | `ui-sandbox/shot.js` | Node + Chrome | Headless screenshot of the sandbox UI, optionally after taps; also as a paired other device (`DLZ_SHOT_COOKIE`) and keeping its downloads (`DLZ_SHOT_DOWNLOADS`) |
 | `ui-sandbox/pair.js` | Node | Pair the sandbox's other device with the PIN, as a real one pairs; prints the token for `shot.js` |
 | `ui-sandbox/fake-vu-live.js` | browser | Moving fake meter levels that follow the faders, loaded into the sandbox page by the shim (off with `/?novu`) |
@@ -306,6 +307,21 @@ it writable for the copy and read-only again after it. Earlier packages in `dlzm
 removed (more than one is never installed). After the new start it waits for the
 updater's report, prints it and says from the report whether the package was installed. Packages
 stay in `build/push/`.
+
+**A start that hangs** (#81) often never gets its last seconds onto the card. The dev card can send
+each start's log to the PC as it happens (`dlzmod-netlog`, from the build that brings it):
+
+```bash
+bash dev/netlog.sh on       # once: the card sends to this PC (the address it sees over SSH), port 5140
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File dev/netlog.ps1   # leave it open while the mixer starts
+```
+
+It writes `build/device-logs/netlog-<date>-<time>.txt`, with a marker line at each start. It starts
+sending once Wi-Fi is up (~15-25 s), then everything since power-on. Nothing arrives: allow UDP 5140
+in Windows Firewall once (the command is at the top of `netlog.ps1`). `bash dev/netlog.sh off` stops it.
 
 **Back to an older build** of the same version (bisecting): equal versions install, so check out
 the older commit and push again, or push its package from before: `bash dev/push.sh

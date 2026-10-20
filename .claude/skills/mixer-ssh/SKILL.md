@@ -114,10 +114,11 @@ The project's hard rules (`CLAUDE.md`) apply over SSH too; point to them and ref
   NAME,LABEL,SIZE,RO,MOUNTPOINT` before relying on it
 - DLZDATA's mount point: find it (`findmnt -rno TARGET -S LABEL=DLZDATA` or `lsblk`); Mackie's
   server mounts it. Logs in its `dlzmod-logs/`: `install-N-<version>.txt` (the installer, highest N =
-  newest), boot logs from `dlzmod-bootlog` (each start that ran ~2.5 min holds a `report of this start`
-  block from `dlzmod-bootreport`: start up first), update results; the backup in `dlzmod-backup/`
+  newest), boot logs from `dlzmod-bootlog` (copied ~2.5 min into a start that finished, by server.js;
+  each start that got that far holds a `report of this start` block from `dlzmod-bootreport`; the
+  current one is in `/run/dlzmod-bootlog/` before the copy), update results; the backup in `dlzmod-backup/`
 - Fetched logs go to `build/device-logs/` (git-ignored, private), e.g. `install4.txt`
-- Mod units: `dlzmod-*` (bootlog, bootreport, cardcheck, emmc-ro, grow-data, update), Mackie's `evolve-node`
+- Mod units: `dlzmod-*` (bootlog, bootreport, cardcheck, emmc-ro, grow-data, netlog, update), Mackie's `evolve-node`
   (server.js/app), `dspserver`, `faderlink`, `flash-fpga`
 
 ## Known normal readings (do not chase these)

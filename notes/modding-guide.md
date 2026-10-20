@@ -197,17 +197,23 @@ taking the card out: `bash dev/push.sh` builds, checks, copies, waits for the mi
 
 With SSH on, small iterations can be `scp` + `systemctl restart <unit>` instead of a package.
 
-Reading the card's logs without SSH: at every boot, before server.js mounts DLZDATA,
-`dlzmod-bootlog` (install/sd-system) copies the syslog of the last 3 SD-system boots to
-`DLZDATA/dlzmod-logs/syslog-last-boots.txt` (the previous copy as `.prev.txt`), so a failed boot is
-readable in any card reader after the next boot. It costs ~2.2 s of boot time; it cannot move after
-the start, because server.js holds DLZDATA mounted read-only and remounts it read-write only while
-it writes itself (stock leaves it writable once a recordings folder exists; the mod puts it back,
-#98; open-questions Q28). Only boots of the
-SD system are copied (sections with `dlzmod-grow-data`, which runs at every boot), not the dump's
-own history. Always on. Each boot that ran ~2 min or longer holds a `dlzmod-bootreport` block (times,
+Reading the card's logs without SSH: once a start has finished (~2.5 min after power-on, after its
+`dlzmod-bootreport` block), the syslog of the last 4 SD-system starts lands in
+`DLZDATA/dlzmod-logs/syslog-last-boots.txt` (the previous copy as `.prev.txt`), readable in any card
+reader: `dlzmod-bootlog` (install/sd-system) puts it in `/run`, server.js copies it through its
+queue of remounts (`DLZMOD_bootlogCopy`, #136), so nothing mounts DLZDATA a second time and nothing
+writes to the FAT while a start can still hang (#81). A start that hangs is in the copy of the next
+start that finishes. Its own log reaches the card's syslog (ext4) up to ~15 s before the hang:
+`dlzmod-bootreport` writes the syslog through every 10-15 s while it waits. Only boots of the SD
+system are copied (sections with `dlzmod-grow-data`, which runs at every boot), not the dump's own
+history. Always on. Each start that ran ~2 min or longer holds a `dlzmod-bootreport` block (times,
 what the start waited for, services, failed units, warnings and errors): search for
 `report of this start` (#136).
+
+A dev card can also send each start's log to the PC as it happens (`dlzmod-netlog`, #136): `bash
+dev/netlog.sh on` once, then `powershell -ExecutionPolicy Bypass -File dev/netlog.ps1` writes it to
+`build/device-logs/netlog-*.txt`. It covers a start that freezes before its log reaches the card, as
+long as Wi-Fi came up (~15-25 s) and the freeze leaves the network running.
 
 Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var/log/syslog`
 (`wsl --mount` does not support USB card readers, `0x8007000f`). rsyslog persists across reboots

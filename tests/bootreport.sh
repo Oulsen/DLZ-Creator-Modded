@@ -28,6 +28,7 @@ cat > "$TMP/bin/systemctl" << 'EOF'
 #!/bin/sh
 case $1 in
   list-jobs) echo "12 glesgui.service start running" ;;
+  start) echo "$2" >> "$STATE/started" ;;
   show) printf '%s\n' NRestarts=0 ActiveState=active SubState=running Result=success ExecMainStatus=0 \
           InactiveExitTimestampMonotonic=24899087 ActiveEnterTimestampMonotonic=24900000 ;;
   --failed) echo "dlzmod-x.service loaded failed failed" ;;
@@ -73,6 +74,10 @@ cat > "$TMP/bin/sleep" << 'EOF'
 #!/bin/sh
 echo "$1" >> "$STATE/slept"
 EOF
+cat > "$TMP/bin/sync" << 'EOF'
+#!/bin/sh
+echo "$*" >> "$STATE/synced"
+EOF
 chmod +x "$TMP/bin/"*
 
 # run <name> <finished after n calls> <warning lines>: the report in $TMP/<name>.out
@@ -98,7 +103,7 @@ grep -q "warnings and errors of this start: 250 (first 100; 0 lines of kernel st
   && ok "normal: warnings counted" || bad "normal: warning count"
 [ "$(grep -c ': warning [0-9]*$' "$o")" = 100 ] && ok "normal: warnings capped at 100" || bad "normal: warnings not capped"
 grep -q "end of report" "$o" && ok "normal: complete" || bad "normal: no end line"
-[ "$(slept normal)" = 90 ] && ok "normal: waited 90 s, no polling" || bad "normal: slept $(slept normal) s"
+[ "$(slept normal)" = 95 ] && ok "normal: waited 90 s, no polling (and 5 s before the boot log)" || bad "normal: slept $(slept normal) s"
 c=$(sed -n '/--- audio chips/,/--- warnings/p' "$o")
 echo "$c" | grep -q "Lite detected" && echo "$c" | grep -q "Initialising AKM DAC" && echo "$c" | grep -q "Audio initialisation is done" \
   && ok "normal: the audio chips' start" || bad "normal: chip section: $c"
@@ -107,7 +112,7 @@ echo "$c" | grep -qE "for graphics|PLL|Done\." && bad "normal: other dspserver l
 # 2. a start that finishes late: polled every 15 s, then the report
 run late 3 0
 o=$TMP/late.out
-[ "$(slept late)" = 135 ] && ok "late: polled until done (90 + 3 x 15 s)" || bad "late: slept $(slept late) s"
+[ "$(slept late)" = 140 ] && ok "late: polled until done (90 + 3 x 15 s, + 5)" || bad "late: slept $(slept late) s"
 grep -q "not finished" "$o" && bad "late: says not finished" || ok "late: no 'not finished'"
 grep -q "warnings and errors of this start: 0 (first 100; 0 lines" "$o" && ok "late: zero warnings" || bad "late: warning count"
 [ "$(sed -n '/warnings and errors/,/end of report/p' "$o" | wc -l)" = 2 ] && ok "late: no empty warning line" || bad "late: lines between the warning header and the end"
@@ -148,9 +153,38 @@ echo "$c" | grep -q "Audio initialisation is done" && bad "chip 3: a line past t
 # 5. a start that never finishes: gives up after 5 min, names the waiting jobs, still reports
 run hung 1000 5
 o=$TMP/hung.out
-[ "$(slept hung)" = 300 ] && ok "hung: gave up after 300 s" || bad "hung: slept $(slept hung) s"
+[ "$(slept hung)" = 305 ] && ok "hung: gave up after 300 s (+ 5)" || bad "hung: slept $(slept hung) s"
 grep -q "start not finished 300 s after this report began waiting" "$o" && grep -q "glesgui.service start running" "$o" \
   && ok "hung: names the waiting jobs" || bad "hung: no jobs list"
 grep -q "end of report" "$o" && ok "hung: still reports" || bad "hung: no report"
+[ "$(cat "$TMP/hung/started" 2>/dev/null)" = dlzmod-bootlog.service ] && [ "$(cat "$TMP/normal/started" 2>/dev/null)" = dlzmod-bootlog.service ] \
+  && ok "the boot log is started once the report is written, also after a start that did not finish" || bad "boot log not started"
+[ "$(sort -u "$TMP/normal/synced")" = /var/log/syslog ] && [ "$(wc -l < "$TMP/normal/synced")" = 9 ] \
+  && [ "$(wc -l < "$TMP/late/synced")" = 12 ] \
+  && ok "the syslog written through while it waits (every 10 s, then at each poll)" \
+  || bad "synced: normal $(wc -l < "$TMP/normal/synced"), late $(wc -l < "$TMP/late/synced") x $(sort -u "$TMP/normal/synced")"
+
+# 6. the boot log (dlzmod-bootlog): the last 4 starts of the SD system, oldest first, into its folder
+# in /run (here a temp one) under its final name only; not the dump's own (stock) starts
+BL=$PWD/install/sd-system/dlzmod-bootlog
+{
+  echo "Oct 1 host kernel: Booting Linux on physical CPU 0x0"; echo "Oct 1 host stock: a stock start"
+  for i in 1 2 3 4 5; do
+    echo "Oct 2 host kernel: Booting Linux on physical CPU 0x0"
+    echo "Oct 2 host dlzmod-grow-data[1]: dlzmod-grow-data: DLZDATA set up before"
+    echo "Oct 2 host x: start $i"
+  done
+} > "$TMP/syslog"
+mkdir -p "$TMP/run"
+DLZMOD_BOOTLOG_DIR=$TMP/run DLZMOD_BOOTLOG_SYSLOG=$TMP/syslog sh "$BL" > "$TMP/bootlog.out" 2>&1 || bad "bootlog: exit $?"
+o=$TMP/run/syslog-last-boots.txt
+[ "$(grep '^=====' "$o" | head -1)" = "===== boot 1 of 4 (oldest first) =====" ] && [ "$(grep -c '^=====' "$o")" = 4 ] \
+  && ok "bootlog: 4 starts" || bad "bootlog: $(grep '^=====' "$o")"
+[ "$(grep -o 'start [0-9]' "$o" | tr '\n' ' ')" = "start 2 start 3 start 4 start 5 " ] && ok "bootlog: the last 4, oldest first" \
+  || bad "bootlog: $(grep -o 'start [0-9]' "$o" | tr '\n' ' ')"
+grep -q "a stock start" "$o" && bad "bootlog: the stock start copied" || ok "bootlog: stock starts left out"
+[ "$(ls "$TMP/run")" = syslog-last-boots.txt ] && ok "bootlog: only the final file" || bad "bootlog: $(ls "$TMP/run")"
+grep -q "dlzmod-bootlog: 4 boot(s), [0-9]* bytes ready" "$TMP/bootlog.out" && ok "bootlog: says what it wrote" || bad "bootlog: $(cat "$TMP/bootlog.out")"
+grep -v '^ *#' "$BL" | grep -qwE 'mount|umount' && bad "bootlog: still mounts something" || ok "bootlog: mounts nothing"
 
 [ $fail = 0 ] && echo "ALL OK" || { echo "FAILED"; exit 1; }

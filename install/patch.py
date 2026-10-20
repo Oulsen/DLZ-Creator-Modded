@@ -314,9 +314,11 @@ SERVER_PATCHES = [
         # #45: other devices only with "Control from other devices" on and paired, and then only the
         # UI's own files (not srv_data.json or the presets). #26: then the recordings, read only
         # (DLZMOD_recHttp); ce() is a medium's mount point, "-" when empty. #114: a mod update sent
-        # to the SD card's dlzmod-update/ (DLZMOD_updateUpload)
+        # to the SD card's dlzmod-update/ (DLZMOD_updateUpload). #136: the boot log copied to the SD
+        # card once a start has finished (DLZMOD_bootlogCopy; this setup runs once, at the start)
         'a=e();a.use(DLZMOD_noOrig);a.use(DLZMOD_remoteHttp);'
         'a.use(DLZMOD_recHttp((()=>[ce("sd"),ce("usb")])));a.use(DLZMOD_updateUpload((()=>ce("sd"))));'
+        'DLZMOD_bootlogCopy((()=>ce("sd")));'
         'return a.get("/app.js",',
     ),
     (

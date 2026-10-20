@@ -1,0 +1,25 @@
+#!/bin/bash
+# Development cards only (#136): the journal of this start sent line by line to a PC on the network
+# (UDP, one datagram per line), so a start that hangs before its log reaches the card (#81: the last
+# 10-40 s never do, a start that freezes early leaves nothing) still leaves one, on the PC. Off unless
+# /var/lib/dlzmod/netlog names the PC ("<IPv4> <port>", written by dev/netlog.sh over SSH); a card
+# from the installer never has it. The journal lives in RAM (Storage=volatile), kernel lines
+# included, and nothing here starts a program per line, so the sending does not wait for the card.
+# Waits for a route to the PC (Wi-Fi comes up ~15-25 s into the start), then sends everything since
+# the start and follows. A line sent while the network is gone is lost; nothing goes to the journal
+# per line (that would be sent again).
+set -u
+CONF=${DLZMOD_NETLOG_CONF:-/var/lib/dlzmod/netlog}
+
+[ -s "$CONF" ] || exit 0
+read -r host port _ < "$CONF" || true
+if ! [[ ${host:-} =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ && ${port:-} =~ ^[0-9]{1,5}$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+  echo "dlzmod-netlog: $CONF is not '<IPv4 address> <port>', nothing sent"
+  exit 0
+fi
+echo "dlzmod-netlog: sending this start's log to $host:$port once the network is up"
+until ip route get "$host" > /dev/null 2>&1; do sleep 1; done
+# bash's /dev/udp: a socket per line, no connection to lose when Wi-Fi drops
+journalctl -b -f -q --no-pager -o short-monotonic | while IFS= read -r line; do
+  { printf '%s\n' "$line" > "/dev/udp/$host/$port"; } 2> /dev/null || :
+done
