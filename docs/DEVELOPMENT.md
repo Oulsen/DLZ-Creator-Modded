@@ -363,13 +363,13 @@ issue's technical notes point to the note section instead of copying it.
 - **Review**: every PR into `develop` gets a review before it is merged, also a small one that only
   changes docs. A contributor's PR: the maintainer reviews it (`.github/CODEOWNERS` requests that
   once the repo is public; a ruleset makes it required). The maintainer's own PRs: right after the
-  PR opens, the maintainer runs one review pass by an AI reviewer on the opened PR (`/cr` or
-  `/code-review`, Claude Code review commands), so the whole diff that will be merged is read,
-  including changes made after a device review (for docs: consistency with the other docs and
-  correctness; for code: bugs, failure paths, what the tests cannot see). Findings are fixed as new
-  commits on the PR, or named in the PR description as accepted, before the merge; fixes that add
-  new logic or touch other code get one more pass on the PR, wording and fixes that only do what a
-  finding asked do not. The release PR `develop` → `main` only carries reviewed changes, and still
+  PR opens, the maintainer runs one review pass by an AI reviewer on the opened PR (`/cr`, the
+  Claude Code review command, its reviewer on Sonnet), so the whole diff that will be merged is
+  read, including changes made after a device review (bugs, failure paths, what the tests cannot
+  see). A docs-only PR gets no reviewer agent: Claude reads it itself for consistency with the
+  other docs and correctness. Findings are fixed as new commits on the PR, or named in the PR
+  description as accepted, before the merge; Claude checks the fixes itself, without a second
+  reviewer pass. Reviews are kept lean on purpose (a Pro plan's usage). The release PR `develop` → `main` only carries reviewed changes, and still
   gets one final `/cr` pass on the whole release diff before the fast-forward (how the PRs fit
   together); besides that its check is the changelog section, the list of released issues and that
   the release files are the tested ones; it is fast-forwarded, not merged with the button
