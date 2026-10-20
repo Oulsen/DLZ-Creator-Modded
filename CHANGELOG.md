@@ -2,6 +2,7 @@
 
 ## v0.3.0
 
+- (DLZ BUG) The mixer sometimes gets stuck while starting
 - (MOD FEATURE) Each start leaves a clear log: start order, timings, errors and how the audio chips started
 
 ## v0.2.0

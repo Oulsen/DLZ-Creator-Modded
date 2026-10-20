@@ -192,6 +192,35 @@ else
 fi
 APP=$(sha $R/srv/app.js)
 
+echo "== 3c: a card on v0.2.0's updater, without the scheduling drop-ins (#140): installed without them, placed at the next start"
+OLDU=$(git -C $REPO -c safe.directory=$REPO show v0.2.0:install/sd-system/dlzmod-update 2>/dev/null)
+SCHED="glesgui evolve-node evolve-app"
+sched_as_shipped() { local u; for u in $SCHED; do cmp -s $R/etc/systemd/system/$u.service.d/dlzmod.conf $REPO/install/sd-system/$u.service.d/dlzmod.conf \
+  && [ "$(stat -c %a $R/etc/systemd/system/$u.service.d/dlzmod.conf)" = 644 ] || return 1; done; }
+if [ -z "$OLDU" ] || [ -z "$NEWU" ]; then bad "no v0.2.0 tag here (git fetch --tags) or no updater in the package"
+else
+  sched_as_shipped && ok "the install placed them" || bad "the install did not place the scheduling drop-ins"
+  printf '%s\n' "$OLDU" > $R/usr/local/sbin/dlzmod-update
+  for u in $SCHED; do rm -rf $R/etc/systemd/system/$u.service.d; done
+  put $(craft dlzmod-vfrom020 "printf '\n// from v0.2.0 test\n' >> mod/app-mod/dlzmod.js"); run
+  said "INSTALLED: " && grep -q "from v0.2.0 test" $R/srv/app.js && ok "installed by the v0.2.0 updater" || bad "the v0.2.0 updater did not install it"
+  said "its new copy places them at the next start" && [ -z "$(ls -d $R/etc/systemd/system/{glesgui,evolve-node,evolve-app}.service.d 2>/dev/null)" ] \
+    && ok "drop-ins left out, and said so" || bad "drop-ins placed, or not said"
+  if [ "$(cat $R/usr/local/sbin/dlzmod-update)" = "$NEWU" ]; then ok "the card's updater is now the package's"
+  else
+    bad "the card kept another updater (the package's put back for the cases below)"
+    printf '%s\n' "$NEWU" > $R/usr/local/sbin/dlzmod-update; chmod 755 $R/usr/local/sbin/dlzmod-update
+  fi
+  n1=$(reports); run   # the next start, no update file
+  sched_as_shipped && said "placed the scheduling drop-ins of: glesgui evolve-node evolve-app" && [ "$(reports)" = "$((n1 + 1))" ] \
+    && ok "the next start placed them (as shipped, 644), one report" || bad "not placed at the next start"
+  n1=$(reports); run; [ "$(reports)" = "$n1" ] && ok "the start after: nothing to place, no report" || bad "a report with nothing to place"
+  echo "# changed here" >> $R/etc/systemd/system/glesgui.service.d/dlzmod.conf; rm -f $R/etc/systemd/system/evolve-app.service.d/dlzmod.conf; run
+  grep -q "changed here" $R/etc/systemd/system/glesgui.service.d/dlzmod.conf && said "placed the scheduling drop-ins of: evolve-app (" \
+    && ok "a missing one put back, one that is there left as it is" || bad "a missing or changed drop-in handled wrong"
+  cp $REPO/install/sd-system/glesgui.service.d/dlzmod.conf $R/etc/systemd/system/glesgui.service.d/dlzmod.conf
+fi
+
 if [ -z "${QUICK:-}" ]; then   # QUICK=1: only the install, a good update, model/marker and guards
 echo "== 4: damaged package (one byte), then the next start"
 cp "$PKG" $U/dlzmod-vbad.tar

@@ -108,7 +108,8 @@ Not covered by the drop-in (installer only): boot visuals, the installer itself,
 the guards. A package can declare `REINSTALL=yes` for such changes; the drop-in refuses it.
 
 Tested: `tests/update.sh` on a card image (power cut, failure after the patches, the sandbox walls,
-placing and putting back, a card on v0.1.0's updater taking a new package) and `tests/update-checks.sh`
+placing and putting back, a card on v0.1.0's updater taking a new package, one on v0.2.0's taking it
+without the #140 drop-ins, placed by the new updater at the next start) and `tests/update-checks.sh`
 without one (every released updater's gate for the new copy; the package and card checks: links,
 wrong model, older version, a weakened guard, the signing cases), on the PC; installed and refused (one
 byte changed, original `.sig`) on the mixer, by the mixer's own OpenSSL 3.0.2 [device].
@@ -226,13 +227,22 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   `srv/{app.js,server.js,srv_data.json}`, `var/lib/dlzmod-update/{version,installed}`,
   `usr/local/sbin/dlzmod-*`, `etc/udev/rules.d/*dlzmod*.rules`, `etc/systemd/system/dlzmod-*.service`,
   `ssh.socket`, the `dlzmod.conf` drop-ins of flash-gd32, flash-fpga, upgradedaemon, upgraderun,
-  dspserver and ssh, `dlzmod-*.service` links in `multi-user.target.wants`, and only
+  dspserver and ssh, and since v0.3.0 those of glesgui, evolve-node and evolve-app (#140),
+  `dlzmod-*.service` links in `multi-user.target.wants`, and only
   `dlzmod-emmc-ro.service` in `sysinit.target.wants`. Not `boot/boot.scr` (below). Also refused: names
   with a space, newline, quote or glob character; special files; wrongly shaped links; units with
   `DefaultDependencies=no` (only the eMMC lock's own unit has it); udev rules with `setrw` or
   `force_ro=0`; setuid, setgid, sticky or other-writable modes.
   A later version that needs a path outside this list needs a full install, or first an update that
   only brings the newer updater (its own list applies from the next update).
+  Or, for a fixed file, the way #140's drop-ins came: the package's `apply-mod.sh` reads the card's
+  updater (in the stage, before its new copy goes in) and leaves the file out when that one's list
+  lacks it; the new updater carries the file's text itself (`SCHED_CONF`, checked against the shipped
+  files by `mkpackage.sh` and `update-checks.sh`) and places it at the next start without an update
+  file: only where it is missing (one that is there is left as it is, so a later version's own
+  change is not undone), written next to it and renamed, never while a cut-off try waits to be put
+  back or the eMMC is not locked. systemd read the units before the updater ran, so they apply from
+  the start after [static, PC rehearsal: `tests/update.sh` case 3c].
 - **The new updater copy** must keep the installed one's `GUARDS` list exactly and contain its gates
   (signature check, the sandbox's uid, capability drop, user namespaces off, read-only remount, eMMC check, the refusal
   of rehearsal settings on the card, allowlist, key check). A text check: it catches a mistake, not a

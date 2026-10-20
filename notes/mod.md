@@ -26,6 +26,7 @@ hold the mod's own code that the patches call, `install/sd-system/` the units an
 | `dlzmod-bootreport` + `.service` | One report per start in the syslog (so in the next boot log copy), written once the start is done (the script waits at least 90 s, at most 5 min from its own start a few seconds after `basic.target`; not ordered after `multi-user.target`, so a start that hangs before it still gets a report naming the waiting jobs) at the lowest priority, `Type=exec` so nothing waits for it: `systemd-analyze` times, the critical chain of `multi-user.target`/`dspserver`/`glesgui`, the 15 slowest units, each mixer and dlzmod service's start, restarts and state, failed units, the audio chips' start from dspserver's own lines (they are priority info, so a chip that does not answer is not among the warnings; lines that differ only in their numbers, like the retries, collapse into one and a count; the first 30 lines, then the failure lines whatever comes before them), the start's warnings and errors (first 100, without the bodies of kernel stack dumps: their `CPU: ... Tainted` line stays). Its lines start with `dlzmod-bootreport` (#136). On the device [device]: the report comes ~2.5 min after power-on, because the start counts as done only when the stock `systemd-networkd-wait-online` gives up (2 min; the mixer itself is up at ~24 s); ~180 lines, all in the syslog (no rate limit hit); the stack dump filter took one start's warnings from 142 lines to 48 |
 | `dspserver` drop-in: line-buffered stdout | `LD_PRELOAD` of coreutils' `libstdbuf.so` with `_STDBUF_O=L` (what `stdbuf -oL` does; stock's `ExecStart` kept), so dspserver's own lines reach the log as they are written ([components/dspserver.md](components/dspserver.md), "Log and audio chip start") (#136). Works on the device: the chip start lines are in the log at ~27 s of every start [device] |
 | `dlzmod-wait-hub` (from the `dspserver` drop-in) | dspserver waits until server.js listens on port 80 (at most 45 s). dspserver connects once and never retries: if it is first, the mixer has no audio and ignores REC until a restart. Stock gets the order by luck of timing; a slow first boot flips it [device] |
+| `glesgui`, `evolve-node`, `evolve-app` drop-ins | Normal scheduling (`other`, priority 0, nice -20 kept) instead of stock's real-time FIFO 20, which let glesgui and node starve the rest of a start ([system.md](system.md), "Scheduling") (#140). An update checked by a v0.2.0 updater leaves them out (its allowlist); the new updater places them at the next start without an update file (also one that went missing), effective the start after ([updates.md](updates.md)) |
 | `90-dlzmod-usb-wifi.rules`, `70-dlzmod-wifi-zerocd.rules` + `dlzmod-zerocd-eject` | USB Wi-Fi stick support (below) |
 | `ssh.service.d/dlzmod.conf` | SSH only when turned on from the screen (below) |
 
@@ -133,8 +134,8 @@ Sub-tabs Display / Network / Remote / Mod; layout and how to add a setting:
   (app.js in jsdom) connects to 127.0.0.1. Other devices get an empty status (no network name,
   address or SSH state; the Mod page there says "on the mixer's own screen") and nothing is run
   for them.
-- Children run at normal priority (`chrt -o 0 nice -n 20`): evolve-node runs SCHED_FIFO 20 and they
-  would inherit it.
+- Children run at normal priority (`chrt -o 0 nice -n 20`): evolve-node runs nice -20 (and stock's
+  SCHED_FIFO 20 on a card the #140 drop-in has not reached yet), which they would inherit.
 - **Wi-Fi** through NetworkManager (`nmcli` via `execFile`, no shell). A stick counts when nmcli has
   a `wifi` device. Connect writes a root-only keyfile
   `/etc/NetworkManager/system-connections/dlzmod-wifi-<hex of the name>.nmconnection` (atomic, with
@@ -359,7 +360,7 @@ power cuts); the mixer still to come]:
   both entries normally sit in one sector written at once (recordings carry the same FAT risk). A bad
   package left on the card is copied to `/tmp` and hashed again at every start until it is replaced
   (up to 64 MiB, before the mixer software starts; the same for one copied with a card reader). The
-  upload runs inside evolve-node at its real-time priority, so playback from the card could stutter
+  upload runs inside evolve-node at its high priority (nice -20; real-time before #140), so playback from the card could stutter
   while one writes [guess: to listen for on the mixer]. Node 18's 300 s `requestTimeout` ends a body
   that takes longer (a 64 MiB one below about 1.7 Mbit/s; a real package is about 1 MB), which also
   bounds how long a stalled client keeps the card writable. No free-space check first: a full card is

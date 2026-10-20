@@ -47,6 +47,25 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
 - Only `serial-getty@ttyS0` is enabled; getty overrides add a 10 s sleep, no autologin [static]
 - `rc.local` is empty (`exit 0`) [static]
 
+### Scheduling
+
+- Stock units of `glesgui`, `evolve-node`, `evolve-app`, `dspserver` and `faderlink`:
+  `CPUSchedulingPolicy=fifo`, `CPUSchedulingPriority=20`, `Nice=-20`, `Restart=always` [static]. Weston, Xwayland, sshd, journald, rsyslog, systemd and the kworkers
+  run normal (TS) [device, `ps -eLo cls,rtprio`].
+- `/proc/sys/kernel/sched_rt_runtime_us` is `-1` (RT throttling off: real-time tasks may keep a core
+  for ever); dspserver sets it at its start (its start snippet; the string is only in dspserver)
+  [device, static]. Cores 0-2 are shared (`isolcpus=3` is dspserver's audio core).
+- dspserver's own threads on cores 0-2 set their priorities themselves, above 20: main loop RR 50,
+  NDI senders RR 50, reverb FIFO 99, a few FIFO 20; ~1 % CPU each in normal use [device].
+- glesgui and node set no policy themselves (no `sched_setscheduler`/`pthread_setschedparam`
+  imported; glesgui imports `sched_yield`) [static]: the units decide.
+- **The mod** (#140): drop-ins `CPUSchedulingPolicy=other`, `CPUSchedulingPriority=0` for glesgui,
+  evolve-node and evolve-app (Nice=-20 kept; dspserver and faderlink unchanged), after real-time
+  glesgui and node starved the rest of the start (components/glesgui.md, "Bad starts"). The explicit
+  0: systemd 249 refuses an empty `CPUSchedulingPriority=` and keeps 20, which `other` does not
+  take [static, the dump's systemd-analyze under qemu]. On the card: glesgui and the 22 node threads
+  TS nice -20, dspserver as before [device].
+
 ## Clock, filesystems, tools
 
 - **Clock**: RTC drivers built in (`RTC_DRV_SUN6I`, `RTC_DRV_SUNXI`), but `fake-hwclock` is

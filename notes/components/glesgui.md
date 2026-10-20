@@ -80,21 +80,36 @@ on the dev card no longer rarely. Three shapes, maybe one cause; why is not know
   then froze (screen stuck); its syslog on the card ends at ~60 s, at an SSH login, with no error
   line (no I/O error, OOM or hung task), and a second login at ~130 s stalled. Another shape than the
   GUI stall; whether the login triggers it or only coincides, the card's log cannot say.
-- **Lead** [guess]: a software restart leaves the GPU/display, touch, the USB Wi-Fi, the USB audio
-  chip and the FPGA side powered, so something starts in a state a cold start never gives it; the
-  GPU, given the GL/GPU start above, first of all. The
+- **Cause of the frozen shape: real-time starvation (#140)** [device]: glesgui and both node
+  processes run `SCHED_FIFO` 20 (system.md, "Scheduling"), with no time kept back for normal
+  processes, and glesgui waits for its window with `sched_yield`, which only gives way to other
+  real-time tasks [static]. In a frozen start with the switch the network log went silent after
+  "Opening GUI" at 32 s: for 5.5 min almost nothing else ran (systemd, the log, NetworkManager, the
+  mod's DLZDATA remount; faderlink's websocket timed out), ping answered; in the second glesgui got
+  its context (377 s) everything went on. Its main thread had used ~65 % of a core over that run.
+  With the three units at normal scheduling (nice -20 kept, dspserver unchanged), counted on the dev
+  card with the switch, no SSH: before 9 starts, screen at 34-37 s, 1 slow (47 s), 1 GUI stall
+  (130 s, the rest of the system ran: not starvation), 1 frozen (377 s); after 10 starts, screen at
+  29.4-31.2 s, 1 start whose log stopped right after the context at 31 s (not known whether it froze
+  or only the log stopped; switched off after ~1.5 min). dspserver's "Watchdog triggered" lines
+  dropped from 8-10 per start to 1-6.
+- **Lead for what is left** [guess]: a software restart leaves the GPU/display, touch, the USB Wi-Fi,
+  the USB audio chip and the FPGA side powered, so something starts in a state a cold start never
+  gives it; the GPU, given the GL/GPU start above, first of all. The
   rare cold-start cases say it is not only that.
 - **Not the trigger on its own** [device]: chrony stepping the clock while glesgui opens its
   window. All four GUI stalls had a step in that window (the third: +4.2 days at 32.8 s, while
   stalled; the fourth: at ~33 s, after "Opening GUI"), but a cold start with a +234 s step in the
   same window went through normally, and so did the start right after the third stall (step at
   37.8 s, after the context at 30.4 s) and a start with the step at 32.4 s, 0.2 s before "Opening
-  GUI" (context at 33.5 s); a step adding to it is not ruled out. Testable: hold chrony's step back
-  until the context is there, then count stalls.
-- **Next**: the dev card's journal now reaches the PC as it happens, the whole start from the kernel's
+  GUI" (context at 33.5 s); a step adding to it is not ruled out. In the 9 starts before #140's
+  change, the slow ones were those with the step ≤1.3 s before "Opening GUI" (4 of 5), the good
+  ones ≥1.6 s before (4 of 4); with the change the context comes before the step in 9 of 10.
+  Testable: hold chrony's step back until the context is there, then count stalls.
+- **Next**: the dev card's journal reaches the PC as it happens, the whole start from the kernel's
   first line, without a login (`dlzmod-netlog`, `dev/netlog.sh`; the kernel has no netconsole)
-  [device]; starts with the switch until one hangs with it on. After that, software restarts with
-  single parts reset first.
+  [device]. More starts with #140's change (switch, then software restarts); a start that hangs is
+  left alone a few minutes (ping, does the log go on?).
 
 ### Mod angles
 

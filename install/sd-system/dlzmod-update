@@ -337,6 +337,53 @@ mkdir -p "$STATE"
 if [ -z "$CHECK_ONLY" ] && [ -s "$STATE/inprogress" ] && ! guards_ok > /dev/null; then
   repair "the guards are not as installed after a try that was cut off" keep
 fi
+# on the mixer (a PC rehearsal sets DLZMOD_ROOT or DLZMOD_DATA): never change anything while the eMMC
+# is writable, or not there yet: 0 locked, 1 one is writable, 2 none seen yet
+emmc_locked() {
+  local d emmc=0
+  [ -z "$ROOT" ] && [ -z "${DLZMOD_DATA:-}" ] || return 0
+  for d in /sys/block/mmcblk*; do
+    [ "$(cat "$d/device/type" 2>/dev/null)" = MMC ] || continue
+    emmc=$((emmc + 1))
+    [ "$(blockdev --getro "/dev/${d##*/}")" = 1 ] || return 1
+  done
+  # (it is probed asynchronously: not seen yet means not locked yet, 60-dlzmod-emmc-ro.rules does that)
+  [ "$emmc" -gt 0 ] || return 2
+}
+# #140: the scheduling drop-ins of Mackie's GUI and node processes, the same text as
+# sd-system/<unit>.service.d/dlzmod.conf (mkpackage.sh checks). An update checked by an updater from
+# before them (v0.2.0 and older) could not place them (apply-mod.sh leaves them out then): this copy
+# places them at a start without an update file, and puts back one that went missing; one that is
+# there is left as it is. Not while a cut-off try waits to be put back, nor with the eMMC writable.
+# systemd read the units before this ran: they apply from the next start.
+SCHED_UNITS="glesgui evolve-node evolve-app"
+SCHED_CONF=$(cat << 'SCHED_EOF'
+# dlzmod (#140): normal scheduling instead of stock's real-time (SCHED_FIFO 20), Nice=-20 kept.
+# With RT throttling off (sched_rt_runtime_us -1), Mackie's real-time GUI and node processes can
+# keep cores 0-2 during a start and starve Weston/Xwayland, the log and the SD write-back, which
+# are normal processes (notes/system.md, "Scheduling"). dspserver stays real-time.
+# Priority 0 explicitly: normal scheduling takes no other value, and an empty one keeps stock's 20.
+[Service]
+CPUSchedulingPolicy=other
+CPUSchedulingPriority=0
+SCHED_EOF
+)
+sched_dropins() {
+  local u t placed=""
+  [ -z "$CHECK_ONLY" ] && [ ! -s "$STATE/inprogress" ] && emmc_locked || return 0
+  for u in $SCHED_UNITS; do
+    t=$ROOT/etc/systemd/system/$u.service.d/dlzmod.conf
+    { [ -e "$t" ] || [ -L "$t" ]; } && continue
+    if mkdir -p "${t%/*}" && printf '%s\n' "$SCHED_CONF" > "$t.dlzmod-new" && chmod 644 "$t.dlzmod-new" \
+       && sync "$t.dlzmod-new" && mv -f "$t.dlzmod-new" "$t"; then
+      placed="$placed $u"
+    else
+      rm -f "$t.dlzmod-new"; log "the scheduling drop-in of $u could not be placed"
+    fi
+  done
+  sync
+  [ -z "$placed" ] || log "placed the scheduling drop-ins of:$placed (#140); they apply from the next start"
+}
 pkgs=("$U"/dlzmod-*.tar)
 if [ ${#pkgs[@]} = 0 ]; then   # nothing to do (every normal start)
   # an Install for a file that is gone does not wait for that file to come back (#65)
@@ -344,20 +391,13 @@ if [ ${#pkgs[@]} = 0 ]; then   # nothing to do (every normal start)
   # a try cut off while placing, and its file removed since (the guards may be fine, so the repair
   # above did not run): the files from before it go back, or the card keeps a half-placed update
   repair "an update was cut off while placing its files and is no longer there"
+  sched_dropins
   exit 0
 fi
-# on the mixer (a PC rehearsal sets DLZMOD_ROOT or DLZMOD_DATA): never change anything while the eMMC
-# is writable, or not there yet
-if [ -z "$ROOT" ] && [ -z "${DLZMOD_DATA:-}" ]; then
-  emmc=0
-  for d in /sys/block/mmcblk*; do
-    [ "$(cat "$d/device/type" 2>/dev/null)" = MMC ] || continue
-    emmc=$((emmc + 1))
-    [ "$(blockdev --getro "/dev/${d##*/}")" = 1 ] || later "the internal storage is not locked read-only this start"
-  done
-  # (it is probed asynchronously: not seen yet means not locked yet, 60-dlzmod-emmc-ro.rules does that)
-  [ "$emmc" -gt 0 ] || later "the internal storage (eMMC) is not visible this start, so it is not known to be locked"
-fi
+emmc_locked; case $? in
+  1) later "the internal storage is not locked read-only this start" ;;
+  2) later "the internal storage (eMMC) is not visible this start, so it is not known to be locked" ;;
+esac
 # none of the files below is tried this start: a cut-off try (of any file) is not left half-placed
 if [ ${#pkgs[@]} -gt 1 ]; then
   repair "an update was cut off while placing its files, and more than one update file is there now" keep
@@ -502,7 +542,8 @@ for f in apply-mod.sh check-rootfs.sh patch.py modversion.py app-mod/dlzmod.js s
     sd-system/dlzmod-wait-hub sd-system/dlzmod-update \
     sd-system/dlzmod-update.service sd-system/90-dlzmod-usb-wifi.rules sd-system/dspserver.service.d/dlzmod.conf \
     sd-system/dlzmod-zerocd-eject sd-system/70-dlzmod-wifi-zerocd.rules \
-    sd-system/ssh.service.d/dlzmod.conf $GUARD_SRC; do
+    sd-system/ssh.service.d/dlzmod.conf sd-system/glesgui.service.d/dlzmod.conf sd-system/evolve-node.service.d/dlzmod.conf \
+    sd-system/evolve-app.service.d/dlzmod.conf $GUARD_SRC; do
   [ -f "$T/$f" ] || fail "incomplete: $f missing"
 done
 # the new package's own check of this card (its firmware, and the GD32 marker that belongs to its
@@ -687,6 +728,7 @@ allowed() {
       case $rest:$b in
         flash-gd32.service.d:dlzmod.conf|flash-fpga.service.d:dlzmod.conf|upgradedaemon.service.d:dlzmod.conf|upgraderun.service.d:dlzmod.conf) return 0 ;;
         dspserver.service.d:dlzmod.conf|ssh.service.d:dlzmod.conf) return 0 ;;
+        glesgui.service.d:dlzmod.conf|evolve-node.service.d:dlzmod.conf|evolve-app.service.d:dlzmod.conf) return 0 ;;
         multi-user.target.wants:dlzmod-*.service|sysinit.target.wants:dlzmod-emmc-ro.service) return 0 ;;
       esac ;;
   esac
