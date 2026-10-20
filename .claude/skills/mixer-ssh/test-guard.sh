@@ -211,7 +211,11 @@ e allowed "a log quiet for 11 min says nothing"
 printf '[  451.313965] host x: a line\n' > "$DLZ_NETLOG_DIR/netlog-2.txt"
 e allowed "the newest file: 451 s up"
 sleep 1; printf 'not a journal line\n' > "$DLZ_NETLOG_DIR/netlog-3.txt"
-e allowed "a last line without an uptime says nothing"
+e allowed "a file without an uptime says nothing"
+printf '[   40.100000] host x: a line\nnot a journal line\n' > "$DLZ_NETLOG_DIR/netlog-3.txt"
+e early   "a last line without an uptime: the journal line before it (40 s)"
+printf '[ 4000.100000] host x: a line\n===== new start of the mixer =====\n[    0.000000] host kernel: Booting Linux\n[   20.5] host x: a line\n' > "$DLZ_NETLOG_DIR/netlog-3.txt"
+e early   "a new start after an old one in the same file: its own uptime (20 s)"
 sleep 1; printf '[   12.5] host x: a line\n' > "$DLZ_NETLOG_DIR/netlog-4.txt"
 out=$(bash "$S" get /var/log/syslog build/device-logs/x 2>&1)
 case $out in *"no login in the first"*) m=ok ;; *) m=WRONG; fail=1 ;; esac

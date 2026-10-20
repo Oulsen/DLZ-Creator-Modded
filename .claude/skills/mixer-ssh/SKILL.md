@@ -27,7 +27,8 @@ whole start from the kernel's first line, a start that hangs included, with no l
 - **No login in the first 5 minutes of a start**, network log or not; wait for the user to say it is
   up, then one login with all reads in it. The wrapper refuses `run` and `get` while the newest
   network log shows an uptime under 300 s (exit 4); `DLZ_SSH_EARLY=1` only when the user agrees to an
-  earlier login.
+  earlier login. The guard cannot see a start whose first lines have not arrived yet (before Wi-Fi,
+  ~15-25 s; the log still shows the previous start), so the rule stands without it.
 
 ## Connect
 
