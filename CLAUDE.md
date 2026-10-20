@@ -25,9 +25,11 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
 - Nothing new or changed runs on the mixer or lands on a card (mod changes, `install/**`, U-Boot
   scripts, `uboot.env`, initramfs, installer, spikes, rebuilt images) before the `device-review`
   skill has run, once per image that goes onto the mixer: as much review as the change's risk tier
-  asks for (no agent where the tests and the sandbox fully show the change, 1 combined reviewer for
-  other logic, up to 2 informed + 2 blind, all at once, for new write paths and boot routes; the
-  brick angle is part of every review), claims verified, findings fixed or consciously accepted.
+  asks for (no agent for tests-covered changes and other mod logic, which Claude reads against the
+  skill's brick checklist; 1 blind brick reviewer for a sensitive path; 2 reviewers, all at once,
+  for new write paths and boot routes; the brick angle is part of every review), claims verified,
+  findings fixed or consciously accepted. Reviews are kept lean (Pro plan): no more agents than the
+  tier asks, `model: sonnet` unless the skill names Opus.
 - Card rehearsals (`tests/README.md`: card images, minutes each) only for what the mixer must not
   be the first to try: failure, restore and power-cut paths, new write paths, the brick angles. What
   a normal run on the mixer shows (a name, a text, a screen, an update or install that goes through)
@@ -62,9 +64,10 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   into `develop` (`/pr`, squash-merged by the user); a release is a PR `develop` → `main`,
   fast-forwarded by the user with `git push origin <commit>:main` (never the merge button), so `main`
   and `develop` stay one commit (`docs/DEVELOPMENT.md`, "Branches" and "Releases"). Right after `/pr`,
-  start `/cr` (or `/code-review`) on the opened PR, docs-only PRs too, so the whole diff is read,
-  including changes made after a device review; findings fixed as new commits on the PR or named in
-  the PR description, before the merge; fixes that add new logic get one more pass
+  start `/cr` on the opened PR (the `code-reviewer` agent with `model: sonnet`), so the whole diff
+  is read, including changes made after a device review; a docs-only PR gets no agent, Claude reads
+  it for consistency and correctness instead; findings fixed as new commits on the PR or named in
+  the PR description, before the merge; Claude checks the fixes itself, no second agent pass
   (`docs/DEVELOPMENT.md`, "Review"). The release PR `develop` → `main` too: once the milestone's
   issues are done, one final `/cr` on it before the fast-forward ("Releases", step 2).
 - Right after a release, bump `VERSION` in `develop` as its own PR (`docs/vX.Y.Z-bump`), before any
