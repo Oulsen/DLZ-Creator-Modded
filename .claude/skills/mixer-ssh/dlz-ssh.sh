@@ -158,6 +158,27 @@ guard() {
   endword; endseg
 }
 
+# No login in the first 5 minutes of a start: logins while a start settles coincided with hangs
+# (#81, #136). The mixer's uptime without logging in: a dev card's network log (dev/netlog.ps1) writes
+# the journal with the uptime in front of every line, so the newest file's last line plus the time
+# since it was written. A file quiet for over 10 minutes, or none, says nothing (the skill's rule
+# then). DLZ_SSH_EARLY=1 only after the user agreed to a login this early.
+early() {
+  [ "${DLZ_SSH_EARLY:-0}" != 1 ] || return 0
+  local f age up
+  f=$(ls -t "${DLZ_NETLOG_DIR:-build/device-logs}"/netlog-*.txt 2> /dev/null | head -n 1)
+  [ -n "$f" ] || return 0
+  age=$(( $(date +%s) - $(stat -c %Y "$f") ))
+  [ "$age" -le 600 ] || return 0
+  up=$(tail -n 1 "$f" | sed -n 's/^\[ *\([0-9]*\)\.[0-9]*\].*/\1/p')
+  [ -n "$up" ] || return 0
+  up=$((up + age))
+  [ "$up" -ge 300 ] && return 0
+  echo "REFUSED (the mixer started ${up} s ago, by its network log $f): no login in the first 300 s of a start;" >&2
+  echo "wait, or read the network log. Only when the user agrees to a login this early: DLZ_SSH_EARLY=1" >&2
+  exit 4
+}
+
 gethost() {
   host=$(cat "$HOSTF" 2>/dev/null)
   [ -n "$host" ] || { echo "no mixer address stored: ask the user, then bash dlz-ssh.sh host <ip or name>" >&2; exit 2; }
@@ -248,7 +269,7 @@ case ${1:-} in
       echo "Only after the user confirms this exact command: DLZ_SSH_WRITE=1 bash dlz-ssh.sh run ..." >&2
       exit 3
     fi
-    gethost; askpass
+    early; gethost; askpass
     # a read that never ends (tail -f, journalctl -f, vmstat 1) must not hang the session; a confirmed
     # write is never cut off halfway (the mixer could stop it with a file half written)
     t=${DLZ_SSH_TIMEOUT:-120}
@@ -266,7 +287,7 @@ case ${1:-} in
     # and a local name with a : is another host
     case $remote in -*|*[!A-Za-z0-9_./+~-]*) echo "REFUSED (remote name with characters other than A-Z a-z 0-9 _ . / + ~ -): $remote" >&2; exit 3 ;; esac
     case $local in -*|*:*) echo "REFUSED (local name starting with - or holding a :): $local" >&2; exit 3 ;; esac
-    gethost; askpass
+    early; gethost; askpass
     # shellcheck disable=SC2046
     SSH_ASKPASS=$ASK SSH_ASKPASS_REQUIRE=force DISPLAY=: scp $(sshopts) "root@$host:$remote" "$local" < /dev/null ;;
   forget)
