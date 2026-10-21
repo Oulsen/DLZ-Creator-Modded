@@ -168,6 +168,23 @@ Mackie publishes no maximum (spec sheet: microSDHC/microSDXC, FAT32). From the f
   `statvfs` and only reports "Disk Full". Its 32-bit `fseek`/`ftell` is why it splits at 2 GB
 - Cards larger than 128 GB are not tested on the device yet
 
+### Running from the card
+
+- **The card is not a bottleneck** [device, an installed card, SanDisk Ultra 128 GB, idle UI some
+  18 min after a start]: card busy (`io_ticks`) 32.7 s of ~1080 s (3 %, nearly all during the
+  start), 0.6 % over 5 s while running; the start read 326 MiB in 7771 requests (~8.5 ms each),
+  4.9 MiB written; `vmstat` wa 0, b 0; cores 0-2 4-5 % busy each, core 3 99 % (dspserver, by
+  design); 104 MB available, no swap.
+- The slot caps any card at ~23 MB/s (above), so a faster card only helps small random reads: an
+  A1 or A2 card from a known brand is enough (the install guide's advice). A survey of many cards
+  was dropped as not needed (#10).
+- What the mod adds to a start: [system.md](system.md), "Boot and services" (since #141 the mixer
+  view at ~28-31 s on the dev card). `systemd-networkd-wait-online` takes 2 min after every start,
+  stock too; nothing waits for it [device].
+- Running the mod from the eMMC instead (1.9x faster sequentially) would go against the first hard
+  rule; its prerequisites would be a tested restore script, FEL confirmed, a UUID of its own for the
+  eMMC copy and Mackie-updater guards on the main system.
+
 ## Sources
 
 - https://linuxslate.com/forum/viewtopic.php?t=21 (teardown, A40i, UBOOT button, DEBUG header).

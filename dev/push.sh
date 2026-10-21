@@ -115,7 +115,7 @@ echo "   signature matches the card's dev key"
 # installed), under a temporary name first and renamed only when complete (a cut connection ends
 # the remote cat normally), the .sig last (without it the card does not try the tar), checked, flushed.
 # server.js keeps DLZDATA mounted read-only and makes it read-write only while it writes itself, a
-# recording (notes/open-questions.md, Q28): read-write now means it is busy, so stop (checked and
+# recording (notes/mod.md, "Media back to read-only"): read-write now means it is busy, so stop (checked and
 # remounted in one command, no recording can start in between); otherwise read-write for the copy
 # and read-only again after it, however the script ends (the trap: an error, Ctrl-C, a closed window)
 echo "== copy to $U/"
