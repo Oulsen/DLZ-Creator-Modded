@@ -137,6 +137,12 @@ while read -r sum path; do
   src=${src/etc\/udev\/rules.d\//}
   [ "$(sha256sum < "$src" | cut -d' ' -f1)" = "$sum" ] || { echo "dlzmod-update: GUARDS hash for $path does not match $src" >&2; exit 1; }
 done <<< "$guards"
+# its copy of the scheduling drop-ins (#140), which it places on a card an older updater left without
+sched=$(sed -n "/^SCHED_CONF=\$(cat << 'SCHED_EOF'$/,/^SCHED_EOF$/p" "$INST/sd-system/dlzmod-update" | sed '1d;$d')
+for u in glesgui evolve-node evolve-app; do
+  [ -n "$sched" ] && [ "$sched" = "$(cat "$INST/sd-system/$u.service.d/dlzmod.conf")" ] \
+    || { echo "dlzmod-update: SCHED_CONF does not match sd-system/$u.service.d/dlzmod.conf" >&2; exit 1; }
+done
 missing=$(grep -v '^#' "$INST/installer/applets.txt" | grep . | grep -vxF -f <(echo "$have") || true)
 [ -z "$missing" ] || { echo "busybox lacks applets:" $missing >&2; exit 1; }
 

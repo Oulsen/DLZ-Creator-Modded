@@ -23,7 +23,8 @@ Alpha, at your own risk: read [DISCLAIMER.md](DISCLAIMER.md) first.
 - **Fixes for stock bugs**: the recording crash after take 9,999; new recordings overwriting old
   ones; anyone on the network (or a prepared SD card or USB stick) changing files on the mixer;
   anyone on the network controlling the mixer without a PIN; the SD card or USB stick staying
-  writable once it holds recordings, so switching off could damage it
+  writable once it holds recordings, so switching off could damage it; the screen and control
+  software holding up the rest of a start, which could leave the mixer stuck while starting
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 

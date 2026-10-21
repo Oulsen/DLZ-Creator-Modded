@@ -71,6 +71,15 @@ for fn in $(grep -oE '^[a-z_]+\(\) \{' "$NEW" | cut -d'(' -f1); do
 done
 [ $n -gt 10 ] && ok "function order ($n functions)" || bad "function order: only $n functions found"
 
+# its copy of the scheduling drop-ins (#140, placed on a card an older updater left without them) is
+# the text that ships, for each unit, and this updater's allowlist takes them
+sched=$(sed -n "/^SCHED_CONF=\$(cat << 'SCHED_EOF'$/,/^SCHED_EOF$/p" "$NEW" | sed '1d;$d')
+for u in glesgui evolve-node evolve-app; do
+  [ -n "$sched" ] && [ "$sched" = "$(cat "install/sd-system/$u.service.d/dlzmod.conf")" ] \
+    && ok "SCHED_CONF matches sd-system/$u.service.d/dlzmod.conf" || bad "SCHED_CONF differs from sd-system/$u.service.d/dlzmod.conf"
+  grep -qF "$u.service.d:dlzmod.conf" "$NEW" && ok "allowlist takes $u.service.d/dlzmod.conf" || bad "allowlist lacks $u.service.d/dlzmod.conf"
+done
+
 # 2. Checks only (DLZMOD_CHECK_ONLY=1): this updater's checks of steps 1 and 2 (signature, package
 # shape, model, firmware, version, guards) on a fixture tree, against packages made here the way
 # mkpackage.sh lays them out, signed with throwaway keys. Never as root: the mode writes nothing, and
