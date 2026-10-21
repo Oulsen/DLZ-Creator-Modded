@@ -44,12 +44,13 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   against the change. `--check docs/images/install` (WSL) says whether the screens are current.
 - The roadmap lives on GitHub: every bug and feature is an issue in `Oulsen/DLZ-Creator-Modded`
   on the board https://github.com/users/Oulsen/projects/2 (life cycle, labels and milestones:
-  `docs/DEVELOPMENT.md` "GitHub workflow"). Title `(DLZ FEATURE|DLZ BUG|MOD FEATURE|MOD BUG) ...`
+  `docs/DEVELOPMENT.md` "GitHub workflow"). Title `(DLZ FEATURE|DLZ BUG|MOD FEATURE|MOD BUG|DEV) ...`
   in plain language, no technical terms (DLZ FEATURE = something the mod lets the mixer do, MOD
-  FEATURE = the mod itself: install, updates, safety, support, development; DLZ BUG = stock Mackie
-  behaviour, MOD BUG = caused by the mod; a new feature request starts as DLZ FEATURE until triage
-  says otherwise; the type label matches the prefix: `dlz-feature`, `dlz-bug`, `mod-feature`,
-  `mod-bug`), or
+  FEATURE = the mod itself: install, updates, safety, support; DLZ BUG = stock Mackie
+  behaviour, MOD BUG = caused by the mod; DEV = our own tools: tests, reviews, the dev card, build
+  and release scripts, CI, features and bugs alike, never in the changelog; a new feature request
+  starts as DLZ FEATURE until triage says otherwise; the type label matches the prefix:
+  `dlz-feature`, `dlz-bug`, `mod-feature`, `mod-bug`, `dev`), or
   `(ANALYSIS) ...?` for an idea that first needs research (label `analysis`); lasting knowledge lives
   in the topic notes and the body points to it, work details of one issue go into its own body (a
   collapsed `<details>` block under "Technical notes"). There is no backlog file: to-dos are issues,
@@ -74,8 +75,8 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   other change of the new cycle; a feature or fix branch never bumps (`docs/DEVELOPMENT.md`,
   "Version bump"). The bump PR opens a `## vX.Y.Z` section in `CHANGELOG.md` (newest version first);
   every PR that finishes a milestone issue adds its title there as a bullet, in the order DLZ
-  FEATURE, DLZ BUG, MOD FEATURE, MOD BUG (the release PR and the release notes use the same order,
-  as sections). The same PR updates the README's "What the mod does" (the current mod, by group)
+  FEATURE, DLZ BUG, MOD FEATURE, MOD BUG, no DEV (the release PR and the release notes use the same
+  order, as sections). The same PR updates the README's "What the mod does" (the current mod, by group)
   when it changes what the mod does.
 - `dumps/` and `build/` are private and git-ignored. Never commit Mackie binaries, dumps or `.upd`
   files; in notes, describe Mackie code and point to it (file, function, search string), never paste
