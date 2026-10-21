@@ -79,6 +79,13 @@ for u in glesgui evolve-node evolve-app; do
     && ok "SCHED_CONF matches sd-system/$u.service.d/dlzmod.conf" || bad "SCHED_CONF differs from sd-system/$u.service.d/dlzmod.conf"
   grep -qF "$u.service.d:dlzmod.conf" "$NEW" && ok "allowlist takes $u.service.d/dlzmod.conf" || bad "allowlist lacks $u.service.d/dlzmod.conf"
 done
+# the same for the early-start drop-ins (#141)
+early=$(sed -n "/^EARLY_CONF=\$(cat << 'EARLY_EOF'$/,/^EARLY_EOF$/p" "$NEW" | sed '1d;$d')
+for u in dlzmod-update dlzmod-grow-data; do
+  [ -n "$early" ] && [ "$early" = "$(cat "install/sd-system/$u.service.d/dlzmod.conf")" ] \
+    && ok "EARLY_CONF matches sd-system/$u.service.d/dlzmod.conf" || bad "EARLY_CONF differs from sd-system/$u.service.d/dlzmod.conf"
+  grep -qF "$u.service.d:dlzmod.conf" "$NEW" && ok "allowlist takes $u.service.d/dlzmod.conf" || bad "allowlist lacks $u.service.d/dlzmod.conf"
+done
 
 # 2. Checks only (DLZMOD_CHECK_ONLY=1): this updater's checks of steps 1 and 2 (signature, package
 # shape, model, firmware, version, guards) on a fixture tree, against packages made here the way

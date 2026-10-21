@@ -167,8 +167,9 @@ rehearsal: `tests/update.sh` case 3a]:
 - An unseen result popup and a new question can open at the same start, one over the other
   (accepted: rare, both still work).
 - **Not shown during the install**: the screen keeps Weston's background (the logo) meanwhile.
-  Weston and glesgui start in `basic.target`, before the updater (a `multi-user` service), so the
-  kernel bootsplash and `/dev/fb0` are not on screen any more [static: the units in the dump]. A
+  Weston and glesgui start in `basic.target`; the updater (a `multi-user` service) starts right
+  after `sysinit.target` since #141, so the kernel bootsplash is on screen at its start and
+  Weston's background takes over during a longer install [static: the units; the screen: guess]. A
   message during the install: #96.
 
 Accepted: a file that someone else puts on the card still runs its package's `check-rootfs.sh` as
@@ -227,17 +228,18 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   `srv/{app.js,server.js,srv_data.json}`, `var/lib/dlzmod-update/{version,installed}`,
   `usr/local/sbin/dlzmod-*`, `etc/udev/rules.d/*dlzmod*.rules`, `etc/systemd/system/dlzmod-*.service`,
   `ssh.socket`, the `dlzmod.conf` drop-ins of flash-gd32, flash-fpga, upgradedaemon, upgraderun,
-  dspserver and ssh, and since v0.3.0 those of glesgui, evolve-node and evolve-app (#140),
-  `dlzmod-*.service` links in `multi-user.target.wants`, and only
+  dspserver and ssh, and since v0.3.0 those of glesgui, evolve-node and evolve-app (#140) and of
+  dlzmod-update and dlzmod-grow-data (#141), `dlzmod-*.service` links in `multi-user.target.wants`, and only
   `dlzmod-emmc-ro.service` in `sysinit.target.wants`. Not `boot/boot.scr` (below). Also refused: names
   with a space, newline, quote or glob character; special files; wrongly shaped links; units with
-  `DefaultDependencies=no` (only the eMMC lock's own unit has it); udev rules with `setrw` or
-  `force_ro=0`; setuid, setgid, sticky or other-writable modes.
+  `DefaultDependencies=no` (only the eMMC lock's own unit has it), and since v0.3.0 drop-ins with
+  it, except #141's two early-start drop-ins with exactly the updater's own text (`EARLY_CONF`);
+  udev rules with `setrw` or `force_ro=0`; setuid, setgid, sticky or other-writable modes.
   A later version that needs a path outside this list needs a full install, or first an update that
   only brings the newer updater (its own list applies from the next update).
-  Or, for a fixed file, the way #140's drop-ins came: the package's `apply-mod.sh` reads the card's
+  Or, for a fixed file, the way #140's and #141's drop-ins came: the package's `apply-mod.sh` reads the card's
   updater (in the stage, before its new copy goes in) and leaves the file out when that one's list
-  lacks it; the new updater carries the file's text itself (`SCHED_CONF`, checked against the shipped
+  lacks it; the new updater carries the file's text itself (`SCHED_CONF`, `EARLY_CONF`, checked against the shipped
   files by `mkpackage.sh` and `update-checks.sh`) and places it at the next start without an update
   file: only where it is missing (one that is there is left as it is, so a later version's own
   change is not undone; one deleted on purpose comes back, so to try stock scheduling, empty the

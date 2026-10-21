@@ -143,6 +143,12 @@ for u in glesgui evolve-node evolve-app; do
   [ -n "$sched" ] && [ "$sched" = "$(cat "$INST/sd-system/$u.service.d/dlzmod.conf")" ] \
     || { echo "dlzmod-update: SCHED_CONF does not match sd-system/$u.service.d/dlzmod.conf" >&2; exit 1; }
 done
+# and of the early-start drop-ins (#141), which its gate also takes only with that text
+early=$(sed -n "/^EARLY_CONF=\$(cat << 'EARLY_EOF'$/,/^EARLY_EOF$/p" "$INST/sd-system/dlzmod-update" | sed '1d;$d')
+for u in dlzmod-update dlzmod-grow-data; do
+  [ -n "$early" ] && [ "$early" = "$(cat "$INST/sd-system/$u.service.d/dlzmod.conf")" ] \
+    || { echo "dlzmod-update: EARLY_CONF does not match sd-system/$u.service.d/dlzmod.conf" >&2; exit 1; }
+done
 missing=$(grep -v '^#' "$INST/installer/applets.txt" | grep . | grep -vxF -f <(echo "$have") || true)
 [ -z "$missing" ] || { echo "busybox lacks applets:" $missing >&2; exit 1; }
 

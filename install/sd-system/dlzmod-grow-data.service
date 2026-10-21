@@ -3,7 +3,8 @@ Description=dlzmod: grow DLZDATA to the full card (first boot)
 After=local-fs.target dlzmod-emmc-ro.service
 # dspserver waits too: it needs server.js (evolve-node) listening before it finishes its init, or it
 # never loads its state (no audio, recording ignored). Delaying only evolve-node flipped that order
-# on the first boot. Not faderlink: it is ordered Before=basic.target, this unit After it (a cycle).
+# on the first boot. Not faderlink: it is ordered Before=basic.target, this unit was After it (a
+# cycle) until its drop-in took the default dependencies off (#141).
 Before=evolve-node.service evolve-app.service dspserver.service
 
 [Service]
