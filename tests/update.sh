@@ -194,6 +194,7 @@ APP=$(sha $R/srv/app.js)
 
 echo "== 3c: a card on v0.2.0's updater, without the scheduling (#140) and early-start (#141) drop-ins: installed without them, placed at the next start"
 OLDU=$(git -C $REPO -c safe.directory=$REPO show v0.2.0:install/sd-system/dlzmod-update 2>/dev/null)
+# (the scheduling (#140) and early-start (#141) drop-ins; case 75 relies on all five being placed by now)
 SCHED="glesgui evolve-node evolve-app dlzmod-update dlzmod-grow-data"
 sched_as_shipped() { local u; for u in $SCHED; do cmp -s $R/etc/systemd/system/$u.service.d/dlzmod.conf $REPO/install/sd-system/$u.service.d/dlzmod.conf \
   && [ "$(stat -c %a $R/etc/systemd/system/$u.service.d/dlzmod.conf)" = 644 ] || return 1; done; }

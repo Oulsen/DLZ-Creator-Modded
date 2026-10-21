@@ -168,7 +168,8 @@ rehearsal: `tests/update.sh` case 3a]:
   (accepted: rare, both still work).
 - **Not shown during the install**: the screen keeps Weston's background (the logo) meanwhile.
   Weston and glesgui start in `basic.target`; the updater (a `multi-user` service) starts right
-  after `sysinit.target` since #141, so the kernel bootsplash is on screen at its start and
+  after `sysinit.target` and `local-fs.target` since #141, so the kernel bootsplash is on screen at
+  its start and
   Weston's background takes over during a longer install [static: the units; the screen: guess]. A
   message during the install: #96.
 
@@ -232,8 +233,8 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   dlzmod-update and dlzmod-grow-data (#141), `dlzmod-*.service` links in `multi-user.target.wants`, and only
   `dlzmod-emmc-ro.service` in `sysinit.target.wants`. Not `boot/boot.scr` (below). Also refused: names
   with a space, newline, quote or glob character; special files; wrongly shaped links; units with
-  `DefaultDependencies=no` (only the eMMC lock's own unit has it), and since v0.3.0 drop-ins with
-  it, except #141's two early-start drop-ins with exactly the updater's own text (`EARLY_CONF`);
+  `DefaultDependencies=no` (only the eMMC lock's own unit has it), and since v0.3.0 drop-ins with it
+  (the allowlist takes only `.service.d` ones), except #141's two early-start drop-ins with exactly the updater's own text (`EARLY_CONF`);
   udev rules with `setrw` or `force_ro=0`; setuid, setgid, sticky or other-writable modes.
   A later version that needs a path outside this list needs a full install, or first an update that
   only brings the newer updater (its own list applies from the next update).
