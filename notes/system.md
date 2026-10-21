@@ -47,8 +47,9 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   dspserver, held node back to ~16 s, where stock starts it at ~9.5 s. **The mod** (#141): their
   drop-ins take the default dependencies off (after `sysinit.target`, stopped at shutdown, the
   eMMC lock still first). On the dev card [device, 11 starts]: the mixer view at 29.4-31.1 s instead
-  of 37.3-38.3 s; audio ready at ~19.6 s in 8, ~27 s in 3 (dspserver's preamp step waited ~7.5 s,
-  each time ending as the Wi-Fi connected, #147), always before the view.
+  of 37.3-38.3 s; audio ready at ~19.6 s in 8, ~27 s in 3 (dspserver's preamp step waited ~7.5 s
+  when it met glesgui's graphics start, not the Wi-Fi: `components/dspserver.md`, #147), always
+  before the view.
 - Also enabled: NetworkManager, systemd-networkd, resolved, wpa_supplicant, avahi, ssh, openvpn
   (no config, does nothing), chrony, cron (stock, empty), rsyslog, sysstat, armbian-firstrun-config [static]
 - Masked: `ondemand.service`, `sudo.service` [static]
