@@ -344,7 +344,9 @@ issue's technical notes point to the note section instead of copying it.
 
 - **Issue titles** in plain language, with a type prefix: `(DLZ FEATURE)` something the mod lets
   the mixer do, `(DLZ BUG)` stock Mackie behaviour, `(MOD FEATURE)` the mod itself (install, updates, safety,
-  support, development), `(MOD BUG)` caused by the mod, `(ANALYSIS) ...?` an idea that first needs
+  support), `(MOD BUG)` caused by the mod, `(DEV)` our own tools (tests, reviews, the dev card, build
+  and release scripts, CI; features and bugs alike, never in the changelog: an owner sees no
+  difference), `(ANALYSIS) ...?` an idea that first needs
   research, phrased as a question (it ends in a decision, and a feature issue if yes). New feature
   requests start as `(DLZ FEATURE)`; triage corrects the prefix.
 - **Bugs vs. unfinished work**: a defect in what the release being worked on brings (not shipped
@@ -352,7 +354,7 @@ issue's technical notes point to the note section instead of copying it.
   never a reopen, so each issue stays in the changelog of the version it shipped in. Stock behaviour
   gets a `DLZ BUG` issue whenever it is found.
 - **Labels**: the type, matching the title prefix (`dlz-feature`, `dlz-bug`, `mod-feature`, `mod-bug`,
-  `analysis`); `roadmap` (our own plan, puts the issue on the board); `needs-info` (waiting for
+  `dev`, `analysis`); `roadmap` (our own plan, puts the issue on the board); `needs-info` (waiting for
   information from outside); `release` (release chores, never in the changelog); `triage` (a new
   community report, not looked at yet). Progress is not a label but the board's Status.
 - **Milestones are versions** (`v0.1.0`, `v0.2.0`, ...), plus `Later` for planned work without a
@@ -430,7 +432,7 @@ issue's technical notes point to the note section instead of copying it.
 - **`CHANGELOG.md`**: the bump PR opens a `## vX.Y.Z` section (with the milestone's issues already
   in `develop`, if any); every PR that finishes a milestone issue adds its title as a bullet there,
   and the release PR checks the section against the milestone. Bullets ordered `DLZ FEATURE`,
-  `DLZ BUG`, `MOD FEATURE`, `MOD BUG` (no `ANALYSIS`, no `release`): what changes on the mixer first,
+  `DLZ BUG`, `MOD FEATURE`, `MOD BUG` (no `ANALYSIS`, `DEV` or `release`): what changes on the mixer first,
   then the mod itself. The release PR (`#N: <title>` lines) and the release notes use the same
   order, as sections ("DLZ features", "DLZ bugs fixed", "Mod features", "Mod bugs fixed"; empty
   ones left out). The README's "What the mod does" follows: it describes the current mod, so the PR
