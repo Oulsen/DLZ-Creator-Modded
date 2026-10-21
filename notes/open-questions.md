@@ -41,7 +41,8 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
 9. Stock's media scan filters out `/` by lsblk's `mountpoint` column: is that column still in
    `lsblk -O` on the mod card? (Which `mmcblk` is which is answered: hardware.md, Storage.)
 10. GD32 UART protocol and baud rate on ttyS2.
-11. Which `/dev/mem` regions do dspserver/faderlink map?
+11. Which `/dev/mem` regions does faderlink map? (dspserver: `0x01C00000`, 8 MB, incl. port I for its
+    chip buses: `components/dspserver.md`.)
 19. How much CPU headroom does the DSP thread have (`top -H`, idle vs. all FX on)? Decides whether
     extra graph blocks (limiter, full Compressor/Deesser) fit.
 20. Intercom: confirm on the device what `ctrl.intercom.X.X.enable` does from the UI (see
