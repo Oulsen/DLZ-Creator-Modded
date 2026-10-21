@@ -730,6 +730,7 @@ allowed() {
       case $rest:$b in
         flash-gd32.service.d:dlzmod.conf|flash-fpga.service.d:dlzmod.conf|upgradedaemon.service.d:dlzmod.conf|upgraderun.service.d:dlzmod.conf) return 0 ;;
         dspserver.service.d:dlzmod.conf|ssh.service.d:dlzmod.conf) return 0 ;;
+        # (apply-mod.sh greps an installed copy for this line's first entry: keep it as written)
         glesgui.service.d:dlzmod.conf|evolve-node.service.d:dlzmod.conf|evolve-app.service.d:dlzmod.conf) return 0 ;;
         multi-user.target.wants:dlzmod-*.service|sysinit.target.wants:dlzmod-emmc-ro.service) return 0 ;;
       esac ;;

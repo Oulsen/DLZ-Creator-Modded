@@ -52,7 +52,9 @@ codecs; `dspserver` drives it directly via `/dev/mem` DMA. USB audio to the PC i
 | `upgradedaemon` | Nim/Prologue web server | Firmware upgrade page, `POST /upgrade` (port unknown) | parallel |
 | `upgraderun` | oneshot, not enabled | Started by server.js to install an update | on demand |
 
-All Mackie units run as root with `DefaultDependencies=no`, FIFO priority 20 and nice -20 [static].
+All Mackie units run as root with `DefaultDependencies=no`, FIFO priority 20 and nice -20 [static];
+the mod runs glesgui, evolve-node and evolve-app at normal scheduling (nice -20 kept, #140,
+`notes/system.md` "Scheduling").
 The six runtime units (faderlink, dspserver, weston-mackie, glesgui, evolve-node, evolve-app) have
 `Restart=always` with no `RestartSec`, start limit or `WatchdogSec`, so systemd's defaults apply:
 restart after 100 ms, give up after 5 starts in 10 s [static]. A process that crash-loops stays

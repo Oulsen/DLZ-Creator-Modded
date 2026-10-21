@@ -711,6 +711,16 @@ cutoff "$S"; echo "$S" > $ST/failed; run_asking
 said "previous files restored" && [ ! -e $ST/approved ] && ok "no Install kept for a file that failed" || bad "an Install kept for a failed file"
 rm -f $U/dlzmod-vkeep[ab].tar $U/dlzmod-vkeep[ab].tar.sig $ST/failed $ST/approved
 
+echo "== 75: a scheduling drop-in missing while a put-back fails (#140): not placed; placed once the files are back"
+rm -f $R/etc/systemd/system/evolve-app.service.d/dlzmod.conf
+cutoff gone-package4; chattr +i $R/srv/app.js; run
+said "RESTORE INCOMPLETE" && ! said "placed the scheduling drop-ins" && [ ! -e $R/etc/systemd/system/evolve-app.service.d/dlzmod.conf ] \
+  && ok "marker left: nothing placed" || bad "placed while a put-back was pending"
+chattr -i $R/srv/app.js; run
+said "previous files restored" && said "placed the scheduling drop-ins of: evolve-app (" && sched_as_shipped \
+  && ok "put back, then placed in the same start" || bad "not put back, or not placed after it"
+backnow "put-back with a drop-in missing"
+
 echo "== 63: stops before DLZDATA (not on an SD card): no report file left in /tmp"
 chroot $R /usr/local/sbin/dlzmod-update > $W/run.out 2>&1
 grep -q "not on an SD card" $W/run.out && ok "stopped: not on an SD card" || bad "did not stop at the SD check: $(cat $W/run.out)"
