@@ -31,11 +31,12 @@ put_link() {
 # of a development card and the drop-in update. The guards go first
 # and are flushed before anything else changes
 install_sd_system() {
-  local s=$TOOLS/sd-system u f sched=yes
+  local s=$TOOLS/sd-system u f sched=yes early=yes
   # #140: an update checked by an updater from before the scheduling drop-ins (v0.2.0 and older) may
   # not place them (its allowlist): left out then, the new updater places them at the next start
-  # (read here, before install_update_unit below puts the new copy in)
+  # (read here, before install_update_unit below puts the new copy in); #141's early-start ones too
   [ ! -f "$MNT/usr/local/sbin/dlzmod-update" ] || grep -qF 'glesgui.service.d:dlzmod.conf' "$MNT/usr/local/sbin/dlzmod-update" || sched=no
+  [ ! -f "$MNT/usr/local/sbin/dlzmod-update" ] || grep -qF 'dlzmod-update.service.d:dlzmod.conf' "$MNT/usr/local/sbin/dlzmod-update" || early=no
   # the FPGA loader's gate first: its drop-in calls it (no FPGA load from a card in another mixer)
   put_file 755 "$s/dlzmod-cardcheck" "$MNT/usr/local/sbin/dlzmod-cardcheck"
   for u in flash-gd32 flash-fpga upgradedaemon upgraderun dspserver; do
@@ -55,6 +56,15 @@ install_sd_system() {
     done
   else
     echo "scheduling drop-ins: this card's updater does not know them yet, its new copy places them at the next start"
+  fi
+  # #141: the mod's own start steps no longer wait for basic.target (the FPGA load), so Mackie's node
+  # processes, ordered after them, start when stock starts them
+  if [ "$early" = yes ]; then
+    for u in dlzmod-update dlzmod-grow-data; do
+      put_file 644 "$s/$u.service.d/dlzmod.conf" "$MNT/etc/systemd/system/$u.service.d/dlzmod.conf"
+    done
+  else
+    echo "early-start drop-ins: this card's updater does not know them yet, its new copy places them at the next start"
   fi
   # dspserver waits for server.js before starting (dlzmod-wait-hub, its drop-in above)
   for f in dlzmod-grow-data dlzmod-bootlog dlzmod-bootreport dlzmod-wait-hub dlzmod-netlog; do

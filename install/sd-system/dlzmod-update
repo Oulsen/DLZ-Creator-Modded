@@ -368,23 +368,44 @@ CPUSchedulingPolicy=other
 CPUSchedulingPriority=0
 SCHED_EOF
 )
-sched_dropins() {
+# #141: the same way, the early-start drop-ins of this unit and dlzmod-grow-data (the only drop-ins
+# with DefaultDependencies=no an update may bring, and only with exactly this text: shape_ok; so a
+# later change of this text needs an update that brings the new updater first, as a new path does)
+EARLY_UNITS="dlzmod-update dlzmod-grow-data"
+EARLY_CONF=$(cat << 'EARLY_EOF'
+# dlzmod (#141): without systemd's default dependencies, so this unit no longer waits for
+# basic.target, which waits for the FPGA load (faderlink is Before=basic.target): ordered before
+# Mackie's node processes, it held them back to ~16 s, where stock starts them at ~9.5 s.
+# Still after the eMMC lock and local-fs.target (the unit's own lines) and sysinit.target, and
+# stopped at shutdown, as the default dependencies did.
+[Unit]
+DefaultDependencies=no
+After=sysinit.target
+Conflicts=shutdown.target
+Before=shutdown.target
+EARLY_EOF
+)
+place_dropins() {   # place_dropins <what> <issue> <units> <text>
   local u t placed=""
-  [ -z "$CHECK_ONLY" ] && [ ! -s "$STATE/inprogress" ] && emmc_locked || return 0
-  for u in $SCHED_UNITS; do
+  for u in $3; do
     t=$ROOT/etc/systemd/system/$u.service.d/dlzmod.conf
     { [ -e "$t" ] || [ -L "$t" ]; } && continue
-    if mkdir -p "${t%/*}" && printf '%s\n' "$SCHED_CONF" > "$t.dlzmod-new" && chmod 644 "$t.dlzmod-new" \
+    if mkdir -p "${t%/*}" && printf '%s\n' "$4" > "$t.dlzmod-new" && chmod 644 "$t.dlzmod-new" \
        && sync "$t.dlzmod-new" && mv -f "$t.dlzmod-new" "$t"; then
       placed="$placed $u"
     else
       # (the journal only, so the boot report shows it: a cause that stays would otherwise write a
       # new report to DLZDATA at every start)
-      rm -f "$t.dlzmod-new"; echo "dlzmod-update: the scheduling drop-in of $u could not be placed"
+      rm -f "$t.dlzmod-new"; echo "dlzmod-update: the $1 drop-in of $u could not be placed"
     fi
   done
   sync
-  [ -z "$placed" ] || log "placed the scheduling drop-ins of:$placed (#140); they apply from the next start"
+  [ -z "$placed" ] || log "placed the $1 drop-ins of:$placed ($2); they apply from the next start"
+}
+missing_dropins() {
+  [ -z "$CHECK_ONLY" ] && [ ! -s "$STATE/inprogress" ] && emmc_locked || return 0
+  place_dropins scheduling "#140" "$SCHED_UNITS" "$SCHED_CONF"
+  place_dropins early-start "#141" "$EARLY_UNITS" "$EARLY_CONF"
 }
 pkgs=("$U"/dlzmod-*.tar)
 if [ ${#pkgs[@]} = 0 ]; then   # nothing to do (every normal start)
@@ -393,7 +414,7 @@ if [ ${#pkgs[@]} = 0 ]; then   # nothing to do (every normal start)
   # a try cut off while placing, and its file removed since (the guards may be fine, so the repair
   # above did not run): the files from before it go back, or the card keeps a half-placed update
   repair "an update was cut off while placing its files and is no longer there"
-  sched_dropins
+  missing_dropins
   exit 0
 fi
 emmc_locked; case $? in
@@ -545,7 +566,8 @@ for f in apply-mod.sh check-rootfs.sh patch.py modversion.py app-mod/dlzmod.js s
     sd-system/dlzmod-update.service sd-system/90-dlzmod-usb-wifi.rules sd-system/dspserver.service.d/dlzmod.conf \
     sd-system/dlzmod-zerocd-eject sd-system/70-dlzmod-wifi-zerocd.rules \
     sd-system/ssh.service.d/dlzmod.conf sd-system/glesgui.service.d/dlzmod.conf sd-system/evolve-node.service.d/dlzmod.conf \
-    sd-system/evolve-app.service.d/dlzmod.conf $GUARD_SRC; do
+    sd-system/evolve-app.service.d/dlzmod.conf sd-system/dlzmod-update.service.d/dlzmod.conf \
+    sd-system/dlzmod-grow-data.service.d/dlzmod.conf $GUARD_SRC; do
   [ -f "$T/$f" ] || fail "incomplete: $f missing"
 done
 # the new package's own check of this card (its firmware, and the GD32 marker that belongs to its
@@ -732,6 +754,8 @@ allowed() {
         dspserver.service.d:dlzmod.conf|ssh.service.d:dlzmod.conf) return 0 ;;
         # (apply-mod.sh greps an installed copy for this line's first entry: keep it as written)
         glesgui.service.d:dlzmod.conf|evolve-node.service.d:dlzmod.conf|evolve-app.service.d:dlzmod.conf) return 0 ;;
+        # (the same for this line)
+        dlzmod-update.service.d:dlzmod.conf|dlzmod-grow-data.service.d:dlzmod.conf) return 0 ;;
         multi-user.target.wants:dlzmod-*.service|sysinit.target.wants:dlzmod-emmc-ro.service) return 0 ;;
       esac ;;
   esac
@@ -754,7 +778,11 @@ shape_ok() {
     case $p in
       etc/systemd/system/ssh.socket|etc/systemd/system/*.wants/*) return 1 ;;
       etc/systemd/system/dlzmod-emmc-ro.service) return 0 ;;   # a guard: its hash is checked
-      etc/systemd/system/*.service) ! grep -qiE '^[[:space:]]*DefaultDependencies[[:space:]]*=[[:space:]]*(no|false|0)' "$S/$p" ;;
+      etc/systemd/system/*.service) ! grep -qiE '^[[:space:]]*DefaultDependencies[[:space:]]*=[[:space:]]*(no|n|false|f|off|0)' "$S/$p" ;;
+      # #141: the early-start drop-ins only as this script knows them; no other drop-in may start early
+      etc/systemd/system/dlzmod-update.service.d/dlzmod.conf|etc/systemd/system/dlzmod-grow-data.service.d/dlzmod.conf)
+        [ "$(cat "$S/$p")" = "$EARLY_CONF" ] ;;
+      etc/systemd/system/*.service.d/*) ! grep -qiE '^[[:space:]]*DefaultDependencies[[:space:]]*=[[:space:]]*(no|n|false|f|off|0)' "$S/$p" ;;
       etc/udev/rules.d/60-dlzmod-emmc-ro.rules) return 0 ;;   # a guard: its hash is checked
       etc/udev/rules.d/*) ! grep -qiE 'setrw|force_ro[^=]*=[[:space:]]*"?0' "$S/$p" ;;
       *) return 0 ;;

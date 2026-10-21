@@ -192,19 +192,20 @@ else
 fi
 APP=$(sha $R/srv/app.js)
 
-echo "== 3c: a card on v0.2.0's updater, without the scheduling drop-ins (#140): installed without them, placed at the next start"
+echo "== 3c: a card on v0.2.0's updater, without the scheduling (#140) and early-start (#141) drop-ins: installed without them, placed at the next start"
 OLDU=$(git -C $REPO -c safe.directory=$REPO show v0.2.0:install/sd-system/dlzmod-update 2>/dev/null)
-SCHED="glesgui evolve-node evolve-app"
+# (the scheduling (#140) and early-start (#141) drop-ins; case 75 relies on all five being placed by now)
+SCHED="glesgui evolve-node evolve-app dlzmod-update dlzmod-grow-data"
 sched_as_shipped() { local u; for u in $SCHED; do cmp -s $R/etc/systemd/system/$u.service.d/dlzmod.conf $REPO/install/sd-system/$u.service.d/dlzmod.conf \
   && [ "$(stat -c %a $R/etc/systemd/system/$u.service.d/dlzmod.conf)" = 644 ] || return 1; done; }
 if [ -z "$OLDU" ] || [ -z "$NEWU" ]; then bad "no v0.2.0 tag here (git fetch --tags) or no updater in the package"
 else
-  sched_as_shipped && ok "the install placed them" || bad "the install did not place the scheduling drop-ins"
+  sched_as_shipped && ok "the install placed them" || bad "the install did not place the scheduling and early-start drop-ins"
   printf '%s\n' "$OLDU" > $R/usr/local/sbin/dlzmod-update
   for u in $SCHED; do rm -rf $R/etc/systemd/system/$u.service.d; done
   put $(craft dlzmod-vfrom020 "printf '\n// from v0.2.0 test\n' >> mod/app-mod/dlzmod.js"); run
   said "INSTALLED: " && grep -q "from v0.2.0 test" $R/srv/app.js && ok "installed by the v0.2.0 updater" || bad "the v0.2.0 updater did not install it"
-  said "its new copy places them at the next start" && [ -z "$(ls -d $R/etc/systemd/system/{glesgui,evolve-node,evolve-app}.service.d 2>/dev/null)" ] \
+  said "its new copy places them at the next start" && [ -z "$(ls -d $R/etc/systemd/system/{glesgui,evolve-node,evolve-app,dlzmod-update,dlzmod-grow-data}.service.d 2>/dev/null)" ] \
     && ok "drop-ins left out, and said so" || bad "drop-ins placed, or not said"
   if [ "$(cat $R/usr/local/sbin/dlzmod-update)" = "$NEWU" ]; then ok "the card's updater is now the package's"
   else
@@ -212,13 +213,31 @@ else
     printf '%s\n' "$NEWU" > $R/usr/local/sbin/dlzmod-update; chmod 755 $R/usr/local/sbin/dlzmod-update
   fi
   n1=$(reports); run   # the next start, no update file
-  sched_as_shipped && said "placed the scheduling drop-ins of: glesgui evolve-node evolve-app" && [ "$(reports)" = "$((n1 + 1))" ] \
+  sched_as_shipped && said "placed the scheduling drop-ins of: glesgui evolve-node evolve-app" \
+    && said "placed the early-start drop-ins of: dlzmod-update dlzmod-grow-data" && [ "$(reports)" = "$((n1 + 1))" ] \
     && ok "the next start placed them (as shipped, 644), one report" || bad "not placed at the next start"
   n1=$(reports); run; [ "$(reports)" = "$n1" ] && ok "the start after: nothing to place, no report" || bad "a report with nothing to place"
   echo "# changed here" >> $R/etc/systemd/system/glesgui.service.d/dlzmod.conf; rm -f $R/etc/systemd/system/evolve-app.service.d/dlzmod.conf; run
   grep -q "changed here" $R/etc/systemd/system/glesgui.service.d/dlzmod.conf && said "placed the scheduling drop-ins of: evolve-app (" \
     && ok "a missing one put back, one that is there left as it is" || bad "a missing or changed drop-in handled wrong"
   cp $REPO/install/sd-system/glesgui.service.d/dlzmod.conf $R/etc/systemd/system/glesgui.service.d/dlzmod.conf
+fi
+APP=$(sha $R/srv/app.js)
+
+echo "== 3d: a card on an updater with #140's drop-ins but not #141's: those placed by the update, the early-start ones at the next start"
+if [ -z "$NEWU" ]; then bad "no updater in the package"
+else
+  grep -vF 'dlzmod-update.service.d:dlzmod.conf|dlzmod-grow-data.service.d:dlzmod.conf' <<< "$NEWU" > $R/usr/local/sbin/dlzmod-update
+  for u in $SCHED; do rm -rf $R/etc/systemd/system/$u.service.d; done
+  put $(craft dlzmod-vfrom140 "printf '\n// from a #140 updater\n' >> mod/app-mod/dlzmod.js"); run
+  said "INSTALLED: " && grep -q "from a #140 updater" $R/srv/app.js && ok "installed by the #140 updater" || bad "the #140 updater did not install it"
+  [ -z "$(ls -d $R/etc/systemd/system/{dlzmod-update,dlzmod-grow-data}.service.d 2>/dev/null)" ] \
+    && [ -f $R/etc/systemd/system/glesgui.service.d/dlzmod.conf ] && ok "scheduling ones placed, early-start ones left out" || bad "wrong drop-ins placed"
+  [ "$(cat $R/usr/local/sbin/dlzmod-update)" = "$NEWU" ] && ok "the card's updater is now the package's" \
+    || { bad "the card kept another updater"; printf '%s\n' "$NEWU" > $R/usr/local/sbin/dlzmod-update; chmod 755 $R/usr/local/sbin/dlzmod-update; }
+  run   # the next start, no update file
+  sched_as_shipped && said "placed the early-start drop-ins of: dlzmod-update dlzmod-grow-data (" && ! said "placed the scheduling" \
+    && ok "the next start placed only the early-start ones" || bad "early-start drop-ins not placed at the next start"
 fi
 APP=$(sha $R/srv/app.js)
 
@@ -551,6 +570,15 @@ refused dlzmod-vmmcw "the update changes /boot/boot.scr, which an update may not
 echo "== 57: a new unit that starts before the eMMC lock (DefaultDependencies=no): refused"
 put $(craft dlzmod-vearlyunit "$(with x-early.sh)"); run
 refused dlzmod-vearlyunit "puts something unexpected at /etc/systemd/system/dlzmod-early.service"
+
+echo "== 57b: a drop-in that starts another unit early (DefaultDependencies=off): refused (#141)"
+# (in the package's own files: install_sd_system puts them over anything a sourced helper changed)
+put $(craft dlzmod-vearlydropin "printf '[Unit]\nDefaultDependencies=off\n' >> mod/sd-system/dspserver.service.d/dlzmod.conf"); run
+refused dlzmod-vearlydropin "puts something unexpected at /etc/systemd/system/dspserver.service.d/dlzmod.conf"
+
+echo "== 57c: the updater's early-start drop-in with another text: refused (#141)"
+put $(craft dlzmod-vearlyedit "sed -i '/^After=sysinit.target\$/d' mod/sd-system/dlzmod-update.service.d/dlzmod.conf"); run
+refused dlzmod-vearlyedit "puts something unexpected at /etc/systemd/system/dlzmod-update.service.d/dlzmod.conf"
 
 echo "== 58: a udev rule that makes the eMMC writable again: refused"
 put $(craft dlzmod-vsetrw "$(with x-setrw.sh)"); run
