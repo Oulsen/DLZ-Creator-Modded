@@ -321,7 +321,8 @@ powershell -ExecutionPolicy Bypass -File dev/netlog.ps1   # leave it open while 
 ```
 
 It writes `build/device-logs/netlog-<date>-<time>.txt`, with a marker line at each start. It starts
-sending once Wi-Fi is up (~15-25 s), then everything since power-on. Nothing arrives: allow UDP 5140
+sending once Wi-Fi is up (~15-25 s), then everything since power-on; now and then lines of that burst
+get lost (2 starts in 10 lost their first ~30 s: the marker then comes where the uptime goes back). Nothing arrives: allow UDP 5140
 in Windows Firewall once (the command is at the top of `netlog.ps1`). `bash dev/netlog.sh off` stops it.
 Read logs there rather than over SSH: no login while a start settles (logins then coincided with
 hangs). The `mixer-ssh` wrapper and `push.sh` go by the newest network log: a login 30 s after the

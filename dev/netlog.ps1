@@ -18,11 +18,19 @@ $udp.Client.ReceiveBufferSize = 8MB
 $from = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
 $out = New-Object System.IO.StreamWriter($file, $true, (New-Object System.Text.UTF8Encoding($false)))
 $out.AutoFlush = $true
+$last = -1
 Write-Host "netlog: listening on UDP $Port, writing $file"
 try {
   while ($true) {
     $line = [System.Text.Encoding]::UTF8.GetString($udp.Receive([ref]$from)).TrimEnd("`n")
-    if ($line -match "Booting Linux on physical CPU") {
+    # a new start: the kernel's first line, or the uptime going back (its first lines were lost)
+    $new = $line -match "Booting Linux on physical CPU"
+    if ($line -match '^\[ *(\d+)\.') {
+      $up = [int64]$Matches[1]
+      if ($last -ge 0 -and $up + 5 -lt $last) { $new = $true }
+      $last = $up
+    }
+    if ($new) {
       $mark = "===== new start of the mixer, received " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss") + " ====="
       $out.WriteLine($mark)
       Write-Host $mark -ForegroundColor Cyan
