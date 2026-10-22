@@ -195,6 +195,7 @@ IC_COMPARE_PCT=81   # compare time as % of the copy time
 IC_COPY_MS=130      # copy (and backup) time per MiB in use, ms [device: 277 s and 302 s for 2322 MiB, two cards]
 IC_BUILD_SECS=40    # build phase, all 10 parts
 IC_BK_PCT=42        # backup size as % of the MiB in use, until the copy can tell (measured: 978 of 2322)
+IC_RISE_PCT=25      # how far the copy's expected end may move later, as % of the time since the last round
 IC_NL='
 '
 # ic_left <seconds>: "about N min left" / "less than a minute left"
@@ -243,6 +244,16 @@ function alltxt(l) {
 # the device times near the start, where the speed so far says little (its streams are not even:
 # the blocks in use sit near their start)
 function blend(p, t, m) { if (p < 0) p = 0; if (p > 1) p = 1; if (m < 0) return t * (1 - p); return (1 - p) * t * (1 - p) + p * m }
+# steady(pe, tp, now, l, rise): the time left to show, from l, the estimate of this round, and pe,
+# the expected end of the step shown at tp (uptime; pe <= 0: none yet). The end comes earlier at once
+# but moves later only by rise % of the time since tp: the backup crawls beside the copy and speeds up
+# once the copy is done, so its speed so far once doubled the time shown in the middle of the copy
+# [device, v0.2.0: 14 min for 6.6 left]. Never below half of l, so a card that really is slower shows
+function steady(pe, tp, now, l, rise,   e) {
+  if (pe <= 0 || now + l <= pe) return l
+  e = pe + (now - tp) * rise / 100
+  return max(min(now + l, e) - now, l / 2)
+}
 # every 15th round (~30-40 s) the line with its time into the install log, for comparing the
 # estimates with the real times afterwards (lg: the log, n: the round). Always last in a round:
 # busybox awk ends when it cannot open a file (a read-only DLZDATA after an error, say), and only the
@@ -264,8 +275,8 @@ function logline(lg, n, now, s) { if (lg != "" && n % 15 == 1) { printf "[%.2f] 
 # time only, while nothing more reaches the card). Reads ic_copy's _t0 _ts (the speed's start, after
 # the snapshot) _u _fsm _w0 and the pids _pc (the copy) and _pbe/_pbz (the backup's e2image and zstd,
 # from their pid files); keeps _cdone _bdone _pmax _bpart (an ended pid can be reused, the bar never
-# goes back, zstd's count goes with it), _tz _bwz (the zero tail's start: time, stream position) and
-# _tk (the round). final: the step is done
+# goes back, zstd's count goes with it), _tz _bwz (the zero tail's start: time, stream position),
+# _pe _tp (the end shown last, and when: steady) and _tk (the round). final: the step is done
 ic_copy_tick() {
   _lg=""; [ -w "$LOG" ] && _lg=$LOG
   [ -n "$_pbe" ] || read -r _pbe 2>/dev/null < "$CH/tmp/ic-pid-bke"
@@ -273,7 +284,8 @@ ic_copy_tick() {
   _o=$(awk -v sd="${SD##*/}" -v pc="$_pc" -v pbe="$_pbe" -v pbz="$_pbz" -v u="$_u" -v fsm="$_fsm" \
       -v w0="$_w0" -v t0="$_t0" -v ts="$_ts" -v cdone="$_cdone" -v bdone="$_bdone" -v pmax="$_pmax" \
       -v bpart="$_bpart" -v final="${1:-0}" -v wc=$IC_BAR_COPY -v cp=$IC_COMPARE_PCT -v bs=$IC_BUILD_SECS \
-      -v bk=$IC_BK_PCT -v cms=$IC_COPY_MS -v tz="${_tz:-0}" -v bwz="${_bwz:-0}" -v tk="${_tk:-0}" -v lg="$_lg" "$IC_AWK"'
+      -v bk=$IC_BK_PCT -v cms=$IC_COPY_MS -v tz="${_tz:-0}" -v bwz="${_bwz:-0}" -v tk="${_tk:-0}" -v lg="$_lg" \
+      -v pe="${_pe:-0}" -v tp="${_tp:-0}" -v rise=$IC_RISE_PCT "$IC_AWK"'
   BEGIN {
     if (fsm < 1) fsm = 1
     now = first(rd("/proc/uptime"), 1); s = now - ts
@@ -316,7 +328,8 @@ ic_copy_tick() {
         }
       }
       ml = -1; if (wl >= 0 && sl >= 0) ml = max(wl, sl)
-      left = blend(pm / 1000, u * cms / 1000, ml)
+      raw = blend(pm / 1000, u * cms / 1000, ml)
+      left = steady(pe, tp, now, raw, rise); pe = now + left; tp = now
     }
     pm = int(max(pm, pmax))
     # the time left shows from the first round (blend: the device times until there is a speed)
@@ -327,13 +340,17 @@ ic_copy_tick() {
     else txt = gb(card) " GB written, " lefttxt(left)
     all = ""; if (left >= 0) all = alltxt(left + ((now - t0) + left) * cp / 100 + bs)
     tk++
-    print cdone, bdone, pm, bpart, tz, bwz, tk
+    print cdone, bdone, pm, bpart, tz, bwz, tk, pe, tp
     printf "%d\tStep 1 of 3: %s\t%s\n", int(wc * pm / 1000), txt, all
-    logline(lg, tk, now, "step 1, " int(wc * pm / 1000) " %, " txt ", " all) }' 2>/dev/null)
+    # in the log also what the time left comes from (#128): copy and backup so far, their own times
+    # left (-1: no speed yet) and the estimate before steady()
+    why = sprintf(" [copy %d of %d MiB, backup %d MiB read %d out, card %d s, backup %d s, raw %d s]",
+      cw, u, br, bpart, wl, sl, raw)
+    logline(lg, tk, now, "step 1, " int(wc * pm / 1000) " %, " txt ", " all why) }' 2>/dev/null)
   [ -n "$_o" ] || return 0
   # shellcheck disable=SC2086
   set -- ${_o%%"$IC_NL"*}
-  _cdone=$1 _bdone=$2 _pmax=$3 _bpart=$4 _tz=$5 _bwz=$6 _tk=$7
+  _cdone=$1 _bdone=$2 _pmax=$3 _bpart=$4 _tz=$5 _bwz=$6 _tk=$7 _pe=$8 _tp=$9
   printf '%s\n' "${_o#*"$IC_NL"}" 2>/dev/null
 }
 
@@ -510,7 +527,7 @@ ic_copy() {
   ic_snap_up || return 1
   _u=$IC_USED_MIB _fsm=$((IC_FS_SECTORS / 2048))
   rm -f /tmp/ic-copy-secs
-  _w0=$(ic_written) _pbe="" _pbz="" _cdone=0 _bdone=0 _pmax=0 _bpart=0 _tz=0 _bwz=0 _tk=0
+  _w0=$(ic_written) _pbe="" _pbz="" _cdone=0 _bdone=0 _pmax=0 _bpart=0 _tz=0 _bwz=0 _tk=0 _pe=0 _tp=0
   _ts=$(cut -d' ' -f1 /proc/uptime)
   _off=$((p1_start * 512))
   # before each write: the card is still there (a pulled card's name would become a plain file in the
