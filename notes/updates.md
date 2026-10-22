@@ -34,6 +34,31 @@ An update cannot come through the installer image: writing the image erases the 
 included) before the installer runs, and the mixer has one card slot. Keeping recordings across an
 update goes through the card itself: the drop-in update below.
 
+### Built where (#68)
+
+Today the PC builds and signs, the files are tested on the mixer and uploaded to the tag's draft.
+What a build on GitHub would need [static, rebuilds of v0.2.0 in WSL]:
+
+- **No Mackie file**: the package and the image come from the repo and the two pinned Debian
+  packages (`vendor.sh`, sha256-checked); no dump. Debian drops a version from `deb.debian.org`
+  once a newer one is out: rebuilding an old tag then needs `snapshot.debian.org` [guess: Debian's
+  usual practice, not seen for these two yet].
+- **Reproducible**: two builds of the same commit are byte-identical, the package and the image, from
+  a Linux clone or the tree on `/mnt/d`, minutes apart. v0.2.0 rebuilt from its tag had the same
+  files as the release; its tar and image differed only in what is now fixed (the copied
+  `sd-system/` files' modes followed the source tree; the FAT's file times were the build's clock).
+- **Same tools needed**: gzip, cpio, Pillow with FreeType, the DejaVu fonts and dosfstools shape the
+  bytes. The PC builds in WSL Ubuntu 26.04, GitHub's `ubuntu-latest` runners are older [guess]: a
+  byte-for-byte match needs both sides in one pinned build environment (a container image from a
+  fixed snapshot). Same-host builds are what was tested; files are copied onto the FAT in a fixed
+  order and every FAT time (the label's too) is set in UTC, so the host's directory order and time
+  zone do not count.
+- **Decision: GitHub signs, after #63.** Signing moves to a GitHub workflow (release key as a
+  secret in a protected environment that needs the maintainer's approval) only once a leaked key
+  can be withdrawn from cards (#63); until then the PC signs, because a key stolen from GitHub would
+  be trusted by every card for life. Then the files GitHub builds and signs are the ones tested on
+  the mixer (from the draft) and published; the PC's build of the same commit must match them.
+
 ## Drop-in update
 
 Most releases only change the mod's own files (app and server patches, sd-system units and rules).
@@ -348,9 +373,9 @@ internal storage.
   the public key the package's cards will trust first. **A tree with uncommitted changes or new
   files in `install/` or `VERSION` is never signed** (`+dirty`: tar only, for PC rehearsals);
   `RELEASE=1` refuses untracked files too.
-- **CI later**: a workflow would write the key from a GitHub secret into a temporary folder for
-  `DLZMOD_SIGNING_KEYS` and pass the passphrase as a second secret. An Actions secret cannot be read
-  back, so it is not a backup.
+- **On GitHub, after #63** ("Built where"): a workflow would write the key from a GitHub secret into
+  a temporary folder for `DLZMOD_SIGNING_KEYS` and pass the passphrase as a second secret. An
+  Actions secret cannot be read back, so it is not a backup.
 
 Accepted: an older signed build of the same version installs again (equal stays allowed); a large
 refused file is copied and hashed at every start until it is removed (a few seconds).
