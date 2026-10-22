@@ -174,8 +174,8 @@ fi
 START=$(date +%s)
 # no login while the new start settles: logins then coincided with hangs (#81, #143). With a dev card's
 # network log (dev/netlog.ps1, written within the last 10 minutes) until the new start's screen is up
-# (glesgui's "Context renderer string") plus 30 s, or 300 s into a new start whose screen does not
-# come; read by .claude/skills/mixer-ssh/netlog-start.awk (as the mixer-ssh guard does), from the
+# (glesgui's "Context renderer string", or its "Client connected." when that line was lost) plus
+# 30 s, or 300 s into a new start whose screen does not come; read by .claude/skills/mixer-ssh/netlog-start.awk (as the mixer-ssh guard does), from the
 # lines after this point only (a listener started again meanwhile: its new file from the start).
 # Without one: 90 s after the mixer has gone away (GONE), counted from its first failed login: between
 # switching off and SSH in the new start (Wi-Fi first) the polls every 5 s cannot all get through.
@@ -190,7 +190,8 @@ if [ -n "$NL" ] && [ $(( START - $(stat -c %Y "$NL") )) -le 600 ]; then
     NEWEST=$(ls -t "$NETLOG_DIR"/netlog-*.txt 2>/dev/null | head -n 1 || true)
     [ -z "$NEWEST" ] || [ "$NEWEST" = "$NL" ] || { NL=$NEWEST; N0=0; echo "   network log now $NL"; }
     UP="" SCR=""
-    read -r UP SCR < <(tail -n +$((N0 + 1)) "$NL" | awk -v need=1 -f "$REPO/.claude/skills/mixer-ssh/netlog-start.awk") || true
+    # with the journal line before the prompt, so a start without its first lines shows by its uptime
+    read -r UP SCR < <({ [ "$N0" -eq 0 ] || sed -n "${N0}p" "$NL" | grep '^\[' || true; tail -n +$((N0 + 1)) "$NL"; } | awk -v need=1 -f "$REPO/.claude/skills/mixer-ssh/netlog-start.awk") || true
     if [ -n "$UP" ]; then
       UP=$(( UP + $(date +%s) - $(stat -c %Y "$NL") ))
       if [ -n "$SCR" ]; then

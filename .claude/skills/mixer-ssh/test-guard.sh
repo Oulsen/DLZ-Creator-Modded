@@ -231,6 +231,11 @@ printf '[    0.000000] host kernel: Booting Linux\n[  241.0] host %s\n[  250.0] 
 e early   "a late screen (241 s), 250 s up: still 30 s after it"
 printf '[    0.000000] host kernel: Booting Linux\r\n[   28.2] host %s\r\n[   58.9] host x: a line\r\n' "$G" > "$DLZ_NETLOG_DIR/netlog-3.txt"
 e allowed "lines ending in CR, as the listener writes them: screen at 28 s, 58 s up"
+printf '[    0.000000] host kernel: Booting Linux\n[   28.2] host %s\n[  302.6] host x: rebooting\n[   30.8] host x: a line\n[   45.0] host x: a line\n' "$G" > "$DLZ_NETLOG_DIR/netlog-3.txt"
+e early   "a start whose first lines were lost (no marker): the screen of the start before does not count"
+C='mackie glesgui[681]: Client connected.'
+printf '[    0.000000] host kernel: Booting Linux\n[   32.3] host %s\n[   62.5] host x: a line\n' "$C" > "$DLZ_NETLOG_DIR/netlog-3.txt"
+e allowed "the renderer line lost: glesgui's Client connected at 32 s, 62 s up"
 # dev/push.sh reads the same file with need=1, only the lines after its prompt: a new start required
 p() {   # p <expected output> <description> <log text>
   out=$(printf "$3" | awk -v need=1 -f "$(dirname "$S")/netlog-start.awk")
@@ -241,6 +246,8 @@ p ""      "the old start still writing: keep waiting" '[  905.0] host x: shuttin
 p "20 "   "a new start, no screen yet" '[  905.0] host x: old\n===== new start of the mixer =====\n[    0.000000] host kernel: Booting Linux\n[   20.1] host x: a\n'
 p "31 27" "a new start with its screen" '===== new start of the mixer =====\n[    0.0] host kernel: Booting Linux\n[   27.4] host glesgui[640]: Context renderer string: Mali\n[   31.0] host x: b\n'
 p ""      "a marker without a journal line yet" '[  905.0] host x: old\n===== new start of the mixer =====\n'
+p "45 32" "a new start without its first lines (no marker), its UI up" '[  905.0] host x: old\n[   30.8] host x: a\n[   32.3] host glesgui[681]: Client connected.\n[   45.0] host x: b\n'
+p ""      "the old start goes on, a few lines out of order" '[  905.0] host x: old\n[  902.0] host x: late\n[  906.0] host x: c\n'
 sleep 1; printf '[   12.5] host x: a line\n' > "$DLZ_NETLOG_DIR/netlog-4.txt"
 out=$(bash "$S" get /var/log/syslog build/device-logs/x 2>&1)
 case $out in *"REFUSED (the mixer started"*) m=ok ;; *) m=WRONG; fail=1 ;; esac
