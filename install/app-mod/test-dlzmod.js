@@ -352,7 +352,7 @@ test("meters: the main meter is before the master fader as Mackie shows it; Both
   assert.deepStrictEqual(m.vals, [0.75, 0.8], "bright: 5 dB lower after the fader; dimmed: before it");
   assert.strictEqual(m.havePre, true);
   ctx.DLZMOD_vuSet(m, "", 1, 0.95, 0.6, strip(4, 0));
-  assert.deepStrictEqual(m.vals, [0.85, 0.95], "fader down");
+  assert.deepStrictEqual(m.vals, [0.85, 0.95], "fader at -10 dB (stand-in), level above the clip threshold");
   assert.strictEqual(m.clips, 1, "the clip follows the level before the fader");
   ctx.DLZMOD_vuSet(m, "", 1, 0.8, 0.6, strip(4, 1, 1));
   assert.deepStrictEqual(m.vals, [0, 0.8], "muted: nothing after the fader");
