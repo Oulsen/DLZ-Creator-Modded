@@ -102,7 +102,9 @@ key_sums() {   # the trusted keys: an update must leave them exactly as installe
   (cd "$KEYS" 2>/dev/null && sha256sum -- *) 2>/dev/null
 }
 withdrawn() {   # withdrawn <key>: on this card's withdrawal list (#63; written by the installer and below)
+  [ -e "$STATE/withdrawn" ] || return 1
   grep -qx -- "$1" "$STATE/withdrawn" 2>/dev/null
+  [ $? != 1 ]   # a list that cannot be read counts as withdrawing every key
 }
 extra_dropins() {   # drop-ins anywhere systemd 249 reads them that could override the guards: none but ours
   local d x f
@@ -548,15 +550,20 @@ log "version $NEWV ($(penv BUILD)), models $(penv MODELS), evolve-node $(penv EV
 LOGV=$NEWV
 case $(penv BUILD) in ''|release) ;; *) LOGV=$NEWV-$(penv BUILD) ;; esac
 LOGV=$(printf '%s' "$LOGV" | tr -cd 'A-Za-z0-9._+-' | cut -c1-40)
-# #63: the keys the package withdraws (WITHDRAWN, comma list), onto this card's list before anything
-# else of it is looked at, even if it is refused below: the signature says it is the signer's. Only
-# the spare release key adds one (a leaked release key cannot withdraw the spare); release2 itself
-# can never be withdrawn; a key already on the list needs nothing. The list only grows: nothing here
-# removes a line, an update cannot write it (not on the allowlist) and a snapshot never holds it
+# #63: the keys the package withdraws (WITHDRAWN, comma list), onto this card's list right after its
+# signature and contents are checked, before the checks that can refuse it below: the signature says
+# it is the signer's. Only the spare release key adds one (a leaked release key cannot withdraw the
+# spare); from another key's package the name is ignored (every package carries the whole list);
+# release2 itself can never be withdrawn. The list only grows: nothing here removes a line, an update
+# cannot write it (not on the allowlist) and a snapshot never holds it
 for w in $(penv WITHDRAWN | tr ',' ' '); do
   case $w in release|dev) ;; *) fail "it withdraws a key that cannot be withdrawn ($w)" ;; esac
-  withdrawn "$w" && continue
-  [ "$KEYFILE" = release2 ] || fail "only the spare release key can withdraw a key ($w); this file is signed with the $KEYFILE key"
+  # (logged every time: the report of a package that waited for Install starts afresh)
+  if withdrawn "$w"; then log "the $w key: withdrawn on this card"; continue; fi
+  if [ "$KEYFILE" != release2 ]; then
+    log "the $w key: not withdrawn, only the spare release key can withdraw a key (this file is signed with the $KEYFILE key)"
+    continue
+  fi
   { { cat "$STATE/withdrawn" 2>/dev/null; echo "$w"; } > "$STATE/withdrawn.dlzmod-new" && sync "$STATE/withdrawn.dlzmod-new" \
       && mv -f "$STATE/withdrawn.dlzmod-new" "$STATE/withdrawn" && sync -f "$STATE"; } \
     || { rm -f "$STATE/withdrawn.dlzmod-new"; later "the $w key could not be withdrawn (card full?)"; }
@@ -792,7 +799,8 @@ allowed() {
         # (the same for this line)
         dlzmod-update.service.d:dlzmod.conf|dlzmod-grow-data.service.d:dlzmod.conf) return 0 ;;
         # #96 (the screen during an update): not placed by any package yet; here so that it needs no
-        # full install of its own (shape_ok: no early start, like every drop-in)
+        # full install of its own (stock weston-mackie.service starts early itself, after sysinit.target
+        # and so after the eMMC lock; shape_ok refuses a drop-in that sets DefaultDependencies=no)
         weston-mackie.service.d:dlzmod.conf) return 0 ;;
         multi-user.target.wants:dlzmod-*.service|sysinit.target.wants:dlzmod-emmc-ro.service) return 0 ;;
       esac ;;

@@ -249,7 +249,8 @@ SIGNKEY=release2 mkpkg wd "$(rel release)" "setchan release"
 RELCARD; put wd; check "WITHDRAWN: the release key" "the spare key withdraws the release key"
 RELCARD; put wd; check "CHECKS PASSED" "and the package itself passes"
 SIGNKEY=release mkpkg wdbyrel "$(rel release)" "setchan release"
-RELCARD; put wdbyrel; check "only the spare release key can withdraw a key (release); this file is signed with the release key" "the release key cannot withdraw (itself)"
+RELCARD; put wdbyrel; check "the release key: not withdrawn, only the spare release key can withdraw a key (this file is signed with the release key)" "the release key cannot withdraw (itself): the name is ignored"
+RELCARD; put wdbyrel; check "CHECKS PASSED" "and the package itself passes (every package carries the whole list)"
 SIGNKEY=release mkpkg wd2 "$(rel release2)" "setchan release"
 RELCARD; put wd2; check "it withdraws a key that cannot be withdrawn (release2)" "nobody withdraws the spare key"
 SIGNKEY=release2 mkpkg wd2self "$(rel release2)" "setchan release"
@@ -257,7 +258,7 @@ RELCARD; put wd2self; check "it withdraws a key that cannot be withdrawn (releas
 SIGNKEY=release2 mkpkg wdx "$(rel 'release,../x')" "setchan release"
 RELCARD; put wdx; check "it withdraws a key that cannot be withdrawn (../x)" "an odd name in WITHDRAWN"
 mkpkg wddev "setchan dev && echo WITHDRAWN=dev >> package.env" "setchan dev"
-fresh; put wddev; check "only the spare release key can withdraw a key (dev); this file is signed with the dev key" "the dev key cannot withdraw itself"
+fresh; put wddev; check "the dev key: not withdrawn, only the spare release key can withdraw a key (this file is signed with the dev key)" "the dev key cannot withdraw itself: the name is ignored"
 # a card whose list has the key (after the spare's package, or from the installer)
 withdraw() { printf '%s\n' "$@" > "$R/var/lib/dlzmod-update/withdrawn"; }
 RELCARD; withdraw release; put rel; check "signed with the release key, which was withdrawn on this card" "a withdrawn key verifies nothing"
@@ -267,6 +268,7 @@ RELCARD; withdraw release; put wdbyrel; check "signed with the release key, whic
 # a package that names a key the card already withdrew needs no spare key (a later dev build)
 mkpkg wddone "setchan dev && echo WITHDRAWN=release >> package.env" "setchan dev"
 fresh; withdraw release; put wddone; check "CHECKS PASSED" "a key already withdrawn: any trusted key may name it"
+grep -qF "the release key: withdrawn on this card" "$OUT" && ok "the report says it was withdrawn before" || bad "no line for the key withdrawn before"
 grep -q WITHDRAWN "$OUT" && bad "a key already withdrawn was withdrawn again" || ok "and it is not withdrawn again"
 
 echo "-- the withdrawal sticks (a real run on the fixture: it stops at the question for the screen)"
@@ -288,6 +290,10 @@ SIGNKEY=release2 mkpkg wdold "$(rel release) && echo v0.0.9 > VERSION && sed -i 
 RELCARD; put wdold; run
 grep -q "older (v0.0.9)" "$OUT" && [ "$(cat "$R/var/lib/dlzmod-update/withdrawn" 2>/dev/null)" = release ] \
   && ok "a withdrawal in a package refused for another reason still counts" || bad "withdrawal in a refused package: $(cat "$R/var/lib/dlzmod-update/withdrawn" 2>&1), $(grep -v '^rc=' "$OUT" | tail -1)"
+# a list that cannot be read (here a folder) withdraws every key
+RELCARD; mkdir "$R/var/lib/dlzmod-update/withdrawn"; put rel; run
+grep -q "signed with the release key, which was withdrawn on this card" "$OUT" && ok "a list that cannot be read withdraws every key" || bad "unreadable list: $(grep -v "^rc=" "$OUT" | tail -1)"
+rmdir "$R/var/lib/dlzmod-update/withdrawn"
 
 echo "-- checks only: the card's side"
 fresh; echo "v9.9.9" > "$R/var/lib/dlzmod-update/version"; put good; check "older ($VER) than this card's v9.9.9" "a card on a newer version"

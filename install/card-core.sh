@@ -457,11 +457,15 @@ install_update_keys() {
   channel=$(update_channel) || die "$channel"
   keys="release release2 dev"
   [ "$channel" = dev ] || keys="release release2"
+  # the package's WITHDRAWN; without a package (build-sd.sh) the repo's keys/withdrawn, one per line
   if [ -f "$TOOLS/../package.env" ]; then
-    for w in $(sed -n 's/^WITHDRAWN=//p' "$TOOLS/../package.env" | tr ',' ' '); do
-      case $w in release|dev) gone="$gone $w" ;; *) die "package.env: WITHDRAWN names a key that cannot be withdrawn ($w)" ;; esac
-    done
+    gone=$(sed -n 's/^WITHDRAWN=//p' "$TOOLS/../package.env" | tr ',' ' ')
+  elif [ -f "$TOOLS/keys/withdrawn" ]; then
+    gone=$({ grep -v '^#' "$TOOLS/keys/withdrawn" || true; } | tr -d '\r' | tr '\n' ' ')
   fi
+  for w in $gone; do
+    case $w in release|dev) ;; *) die "WITHDRAWN names a key that cannot be withdrawn ($w)" ;; esac
+  done
   rm -rf "$d"
   mkdir -p "$d" "$MNT/var/lib/dlzmod-update"
   rm -f "$MNT/var/lib/dlzmod-update/withdrawn"
@@ -469,7 +473,7 @@ install_update_keys() {
     echo "$w" >> "$MNT/var/lib/dlzmod-update/withdrawn"
     keys=$(for k in $keys; do [ "$k" = "$w" ] || printf '%s ' "$k"; done)
   done
-  [ -z "$gone" ] || echo "withdrawn keys (not installed):$gone"
+  [ -z "${gone// /}" ] || echo "withdrawn keys (not installed): $gone"
   for k in $keys; do
     src=$TOOLS/keys/$k.pub
     # DLZMOD_DEV_PUB only without a package.env (build-sd.sh), as DLZMOD_CHANNEL: the installer's

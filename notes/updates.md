@@ -377,20 +377,27 @@ internal storage.
 - **Withdrawing a leaked key** (#63, cards installed with v0.3.0 or later): add its name to
   `install/keys/withdrawn` (`release` or `dev`, one per line; never `release2`) and release with the
   spare key (`RELEASE_KEY=release2`). Every package from then on carries `WITHDRAWN=<names>`:
-  - the updater, after the signature check and before anything else of the package, adds a name to
-    the card's list `/var/lib/dlzmod-update/withdrawn` only for a package signed with `release2` (a
-    leaked `release` key cannot withdraw the spare); a name already on the list needs nothing (later
-    dev builds carry it too). It sticks even when that package is refused later on;
+  - the updater, after the signature and contents checks and before the checks that can refuse the
+    package, adds a name to the card's list `/var/lib/dlzmod-update/withdrawn` only for a package
+    signed with `release2` (a leaked `release` key cannot withdraw the spare), without waiting for
+    Install; from another key's package the name is ignored ("not withdrawn, only the spare release
+    key can withdraw a key"), so later release and dev builds carrying the list still install. It
+    sticks even when that package is refused later on; the report names a key withdrawn before;
   - a key on the list verifies nothing: "signed with the release key, which was withdrawn on this card";
+    a list that cannot be read counts as withdrawing every key;
   - the list only grows: the updater never removes a line, an update's steps cannot write it (not on
     the allowlist, and a removal in the stage is never carried over), and the snapshot never holds it,
     so a put-back cannot bring a key back; a new updater copy must keep the check (its gate strings);
-  - the installer (`install_update_keys`) leaves the package's withdrawn keys out and writes the list.
+  - the installer (`install_update_keys`) leaves the package's withdrawn keys out and writes the list;
+    `build-sd.sh` (no package) reads `install/keys/withdrawn` instead.
 
   Accepted: no update adds a key, so after a withdrawal `release2` is the only release key, with no
   new spare until a full install with new keys; an installer image from before the leak still
   trusts the leaked key; a card that does not take the withdrawal update keeps trusting it (whoever
-  holds the key can reach it first). Cards from v0.2.0 and older trust their keys for life.
+  holds the key can reach it first, and can then replace the updater); the withdrawal package is
+  stopped like any other by a second update file in the folder, or by a failed unpack (no room in
+  `/tmp`: refused for good, so a new file is needed); nothing checks that `install/keys/withdrawn`
+  never shrinks. Cards from v0.2.0 and older trust their keys for life.
 - `mkpackage.sh` signs dev builds with the dev key and `RELEASE=1` with the release key
   (`RELEASE_KEY=release2` for the spare), asks an encrypted key's passphrase once (or reads
   `DLZMOD_SIGNING_PASS`, passed only to the two openssl calls), and checks the private key against
