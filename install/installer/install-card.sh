@@ -239,6 +239,9 @@ function alltxt(l) {
   if (l < 60) return "Less than a minute left for the whole install"
   return sprintf("About %d min left for the whole install", int((l + 30) / 60))
 }
+# copyall(l, now, t0, cp, bs): the whole install from the copy step: its time left l, the compare as
+# cp % of the copy time (since t0, plus l), the build bs seconds
+function copyall(l, now, t0, cp, bs) { return l + ((now - t0) + l) * cp / 100 + bs }
 # blend(p, t, m): the time left at progress p (0..1) of a step that takes about t seconds on the
 # mixer, m the time left from the measured speed (-1: not yet). The measured speed rules near the end,
 # the device times near the start, where the speed so far says little (its streams are not even:
@@ -338,9 +341,10 @@ ic_copy_tick() {
     # does), and it wandered 3.0 -> 4.6 -> 3.5 GB in the rehearsal; the bar and the time left show
     # how far it is. No apostrophes in here: this awk program sits in single quotes
     else txt = gb(card) " GB written, " lefttxt(left)
-    all = ""; if (left >= 0) all = alltxt(left + ((now - t0) + left) * cp / 100 + bs)
+    all = ""; if (left >= 0) all = alltxt(copyall(left, now, t0, cp, bs))
     tk++
-    print cdone, bdone, pm, bpart, tz, bwz, tk, pe, tp
+    # pe and tp in full: print would round them to 6 digits
+    printf "%s %s %s %s %s %s %s %.2f %.2f\n", cdone, bdone, pm, bpart, tz, bwz, tk, pe, tp
     printf "%d\tStep 1 of 3: %s\t%s\n", int(wc * pm / 1000), txt, all
     # in the log also what the time left comes from (#128): copy and backup so far, their own times
     # left (-1: no speed yet) and the estimate before steady()
