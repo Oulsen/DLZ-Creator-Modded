@@ -338,7 +338,7 @@ test("meters: Before fader shows the level before the fader, one bar; a strip wi
 });
 test("meters: the main meter is before the master fader as Mackie shows it; Both adds the level after the fader", () => {
   const strip = (type, mix, mute = 0) => ({ type, getValue: (k) => ({ mix, mute })[k] });
-  const main = strip(4, 0.5);   // fader at -5 dB
+  const main = strip(4, 0.5);   // fader at -5 dB on the stand-in VtoMix's scale
   for (const mode of [0, 2]) {
     settings({ "dlzmod.meterMode": mode });
     const m = meter();
@@ -356,6 +356,9 @@ test("meters: the main meter is before the master fader as Mackie shows it; Both
   assert.strictEqual(m.clips, 1, "the clip follows the level before the fader");
   ctx.DLZMOD_vuSet(m, "", 1, 0.8, 0.6, strip(4, 1, 1));
   assert.deepStrictEqual(m.vals, [0, 0.8], "muted: nothing after the fader");
+  ctx.DLZMOD_vuSet(m, "", 1, 0.8, 0.6, strip(4, undefined));
+  assert.deepStrictEqual(m.vals, [0.8, 0.6], "fader position not known yet: as Mackie");
+  assert.strictEqual(m.havePre, false);
   const ch = meter();
   ctx.DLZMOD_vuSet(ch, "", 0, 0.3, 0.6, strip(0, 0.5));
   assert.deepStrictEqual(ch.vals, [0.3, 0.6], "another strip without a gain pickup stays as Mackie");

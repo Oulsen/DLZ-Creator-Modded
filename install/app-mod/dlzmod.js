@@ -75,14 +75,16 @@ function DLZMOD_preAlpha() {
 // it (clipping is about the input); 2 = only before the fader. Strips without a gain pickup stay as
 // Mackie, except the main meter: its "post" is taken before the master fader (mixergraph), so
 // Mackie's bar and Before fader already show that level, and Both computes the bright bar behind the
-// fader the way Mackie's own aux meters do (modVuByDb with the fader in dB, 0 when muted).
+// fader the way Mackie's own aux meters do (modVuByDb with the fader in dB, 0 when muted); as Mackie
+// until the fader's position is known (VtoMix(undefined) is NaN).
 // Replaces m.setValue(post, pre) in parseVuData (patched), for vu and vu2; strip = parseVuData's e.
 function DLZMOD_vuSet(m, gain, idx, post, pre, strip) {
   const mode = DLZMOD_meterModeNow();
   let g = gain && idx < gain.length ? deconvertVU(gain.charCodeAt(idx) || 0) : null;
-  if (g === null && mode === 1 && strip && strip.type === E_CH_TYPE.MASTER) {
+  const mix = g === null && mode === 1 && strip && strip.type === E_CH_TYPE.MASTER ? strip.getValue("mix") : null;
+  if (typeof mix === "number") {
     g = post;
-    post = strip.getValue("mute") ? 0 : modVuByDb(post, VtoMix(strip.getValue("mix")));
+    post = strip.getValue("mute") ? 0 : modVuByDb(post, VtoMix(mix));
   }
   const both = mode === 1 && g !== null;
   const fill = both ? DLZMOD_dim(DLZMOD_preColor(), DLZMOD_preAlpha()) : null;

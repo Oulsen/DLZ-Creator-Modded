@@ -118,8 +118,10 @@ Sub-tabs Display / Network / Remote / Mod; layout and how to add a setting:
   grey) and `dlzmod.preLevel` (strong / soft) set its look. The main L/R meter is before the master
   fader in stock already (no `.gain`, `.post` in front of the fader), so Mackie and Before fader leave
   it as is; in Both its dim bar is that level and the bright bar is computed: the level moved by the
-  fader's dB (`modVuByDb(level, VtoMix(m.mix))`, as Mackie's own aux meters do), 0 when muted (#134).
-  Computed, so a fader above 0 dB that clips shows as a full bar only. `dlzmod.meterMarks`: yellow and red zones
+  fader's dB (`modVuByDb(level, VtoMix(m.mix))`, as Mackie's own aux meters do), 0 when muted, as
+  Mackie until `m.mix` is known (#134). With the fader above 0 dB the bright bar is longer than the
+  dim one; the clip light still follows the level before the fader, so a clip caused by the fader
+  alone shows only as a full bright bar. `dlzmod.meterMarks`: yellow and red zones
   at the stops of `Color.vuGrad`, dB notches on every strip meter and numbers beside LR (painted by
   wrapping the LR fader's `paint`); off = Mackie's plain meters. The scale is dB-linear over 80 dB with
   0 dBFS at the top [device: test tones at -6 and -30 dBFS].
