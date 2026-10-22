@@ -88,6 +88,11 @@ headphone 1 and 2 mixes.
   `vuInDynIn`, `vuInGate`, `vuInComp`, `vuInDS`, `vuInDynOut`, `vuInPost` (after fader); the same
   pattern for players, virtuals and samples, plus `vuMasterDynIn/Out`. A PFL meter mode needs no DSP
   change, only the UI choosing another group.
+- **The master has no tap after its fader** (both graphs): `vuMasterDynIn/Out` sit around the
+  compressor, `vuMasterPre` after it (before balance and delay), and `vuMasterPost` right *in front
+  of* the `Gain` with `@m.mix`/`@m.mute`. So `m.post`, the main L/R meter, is the level before the
+  master fader [static; device: the meter stays put when the master fader is pulled down]. The mod's
+  Both meter mode computes the level after it in the app (#134, [../mod.md](../mod.md)).
 - **EQ**: 3 `EqBand`s + HPF per strip, keys `eq.b1-3.*`, `eq.hp.*`; app.js and the faderlink knob
   table know only b1-b3.
 
