@@ -247,6 +247,11 @@ p "20 "   "a new start, no screen yet" '[  905.0] host x: old\n===== new start o
 p "31 27" "a new start with its screen" '===== new start of the mixer =====\n[    0.0] host kernel: Booting Linux\n[   27.4] host glesgui[640]: Context renderer string: Mali\n[   31.0] host x: b\n'
 p ""      "a marker without a journal line yet" '[  905.0] host x: old\n===== new start of the mixer =====\n'
 p "45 32" "a new start without its first lines (no marker), its UI up" '[  905.0] host x: old\n[   30.8] host x: a\n[   32.3] host glesgui[681]: Client connected.\n[   45.0] host x: b\n'
+p "50 34" "the renderer line wins over a Client connected before it" '===== new start of the mixer =====
+[   30.0] host glesgui[681]: Client connected.
+[   34.0] host glesgui[681]: Context renderer string: Mali
+[   50.0] host x: b
+'
 p ""      "the old start goes on, a few lines out of order" '[  905.0] host x: old\n[  902.0] host x: late\n[  906.0] host x: c\n'
 sleep 1; printf '[   12.5] host x: a line\n' > "$DLZ_NETLOG_DIR/netlog-4.txt"
 out=$(bash "$S" get /var/log/syslog build/device-logs/x 2>&1)
