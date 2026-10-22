@@ -185,7 +185,9 @@ Whether the `HAVE_*` flags unlock anything without native support is unknown [gu
 - Meter data arrives as the hub's `VU` command (`parseVuData`); the graph offers pre-gain,
   post-gain, dynamics and post-fader groups per strip (see [mixergraph.md](mixergraph.md)). Per
   strip type the message carries `<type>.pre` (before the gain), `.gain` (after the gain, before
-  the fader) and `.post` (after the fader), one byte per channel, value = byte / 254 [static].
+  the fader) and `.post` (after the fader), one byte per channel, value = byte / 254 [static]. The
+  master (`m`) has no `.gain`, and its `.post` is taken before the master fader
+  ([mixergraph.md](mixergraph.md), "The master has no tap after its fader") [static + device].
   Stock draws `.post` as the bar (its clip light follows that bar, `autoClip`), keeps `.pre` as an
   undrawn second value and uses `.gain` only for the selected strip's gain meter on the Setup
   page [static].

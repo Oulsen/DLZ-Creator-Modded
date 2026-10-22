@@ -109,15 +109,15 @@ APP_PATCHES = [
     ),
     (
         # parseVuData: l = the strip's "gain" pickup, T = its index; i/o = post, t/a = pre (before
-        # the gain): DLZMOD_vuSet feeds both bars by the Mod page's meter mode
+        # the gain), e = the strip: DLZMOD_vuSet feeds both bars by the Mod page's meter mode
         "meters: Mackie / both / before the fader (Mod page), left/mono meter",
         "if(e.vu.setValue(i,t),",
-        "if(DLZMOD_vuSet(e.vu,l,T,i,t),",
+        "if(DLZMOD_vuSet(e.vu,l,T,i,t,e),",
     ),
     (
         "meters: Mackie / both / before the fader (Mod page), right meter of stereo strips",
         "if(e.vu2.setValue(o,a),",
-        "if(DLZMOD_vuSet(e.vu2,l,T+1,o,a),",
+        "if(DLZMOD_vuSet(e.vu2,l,T+1,o,a,e),",
     ),
     (
         # #45: the server refuses the System Lock PIN and a factory reset from other devices; in a

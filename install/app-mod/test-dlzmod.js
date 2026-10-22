@@ -2,7 +2,7 @@
 // Loads the file in a vm context, as it runs once appended to app.js, with small stand-ins for the
 // Mackie UI globals it uses (Widget and its kinds, PopupWindow, askConfirm, showMessage, showToast,
 // PopupConfirm, askInput, setKbdTitle, Data, $NET, app, Font, Color, $FA, lang, deconvertVU, VU_STRUCT,
-// EXTERNAL) and for the browser
+// E_CH_TYPE, VtoMix, modVuByDb, EXTERNAL) and for the browser
 // (fetch, document). What the stand-ins record is what the tests look at; what is drawn where stays
 // with the UI sandbox's screenshots.
 const assert = require("assert");
@@ -91,6 +91,10 @@ const ctx = vm.createContext({
   },
   $NET: { cmd: (c, a) => ui.cmds.push([c, plain(a)]) },
   deconvertVU: (c) => c / 100,
+  // the fader position as its dB (here: position - 1 in tens of dB), a level moved by dB (here: 1/100 per dB)
+  E_CH_TYPE: { INPUT: 0, MASTER: 4 },
+  VtoMix: (v) => (v - 1) * 10,
+  modVuByDb: (v, db) => Math.round((v + db / 100) * 1000) / 1000,
   lang: { CURRENT_VERSION: "Current version", UPDATE_VERSION: "Update version", CANCEL: "Cancel" },
   Font: { font: (w, s) => w + " " + s, fa: (s) => "fa " + s, mi: (s) => "mi " + s },
   Color: { main: "main", confirm: "confirm", deny: "deny", red: "red", blue: "blue", white: "white", green: "green",
@@ -331,6 +335,33 @@ test("meters: Before fader shows the level before the fader, one bar; a strip wi
   assert.ok(!m.havePre, "one bar");
   ctx.DLZMOD_vuSet(m, null, 1, 0.3, 0.6);
   assert.deepStrictEqual(m.vals, [0.3, 0.6]);
+});
+test("meters: the main meter is before the master fader as Mackie shows it; Both adds the level after the fader", () => {
+  const strip = (type, mix, mute = 0) => ({ type, getValue: (k) => ({ mix, mute })[k] });
+  const main = strip(4, 0.5);   // fader at -5 dB on the stand-in VtoMix's scale
+  for (const mode of [0, 2]) {
+    settings({ "dlzmod.meterMode": mode });
+    const m = meter();
+    ctx.DLZMOD_vuSet(m, "", 0, 0.8, 0.6, main);
+    assert.deepStrictEqual(m.vals, [0.8, 0.6], "mode " + mode + ": Mackie's level, before the fader");
+    assert.ok(!m.havePre, "mode " + mode + ": one bar");
+  }
+  settings({ "dlzmod.meterMode": 1 });
+  const m = meter();
+  ctx.DLZMOD_vuSet(m, "", 1, 0.8, 0.6, main);
+  assert.deepStrictEqual(m.vals, [0.75, 0.8], "bright: 5 dB lower after the fader; dimmed: before it");
+  assert.strictEqual(m.havePre, true);
+  ctx.DLZMOD_vuSet(m, "", 1, 0.95, 0.6, strip(4, 0));
+  assert.deepStrictEqual(m.vals, [0.85, 0.95], "fader at -10 dB (stand-in), level above the clip threshold");
+  assert.strictEqual(m.clips, 1, "the clip follows the level before the fader");
+  ctx.DLZMOD_vuSet(m, "", 1, 0.8, 0.6, strip(4, 1, 1));
+  assert.deepStrictEqual(m.vals, [0, 0.8], "muted: nothing after the fader");
+  ctx.DLZMOD_vuSet(m, "", 1, 0.8, 0.6, strip(4, undefined));
+  assert.deepStrictEqual(m.vals, [0.8, 0.6], "fader position not known yet: as Mackie");
+  assert.strictEqual(m.havePre, false);
+  const ch = meter();
+  ctx.DLZMOD_vuSet(ch, "", 0, 0.3, 0.6, strip(0, 0.5));
+  assert.deepStrictEqual(ch.vals, [0.3, 0.6], "another strip without a gain pickup stays as Mackie");
 });
 test("meters: the before-the-fader bar's colour and strength, mixed over the meter background", () => {
   for (const [c, l, color, alpha] of [[0, 0, "#9CCC56", 0.5], [0, 1, "#9CCC56", 0.15], [1, 0, "#D0D0D0", 0.6],
@@ -1215,7 +1246,7 @@ test("Wi-Fi list: Connected, Saved and Not supported tags, a lock except on open
 });
 test("Meters panel: the subtitle for each mode; the before-fader row only with Both", () => {
   reset();
-  for (const [mode, sub] of [[0, "After the fader, as Mackie shows them"],
+  for (const [mode, sub] of [[0, "As Mackie shows them: after the fader, the main meter before"],
     [1, "After the fader, with the level before the fader dimmed behind"], [2, "Before the fader"]]) {
     settings({ "dlzmod.meterMode": mode });
     const w = words(shownBy(settingsPage().meters));

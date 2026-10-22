@@ -73,10 +73,19 @@ function DLZMOD_preAlpha() {
 // no havePre. "dlzmod.meterMode" (Mod page): 0 = Mackie; 1 = Both: Mackie's own dim second bar
 // (havePre) behind, fed with "gain" (after the gain, before the fader), the clip block also follows
 // it (clipping is about the input); 2 = only before the fader. Strips without a gain pickup stay as
-// Mackie. Replaces m.setValue(post, pre) in parseVuData (patched), for vu and vu2.
-function DLZMOD_vuSet(m, gain, idx, post, pre) {
+// Mackie, except the main meter: its "post" is taken before the master fader (mixergraph), so
+// Mackie's bar and Before fader already show that level, and Both computes the bright bar behind the
+// fader the way Mackie's own aux meters do (modVuByDb with the fader in dB, 0 when muted); as Mackie
+// until the fader's position is known (VtoMix(undefined) is NaN).
+// Replaces m.setValue(post, pre) in parseVuData (patched), for vu and vu2; strip = parseVuData's e.
+function DLZMOD_vuSet(m, gain, idx, post, pre, strip) {
   const mode = DLZMOD_meterModeNow();
-  const g = gain && idx < gain.length ? deconvertVU(gain.charCodeAt(idx) || 0) : null;
+  let g = gain && idx < gain.length ? deconvertVU(gain.charCodeAt(idx) || 0) : null;
+  const mix = g === null && mode === 1 && strip && strip.type === E_CH_TYPE.MASTER ? strip.getValue("mix") : null;
+  if (typeof mix === "number") {
+    g = post;
+    post = strip.getValue("mute") ? 0 : modVuByDb(post, VtoMix(mix));
+  }
   const both = mode === 1 && g !== null;
   const fill = both ? DLZMOD_dim(DLZMOD_preColor(), DLZMOD_preAlpha()) : null;
   if (both !== !!m.dlzmodPre || (both && m.fillStylePre !== fill)) {   // only ever undo our own havePre
@@ -559,7 +568,8 @@ function DLZMOD_metersPanel(parent, x, y, w) {
       DLZMOD_paintPanel(this, t, "Meters", Color.white, Font.font(500, "20pt"));
       const max = this.w - 56;
       const mode = DLZMOD_meterModeNow();
-      DLZMOD_paintRow(t, 28, 92, "Channel meters", ["After the fader, as Mackie shows them",
+      // Mackie's main meter is before the master fader (DLZMOD_vuSet)
+      DLZMOD_paintRow(t, 28, 92, "Level meters", ["As Mackie shows them: after the fader, the main meter before",
         "After the fader, with the level before the fader dimmed behind", "Before the fader"][mode] || "", max);
       if (mode === 1) DLZMOD_paintRow(t, 28, 212, "Before-fader bar", "Its colour and strength", max);
       DLZMOD_paintRow(t, 28, this.meterMarks.geomCenterY(), "Meter marks",
