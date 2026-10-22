@@ -362,7 +362,11 @@ issue's technical notes point to the note section instead of copying it.
   information from outside); `release` (release chores, never in the changelog); `triage` (a new
   community report, not looked at yet). Progress is not a label but the board's Status.
 - **Milestones are versions** (`v0.1.0`, `v0.2.0`, ...), plus `Later` for planned work without a
-  version; an issue moves to a version milestone once it is planned.
+  version; an issue moves to a version milestone once it is planned. A version fixes and adds: a
+  headline feature with one or two bug fixes, maybe a mod item or an analysis alongside, and at most
+  one change that needs the heaviest device review (a new write path or boot route). Small and
+  confined (3-5 issues) is fine, up to 10 when needed; more than 10 is a reason to consider
+  splitting it. Each milestone's description says in plain words what the version brings.
 - **Issue body**: "What's wrong" / "What it adds" (plain, changelog tone), "Done when" (checklist,
   tested), "Technical notes" (short: approach, risk, device-review tier, pointer to the notes; long
   work details in a collapsed `<details>` block), "Related". The note rules above apply.
@@ -453,7 +457,9 @@ issue's technical notes point to the note section instead of copying it.
   then the mod itself. The release PR (`#N: <title>` lines) and the release notes use the same
   order, as sections ("DLZ features", "DLZ bugs fixed", "Mod features", "Mod bugs fixed"; empty
   ones left out). The README's "What the mod does" follows: it describes the current mod, so the PR
-  that brings a new feature or stock fix puts it into its group there.
+  that brings a new feature or stock fix puts it into its section there: one bullet per feature,
+  what the owner gets first, then where it is in italics (the Settings → DLZ Creator Modded tab);
+  a stock fix as what no longer happens; no versions or internals (a new area gets a new section).
 - **Community**: questions, bug reports and support go through issues, with templates for a bug,
   a feature and help with an install (GitHub Discussions are off); anyone can file, the maintainer sets labels, milestones and board columns. Triage of a report:
   accept (`triage` off, `roadmap` on, a milestone), need more (`needs-info`), no (closed as "not

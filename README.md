@@ -6,27 +6,49 @@ Alpha, at your own risk: read [DISCLAIMER.md](DISCLAIMER.md) first.
 
 ## What the mod does
 
-- **Recordings**: saved to the SD card by default, numbered across SD card and USB with unique
-  names like `REC_0003_otter`, and downloaded to a computer over the network (after pairing,
-  from the Media page)
-- **Meters**: level before or after the fader, yellow and red zones, a dB scale
-- **Screen**: the header bar can be hidden for more room; a "DLZ Creator Modded" tab in Settings;
-  its own startup screens and a startup log for bug reports, with a report of each start (timings,
-  errors, how the audio chips started)
-- **Network**: Wi-Fi from the screen (with a USB Wi-Fi stick), remote login (SSH), and control from
-  a computer's web browser after pairing with a PIN (phones and tablets not yet,
-  [#52](https://github.com/Oulsen/DLZ-Creator-Modded/issues/52)); all off by default
-- **Safety**: no firmware updates from the card, the mixer's internal storage is never changed
-- **Updates** of the mod without losing recordings or settings, copied to the card or sent from a
-  computer's web browser after pairing, installed only after you tap Install on the mixer's own
-  screen
-- **Fixes for stock bugs**: the recording crash after take 9,999; new recordings overwriting old
-  ones; anyone on the network (or a prepared SD card or USB stick) changing files on the mixer;
-  anyone on the network controlling the mixer without a PIN; the SD card or USB stick staying
-  writable once it holds recordings, so switching off could damage it; the screen and control
-  software holding up the rest of a start, which could leave the mixer stuck while starting
+The mod's own settings are in Settings → **DLZ Creator Modded**, on the tabs named in brackets
+below. They all start as stock: turn on what you want.
 
-What changed in each version: [CHANGELOG.md](CHANGELOG.md).
+### Recording
+
+- Recordings go to the SD card by default
+- Names that never repeat, numbered across SD card and USB: `REC_0003_otter`
+- Download recordings to your computer over the network *(Media page, from a paired computer)*
+
+### Meters and screen
+
+- Meters that show the level before the fader, after it, or both *(Display)*
+- Yellow and red zones and a dB scale on the meters *(Display)*
+- Hide the header bar for more room *(Display)*
+- The mod's own startup screens
+
+### Network and remote control
+
+- Wi-Fi from the mixer's screen, with a USB Wi-Fi stick *(Network)*
+- Control the mixer from a computer's web browser, after pairing with a PIN *(Remote)*; phones and
+  tablets not yet ([#52](https://github.com/Oulsen/DLZ-Creator-Modded/issues/52))
+- Remote login (SSH), for support and tinkering *(Network)*
+
+### Updates and safety
+
+- Update the mod without losing recordings or settings: copy the update to the card, or send it
+  from a paired computer *(Mod)*
+- An update installs only after you tap Install on the mixer's own screen
+- The mixer's internal storage is never changed, and no firmware updates run from the card
+- Logs of the install and the last starts on the card, for bug reports *(the `dlzmod-logs`
+  folder, readable in any card reader)*
+
+### Fixes for stock bugs
+
+- Recording no longer crashes after take 9,999
+- New recordings no longer overwrite old ones
+- Nobody on the network, and no prepared SD card or USB stick, can change files on the mixer
+- Nobody on the network can control the mixer without a PIN
+- The SD card or USB stick no longer stays writable once it holds recordings (switching off could
+  damage it)
+- The mixer no longer gets stuck while starting, held up by its screen and control software
+
+What changed in each version: [CHANGELOG.md](CHANGELOG.md). What is coming: [Roadmap](#roadmap).
 
 ## Roadmap
 
