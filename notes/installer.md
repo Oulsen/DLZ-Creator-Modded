@@ -139,6 +139,17 @@ onto a card is checked by the `device-review` skill first.
   lines); the rehearsal checks every shown time against the real one (shown at most twice the real
   plus a minute, real at most twice the shown plus two) [guess for the mixer until an install's log
   lines say otherwise]
+- **Time left in the middle of the copy (#128):** in the middle of the copy the whole install showed
+  about twice the real time left: 14 min for 6.6 [device, v0.2.0 install]. The cause, read back from
+  its shown times: the backup's compression gets little processor time beside the copy and speeds up
+  about threefold once the copy is done, so its speed so far foretold about three times the real rest
+  [guess until a log with the round's values]. The copy step's expected end now comes earlier at once
+  but moves later only by `IC_RISE_PCT` (25 %) of the time since the last round, never below half of
+  the round's own estimate (`steady()`). Replayed on that install's shown minutes, one round every 2 s
+  up to the end of the copy (`tests/estimates.sh`): at most 1.4 times the real time for the step, 1.3
+  for the whole install [static: a replay of rounded log values, not a measured run]. Every logged
+  `progress: step 1` line ends with the round's values in brackets (copy and backup MiB so far, their
+  own times left, the estimate before `steady()`)
 
 ## Endings and power
 

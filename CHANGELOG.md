@@ -6,6 +6,7 @@
 - (MOD FEATURE) Each start leaves a clear log: start order, timings, errors and how the audio chips started
 - (MOD BUG) The mixer starts later than it has to
 - (MOD BUG) The main output meter ignores the "Both" meter setting
+- (MOD BUG) Install time estimate too high in the middle of the copy
 
 ## v0.2.0
 
