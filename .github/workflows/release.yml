@@ -1,0 +1,59 @@
+# A version tag prepares its GitHub release (docs/DEVELOPMENT.md, "Releases", step 5): an annotated
+# tag vX.Y.Z on main makes a draft release vX.Y.Z with the notes from install/release/release-notes.sh
+# (the CHANGELOG.md section, grouped, with issue numbers, and the GPL source note). The release files
+# are built, signed and tested on the PC and attached to the draft from there
+# (.claude/skills/release-build/release.sh upload); publishing stays a click by the maintainer.
+# A test tag vX.Y.Z-testN (any branch) makes a draft "vX.Y.Z-testN (test)": delete both afterwards.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Check the tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          [[ $TAG =~ ^v[0-9]\.[0-9]{1,2}\.[0-9]{1,2}(-test[0-9]+)?$ ]] \
+            || { echo "::error::$TAG is no version tag (vX.Y.Z, or vX.Y.Z-testN for a try)"; exit 1; }
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          [ "$(git cat-file -t "refs/tags/$TAG")" = tag ] \
+            || { echo "::error::$TAG is a lightweight tag: make an annotated one (git tag -a $TAG -m $TAG)"; exit 1; }
+          case $TAG in
+            *-test*) ;;
+            *) git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+                 || { echo "::error::$TAG is not on main: tag the commit main points to after the release PR"; exit 1; } ;;
+          esac
+
+      - name: Notes
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue list --milestone "${TAG%%-test*}" --state all --limit 500 \
+            --json number,title --jq '.[] | "\(.number)\t\(.title)"' > "$RUNNER_TEMP/issues.txt"
+          [ -s "$RUNNER_TEMP/issues.txt" ] || { echo "::error::milestone ${TAG%%-test*} has no issues (or gh could not list them)"; exit 1; }
+          bash install/release/release-notes.sh "$TAG" "$RUNNER_TEMP/issues.txt" > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+
+      - name: Draft release
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title=$TAG
+          case $TAG in *-test*) title="$TAG (test)" ;; esac
+          gh release create "$TAG" --draft --verify-tag --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
+          echo "Draft release $TAG: attach the tested files from the PC (release.sh upload $TAG), then publish."

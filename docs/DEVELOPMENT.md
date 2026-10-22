@@ -84,7 +84,7 @@ organised: "GitHub workflow" below and [CONTRIBUTING.md](../CONTRIBUTING.md).
 | `vendor/` | Third-party U-Boot, downloaded in Setup (git-ignored) |
 | `build/` | Generated images/scripts (git-ignored) |
 | `dumps/` | Data read from the device (git-ignored, never share) |
-| `.github/` | Issue templates (bug, feature, help with an install), the pull request template, `CODEOWNERS` (who reviews) and the checks GitHub runs on every push and pull request (`workflows/checks.yml`: unit tests, key guards, updater checks, the SSH skill's read-only guard, script syntax) |
+| `.github/` | Issue templates (bug, feature, help with an install), the pull request template, `CODEOWNERS` (who reviews) and the checks GitHub runs on every push and pull request (`workflows/checks.yml`: unit tests, key guards, updater checks, the SSH skill's read-only guard, the release notes, script syntax), and the draft release a version tag makes (`workflows/release.yml`, "Releases" step 5) |
 | `.claude/skills/` | Workflows for Claude Code: the device review, the UI sandbox, SSH to your mixer, the release build |
 
 ## Notes
@@ -404,7 +404,9 @@ issue's technical notes point to the note section instead of copying it.
   merge methods all add commits (a merge commit, or rewritten copies), which would leave `develop`
   behind `main`. Nothing is merged into `develop` from the release build until the push, so the built
   commit, `develop`'s tip and the PR's head are one commit. In order:
-  1. Make the release build from `develop`'s tip and test it (its `package.env` names that commit).
+  1. Make the release build from `develop`'s tip and test it (its `package.env` names that commit;
+     the build also leaves a dev installer image of that commit in `build/devcard/`, for a new dev
+     card: the `release-build` skill).
   2. Open the release PR `develop` → `main` and review it: a final `/cr` (or `/code-review`) on
      the PR, findings fixed (a fix PR into `develop`, then back to step 1) or named in the PR as
      accepted, before step 3.
@@ -419,16 +421,25 @@ issue's technical notes point to the note section instead of copying it.
      candidate and ticked; the `## vX.Y.Z` section of `CHANGELOG.md` lists exactly its closed issues
      (`--state closed`), and the bullet of an issue moved to the next milestone moves with it. Then
      move its cards from "Fixed in develop" to "Released" and close the milestone.
-  5. An annotated tag `vX.Y.Z` on that commit. Then a GitHub release with the `CHANGELOG.md` section as notes
-  (grouped under the section headings of "`CHANGELOG.md`" below, without the title prefixes),
-  followed by the GPL source note from the README's "Legal" (U-Boot and busybox versions and their
-  Debian source links, at the tag; update it when `vendor.sh` pins new ones), and the tested
-  release files attached: the installer image with a `SHA256SUMS`, and the update file (`.tar` +
-  `.tar.sig`, in `SHA256SUMS` too) only when the release installs as a drop-in from the previous one
-  ([notes/updates.md](../notes/updates.md), "Release files"). The notes start with how to get it:
-  "Update from vX.Y.Z: copy the update files" or "Full install with the installer image (copy your
-  recordings off the card first)". Check the release by downloading its files again
-  (`gh release download`) and running `sha256sum -c SHA256SUMS`.
+  5. An annotated tag on that commit: `git tag -a vX.Y.Z -m vX.Y.Z <commit> && git push origin vX.Y.Z`.
+     The tag's workflow (`.github/workflows/release.yml`) checks it (annotated, on `main`, `VERSION`
+     the same, a `## vX.Y.Z` section in `CHANGELOG.md` that is not empty) and makes a **draft**
+     release with the notes from `install/release/release-notes.sh`: the section grouped under the
+     section headings of "`CHANGELOG.md`" below, without the title prefixes, with the issue numbers,
+     then how to check the download and the GPL source note from the README's "Legal" (U-Boot and
+     busybox versions and their Debian source links, at the tag; update the README when `vendor.sh`
+     pins new ones). Then, from the PC, attach the tested files and check them:
+     `bash .claude/skills/release-build/release.sh upload vX.Y.Z [--with-update]` (the installer
+     image with a `SHA256SUMS`; `--with-update` adds the update file, `.tar` + `.tar.sig`, only when
+     the release installs as a drop-in from the previous one: [notes/updates.md](../notes/updates.md),
+     "Release files"); it refuses a build that is not of the tagged commit or a release that is not a
+     draft, and downloads the files again and runs `sha256sum -c SHA256SUMS`. Last, on GitHub: replace
+     the notes' first line with how to get it ("Update from vX.Y.Z: copy the update files" or "Full
+     install with the installer image (copy your recordings off the card first)"; v0.2.0's notes as
+     the example), add a line on what the release brings, and publish. The signing key stays on the
+     PC: the workflow builds and signs nothing (#68). A try: a tag `vX.Y.Z-testN` on any branch makes
+     a draft "vX.Y.Z-testN (test)"; delete the draft and the tag afterwards
+     (`gh release delete vX.Y.Z-testN --cleanup-tag`).
 - **Version bump**: right after a release, `VERSION` goes to the next version in `develop` as its own
   PR (`docs/vX.Y.Z-bump`), before any other change of the new cycle, so every branch builds the same
   version and the dev card takes any of them. Feature and fix branches never bump
