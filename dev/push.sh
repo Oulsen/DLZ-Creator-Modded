@@ -175,8 +175,10 @@ START=$(date +%s)
 # no login while the new start settles: logins then coincided with hangs (#81, #143). With a dev card's
 # network log (dev/netlog.ps1, written within the last 10 minutes) until the new start's screen is up
 # (glesgui's "Context renderer string") plus 30 s, or 300 s into a new start whose screen does not
-# come; read as .claude/skills/mixer-ssh/dlz-ssh.sh early() does, from the lines after this point
-# only. Without one: 90 s after the mixer has gone away (GONE), counted from its first failed login.
+# come; read by .claude/skills/mixer-ssh/netlog-start.awk (as the mixer-ssh guard does), from the
+# lines after this point only (a listener started again meanwhile: its new file from the start).
+# Without one: 90 s after the mixer has gone away (GONE), counted from its first failed login: between
+# switching off and SSH in the new start (Wi-Fi first) the polls every 5 s cannot all get through.
 NETLOG_DIR=${DLZ_NETLOG_DIR:-$REPO/build/device-logs}
 NL=$(ls -t "$NETLOG_DIR"/netlog-*.txt 2>/dev/null | head -n 1 || true)
 GONE=""
@@ -185,11 +187,10 @@ if [ -n "$NL" ] && [ $(( START - $(stat -c %Y "$NL") )) -le 600 ]; then
   echo "   no login until the new start's screen is up plus 30 s (network log $NL)"
   while :; do
     [ $(( $(date +%s) - START )) -lt 600 ] || die "no new start with its screen in the network log after 10 minutes (dev/netlog.ps1 running?); the package stays on the card and goes in at its next start: no need to push it again"
+    NEWEST=$(ls -t "$NETLOG_DIR"/netlog-*.txt 2>/dev/null | head -n 1 || true)
+    [ -z "$NEWEST" ] || [ "$NEWEST" = "$NL" ] || { NL=$NEWEST; N0=0; echo "   network log now $NL"; }
     UP="" SCR=""
-    read -r UP SCR < <(tail -n +$((N0 + 1)) "$NL" | awk '/^===== new start of the mixer/ || /kernel: Booting Linux/ { n = 1; c = ""; u = "" }
-      n && /^\[ *[0-9]+\.[0-9]+\]/ { s = $0; sub(/^\[ */, "", s); sub(/\].*/, "", s); u = int(s)
-        if (c == "" && /Context renderer string/) c = u }
-      END { if (n && u != "") print u, c }') || true
+    read -r UP SCR < <(tail -n +$((N0 + 1)) "$NL" | awk -v need=1 -f "$REPO/.claude/skills/mixer-ssh/netlog-start.awk") || true
     if [ -n "$UP" ]; then
       UP=$(( UP + $(date +%s) - $(stat -c %Y "$NL") ))
       if [ -n "$SCR" ]; then
