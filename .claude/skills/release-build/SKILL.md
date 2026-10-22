@@ -42,8 +42,8 @@ its first time onto a mixer goes through the `device-review` skill like any imag
 `+dirty`, the `.sig` must exist, and tar, sig and image must be newer than the HEAD commit (the image
 newer than the tar). Any `STALE`, `DIRTY`, `OLDER` or `missing` line: do not hand over the image;
 find out why (wrong window, failed step, a commit after the build) and build again. A missing dev
-image is reported too (`no dev image`): the release files are fine, and the dev image comes with the
-next release build.
+image is only a note (`note: no dev image`, `check` still says OK): the release files are not
+affected; build again when a new dev card needs it.
 
 Then nothing goes onto a card yet: run the `device-review` skill on exactly this build (tier from
 the diff against the last version that passed on the device), handle its findings, and only then

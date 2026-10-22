@@ -47,8 +47,9 @@ tr -d '\r' < "$REPO/CHANGELOG.md" | awk -v ver="$VER" -v issues="$ISSUES" '
   }'
 
 # the README's paragraph on the installer's GPL programs, its relative links pointing at the tag
-gpl=$(tr -d '\r' < "$REPO/README.md" | awk '/^## Legal/ { on = 1; next } on && /^## / { exit }
-  on && /^The installer image carries/ { p = 1 } p && /^[ \t]*$/ { exit } p { printf "%s%s", (s++ ? " " : ""), $0 }')
+# (awk reads to the end: an early exit could stop tr on a full pipe, and pipefail would stop here)
+gpl=$(tr -d '\r' < "$REPO/README.md" | awk 'done { next } /^## Legal/ { on = 1; next } on && /^## / { done = 1; next }
+  on && /^The installer image carries/ { p = 1 } p && /^[ \t]*$/ { done = 1; next } p { printf "%s%s", (s++ ? " " : ""), $0 }')
 [ -n "$gpl" ] || die "README.md: no paragraph \"The installer image carries ...\" under \"## Legal\""
 gpl=$(printf '%s' "$gpl" | sed -E "s#\]\(([a-z][^):]*)\)#](https://github.com/$SLUG/blob/$TAG/\1)#g")
 

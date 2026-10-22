@@ -46,7 +46,7 @@ check)
   # the dev image of the same commit, for a new dev card (not a release file: it stays on the PC)
   dev=build/devcard/dlz-installer-$VER-dev-$commit.img
   if [ -f "$dev" ] && [ "$(stat -c %Y "$dev")" -ge "$ct" ]; then echo "  dev image: $dev"
-  else echo "no dev image of $commit in build/devcard (the build's last step failed?)"; ok=0; fi
+  else echo "  note: no dev image of $commit in build/devcard (the build's last step failed?); the release files are not affected"; fi
   [ $ok = 1 ] && echo "OK: release build of $HEAD (next: device-review on this build, then flashing)" || exit 1
   ;;
 upload)
@@ -55,10 +55,17 @@ upload)
   files=("dlz-installer-$VER.img")
   [ "${3:-}" = --with-update ] && files+=("dlzmod-$VER.tar" "dlzmod-$VER.tar.sig")
   for f in "${files[@]}"; do [ -f "$REL/$f" ] || { echo "missing: $REL/$f"; exit 1; }; done
-  # the files must be the build of the tagged commit (as check says), and the release a draft
+  # the files must be the build of the tagged commit and newer than it (as check says), the image
+  # newer than the package, and the release a draft
   commit=$(sed -n 's/^COMMIT=//p' "$REL/dlzmod-$VER/package.env" | tr -d '\r')
-  tagged=$(git rev-parse --short "$TAG^{commit}" 2>/dev/null) || { echo "no tag $TAG here: git fetch --tags"; exit 1; }
-  [ "$commit" = "$tagged" ] || { echo "the build is of $commit, the tag $TAG of $tagged: build the tagged commit"; exit 1; }
+  tagged=$(git rev-parse --verify -q "$TAG^{commit}") || { echo "no tag $TAG here: git fetch --tags"; exit 1; }
+  [ "$(git rev-parse --verify -q "$commit^{commit}" 2>/dev/null)" = "$tagged" ] \
+    || { echo "the build is of $commit, the tag $TAG of ${tagged:0:7}: build the tagged commit"; exit 1; }
+  ct=$(git log -1 --format=%ct "$tagged")
+  for f in "${files[@]}" "dlzmod-$VER.tar"; do
+    [ "$(stat -c %Y "$REL/$f" 2>/dev/null || echo 0)" -ge "$ct" ] || { echo "OLDER than the tagged commit: $REL/$f (a failed build step?)"; exit 1; }
+  done
+  [ "$REL/dlz-installer-$VER.img" -nt "$REL/dlzmod-$VER.tar" ] || { echo "the image is older than the package: build again"; exit 1; }
   [ "$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)" = true ] \
     || { echo "no draft release $TAG (the tag's workflow makes it; a published release is never changed from here)"; exit 1; }
   (cd "$REL" && sha256sum "${files[@]}" > SHA256SUMS) || exit 1
@@ -67,7 +74,8 @@ upload)
   t=$(mktemp -d); trap 'rm -rf "$t"' EXIT
   gh release download "$TAG" --dir "$t" || exit 1
   want=$(printf '%s\n' "${files[@]}" SHA256SUMS | sort); have=$(ls "$t" | sort)
-  [ "$want" = "$have" ] || { echo "the draft holds other files than these:"; echo "$have"; exit 1; }
+  [ "$want" = "$have" ] || { echo "the draft holds other files than these (remove the extra ones:"\
+    "gh release delete-asset $TAG <file>, then upload again):"; echo "$have"; exit 1; }
   (cd "$t" && sha256sum -c SHA256SUMS) || { echo "CHECKSUMS DO NOT MATCH: do not publish"; exit 1; }
   echo "OK: draft $TAG has ${files[*]} and SHA256SUMS, checked after download; replace the notes' first line, then publish"
   ;;

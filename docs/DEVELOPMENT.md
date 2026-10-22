@@ -447,7 +447,7 @@ issue's technical notes point to the note section instead of copying it.
 - **`CHANGELOG.md`**: the bump PR opens a `## vX.Y.Z` section (with the milestone's issues already
   in `develop`, if any); every PR that finishes a milestone issue adds its title as a bullet there,
   and the release PR checks the section against the milestone. Bullets ordered `DLZ FEATURE`,
-  `DLZ BUG`, `MOD FEATURE`, `MOD BUG` (no `ANALYSIS`, `DEV` or `release`): what changes on the mixer first,
+  `DLZ BUG`, `MOD FEATURE`, `MOD BUG` (no `ANALYSIS`, `DEV` or `release`; one line each, nothing else in the section: the release notes are made from it, and `release-notes.sh` stops on anything else): what changes on the mixer first,
   then the mod itself. The release PR (`#N: <title>` lines) and the release notes use the same
   order, as sections ("DLZ features", "DLZ bugs fixed", "Mod features", "Mod bugs fixed"; empty
   ones left out). The README's "What the mod does" follows: it describes the current mod, so the PR
