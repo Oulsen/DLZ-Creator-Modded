@@ -21,6 +21,7 @@ if [ "${1:-}" = --dry-run ]; then DRYRUN=yes; shift; fi
 PKG=${1:?usage: mkinstaller.sh [--dry-run] <package dir> [out dir]}
 OUT=${2:-$REPO/build/release}
 PART_MIB=64
+PART_OFF=$((1024 * 1024))   # where mksdimg.py starts the partition (PART_START_SECTOR)
 . "$REPO/install/release/vendor.sh"
 
 (cd "$PKG" && sha256sum -c --quiet manifest) || { echo "$PKG does not match its manifest: refusing" >&2; exit 1; }
@@ -88,11 +89,14 @@ cp "$PKG/initrd.cpio.gz" "$PKG/package.env" "$PKG/manifest" "$work/files/dlzmod/
 mkdir -p "$OUT"
 img=$OUT/$NAME.img
 python3 "$REPO/install/dumper/mksdimg.py" "$UBOOT" "$img.part" --part-mib "$PART_MIB"
-loop=$(losetup -f --show -o $((1024 * 1024)) --sizelimit $((PART_MIB * 1024 * 1024)) "$img.part")
+loop=$(losetup -f --show -o $PART_OFF --sizelimit $((PART_MIB * 1024 * 1024)) "$img.part")
 mkfs.vfat -F 32 -s 1 -n DLZINSTALL -i "$(printf '%08X' $(( SOURCE_DATE_EPOCH & 0xFFFFFFFF )))" "$loop" >/dev/null
 mkdir -p "$work/fat"
 mount -t vfat "$loop" "$work/fat"
-cp -r "$work/files/." "$work/fat/"
+# one by one in a fixed order (not the build host's directory order): the same clusters and entries
+cp "$work/files/boot.scr" "$work/files/uboot.env" "$work/fat/"
+mkdir "$work/fat/dlzmod"
+for f in initrd.cpio.gz package.env manifest; do cp "$work/files/dlzmod/$f" "$work/fat/dlzmod/"; done
 sync
 (cd "$work/fat/dlzmod" && sha256sum -c --quiet manifest) || { echo "copy on the FAT does not match the manifest" >&2; exit 1; }
 find "$work/fat" -type f -printf '  %P (%s bytes)\n' | sort
@@ -100,6 +104,6 @@ umount "$work/fat"
 losetup -d "$loop"
 loop=""
 # the files' times on the FAT: SOURCE_DATE_EPOCH instead of the build's clock (same package, same image)
-python3 "$REPO/install/release/fat-fixtimes.py" "$img.part" $((1024 * 1024)) "$SOURCE_DATE_EPOCH"
+python3 "$REPO/install/release/fat-fixtimes.py" "$img.part" $PART_OFF "$SOURCE_DATE_EPOCH"
 mv "$img.part" "$img"
 echo "installer image: $img ($(stat -c %s "$img") bytes, dry run: $DRYRUN)"

@@ -41,14 +41,18 @@ What a build on GitHub would need [static, rebuilds of v0.2.0 in WSL]:
 
 - **No Mackie file**: the package and the image come from the repo and the two pinned Debian
   packages (`vendor.sh`, sha256-checked); no dump. Debian drops a version from `deb.debian.org`
-  once a newer one is out: rebuilding an old tag then needs `snapshot.debian.org`.
+  once a newer one is out: rebuilding an old tag then needs `snapshot.debian.org` [guess: Debian's
+  usual practice, not seen for these two yet].
 - **Reproducible**: two builds of the same commit are byte-identical, the package and the image, from
   a Linux clone or the tree on `/mnt/d`, minutes apart. v0.2.0 rebuilt from its tag had the same
   files as the release; its tar and image differed only in what is now fixed (the copied
   `sd-system/` files' modes followed the source tree; the FAT's file times were the build's clock).
 - **Same tools needed**: gzip, cpio, Pillow with FreeType, the DejaVu fonts and dosfstools shape the
-  bytes. The PC builds in WSL Ubuntu 26.04, GitHub's runners are older: a byte-for-byte match needs
-  both sides in one pinned build environment (a container image from a fixed snapshot).
+  bytes. The PC builds in WSL Ubuntu 26.04, GitHub's `ubuntu-latest` runners are older [guess]: a
+  byte-for-byte match needs both sides in one pinned build environment (a container image from a
+  fixed snapshot). Same-host builds are what was tested; files are copied onto the FAT in a fixed
+  order and every FAT time (the label's too) is set in UTC, so the host's directory order and time
+  zone do not count.
 - **Decision: GitHub signs, after #63.** Signing moves to a GitHub workflow (release key as a
   secret in a protected environment that needs the maintainer's approval) only once a leaked key
   can be withdrawn from cards (#63); until then the PC signs, because a key stolen from GitHub would

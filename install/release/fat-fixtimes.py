@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Set the times of every file and folder on a FAT32 partition to one time (UTC, as mkfs.vfat's own).
+"""Set the times of every entry on a FAT32 partition to one time (UTC), the volume label included.
 
 The kernel stamps each file copied onto a mounted FAT with the build's clock (created and modified),
 and touch cannot set the created time: with this, the same package gives the same installer image
-byte for byte (mkinstaller.sh, after unmounting). Writes only the time fields of directory entries.
+byte for byte (mkinstaller.sh, after unmounting), whatever the build's clock and time zone. Writes
+only the time fields of directory entries.
 Usage: fat-fixtimes.py <image> <partition offset in bytes> <seconds since 1970>
 """
 import struct
@@ -13,6 +14,8 @@ import time
 
 def main():
     path, off, epoch = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+    if not 315532800 <= epoch < 4354819200:
+        sys.exit("SOURCE_DATE_EPOCH outside what FAT can store (1980..2107)")
     tm = time.gmtime(epoch)
     date = ((tm.tm_year - 1980) << 9) | (tm.tm_mon << 5) | tm.tm_mday
     tod = (tm.tm_hour << 11) | (tm.tm_min << 5) | (tm.tm_sec // 2)
@@ -21,16 +24,18 @@ def main():
         f.seek(off)
         bs = f.read(512)
         bps, spc, reserved, nfats = struct.unpack_from("<HBHB", bs, 11)
-        fatsz, root = struct.unpack_from("<I", bs, 36)[0], struct.unpack_from("<I", bs, 44)[0]
-        if bs[510:512] != b"\x55\xaa" or struct.unpack_from("<H", bs, 22)[0] != 0 or not fatsz:
+        total = struct.unpack_from("<I", bs, 32)[0]
+        fatsz, root = struct.unpack_from("<I", bs, 36)[0], struct.unpack_from("<I", bs, 44)[0] & 0x0FFFFFFF
+        if bs[510:512] != b"\x55\xaa" or bps != 512 or not spc or struct.unpack_from("<H", bs, 22)[0] != 0 or not fatsz:
             sys.exit("not a FAT32 partition at that offset")
         fat = off + reserved * bps
         data = fat + nfats * fatsz * bps
         csize = spc * bps
+        nclusters = (total - reserved - nfats * fatsz) // spc + 2
+        seen = set()
 
         def chain(c):
-            seen = set()
-            while 2 <= c < 0x0FFFFFF8 and c not in seen:
+            while 2 <= c < nclusters and c not in seen:
                 seen.add(c)
                 yield c
                 f.seek(fat + 4 * c)
@@ -46,8 +51,8 @@ def main():
                     e = buf[i:i + 32]
                     if e[0] == 0:
                         break
-                    # deleted, long-name part, volume label (mkfs.vfat's time already)
-                    if e[0] == 0xE5 or e[11] == 0x0F or e[11] & 0x08:
+                    # deleted, long-name part
+                    if e[0] == 0xE5 or e[11] == 0x0F:
                         continue
                     buf[i + 13] = tenth
                     struct.pack_into("<HHH", buf, i + 14, tod, date, date)
