@@ -24,11 +24,14 @@ whole start from the kernel's first line, a start that hangs included, with no l
 - `bash dev/netlog.sh status` / `off`; `off` when the dev card leaves home or the PC changes.
 - SSH stays for what the log cannot give: a file (`get`: update reports, DLZDATA logs), a state
   question, turning the log on or off.
-- **No login in the first 5 minutes of a start**, network log or not; wait for the user to say it is
-  up, then one login with all reads in it. The wrapper refuses `run` and `get` while the newest
-  network log shows an uptime under 300 s (exit 4); `DLZ_SSH_EARLY=1` only when the user agrees to an
-  earlier login. The guard cannot see a start whose first lines have not arrived yet (before Wi-Fi,
-  ~15-25 s; the log still shows the previous start), so the rule stands without it.
+- **No login while a start settles**: not before 30 s after its screen is up (glesgui's "Context
+  renderer string" in the network log, at 25-33 s with #140), not in the first 300 s of a start whose
+  screen does not come (a stall: read the network log instead), and without a network log not
+  before ~90 s into the start. Wait for the user to say it is up, then one login with all reads in
+  it. The wrapper refuses `run` and `get` by the newest network log (exit 4); `DLZ_SSH_EARLY=1` only
+  when the user agrees to an earlier login. The guard cannot see a start whose first lines have not
+  arrived yet (before Wi-Fi, ~15-25 s; the log still shows the previous start), so the rule stands
+  without it. In a worktree the log is in the main checkout: `DLZ_NETLOG_DIR=<repo>/build/device-logs`.
 
 ## Connect
 

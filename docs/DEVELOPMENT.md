@@ -304,8 +304,9 @@ one built with another dev key, stops here), `CHANNEL=dev`, `REINSTALL=no`, not 
 card's version, and not a file the card refused before. The mixer software keeps DLZDATA mounted
 read-only and writable only while it records: `push.sh` stops when it finds it writable, else makes
 it writable for the copy and read-only again after it. Earlier packages in `dlzmod-update/` are
-removed (more than one is never installed). After the new start it waits for the
-updater's report, prints it and says from the report whether the package was installed. Packages
+removed (more than one is never installed). It logs in to the new start only once it has settled
+(with the network log: 30 s after the screen is up; without: 90 s after the mixer has gone away; see
+below), then waits for the updater's report, prints it and says from the report whether the package was installed. Packages
 stay in `build/push/`.
 
 **A start that hangs** (#81) often never gets its last seconds onto the card. The dev card can send
@@ -322,9 +323,11 @@ powershell -ExecutionPolicy Bypass -File dev/netlog.ps1   # leave it open while 
 It writes `build/device-logs/netlog-<date>-<time>.txt`, with a marker line at each start. It starts
 sending once Wi-Fi is up (~15-25 s), then everything since power-on. Nothing arrives: allow UDP 5140
 in Windows Firewall once (the command is at the top of `netlog.ps1`). `bash dev/netlog.sh off` stops it.
-Read logs there rather than over SSH: no login in the first 5 minutes of a start (logins while a
-start settles coincided with hangs); the `mixer-ssh` wrapper refuses one while the newest network log
-shows an uptime under 300 s.
+Read logs there rather than over SSH: no login while a start settles (logins then coincided with
+hangs). The `mixer-ssh` wrapper and `push.sh` go by the newest network log: a login 30 s after the
+screen is up (at 25-33 s), or 300 s into a start whose screen does not come; `push.sh` without a
+network log logs in 90 s after the mixer has gone away. From a worktree, point them at the main
+checkout's log: `DLZ_NETLOG_DIR=<repo>/build/device-logs`.
 
 **Back to an older build** of the same version (bisecting): equal versions install, so check out
 the older commit and push again, or push its package from before: `bash dev/push.sh

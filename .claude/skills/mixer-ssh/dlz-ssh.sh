@@ -158,26 +158,40 @@ guard() {
   endword; endseg
 }
 
-# No login in the first 5 minutes of a start: logins while a start settles coincided with hangs
-# (#81, #136). The mixer's uptime without logging in: a dev card's network log (dev/netlog.ps1) writes
-# the journal with the uptime in front of every line, so the newest file's last journal line plus the
-# time since it was written. A file quiet for over 10 minutes, or none, says nothing (the skill's rule
-# then); so does a start whose first lines have not arrived yet (before Wi-Fi, ~15-25 s), which still
-# shows the previous start. DLZ_SSH_EARLY=1 only after the user agreed to a login this early.
+# No login while a start settles: logins then coincided with hangs (#81, #136). With Mackie's GUI no
+# longer real-time (#140) the screen is up at 25-33 s [device, ~35 starts], so a login is fine 30 s
+# after it; a start whose screen is not up yet is left alone for 300 s (a stall: what it shows is in
+# the network log). The mixer's state without logging in: a dev card's network log (dev/netlog.ps1)
+# writes the journal with the uptime in front of every line, so the newest file's current start (after
+# its last "new start" or kernel boot line): its last journal line plus the time since the file was
+# written, and glesgui's "Context renderer string" (its window is there: the screen). A file quiet
+# for over 10 minutes, or none, says nothing (the skill's rule then); so does a start whose first lines
+# have not arrived yet (before Wi-Fi, ~15-25 s), which still shows the previous start.
+# DLZ_SSH_EARLY=1 only after the user agreed to a login this early. dev/push.sh reads it the same way.
 NETLOG_DIR=${DLZ_NETLOG_DIR:-$(cd "$(dirname "$(readlink -f "$0")")/../../.." && pwd)/build/device-logs}
 early() {
   [ "${DLZ_SSH_EARLY:-0}" != 1 ] || return 0
-  local f age up
+  local f age up scr
   f=$(ls -t "$NETLOG_DIR"/netlog-*.txt 2> /dev/null | head -n 1)
   [ -n "$f" ] || return 0
   age=$(( $(date +%s) - $(stat -c %Y "$f") ))
   [ "$age" -le 600 ] || return 0
-  up=$(tail -n 200 "$f" | grep -a -E '^\[ *[0-9]+\.[0-9]+\]' | tail -n 1 | sed -n 's/^\[ *\([0-9]*\)\.[0-9]*\].*/\1/p')
+  # "<uptime> <screen's uptime or nothing>" of the file's current start
+  read -r up scr < <(awk '/^===== new start of the mixer/ || /kernel: Booting Linux/ { c = "" }
+    /^\[ *[0-9]+\.[0-9]+\]/ { s = $0; sub(/^\[ */, "", s); sub(/\].*/, "", s); u = int(s)
+      if (c == "" && /Context renderer string/) c = u }
+    END { print u, c }' "$f")
   [ -n "$up" ] || return 0
   up=$((up + age))
-  [ "$up" -ge 300 ] && return 0
-  echo "REFUSED (the mixer started ${up} s ago, by its network log $f): no login in the first 300 s of a start;" >&2
-  echo "wait, or read the network log. Only when the user agrees to a login this early: DLZ_SSH_EARLY=1" >&2
+  if [ -n "$scr" ]; then
+    [ "$up" -ge $((scr + 30)) ] && return 0
+    echo "REFUSED (the mixer started ${up} s ago, its screen at ${scr} s, by its network log $f): no login before" >&2
+    echo "30 s after the screen is up; wait, or read the network log. Only when the user agrees: DLZ_SSH_EARLY=1" >&2
+  else
+    [ "$up" -ge 300 ] && return 0
+    echo "REFUSED (the mixer started ${up} s ago, no screen yet, by its network log $f): no login in the first" >&2
+    echo "300 s of a start whose screen is not up; wait, or read the network log. Only when the user agrees: DLZ_SSH_EARLY=1" >&2
+  fi
   exit 4
 }
 

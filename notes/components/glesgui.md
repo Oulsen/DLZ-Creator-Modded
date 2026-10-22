@@ -92,7 +92,10 @@ on the dev card no longer rarely. Three shapes, maybe one cause; why is not know
   (130 s, the rest of the system ran: not starvation), 1 frozen (377 s); after 10 starts, screen at
   29.4-31.2 s, 1 start whose log stopped right after the context at 31 s (not known whether it froze
   or only the log stopped; switched off after ~1.5 min). dspserver's "Watchdog triggered" lines
-  dropped from 8-10 per start to 1-6.
+  dropped from 8-10 per start to 1-6. 25 more starts with the change (network log, #141's in 15 of
+  them): screen at 25-33 s in 24, one GUI stall (screen at 241 s, the start after one that installed
+  an update) with no SSH login at all during it, so not caused by one; the logins in these starts all
+  came at 168 s or later [device]. The tools now log in 30 s after the screen (#143).
 - **Lead for what is left** [guess]: a software restart leaves the GPU/display, touch, the USB Wi-Fi,
   the USB audio chip and the FPGA side powered, so something starts in a state a cold start never
   gives it; the GPU, given the GL/GPU start above, first of all. The

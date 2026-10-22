@@ -172,10 +172,43 @@ else
   echo "== switch the mixer off and on now (the switch on the back); waiting for its next start"
 fi
 START=$(date +%s)
-sleep 15
+# no login while the new start settles: logins then coincided with hangs (#81, #143). With a dev card's
+# network log (dev/netlog.ps1, written within the last 10 minutes) until the new start's screen is up
+# (glesgui's "Context renderer string") plus 30 s, or 300 s into a new start whose screen does not
+# come; read as .claude/skills/mixer-ssh/dlz-ssh.sh early() does, from the lines after this point
+# only. Without one: 90 s after the mixer has gone away (GONE), counted from its first failed login.
+NETLOG_DIR=${DLZ_NETLOG_DIR:-$REPO/build/device-logs}
+NL=$(ls -t "$NETLOG_DIR"/netlog-*.txt 2>/dev/null | head -n 1 || true)
+GONE=""
+if [ -n "$NL" ] && [ $(( START - $(stat -c %Y "$NL") )) -le 600 ]; then
+  N0=$(wc -l < "$NL")
+  echo "   no login until the new start's screen is up plus 30 s (network log $NL)"
+  while :; do
+    [ $(( $(date +%s) - START )) -lt 600 ] || die "no new start with its screen in the network log after 10 minutes (dev/netlog.ps1 running?); the package stays on the card and goes in at its next start: no need to push it again"
+    UP="" SCR=""
+    read -r UP SCR < <(tail -n +$((N0 + 1)) "$NL" | awk '/^===== new start of the mixer/ || /kernel: Booting Linux/ { n = 1; c = ""; u = "" }
+      n && /^\[ *[0-9]+\.[0-9]+\]/ { s = $0; sub(/^\[ */, "", s); sub(/\].*/, "", s); u = int(s)
+        if (c == "" && /Context renderer string/) c = u }
+      END { if (n && u != "") print u, c }') || true
+    if [ -n "$UP" ]; then
+      UP=$(( UP + $(date +%s) - $(stat -c %Y "$NL") ))
+      if [ -n "$SCR" ]; then
+        [ "$UP" -lt $((SCR + 30)) ] || { echo "   screen up at $SCR s of the new start, $UP s in"; break; }
+      elif [ "$UP" -ge 300 ]; then
+        echo "   no screen 300 s into the new start (a stall? the network log shows it); logging in"; break
+      fi
+    fi
+    sleep 5
+  done
+  GONE=yes
+else
+  echo "   no recent network log: logging in 90 s after the mixer has gone away"
+  sleep 15
+fi
 NOW=""
 until NOW=$(mixer 'cat /proc/sys/kernel/random/boot_id' 2>/dev/null | tr -d '\r') && [ -n "$NOW" ] && [ "$NOW" != "$BOOT" ]; do
   [ $(( $(date +%s) - START )) -lt 600 ] || die "the mixer is not back on SSH after 10 minutes (the package stays on the card and goes in at its next start: no need to push it again)"
+  if [ -z "$NOW" ] && [ -z "$GONE" ]; then GONE=yes; sleep 90; continue; fi
   sleep 5
 done
 echo "   back on SSH after $(( $(date +%s) - START )) s"
