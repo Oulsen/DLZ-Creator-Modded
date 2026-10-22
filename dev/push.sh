@@ -18,7 +18,8 @@
 # dev/push.env.example), read by name, never sourced. Only a committed tree is signed (mkpackage.sh):
 # commit first, WIP commits on the feature branch are fine (squashed in the PR).
 # Before the next start the package is checked here as the card will: the signature against the card's
-# own dev.pub, CHANNEL=dev, REINSTALL=no, not older than the card's version.
+# own dev.pub, CHANNEL=dev, REINSTALL=no (or REINSTALL_BELOW and the card from then on), not older
+# than the card's version.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -80,7 +81,9 @@ ENV=$(tar -xOf "$TAR" "$NAME/package.env" | tr -d '\r') || die "no $NAME/package
 penv() { sed -n "s/^$1=//p" <<< "$ENV" | tail -n 1; }
 PVER=$(penv DLZMOD_VERSION)
 [ "$(penv CHANNEL)" = dev ] || die "$NAME is not a dev build (CHANNEL=$(penv CHANNEL))"
-[ "$(penv REINSTALL)" = no ] || die "$NAME needs a full install (REINSTALL=$(penv REINSTALL)): the drop-in refuses it"
+BELOW=$(penv REINSTALL_BELOW)
+# (REINSTALL_BELOW: checked against the card below; without it, REINSTALL=yes is refused everywhere)
+[ -n "$BELOW" ] || [ "$(penv REINSTALL)" = no ] || die "$NAME needs a full install (REINSTALL=$(penv REINSTALL)): the drop-in refuses it"
 echo "== package $NAME ($(stat -c %s "$TAR") bytes)"
 
 # 2. the card: reachable, a dev card whose key signed this package, DLZDATA mounted, not newer
@@ -89,6 +92,7 @@ STATE=$(mixer 'echo "data=$(findmnt -rno TARGET -S LABEL=DLZDATA | head -n 1)"
   echo "version=$(cat /var/lib/dlzmod-update/version 2>/dev/null)"
   echo "report=$(cat /var/lib/dlzmod-update/last-report 2>/dev/null) $(stat -c %i /var/lib/dlzmod-update/last-report 2>/dev/null)"
   echo "failed=$(cat /var/lib/dlzmod-update/failed 2>/dev/null)"
+  echo "below=$(grep -c REINSTALL_BELOW /usr/local/sbin/dlzmod-update 2>/dev/null)"
   echo "boot=$(cat /proc/sys/kernel/random/boot_id)"' | tr -d '\r') \
   || die "no SSH login on $HOST (address, Wi-Fi, SSH kept on, your key in authorized_keys, a key with a passphrase in ssh-agent? A new install has new host keys: delete $KNOWN)"
 st() { sed -n "s/^$1=//p" <<< "$STATE"; }
@@ -103,6 +107,12 @@ U=$DATA/dlzmod-update
 echo "   card version ${CVER:-unknown}, DLZDATA at $DATA"
 if [ -n "$CVER" ] && [ "$(printf '%s\n%s\n' "$CVER" "$PVER" | sort -V | head -n 1)" != "$CVER" ]; then
   die "$PVER is older than the card's $CVER: the card refuses it"
+fi
+if [ -n "$BELOW" ]; then
+  [ "$(st below)" -gt 0 ] 2>/dev/null \
+    || die "$NAME needs a full install on this card: its updater is from before REINSTALL_BELOW (#63), install it with a $PVER dev installer image"
+  [ -n "$CVER" ] && [ "$(printf '%s\n%s\n' "$CVER" "$BELOW" | sort -V | head -n 1)" = "$BELOW" ] \
+    || die "$NAME needs a full install on a card from before $BELOW (this one: ${CVER:-unknown})"
 fi
 mixer 'cat /usr/local/share/dlzmod-keys/dev.pub' > "$OUT/card-dev.pub" 2>/dev/null \
   || die "the card has no dev key: not a dev card (a card from the release image trusts only the release keys)"

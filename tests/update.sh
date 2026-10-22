@@ -57,6 +57,7 @@ U=$D/dlzmod-update
 reports() { ls $D/dlzmod-logs/ 2>/dev/null | grep -c '^update-'; }
 last() { ls $D/dlzmod-logs/update-*.txt 2>/dev/null | sort -V | tail -1; }
 said() { grep -qF "$1" "$(last)"; }   # in the newest report only
+installed() { said "INSTALLED: " && ! said "NOT INSTALLED"; }   # installed, not "NOT INSTALLED: ..."
 sha() { sha256sum "$1" | cut -d' ' -f1; }
 ST=$R/var/lib/dlzmod-update
 K=$R/usr/local/share/dlzmod-keys
@@ -122,7 +123,7 @@ echo "== 2: the same package as installed"
 # a report from before v0.2.0 (no version in its name) with a gap below it: the next one comes after it
 mkdir -p $D/dlzmod-logs && : > $D/dlzmod-logs/update-20.txt
 put "$PKG"; run
-[ ! -e $U/${PKG##*/} ] && [ ! -e $U/${PKG##*/}.sig ] && said "INSTALLED: " && said "signature: dev key" && ok "installed, package and signature deleted" || bad "not installed"
+[ ! -e $U/${PKG##*/} ] && [ ! -e $U/${PKG##*/}.sig ] && installed && said "signature: dev key" && ok "installed, package and signature deleted" || bad "not installed"
 # named like the package (dlzmod-v0.1.0-dev-abc1234 -> update-21-v0.1.0-dev-abc1234.txt), the popup's name the same
 PTOP=$(tar -tf "$PKG" | head -n 1 | cut -d/ -f1)
 [ "$(basename "$(last)")" = "update-21-${PTOP#dlzmod-}.txt" ] && ok "report named $(basename "$(last)")" || bad "report name: $(basename "$(last)"), expected update-21-${PTOP#dlzmod-}.txt"
@@ -132,7 +133,7 @@ rm -f $D/dlzmod-logs/update-20.txt
 
 echo "== 3: a package that really changes something (dlzmod.js)"
 P=$(craft dlzmod-vchanged "printf '\n// dlzmod update test\n' >> mod/app-mod/dlzmod.js"); put $P; run
-said "INSTALLED: " && [ ! -e $U/dlzmod-vchanged.tar ] && ok "installed, package deleted" || bad "not installed"
+installed && [ ! -e $U/dlzmod-vchanged.tar ] && ok "installed, package deleted" || bad "not installed"
 grep -q "dlzmod update test" $R/srv/app.js && ok "app.js has the new code" || bad "app.js without the new code"
 APP=$(sha $R/srv/app.js)
 
@@ -159,40 +160,44 @@ P2=$(craft dlzmod-vask2 "printf '\n// ask test 2\n' >> mod/app-mod/dlzmod.js"); 
 run_asking; waits "replaced by another file after Install" $P2
 [ ! -e $ST/approved ] && ok "the replaced file's approval removed" || bad "the replaced file's approval kept"
 key $P2 > $ST/approved; run_asking
-said "INSTALLED: " && grep -q "ask test 2" $R/srv/app.js && [ ! -e $U/dlzmod-vask2.tar ] && ok "installed after Install for this file" || bad "not installed after Install"
+installed && grep -q "ask test 2" $R/srv/app.js && [ ! -e $U/dlzmod-vask2.tar ] && ok "installed after Install for this file" || bad "not installed after Install"
 [ ! -e $ST/approved ] && [ ! -e $ST/pending ] && ok "approval used up, no question left" || bad "approval or question left: $(ls $ST)"
 APP=$(sha $R/srv/app.js)
 key $P > $ST/approved   # an Install whose file was removed before the next start
 n0=$(reports); run_asking; [ "$(reports)" = "$n0" ] && [ ! -e $ST/pending ] && ok "the start after: nothing to ask" || bad "a question or report without a package"
 [ ! -e $ST/approved ] && ok "an Install for a file that is gone does not wait for it" || bad "approval kept without its file"
 # a package its checks refuse is reported as before (the red popup), never offered
-put $(craft dlzmod-vaskbad "sed -i 's/^REINSTALL=.*/REINSTALL=yes/' package.env" "sed -i 's/^REINSTALL=.*/REINSTALL=yes/' package.env") $U/; rm -f $ST/approved; run_asking
+FULL="sed -i 's/^REINSTALL=.*/REINSTALL=yes/; s/^REINSTALL_BELOW=.*/REINSTALL_BELOW=v9.9.9/' package.env"
+put $(craft dlzmod-vaskbad "$FULL" "$FULL") $U/; rm -f $ST/approved; run_asking
 [ ! -e $ST/pending ] && ok "refused package: no question" || bad "refused package offered: $(cat $ST/pending)"
 refused dlzmod-vaskbad "needs a full install"
 
-echo "== 3b: a card on v0.1.0's updater takes this package (by its own gate and sandbox), then the new one takes the next"
+echo "== 3b: a card on v0.1.0's updater refuses this package (a full install since v0.3.0, #63); the new updater takes the next"
 OLDU=$(git -C $REPO -c safe.directory=$REPO show v0.1.0:install/sd-system/dlzmod-update 2>/dev/null)
 NEWU=$(tar -xOf "$PKG" --wildcards '*/initrd.cpio.gz' | zcat | cpio -i --quiet --to-stdout '*pkg/mod/sd-system/dlzmod-update')
+# old: an updater from before REINSTALL_BELOW refuses the package (REINSTALL=yes) and keeps itself
+old_refuses() {   # old_refuses <tag> <its updater>
+  local before rep
+  printf '%s\n' "$2" > $R/usr/local/sbin/dlzmod-update
+  # (v0.1.0 names its report update-N.txt with the lowest free N: not the highest, so found by the listing)
+  before=$(ls $D/dlzmod-logs)
+  put $(craft dlzmod-vfrom${1//./} "printf '\n// from $1 test\n' >> mod/app-mod/dlzmod.js"); run
+  rep=$(ls $D/dlzmod-logs | grep -vxF -f <(printf '%s\n' $before) | head -n 1)
+  [ -n "$rep" ] && grep -qF "needs a full install with the installer image" "$D/dlzmod-logs/$rep" && ! grep -q "from $1 test" $R/srv/app.js \
+    && [ "$(cat $R/usr/local/sbin/dlzmod-update)" = "$2" ] && ok "the $1 updater refuses it: needs a full install ($rep), itself kept" \
+    || bad "the $1 updater did not refuse it (report: ${rep:-none})"
+  rm -f $U/dlzmod-vfrom${1//./}.tar $U/dlzmod-vfrom${1//./}.tar.sig
+  printf '%s\n' "$NEWU" > $R/usr/local/sbin/dlzmod-update; chmod 755 $R/usr/local/sbin/dlzmod-update
+}
 if [ -z "$OLDU" ] || [ -z "$NEWU" ]; then bad "no v0.1.0 tag here (git fetch --tags) or no updater in the package"
 else
-  printf '%s\n' "$OLDU" > $R/usr/local/sbin/dlzmod-update
-  # v0.1.0 names its report update-N.txt with the lowest free N: not the highest, so found by the listing
-  before=$(ls $D/dlzmod-logs)
-  put $(craft dlzmod-vfrom010 "printf '\n// from v0.1.0 test\n' >> mod/app-mod/dlzmod.js"); run
-  rep=$(ls $D/dlzmod-logs | grep -vxF -f <(printf '%s\n' $before) | head -n 1)
-  [ -n "$rep" ] && grep -qF "INSTALLED: " "$D/dlzmod-logs/$rep" && grep -q "from v0.1.0 test" $R/srv/app.js \
-    && ok "installed by the v0.1.0 updater ($rep)" || bad "the v0.1.0 updater did not install it (report: ${rep:-none})"
-  if [ "$(cat $R/usr/local/sbin/dlzmod-update)" = "$NEWU" ]; then ok "the card's updater is now the package's"
-  else   # the cases below test the package's updater, not v0.1.0's
-    bad "the card kept another updater (the package's put back for the cases below)"
-    printf '%s\n' "$NEWU" > $R/usr/local/sbin/dlzmod-update; chmod 755 $R/usr/local/sbin/dlzmod-update
-  fi
+  old_refuses v0.1.0 "$OLDU"
   put $(craft dlzmod-vfromnew "printf '\n// by the new updater\n' >> mod/app-mod/dlzmod.js"); run
-  said "INSTALLED: " && grep -q "by the new updater" $R/srv/app.js && ok "the next package installed by the new updater" || bad "the new updater did not install the next one"
+  installed && grep -q "by the new updater" $R/srv/app.js && ok "the next package installed by the new updater" || bad "the new updater did not install the next one"
 fi
 APP=$(sha $R/srv/app.js)
 
-echo "== 3c: a card on v0.2.0's updater, without the scheduling (#140) and early-start (#141) drop-ins: installed without them, placed at the next start"
+echo "== 3c: a card on v0.2.0's updater refuses it too; the scheduling (#140) and early-start (#141) drop-ins, missing, placed by the new updater at a start"
 OLDU=$(git -C $REPO -c safe.directory=$REPO show v0.2.0:install/sd-system/dlzmod-update 2>/dev/null)
 # (the scheduling (#140) and early-start (#141) drop-ins; case 75 relies on all five being placed by now)
 SCHED="glesgui evolve-node evolve-app dlzmod-update dlzmod-grow-data"
@@ -201,17 +206,8 @@ sched_as_shipped() { local u; for u in $SCHED; do cmp -s $R/etc/systemd/system/$
 if [ -z "$OLDU" ] || [ -z "$NEWU" ]; then bad "no v0.2.0 tag here (git fetch --tags) or no updater in the package"
 else
   sched_as_shipped && ok "the install placed them" || bad "the install did not place the scheduling and early-start drop-ins"
-  printf '%s\n' "$OLDU" > $R/usr/local/sbin/dlzmod-update
+  old_refuses v0.2.0 "$OLDU"
   for u in $SCHED; do rm -rf $R/etc/systemd/system/$u.service.d; done
-  put $(craft dlzmod-vfrom020 "printf '\n// from v0.2.0 test\n' >> mod/app-mod/dlzmod.js"); run
-  said "INSTALLED: " && grep -q "from v0.2.0 test" $R/srv/app.js && ok "installed by the v0.2.0 updater" || bad "the v0.2.0 updater did not install it"
-  said "its new copy places them at the next start" && [ -z "$(ls -d $R/etc/systemd/system/{glesgui,evolve-node,evolve-app,dlzmod-update,dlzmod-grow-data}.service.d 2>/dev/null)" ] \
-    && ok "drop-ins left out, and said so" || bad "drop-ins placed, or not said"
-  if [ "$(cat $R/usr/local/sbin/dlzmod-update)" = "$NEWU" ]; then ok "the card's updater is now the package's"
-  else
-    bad "the card kept another updater (the package's put back for the cases below)"
-    printf '%s\n' "$NEWU" > $R/usr/local/sbin/dlzmod-update; chmod 755 $R/usr/local/sbin/dlzmod-update
-  fi
   n1=$(reports); run   # the next start, no update file
   sched_as_shipped && said "placed the scheduling drop-ins of: glesgui evolve-node evolve-app" \
     && said "placed the early-start drop-ins of: dlzmod-update dlzmod-grow-data" && [ "$(reports)" = "$((n1 + 1))" ] \
@@ -230,7 +226,7 @@ else
   grep -vF 'dlzmod-update.service.d:dlzmod.conf|dlzmod-grow-data.service.d:dlzmod.conf' <<< "$NEWU" > $R/usr/local/sbin/dlzmod-update
   for u in $SCHED; do rm -rf $R/etc/systemd/system/$u.service.d; done
   put $(craft dlzmod-vfrom140 "printf '\n// from a #140 updater\n' >> mod/app-mod/dlzmod.js"); run
-  said "INSTALLED: " && grep -q "from a #140 updater" $R/srv/app.js && ok "installed by the #140 updater" || bad "the #140 updater did not install it"
+  installed && grep -q "from a #140 updater" $R/srv/app.js && ok "installed by the #140 updater" || bad "the #140 updater did not install it"
   [ -z "$(ls -d $R/etc/systemd/system/{dlzmod-update,dlzmod-grow-data}.service.d 2>/dev/null)" ] \
     && [ -f $R/etc/systemd/system/glesgui.service.d/dlzmod.conf ] && ok "scheduling ones placed, early-start ones left out" || bad "wrong drop-ins placed"
   [ "$(cat $R/usr/local/sbin/dlzmod-update)" = "$NEWU" ] && ok "the card's updater is now the package's" \
@@ -290,7 +286,7 @@ if [ -z "${QUICK:-}" ]; then   # QUICK=1: only the install, a good update, model
 echo "== 13: a try cut off by a power cut, then the next start (fails): the first snapshot comes back"
 P=$(craft dlzmod-vcut "sed -i 's/^apply_patches() {/apply_patches() { false/' mod/apply-mod.sh"); S=$(key $P)
 # the state after the cut-off first try: its snapshot (of the clean card) taken, then app.js half written
-sed -n '/^SNAP_GLOBS=/,/dlzmod-keys\/\*"$/p;/^snap_list() {/,/^}/p' $R/usr/local/sbin/dlzmod-update > $R/tmp/snap.sh
+sed -n '/^SNAP_GLOBS=/,/"$/p;/^snap_list() {/,/^}/p' $R/usr/local/sbin/dlzmod-update > $R/tmp/snap.sh
 chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
 echo "$S" > $ST/inprogress
 echo "// half written" >> $R/srv/app.js
@@ -337,7 +333,7 @@ said "no signature file" && [ -e $U/dlzmod-vnosig.tar ] && ok "not installed, pa
 { [ ! -e $ST/failed ] || [ "$(cat $ST/failed)" != "$(key $P)" ]; } && ok "not marked as failed" || bad "marked as failed"
 n1=$(reports); run; [ "$(reports)" = "$n1" ] && ok "no second report" || bad "a report at every start"
 cp $P.sig $U/; run
-said "INSTALLED: " && grep -q "nosig test" $R/srv/app.js && ok "installed once the signature is there" || bad "not installed with its signature"
+installed && grep -q "nosig test" $R/srv/app.js && ok "installed once the signature is there" || bad "not installed with its signature"
 APP=$(sha $R/srv/app.js)
 
 echo "== 22: signed with a key the card does not trust, then the right signature"
@@ -345,7 +341,7 @@ P=$(SIGNKEY=other craft dlzmod-vother "printf '\n// other key test\n' >> mod/app
 said "not signed with a key this card trusts" && [ -e $U/dlzmod-vother.tar ] && ok "refused, package kept" || bad "foreign key accepted"
 [ "$(sha $R/srv/app.js)" = "$APP" ] && ok "app.js unchanged" || bad "app.js changed"
 sign $U/dlzmod-vother.tar; run
-said "INSTALLED: " && ok "the same file with a good signature is tried again and installed" || bad "not retried with a good signature"
+installed && ok "the same file with a good signature is tried again and installed" || bad "not retried with a good signature"
 APP=$(sha $R/srv/app.js)
 
 echo "== 23: changed after signing (one byte)"
@@ -355,7 +351,7 @@ cp $W/vafter.tar $U/dlzmod-vafter.tar; cp $W/vafter.tar.sig $U/dlzmod-vafter.tar
 
 echo "== 27: a release package (release key, CHANNEL=release) on the developer card"
 P=$(SIGNKEY=release craft dlzmod-vrel "printf '\n// release test\n' >> mod/app-mod/dlzmod.js; setchan release" "setchan release"); put $P; run
-said "INSTALLED: " && said "signature: release key" && grep -q "release test" $R/srv/app.js && ok "installed" || bad "release package not installed"
+installed && said "signature: release key" && grep -q "release test" $R/srv/app.js && ok "installed" || bad "release package not installed"
 APP=$(sha $R/srv/app.js)
 
 echo "== 29: an update that adds a trusted key: caught, put back"
@@ -371,9 +367,47 @@ P=$(craft dlzmod-vkey2 "printf 'cp \"\$MNT/usr/local/share/dlzmod-keys/release.p
 said "dlzmod-keys/dev.pub, which an update may not" && [ "$(cd $K && sha256sum *)" = "$KS" ] && ok "refused, keys as before" || bad "KEY REPLACEMENT NOT REFUSED"
 rm -f $U/dlzmod-vkey2.tar $U/dlzmod-vkey2.tar.sig
 
+echo "== 30b: withdrawing the release key (#63): only through the updater, it sticks, nothing undoes it"
+WL=$ST/withdrawn
+P=$(craft dlzmod-vwlself "printf 'echo release > \"\$MNT/var/lib/dlzmod-update/withdrawn\"\n' >> mod/apply-mod.sh"); put $P; run
+said "var/lib/dlzmod-update/withdrawn, which an update may not" && [ ! -e $WL ] && ok "an update's own steps cannot write the list" || bad "the list written by an update's steps: $(cat $WL 2>&1)"
+rm -f $U/dlzmod-vwlself.tar $U/dlzmod-vwlself.tar.sig
+# the spare key's package withdraws, even though its steps then fail: the withdrawal is not put back
+WD="setchan release; echo WITHDRAWN=release >> package.env"
+P=$(SIGNKEY=release2 craft dlzmod-vwdfail "printf 'exit 1\n' >> mod/apply-mod.sh; $WD" "$WD"); put $P; run
+said "WITHDRAWN: the release key" && said "NOT INSTALLED" && [ "$(cat $WL 2>/dev/null)" = release ] \
+  && ok "withdrawn, and kept when the rest of the package fails" || bad "withdrawal with a failing package: list $(cat $WL 2>&1)"
+[ "$(cd $K && sha256sum *)" = "$KS" ] && ok "the key files themselves untouched" || bad "KEYS CHANGED: $(ls -A $K)"
+rm -f $U/dlzmod-vwdfail.tar $U/dlzmod-vwdfail.tar.sig
+P=$(SIGNKEY=release craft dlzmod-vwdrel "printf '\n// withdrawn key test\n' >> mod/app-mod/dlzmod.js; setchan release" "setchan release"); put $P; run
+refused dlzmod-vwdrel "which was withdrawn on this card"
+# an update that removes the list: its steps cannot, the card keeps it; the spare key still installs
+P=$(SIGNKEY=release2 craft dlzmod-vwdrm "printf '\n// spare after withdrawal\n' >> mod/app-mod/dlzmod.js; printf 'rm -f \"\$MNT/var/lib/dlzmod-update/withdrawn\"\n' >> mod/apply-mod.sh; $WD" "$WD"); put $P; run
+installed && grep -q "spare after withdrawal" $R/srv/app.js && [ "$(cat $WL 2>/dev/null)" = release ] && ! said "WITHDRAWN:" \
+  && ok "the spare key installs after it; the list stays (its steps cannot remove it), not withdrawn twice" || bad "after the withdrawal: list $(cat $WL 2>&1)"
+APP=$(sha $R/srv/app.js)
+# the next update from the new updater copy still refuses the withdrawn key
+P=$(SIGNKEY=release craft dlzmod-vwdrel2 "setchan release" "setchan release"); put $P; run
+refused dlzmod-vwdrel2 "which was withdrawn on this card"
+rm -f $WL   # (the rehearsal's own reset: the cases below sign with the release key)
+
 echo "== 31: a package.env key this version does not know (a later version's): ignored"
 P=$(craft dlzmod-vfuture "printf '\n// future test\n' >> mod/app-mod/dlzmod.js; echo FUTURE_FIELD=something >> package.env" "echo FUTURE_FIELD=something >> package.env"); put $P; run
-said "INSTALLED: " && ok "installed" || bad "unknown key refused"
+installed && ok "installed" || bad "unknown key refused"
+APP=$(sha $R/srv/app.js)
+
+echo "== 31b: the audio graph (for v0.5.0): an update may patch it, with its .orig; a failed one is put back"
+G=$R/usr/local/share/evolve-a1/mixergraph-dlzlite.js
+if [ ! -f $G ]; then bad "no $G on the card"
+else
+  GS=$(sha $G)
+  GP="printf 'g=\"\$MNT/usr/local/share/evolve-a1/mixergraph-dlzlite.js\"; [ -f \"\$g.orig\" ] || cp -p \"\$g\" \"\$g.orig\"; printf \"\\\\\\\\n// graph test\\\\\\\\n\" >> \"\$g\"\n' >> mod/apply-mod.sh"
+  P=$(craft dlzmod-vgraphfail "$GP; printf 'exit 1\n' >> mod/apply-mod.sh"); put $P; run
+  said "NOT INSTALLED" && [ "$(sha $G)" = "$GS" ] && [ ! -e $G.orig ] && ok "a failed graph patch: graph as before, no .orig" || bad "graph after a failed update: $(tail -c 40 $G)"
+  rm -f $U/dlzmod-vgraphfail.tar $U/dlzmod-vgraphfail.tar.sig
+  P=$(craft dlzmod-vgraph "$GP"); put $P; run
+  installed && grep -q "graph test" $G && [ "$(sha $G.orig)" = "$GS" ] && ok "graph patched, .orig the stock file" || bad "graph patch not placed: $(tail -c 40 $G)"
+fi
 APP=$(sha $R/srv/app.js)
 
 echo "== 33: update keys per channel (card-core.sh): package.env wins; none only with DLZMOD_CHANNEL=dev (build-sd.sh); else refused"
@@ -413,11 +447,11 @@ said "an earlier update file was cut off" && said "previous files restored" && [
 echo "== 34: a different file's try was cut off, then a good file, not yet approved (#65): the leftovers go while it waits; then Install"
 halfa
 P=$(craft dlzmod-vafterother "printf '\n// after other test\n' >> mod/app-mod/dlzmod.js"); put $P; rm -f $ST/approved; run_asking
-said "an earlier update file was cut off" && said "previous files restored" && said "waits for Install" && ! said "INSTALLED: " && ok "rolled back while it waits, not installed" || bad "not rolled back, or installed without Install"
+said "an earlier update file was cut off" && said "previous files restored" && said "waits for Install" && ! installed && ok "rolled back while it waits, not installed" || bad "not rolled back, or installed without Install"
 [ ! -e $R/etc/udev/rules.d/99-dlzmod-halfa.rules ] && ok "the cut-off file's leftover removed" || bad "LEFTOVER KEPT"
 [ ! -e $ST/inprogress ] && [ "$(cut -d' ' -f1 $ST/pending 2>/dev/null)" = "$(key $P)" ] && ok "marker cleared, the new file asked about" || bad "marker left or no question"
 run
-said "INSTALLED: " && grep -q "after other test" $R/srv/app.js && ok "installed after Install" || bad "not installed after Install"
+installed && grep -q "after other test" $R/srv/app.js && ok "installed after Install" || bad "not installed after Install"
 [ ! -e $ST/inprogress ] && ok "marker cleared" || bad "marker left: $(cat $ST/inprogress)"
 tar -tf $ST/previous.tar 2>/dev/null | grep -q halfa && bad "LEFTOVER IN THE NEW SNAPSHOT" || ok "new snapshot without the leftover"
 APP=$(sha $R/srv/app.js)
@@ -425,7 +459,7 @@ APP=$(sha $R/srv/app.js)
 echo "== 36: signed with the spare release key (release2), CHANNEL=release, on a release card"
 mv $K/dev.pub $W/dev.pub.kept
 P=$(SIGNKEY=release2 craft dlzmod-vspare "printf '\n// spare key test\n' >> mod/app-mod/dlzmod.js; setchan release" "setchan release"); put $P; run
-said "INSTALLED: " && said "signature: release2 key" && grep -q "spare key test" $R/srv/app.js && ok "installed with the spare key" || bad "spare-signed release not installed"
+installed && said "signature: release2 key" && grep -q "spare key test" $R/srv/app.js && ok "installed with the spare key" || bad "spare-signed release not installed"
 mv $W/dev.pub.kept $K/dev.pub
 APP=$(sha $R/srv/app.js)
 
@@ -434,7 +468,7 @@ chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-updat
 echo "other-newer-package" > $ST/inprogress
 VKEEP=$(cat $ST/version); echo v9.9.9 > $ST/version
 P=$(craft dlzmod-vsnapver "printf '\n// snapshot version test\n' >> mod/app-mod/dlzmod.js"); put $P; run
-said "INSTALLED: " && ! said "older" && ok "not refused as older than the cut-off try's version" || bad "refused by the cut-off try's version"
+installed && ! said "older" && ok "not refused as older than the cut-off try's version" || bad "refused by the cut-off try's version"
 [ "$(cat $ST/version)" = "$VKEEP" ] && ok "version back to the package's ($VKEEP)" || bad "version is $(cat $ST/version)"
 APP=$(sha $R/srv/app.js)
 
@@ -459,7 +493,7 @@ rm -f $U/dlzmod-vremount.tar $U/dlzmod-vremount.tar.sig
 
 echo "== 42: the steps leave a process behind that writes later: it dies with the sandbox"
 put $(craft dlzmod-vlate "printf '\n// late test\n' >> mod/app-mod/dlzmod.js; printf '( sleep 4; echo late > \"\$MNT/srv/late.txt\"; echo late > /tmp/dlzmod-late ) &\n' >> mod/apply-mod.sh"); run
-said "INSTALLED: " && ok "installed" || bad "not installed"
+installed && ok "installed" || bad "not installed"
 sleep 6
 [ ! -e $R/srv/late.txt ] && [ ! -e $R/tmp/dlzmod-late ] && ! pgrep -f "sleep 4" > /dev/null && ok "no leftover process, nothing written late" || bad "A LEFTOVER PROCESS RAN"
 APP=$(sha $R/srv/app.js)
@@ -515,7 +549,7 @@ true
 EOF
 UNS0=$(uns_now)
 put $(craft dlzmod-vwalls "cp $W/walls.sh mod/walls.sh; printf '. \"\$TOOLS/walls.sh\"\n' >> mod/apply-mod.sh"); run
-said "INSTALLED: " && ok "every wall held (uid 65533, no userns, no sockets, nothing writable, 4 device nodes, no caps)" \
+installed && ok "every wall held (uid 65533, no userns, no sockets, nothing writable, 4 device nodes, no caps)" \
   || bad "A WALL FAILED: $(grep -o 'exit [0-9]*' "$(last)" | head -1) (41 uid, 42 userns, 43 sockets, 44-47 writable, 48 /dev, 49 caps)"
 [ "$UNS0" != 0 ] && [ "$(uns_now)" = "$UNS0" ] && ok "user namespaces back on afterwards ($UNS0)" || bad "max_user_namespaces $UNS0 before, $(uns_now) after (0: switched off, by this run or one before it)"
 APP=$(sha $R/srv/app.js)
@@ -595,7 +629,7 @@ said "NOT INSTALLED this time" && said "progress marker not written" && ok "stop
 [ -e $U/dlzmod-vprogress.tar ] && [ ! -e $ST/inprogress ] && [ "$(sha $R/srv/app.js)" = "$APP" ] \
   && ok "package kept, no marker, app.js unchanged" || bad "package gone, marker set or app.js changed"
 rmdir $ST/inprogress.new; run
-said "INSTALLED: " && grep -q "marker test" $R/srv/app.js && ok "installed at the next start" || bad "not installed at the next start"
+installed && grep -q "marker test" $R/srv/app.js && ok "installed at the next start" || bad "not installed at the next start"
 APP=$(sha $R/srv/app.js)
 rm -f $U/dlzmod-vprogress.tar $U/dlzmod-vprogress.tar.sig   # left only when this case failed
 
@@ -682,7 +716,7 @@ said "NOT INSTALLED this time: user namespaces" && said "previous files restored
 backnow "resumed try stopped"
 [ "$(cat $ST/approved 2>/dev/null)" = "$S" ] && ok "its Install kept" || bad "Install not kept"
 run_asking   # no new Install
-said "INSTALLED: " && grep -q "rinc test" $R/srv/app.js && ok "installed at the next start without asking again" || bad "not installed at the next start"
+installed && grep -q "rinc test" $R/srv/app.js && ok "installed at the next start without asking again" || bad "not installed at the next start"
 APP=$(sha $R/srv/app.js)
 else
   umount $R/proc/sys/user/max_user_namespaces 2>/dev/null; bad "case 70 setup: the read-only bind over max_user_namespaces failed (case skipped)"
@@ -698,7 +732,7 @@ said "more than one update file" && said "previous files restored" && ok "put ba
 backnow "same file next to another"
 [ "$(cat $ST/approved 2>/dev/null)" = "$S" ] && ok "its Install kept" || bad "Install not kept: $(cat $ST/approved 2>/dev/null || echo none)"
 rm -f $U/dlzmod-vkeep2.tar $U/dlzmod-vkeep2.tar.sig; run_asking   # no new Install
-said "INSTALLED: " && grep -q "keep test" $R/srv/app.js && ok "installed without asking again" || bad "not installed"
+installed && grep -q "keep test" $R/srv/app.js && ok "installed without asking again" || bad "not installed"
 APP=$(sha $R/srv/app.js)
 rm -f $U/dlzmod-vkeep.tar $U/dlzmod-vkeep.tar.sig   # left only when this case failed
 

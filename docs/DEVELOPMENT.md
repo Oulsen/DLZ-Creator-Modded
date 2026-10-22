@@ -156,7 +156,8 @@ The repo is public, so what goes into it is limited by what the project may publ
 | `build-sd.sh` | WSL (root) | Clone a dump into an SD-bootable image: checks the dump, copies it, renders the layers, then runs `card-core.sh` |
 | `release/mkpackage.sh` | WSL (root) | Build the release package `build/release/dlzmod-vX.Y.Z.tar`: one initramfs with the installer, `card-core.sh` and helpers, layers and screens, checked by an inner manifest; signed into `.tar.sig` (ed25519 over the whole tar: dev key, `RELEASE=1` release key, `RELEASE_KEY=release2` the spare; `DLZMOD_SIGNING_KEYS` = folder with the private keys, passphrase asked once or `DLZMOD_SIGNING_PASS`). Uncommitted changes: not signed |
 | `release/mkkeys.sh` | Git Bash / WSL | Make a signing key pair (`release`, the offline spare `release2`, or `dev`; release keys passphrase-encrypted): private key into a folder outside the repo, public key into `keys/`. Never overwrites: cards trust the keys they were installed with for good |
-| `keys/` | - | Public keys of the update signatures; `card-core.sh` puts `release.pub` and `release2.pub` on every card, and a dev key on cards built from a dev package or `build-sd.sh` (your own `dev.pub` from `DLZMOD_SIGNING_KEYS`, else `keys/dev.pub`) |
+| `keys/` | - | Public keys of the update signatures; `card-core.sh` puts `release.pub` and `release2.pub` on every card, and a dev key on cards built from a dev package or `build-sd.sh` (your own `dev.pub` from `DLZMOD_SIGNING_KEYS`, else `keys/dev.pub`); `keys/withdrawn` (only after a leak, #63): withdrawn keys, `release` or `dev`, in every package's `WITHDRAWN` from then on |
+| `release/reinstall-below` | - | The first version every card must have been installed with (a full install, v0.3.0 now): `mkpackage.sh` writes it as `REINSTALL_BELOW` with `REINSTALL=yes`, so older cards refuse the package as a drop-in ([notes/updates.md](../notes/updates.md), "Drop-in update") |
 | `release/mkinstaller.sh` | WSL (root) | Build the flashable installer image around a package (`--dry-run`: writes nothing on the device). Development builds are named `-dev-<commit>`; `RELEASE=1` (clean tree only) gives the release name |
 | `release/build-release.cmd` | Windows (double-click) | The release build in one step: `RELEASE=1` package signed with the release key (asks its passphrase in its own window) and the installer image around it, in WSL; keys from `%USERPROFILE%\.dlzmod-keys` (or `DLZMOD_KEYS_WIN`) |
 | `release/vendor.sh`, `release/uboot-safe.py`, `release/mkglyphs.py`, `release/mklogo.py`, `release/fat-fixtimes.py` | WSL | Pinned U-Boot/busybox downloads (Debian sha256); U-Boot's built-in defaults made safe (SD card only, no USB, the Banana Pi's Ethernet switched off in its device tree); font atlas for the installer screens; the MODDED sticker with the version for the installer screens; the installer image's FAT file times set to `SOURCE_DATE_EPOCH` (same package, same image) |
@@ -300,7 +301,8 @@ Every push needs a new start of the mixer: not during a recording. `push.sh` ask
 switch it off and on with the switch on the back. `--restart` restarts it from software instead
 (before #140 that often hung on the loading screen; 10 of 10 went through since, #81). Before that, `push.sh` checks the
 package the way the card will: the signature against the card's own `dev.pub` (a release card, or
-one built with another dev key, stops here), `CHANNEL=dev`, `REINSTALL=no`, not older than the
+one built with another dev key, stops here), `CHANNEL=dev`, no full install needed (`REINSTALL=no`,
+or `REINSTALL_BELOW` and a card at that version with an updater that knows it), not older than the
 card's version, and not a file the card refused before. The mixer software keeps DLZDATA mounted
 read-only and writable only while it records: `push.sh` stops when it finds it writable, else makes
 it writable for the copy and read-only again after it. Earlier packages in `dlzmod-update/` are
@@ -335,8 +337,10 @@ the older commit and push again, or push its package from before: `bash dev/push
 build/push/dlzmod-v0.2.0-dev-<commit>.tar`. A refused file is not tried again; a new build is a new
 file.
 
-Not covered: changes that need a full install (`REINSTALL=yes`: guards, the updater's gates, boot
-visuals, the card layout). Each pushed build is a build on the mixer: `device-review` at the tier
+Not covered: changes that need a full install (guards, the updater's gates and allowlist, boot
+visuals, the card layout: `install/release/reinstall-below`, [notes/updates.md](../notes/updates.md),
+"Drop-in update"); the dev card then gets one fresh install from a dev installer image of that
+version, and takes the next builds as drop-ins again. Each pushed build is a build on the mixer: `device-review` at the tier
 the change asks for. The release gate stays: a release candidate still gets a fresh install from
 the installer image and an update from a card running the previous release.
 

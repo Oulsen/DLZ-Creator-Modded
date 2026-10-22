@@ -449,14 +449,27 @@ set_rec_default_sd() {
 # release key and its offline spare (release2) only; a dev-channel card (an installer built from a
 # dev package, or build-sd.sh, which says so with DLZMOD_CHANNEL=dev) trusts the dev key too: the
 # package's (mkpackage.sh put your own there when DLZMOD_SIGNING_KEYS had one), or for build-sd.sh
-# DLZMOD_DEV_PUB when set.
+# DLZMOD_DEV_PUB when set. Keys withdrawn since they were made (#63: the package's WITHDRAWN, the
+# release or dev key) are left out and go on the card's withdrawal list, which its updater checks
+# and only ever adds to.
 install_update_keys() {
-  local d=$MNT/usr/local/share/dlzmod-keys channel keys k src
+  local d=$MNT/usr/local/share/dlzmod-keys channel keys k src w gone=""
   channel=$(update_channel) || die "$channel"
   keys="release release2 dev"
   [ "$channel" = dev ] || keys="release release2"
+  if [ -f "$TOOLS/../package.env" ]; then
+    for w in $(sed -n 's/^WITHDRAWN=//p' "$TOOLS/../package.env" | tr ',' ' '); do
+      case $w in release|dev) gone="$gone $w" ;; *) die "package.env: WITHDRAWN names a key that cannot be withdrawn ($w)" ;; esac
+    done
+  fi
   rm -rf "$d"
-  mkdir -p "$d"
+  mkdir -p "$d" "$MNT/var/lib/dlzmod-update"
+  rm -f "$MNT/var/lib/dlzmod-update/withdrawn"
+  for w in $gone; do
+    echo "$w" >> "$MNT/var/lib/dlzmod-update/withdrawn"
+    keys=$(for k in $keys; do [ "$k" = "$w" ] || printf '%s ' "$k"; done)
+  done
+  [ -z "$gone" ] || echo "withdrawn keys (not installed):$gone"
   for k in $keys; do
     src=$TOOLS/keys/$k.pub
     # DLZMOD_DEV_PUB only without a package.env (build-sd.sh), as DLZMOD_CHANNEL: the installer's
