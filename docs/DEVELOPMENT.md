@@ -297,8 +297,8 @@ bash dev/push.sh          # build in WSL, check, copy; switch the mixer off and 
 ```
 
 Every push needs a new start of the mixer: not during a recording. `push.sh` asks for it and waits:
-switch it off and on with the switch on the back. `--restart` restarts it from software instead, but
-with the current Mackie software that often hangs on the loading screen (#81). Before that, `push.sh` checks the
+switch it off and on with the switch on the back. `--restart` restarts it from software instead
+(before #140 that often hung on the loading screen; 10 of 10 went through since, #81). Before that, `push.sh` checks the
 package the way the card will: the signature against the card's own `dev.pub` (a release card, or
 one built with another dev key, stops here), `CHANNEL=dev`, `REINSTALL=no`, not older than the
 card's version, and not a file the card refused before. The mixer software keeps DLZDATA mounted

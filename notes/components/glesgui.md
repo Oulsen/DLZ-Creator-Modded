@@ -35,8 +35,10 @@ A **dumb Canvas2D renderer**: the UI logic lives in `/srv/app.js`, glesgui only 
 
 ### Bad starts after a software restart (#81)
 
-After a software restart the start often goes wrong; after the switch on the back less often, but
-on the dev card no longer rarely. Three shapes, maybe one cause; why is not known.
+Before #140, a start after a software restart often went wrong; after the switch on the back less
+often, but on the dev card not rarely either. Three shapes, maybe one cause. With #140's change a
+series of software restarts went through without one (counts below), so the software restart is no
+longer a reliable trigger.
 
 - **Counts** on the mod card [device] (cold vs warm from the clock lines, system.md, Clock):
   software restarts 6: 2 fine, 1 GUI stall, 3 frozen. Starts with the switch ~15 (incl. 4 with
@@ -96,6 +98,10 @@ on the dev card no longer rarely. Three shapes, maybe one cause; why is not know
   them): screen at 25-33 s in 24, one GUI stall (screen at 241 s, the start after one that installed
   an update) with no SSH login at all during it, so not caused by one; the logins in these starts all
   came at 168 s or later [device]. The tools now log in 30 s after the screen (#143).
+  Then a series on the dev card with the change, mixer idle, network log: 10 software restarts
+  (`systemctl reboot` over SSH, ~3-9 min apart) and 6 with the switch, all fine: screen at 25-26 s,
+  UI connected at 28-32 s, systemd's start finished at 2 min 24.7-26.5 s; no stall, no freeze
+  [device]. Before the change the same software restart froze 3 of 6 starts.
 - **Lead for what is left** [guess]: a software restart leaves the GPU/display, touch, the USB Wi-Fi,
   the USB audio chip and the FPGA side powered, so something starts in a state a cold start never
   gives it; the GPU, given the GL/GPU start above, first of all. The
@@ -109,10 +115,10 @@ on the dev card no longer rarely. Three shapes, maybe one cause; why is not know
   change, the slow ones were those with the step ≤1.3 s before "Opening GUI" (4 of 5), the good
   ones ≥1.6 s before (4 of 4); with the change the context comes before the step in 9 of 10.
   Testable: hold chrony's step back until the context is there, then count stalls.
-- **Next**: the dev card's journal reaches the PC as it happens, the whole start from the kernel's
-  first line, without a login (`dlzmod-netlog`, `dev/netlog.sh`; the kernel has no netconsole)
-  [device]. More starts with #140's change (switch, then software restarts); a start that hangs is
-  left alone a few minutes (ping, does the log go on?).
+- **If one comes back**: the dev card's journal reaches the PC as it happens, the whole start from
+  the kernel's first line, without a login (`dlzmod-netlog`, `dev/netlog.sh`; the kernel has no
+  netconsole) [device]; a start that hangs is left alone a few minutes (ping, does the log go on?),
+  then read in the network log.
 
 ### Mod angles
 
