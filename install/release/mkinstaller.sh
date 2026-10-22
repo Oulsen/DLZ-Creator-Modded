@@ -99,5 +99,7 @@ find "$work/fat" -type f -printf '  %P (%s bytes)\n' | sort
 umount "$work/fat"
 losetup -d "$loop"
 loop=""
+# the files' times on the FAT: SOURCE_DATE_EPOCH instead of the build's clock (same package, same image)
+python3 "$REPO/install/release/fat-fixtimes.py" "$img.part" $((1024 * 1024)) "$SOURCE_DATE_EPOCH"
 mv "$img.part" "$img"
 echo "installer image: $img ($(stat -c %s "$img") bytes, dry run: $DRYRUN)"

@@ -33,6 +33,7 @@
 #        mkpackage.sh [out dir, default build/release]
 # Needs: python3 with Pillow, fonts-dejavu-core, cpio, gzip, dpkg-deb, curl, qemu-arm, openssl
 set -euo pipefail
+umask 022
 
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 OUT=${1:-$REPO/build/release}
@@ -166,6 +167,9 @@ for f in cpio-replace.py patch.py modversion.py logobbox.py bootsplash.py; do in
 install -m 644 "$INST/app-mod/dlzmod.js" "$pkg/mod/app-mod/"
 install -m 644 "$INST/server-mod/dlzmod-server.js" "$pkg/mod/server-mod/"
 cp -r "$INST/sd-system" "$pkg/mod/sd-system"
+# fixed modes, not the source's (a tree on /mnt/d shows every file as 755, a Linux clone git's): the
+# same package from the same commit anywhere; apply-mod.sh places each file with its own mode
+find "$pkg/mod/sd-system" -type d -exec chmod 755 {} + -o -type f -exec chmod 644 {} +
 mkdir "$pkg/mod/keys"
 for k in release release2; do tr -d '\r' < "$INST/keys/$k.pub" > "$pkg/mod/keys/$k.pub"; done
 tr -d '\r' < "$DEVPUB" > "$pkg/mod/keys/dev.pub"

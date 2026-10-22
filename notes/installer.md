@@ -190,8 +190,9 @@ The installer image (`mkinstaller.sh`): Debian U-Boot at 8 KiB, MBR, a 64 MiB FA
 and the package directory. Pinned downloads (`vendor.sh`, sha256 as in Debian's Packages index):
 `u-boot-sunxi` 2025.01-3+deb13u1 (Banana Pi M2 Ultra build: same R40 and DRAM setup) and
 `busybox-static` 1.37.0-6+b9. Reproducible with `SOURCE_DATE_EPOCH` (default: the last commit time):
-the package `.tar` is byte-identical across builds; the image's FAT entries carry the build time, so
-each release publishes the image's sha256. `RELEASE=1` refuses a tree with changes; the image takes
+the package `.tar` and the image are byte-identical across builds of the same commit, from a Linux
+clone or from the tree on `/mnt/d` (`mkpackage.sh` sets the copied files' modes, `fat-fixtimes.py`
+the FAT's file times), with the same tool versions (updates.md "Built where"). `RELEASE=1` refuses a tree with changes; the image takes
 its boot route (`boot.txt`, `mkscr`/`mkenv`/`mksdimg`, the safe U-Boot) from the tree at image time,
 so `mkinstaller.sh` builds a release package's image only from a clean tree at the package's
 `COMMIT`.
