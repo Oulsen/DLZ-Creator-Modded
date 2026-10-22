@@ -145,9 +145,10 @@ rehearsal: `tests/update.sh` case 3a]:
   fsync: the next thing the user does is cut the power) and answers "Ready to install vX.Y.Z. Switch
   the mixer off and on."; the update installs while the logo shows (about 12 s in all, of
   which 4 s checks [device]), then the popup below says how it went.
-- **Off and on, not a restart from software**: software restarts on the mod card often hang at the
-  next start (#81, `notes/components/glesgui.md`), so the screen asks for the switch, as
-  `dev/push.sh` does (#87).
+- **Off and on, not a restart from software**: before #140, software restarts on the mod card often
+  hung at the next start (#81, `notes/components/glesgui.md`; 10 of 10 went through since), so the
+  screen asks for the switch, as `dev/push.sh` does (#87); the switch also resets the parts a
+  software restart leaves powered.
 - The updater installs only when `approved` holds the record of the file it has just checked: a file
   replaced or changed after Install (another tar or another `.sig`) is asked about again. The approval
   is used up once the snapshot and progress marker are written; a fail before that removes it too,
