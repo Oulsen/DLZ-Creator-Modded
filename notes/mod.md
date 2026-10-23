@@ -108,7 +108,7 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
 
 ## Mod settings (Settings → DLZ Creator Modded)
 
-Sub-tabs Display / Network / Remote / Mod; layout and how to add a setting:
+Sub-tabs Display / Colours / Network / Remote / Mod; layout and how to add a setting:
 [modding-guide.md](modding-guide.md), "Mod settings". Every default on these tabs equals stock.
 
 - **Hide header** (#31): more room; also hides the toasts, the red pad indicators and "DEMO MODE".
@@ -125,11 +125,42 @@ Sub-tabs Display / Network / Remote / Mod; layout and how to add a setting:
   at the stops of `Color.vuGrad`, dB notches on every strip meter and numbers beside LR (painted by
   wrapping the LR fader's `paint`); off = Mackie's plain meters. The scale is dB-linear over 80 dB with
   0 dBFS at the top [device: test tones at -6 and -30 dBFS].
+- **Colours** (#21): see "Themes and colours" below.
 - **Network** (#12, #44): Wi-Fi and SSH, below.
 - **Remote Control** (#45, #48): control from a computer's web browser, off by default; below (phones
   and tablets: Mackie's web UI does not fit them and misses touches, #52).
 - **Mod**: version, update status (an update waiting on the card, with "Install Update..." on the
   mixer's own screen, #65), credits.
+
+## Themes and colours (#21)
+
+Settings → DLZ Creator Modded → Colours: a theme (Mackie, High contrast), a background (4 dark ones)
+and one colour for the faders' knobs, the meters and what is selected (8, Mackie's channel colours
+with more colour in them; no red: on a mixer red is a clip). Keys `dlzmod.theme`, `dlzmod.bgColor`,
+`dlzmod.faderColor`, 0 = stock; the numbers are saved, so the lists only grow at the end. The tab
+shows the choice in a preview; Apply saves all three and restarts the screen once.
+
+- **How** [static + sandbox]: Mackie's palette is one object, `Color` (100 names, 1223 uses), but
+  widgets copy their colours when they are made, so a theme is set before `startGUI` builds the
+  pages (patch.py) and a change restarts the screen (`restartApp`, as Mackie's language choice:
+  `systemctl restart evolve-app` on the mixer, a page reload in a browser). Not sooner than 15 s
+  after the app started: 5 restarts within 10 s hit systemd's start limit (dark screen until a power
+  cycle). Colours written into the code outside the palette (~460 places, 226 values: greys for
+  text, tracks, strip panels, knobs) are swapped where every colour is set for drawing: on the mixer
+  in `wrapObject`'s property setters (every drawing call to glesgui passes there), in a browser on
+  the canvas. Found per page with a probe in the sandbox that records each colour drawn outside the
+  palette and the code that drew it. The FX pages' light panels keep theirs (already dark on light).
+- **High contrast**: black behind everything, white text, grey lines, buttons a step above the black
+  with an outline (Mackie's own `Button` border, patched on in `paintBody`), selection in a strong
+  yellow, meters a lighter green.
+- **The Mod page** follows the chosen colour for its switches, choices and tabs; the mod's name, the
+  line on its panels and status texts stay the mod's yellow.
+- **Knob LEDs stay Mackie's**: the knob rings' colours (`K.N.color`, to the fader board) are
+  `Color` values; a themed one goes out as the stock colour it replaces (`DLZMOD_ledColor`). A
+  themed value that is also one of Mackie's own (an aux in yellow) is moved one step in blue, so it
+  can be told apart. Pad colours come from their own list and are not themed.
+- **Only from the mixer's screen**: the server refuses the three keys from other devices (a change
+  restarts the screen); a browser shows the tab without Apply.
 
 ## Network panel: Wi-Fi and SSH
 

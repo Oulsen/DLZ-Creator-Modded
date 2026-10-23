@@ -11,7 +11,7 @@ const path = require("path");
 const vm = require("vm");
 
 const ui = { buttons: [], popups: [], toasts: [], links: [], fetches: [], cmds: [], windows: [], progress: [],
-  widgets: [], inputs: [], titles: [], destroyed: [], pickers: [], attached: [] };
+  widgets: [], inputs: [], titles: [], destroyed: [], pickers: [], attached: [], restarts: [], sets: [] };
 const regs = {};   // Data.regWidget: key -> callbacks
 // Mackie's Widget: the parameters become properties, then _constructor runs
 function Widget(parent, p) {
@@ -64,7 +64,9 @@ const ctx = vm.createContext({
   EXTERNAL: false, app: undefined,
   Widget, PopupWindow,
   E1Button: kind((b) => ui.buttons.push(b)),
-  ToggleButton: kind(), Switcher: kind(), SwitchBox: kind(),
+  ToggleButton: kind(), Switcher: kind(), SwitchBox: kind(), Button: kind(),
+  Util: { hex2rgba: (c, a) => c + "@" + a },
+  restartApp: () => ui.restarts.push(Date.now()),
   PopupShowProgress: function (parent, p) {
     Object.assign(this, p);
     this.close = () => (this.closed = true);
@@ -88,6 +90,10 @@ const ctx = vm.createContext({
       return this.data[k];
     },
     regWidget: (k, f) => (regs[k] = regs[k] || []).push(f),
+    set(k, v) {
+      ui.sets.push([k, v]);
+      this.data[k] = v;
+    },
   },
   $NET: { cmd: (c, a) => ui.cmds.push([c, plain(a)]) },
   deconvertVU: (c) => c / 100,
@@ -488,22 +494,22 @@ test("header: hidden or shown at once, but not on full-screen pages; saved setti
   settings({ "dlzmod.hideHeader": 1 });
   ctx.DLZMOD_initKeys();
   assert.deepStrictEqual(ctx.Data.data, { "dlzmod.hideHeader": 1, "dlzmod.meterMode": 0, "dlzmod.preColor": 0,
-    "dlzmod.preLevel": 0, "dlzmod.meterMarks": 0 });
+    "dlzmod.preLevel": 0, "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0 });
 });
 
 // The Mod page (Settings, DLZ Creator Modded): its tabs and what they show
 const settingsPage = () => ctx.DLZMOD_settingsPage({}, 0);
-test("Mod page: Display, Network, Remote and Mod on the mixer; only Display and Mod in a browser", () => {
+test("Mod page: Display, Colours, Network, Remote and Mod on the mixer; Display, Colours and Mod in a browser", () => {
   reset();
   settings();
-  assert.deepStrictEqual(plain(settingsPage().tabs.map((t) => t.text)), ["Display", "Network", "Remote", "Mod"]);
+  assert.deepStrictEqual(plain(settingsPage().tabs.map((t) => t.text)), ["Display", "Colours", "Network", "Remote", "Mod"]);
   ctx.EXTERNAL = true;
   try {
     const web = settingsPage();
-    assert.deepStrictEqual(plain(web.tabs.map((t) => t.text)), ["Display", "Mod"]);
-    web.tabs[1].onToggleON();
-    assert.strictEqual(web.sub, 3, "its second tab is Mod");
-    assert.deepStrictEqual(plain(web.tabs.map((t) => t.getVal())), [false, true]);
+    assert.deepStrictEqual(plain(web.tabs.map((t) => t.text)), ["Display", "Colours", "Mod"]);
+    web.tabs[2].onToggleON();
+    assert.strictEqual(web.sub, 4, "its third tab is Mod");
+    assert.deepStrictEqual(plain(web.tabs.map((t) => t.getVal())), [false, false, true]);
   } finally {
     ctx.EXTERNAL = false;
   }
@@ -512,18 +518,18 @@ test("Mod page: a tab shows its own panels; Network and Remote ask for the statu
   reset();
   settings();
   const pg = settingsPage();
-  const shown = () => ["screen", "meters", "network", "pair", "about"].filter((k) => pg[k].visible);
+  const shown = () => ["screen", "meters", "colours", "network", "pair", "about"].filter((k) => pg[k].visible);
   assert.deepStrictEqual(shown(), ["screen", "meters"], "Display first");
   assert.deepStrictEqual(ui.cmds, []);
-  for (const [i, panels] of [[1, ["network"]], [2, ["pair"]], [3, ["about"]], [0, ["screen", "meters"]]]) {
+  for (const [i, panels] of [[1, ["colours"]], [2, ["network"]], [3, ["pair"]], [4, ["about"]], [0, ["screen", "meters"]]]) {
     ui.cmds.length = 0;
     pg.tabs[i].onToggleON();
     assert.deepStrictEqual(shown(), panels, "tab " + i);
-    assert.deepStrictEqual(ui.cmds, i === 1 || i === 2 ? [["DLZMOD_NET", { op: "status" }]] : [], "tab " + i);
+    assert.deepStrictEqual(ui.cmds, i === 2 || i === 3 ? [["DLZMOD_NET", { op: "status" }]] : [], "tab " + i);
   }
-  pg.tabs[2].onToggleON();
-  pg.pair.revealPin(true);
   pg.tabs[3].onToggleON();
+  pg.pair.revealPin(true);
+  pg.tabs[4].onToggleON();
   assert.strictEqual(pg.pair.shown, false, "leaving Remote: the PIN hidden again");
   pg.pair.revealPin(true);
   ui.cmds.length = 0;
@@ -602,13 +608,13 @@ test("PIN pad: a PIN set shows on the Remote panel instead of a popup; elsewhere
   const pg = settingsPage();
   ctx.app = { pageSettings: { dlzmod: pg } };
   try {
-    pg.tabs[2].onToggleON();
+    pg.tabs[3].onToggleON();
     ctx.DLZMOD_netResult({ ok: true, quiet: true, text: "PIN set" });
     assert.deepStrictEqual(ui.popups, []);
     assert.strictEqual(pg.pair.shown, true, "the new PIN shown");
     ctx.DLZMOD_netResult({ ok: false, quiet: true, text: "Too easy to guess" });
     assert.deepStrictEqual([ui.popups[0].text, ui.popups[0].opts.textColor], ["Too easy to guess", "red2"]);
-    pg.tabs[3].onToggleON();
+    pg.tabs[4].onToggleON();
     ctx.DLZMOD_netResult({ ok: true, quiet: true, text: "PIN set" });
     assert.deepStrictEqual([ui.popups[1].text, ui.popups[1].opts.textColor], ["PIN set", "green"]);
   } finally {
@@ -865,7 +871,7 @@ test("Network: which Wi-Fi and SSH controls work in which state", () => {
   reset();
   settings();
   const pg = settingsPage();
-  pg.tabs[1].onToggleON();
+  pg.tabs[2].onToggleON();
   const { wifi, ssh } = pg.network;
   const base = { stick: true, wifi: "connected", ssh: false, sshKeep: false, sshBusy: "" };
   try {
@@ -891,7 +897,7 @@ test("Remote Control: which controls work in which state; Show PIN says Hide PIN
   reset();
   settings();
   const pg = settingsPage();
-  pg.tabs[2].onToggleON();
+  pg.tabs[3].onToggleON();
   const pair = pg.pair;
   try {
     // [switch, its position, Forget All Devices, Random PIN, Own PIN, Show PIN]
@@ -920,7 +926,7 @@ test("Network: an SSH change counts as running at once, until its outcome; anoth
   reset();
   settings();
   const pg = settingsPage();
-  pg.tabs[1].onToggleON();
+  pg.tabs[2].onToggleON();
   ui.cmds.length = 0;   // the tab's status request
   const ssh = pg.network.ssh;
   const s = { stick: true, wifi: "connected", ssh: true, sshKeep: false, sshBusy: "" };
@@ -1320,13 +1326,13 @@ test("Mod page: the Network and Remote status every 3 s, only while one of them 
   }
   const poll = f.intervals[0];
   assert.strictEqual(poll.ms, 3000);
-  for (const [tab, asks] of [[0, false], [1, true], [2, true], [3, false]]) {
+  for (const [tab, asks] of [[0, false], [1, false], [2, true], [3, true], [4, false]]) {
     pg.tabs[tab].onToggleON();
     ui.cmds.length = 0;
     poll.fn();
     assert.deepStrictEqual(ui.cmds, asks ? [["DLZMOD_NET", { op: "status" }]] : [], "tab " + tab);
   }
-  pg.tabs[1].onToggleON();
+  pg.tabs[2].onToggleON();
   pg.visible = false;
   ui.cmds.length = 0;
   poll.fn();
@@ -1375,6 +1381,180 @@ test("update popups: a new status repaints the Mod tab only while the page is on
   } finally {
     ctx.app = undefined;
     ctx.DLZMOD_setUpdateStatus(null);
+  }
+});
+
+// #21: themes and the owner's colours. Applied as at a start (startGUI, patched), then Mackie's
+// palette and the mod's theme state put back for the other tests.
+const MACKIE = { main: "#9CCC56", green: "#9CCC56", yellow: "#ffc909", red: "#ee3524", white: "#f9f9f9",
+  black: "#000000", bg: "#000000", text: "#c2c2c2", buttonBg: "#303030", vuBg: "#393939", transparent: "transparent",
+  purple: "#854d9e", orange: "#f9a42b", blue: "#64cbe5",
+  channel: [null, "#ea1a5b", "#ffcc00"], vuGrad: [[0, "#9CCC56"], [0.85, "#ffc909"], [0.95, "#ee3524"]] };
+const withTheme = (sel, fn) => {
+  const keep = ctx.Color, f = ctx.DLZMOD_applyTheme;
+  ctx.Color = JSON.parse(JSON.stringify(MACKIE));
+  settings({ "dlzmod.theme": sel[0], "dlzmod.bgColor": sel[1], "dlzmod.faderColor": sel[2] });
+  const done = () => {
+    ctx.Color = keep;
+    for (const k of ["stock", "look", "key", "led", "started"]) delete f[k];
+    ctx.DLZMOD_drawColor.map = null;
+    ctx.DLZMOD_outline.colors = null;
+    ctx.DLZMOD_themeChanged.going = 0;
+  };
+  let r;
+  try {
+    ctx.DLZMOD_applyTheme();
+    r = fn(ctx.Color);
+  } catch (e) {
+    done();
+    throw e;
+  }
+  if (r && r.then) return r.finally(done);
+  done();
+  return r;
+};
+const button = (o) => Object.assign({ colors: ["#303030", "x"], bodyStyle: "custom", border: 0 }, o);
+test("theme: Mackie without colours of its own leaves the palette, the drawn colours and the buttons stock", () => {
+  reset();
+  withTheme([0, 0, 0], (c) => {
+    assert.deepStrictEqual(plain(c), Object.assign({}, MACKIE, { main75: "#9CCC56@0.75", main50: "#9CCC56@0.5",
+      main30: "#9CCC56@0.3", main10: "#9CCC56@0.1", samples: [MACKIE.purple, MACKIE.red, MACKIE.orange, MACKIE.blue,
+        MACKIE.yellow, MACKIE.green], knobs: [MACKIE.red, MACKIE.yellow, MACKIE.blue, MACKIE.purple, MACKIE.green] }));
+    assert.strictEqual(ctx.DLZMOD_drawColor("fillStyle", "#888888"), "#888888");
+    const b = button();
+    ctx.DLZMOD_outline(b);
+    assert.strictEqual(b.border, 0, "no outline");
+    assert.strictEqual(ctx.DLZMOD_ledColor(c.main), "#9CCC56");
+    assert.strictEqual(ctx.DLZMOD_accent(), ctx.DLZMOD_yellow(), "the Mod page in the mod's yellow");
+  });
+});
+test("theme: High contrast sets the palette it names, the grey colours written into the code, outlined buttons", () => {
+  reset();
+  withTheme([1, 0, 0], (c) => {
+    assert.deepStrictEqual([c.text, c.white, c.buttonBg, c.main50], ["#ffffff", "#ffffff", "#3a3a3a", "#ffcc00@0.5"]);
+    assert.strictEqual(c.main, "#ffcc01", "#ffcc00 is one of Mackie's (here) own colours: one step in blue");
+    assert.strictEqual(c.red, "#ff4a3d");
+    const draw = (v, prop = "fillStyle") => ctx.DLZMOD_drawColor(prop, v);
+    assert.deepStrictEqual([draw("#888888"), draw("#AAAAAA"), draw("#888888", "strokeStyle")], ["#ffffff", "#ffffff",
+      "#ffffff"], "Mackie's grey text white, also in capitals and for lines");
+    assert.deepStrictEqual([draw("#cccccc"), draw("#123456"), draw("#888888", "font"), draw(7)], ["#cccccc", "#123456",
+      "#888888", 7], "the FX panels, other colours and other properties as they are");
+    const b = button();
+    ctx.DLZMOD_outline(b);
+    assert.deepStrictEqual([b.border, plain(b.borderColors)], [2, ["#b0b0b0", "#ffcc00"]]);   // drawn only
+    for (const other of [button({ border: 1 }), button({ colors: ["transparent", "x"] }), button({ img0: {} }),
+      button({ bodyStyle: "matc" })]) {
+      const before = JSON.stringify(other);
+      ctx.DLZMOD_outline(other);
+      assert.strictEqual(JSON.stringify(other), before, "own border, no body, an image, Mackie's other styles: as is");
+    }
+  });
+});
+test("theme: an own background and colour on top of the theme; warnings at the top of the meters stay", () => {
+  reset();
+  withTheme([1, 3, 6], (c) => {
+    assert.strictEqual(c.bg, "#111820");
+    assert.strictEqual(ctx.DLZMOD_drawColor("fillStyle", "#1a1a1a"), "#111820", "the stereo strips' own panels too");
+    assert.deepStrictEqual([c.green, c.main], ["#5ce0ff", "#5ce0ff"], "Light blue, High contrast's lighter one");
+    assert.deepStrictEqual(plain(c.vuGrad).map((s) => s[1]), ["#5ce0ff", "#5ce0ff", "#5ce0ff", "#ffde2e", "#ffde2e",
+      "#ff4a3d"]);
+    assert.deepStrictEqual([ctx.DLZMOD_ovColor("bg", "x"), ctx.DLZMOD_knobColor(c.white), ctx.DLZMOD_knobColor(undefined),
+      ctx.DLZMOD_knobColor("#ea1a5b")], ["#111820", "#5ce0ff", "#5ce0ff", "#ea1a5b"], "an aux's own knob colour stays");
+    assert.strictEqual(ctx.DLZMOD_accent(), "#5ce0ff", "the Mod page's switches and tabs");
+    assert.strictEqual(ctx.DLZMOD_preColor(), "#5ce0ff", "the before-fader bar");
+  });
+  withTheme([0, 0, 6], (c) => assert.strictEqual(c.green, "#3fd0f5", "with Mackie: the stronger Mackie tone"));
+});
+test("theme: the knob rings get Mackie's colours, also where a themed colour is one Mackie uses itself", () => {
+  reset();
+  withTheme([1, 0, 2], (c) => {
+    assert.strictEqual(c.main, "#ffde2e");
+    assert.notStrictEqual(c.yellow, c.main, "Mackie's yellow and green told apart (one step in blue)");
+    ui.sets.length = 0;
+    for (const [k, v] of [["K.0.color", c.main], ["K.1.color", c.yellow], ["K.2.color", "#ea1a5b"], ["x.color", c.main]]) {
+      ctx.Data.set(k, v);
+    }
+    assert.deepStrictEqual(plain(ui.sets), [["K.0.color", "#9CCC56"], ["K.1.color", "#ffc909"], ["K.2.color", "#ea1a5b"],
+      ["x.color", c.main]]);
+  });
+  withTheme([0, 0, 2], (c) => {
+    assert.strictEqual(c.main, "#ffcc01", "Yellow is an aux colour of Mackie's: moved one step");
+    ui.sets.length = 0;
+    ctx.Data.set("K.0.color", c.main);
+    ctx.Data.set("K.3.color", "#ffcc00");
+    assert.deepStrictEqual(plain(ui.sets), [["K.0.color", "#9CCC56"], ["K.3.color", "#ffcc00"]], "the aux keeps its own");
+  });
+});
+test("theme: a theme that fails leaves Mackie's look, and another choice still restarts the screen", async () => {
+  reset();
+  const util = ctx.Util;
+  ctx.Util = {};   // hex2rgba missing: the theme fails halfway
+  try {
+    await withTheme([1, 1, 2], async (c) => {
+      assert.deepStrictEqual([c.main, c.text, c.bg], [MACKIE.main, MACKIE.text, MACKIE.bg]);
+      assert.strictEqual(ctx.DLZMOD_drawColor("fillStyle", "#888888"), "#888888");
+      ctx.DLZMOD_applyTheme.started = Date.now() - 20000;
+      ctx.Data.data["dlzmod.theme"] = 0;
+      ctx.DLZMOD_themeChanged();
+      await tick(5);
+      assert.strictEqual(ui.restarts.length, 1);
+    });
+  } finally {
+    ctx.Util = util;
+    ui.restarts.length = 0;
+  }
+});
+test("theme: a change restarts the screen once, not sooner than 15 s after the start; no change, no restart", async () => {
+  reset();
+  await withTheme([0, 0, 0], async () => {
+    ctx.DLZMOD_applyTheme.started = Date.now() - 20000;
+    ctx.DLZMOD_themeChanged();
+    await tick(5);
+    assert.deepStrictEqual(ui.restarts, [], "the same look");
+    ctx.Data.data["dlzmod.faderColor"] = 3;
+    ctx.DLZMOD_themeChanged();
+    ctx.DLZMOD_themeChanged();
+    await tick(5);
+    assert.strictEqual(ui.restarts.length, 1, "once");
+  });
+  ui.restarts.length = 0;
+  await withTheme([0, 0, 0], async () => {
+    ctx.Data.data["dlzmod.theme"] = 1;
+    ctx.DLZMOD_themeChanged();
+    await tick(20);
+    assert.deepStrictEqual(ui.restarts, [], "just started: it waits (systemd's start limit)");
+  });
+  settings({ "dlzmod.theme": 1 });
+  ctx.DLZMOD_themeChanged();
+  await tick(5);
+  assert.deepStrictEqual(ui.restarts, [], "before a start set a theme: nothing");
+});
+test("Colours tab: swatches change the preview only; Apply saves all three; reopening starts from what is saved", () => {
+  reset();
+  settings();
+  const pg = settingsPage().colours;
+  pg.faderBtns[3].onPress();
+  pg.bgBtns[2].onPress();
+  pg.themeBtns[1].onPress();
+  assert.deepStrictEqual(plain(pg.sel), { theme: 1, bg: 2, fader: 3 });
+  assert.deepStrictEqual(ui.sets, [], "nothing saved yet");
+  assert.deepStrictEqual([pg.faderBtns[3].chosen, pg.faderBtns[3].border, pg.faderBtns[0].chosen], [true, 5, false]);
+  assert.strictEqual(pg.apply.enabled, true);
+  pg.apply.onPress();
+  assert.deepStrictEqual(plain(ui.sets), [["dlzmod.theme", 1], ["dlzmod.bgColor", 2], ["dlzmod.faderColor", 3]]);
+  assert.strictEqual((pg.sync(), pg.apply.enabled), false, "saved: Apply off");
+  pg.faderBtns[5].onPress();
+  pg.reset();
+  assert.deepStrictEqual(plain(pg.sel), { theme: 1, bg: 2, fader: 3 }, "an unsaved pick is gone");
+  ctx.EXTERNAL = true;
+  try {
+    settings();
+    const web = settingsPage().colours;
+    web.faderBtns[3].onPress();
+    assert.deepStrictEqual(plain(web.sel), { theme: 0, bg: 0, fader: 0 }, "a browser cannot pick");
+    assert.strictEqual(web.apply.visible, false);
+  } finally {
+    ctx.EXTERNAL = false;
   }
 });
 

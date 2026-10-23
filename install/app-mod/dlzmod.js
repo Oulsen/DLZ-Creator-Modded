@@ -2,8 +2,18 @@
 // Only function declarations here: they are hoisted, so the patched Mackie code can call them
 // even when the UI is built before this part of the script has run.
 
+// the mod's own colour: its name, the line on its panels, status texts (#21: in every theme)
 function DLZMOD_yellow() {
   return "#FFD600";
+}
+
+// what the Mod page shows on or selected (switches, choices, its tabs): the mod's yellow, or the
+// owner's accent colour like Mackie's pages (#21). With a look (the Colours tab's preview): that
+// look's colour, its theme's selection colour, or Mackie's green.
+function DLZMOD_accent(look) {
+  if (look) return look.fader || (look.colors && look.colors.main) || "#9CCC56";
+  const now = typeof DLZMOD_applyTheme !== "undefined" && DLZMOD_applyTheme.look;
+  return (now && now.fader) || DLZMOD_yellow();
 }
 
 // Filled in from the repo's VERSION file by patch.py
@@ -40,7 +50,244 @@ function DLZMOD_layoutTabs(page) {
 // and works like stock until a setting is changed.
 function DLZMOD_keys() {
   return { "dlzmod.hideHeader": 0, "dlzmod.meterMode": 0, "dlzmod.preColor": 0, "dlzmod.preLevel": 0,
-    "dlzmod.meterMarks": 0 };
+    "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0 };
+}
+
+// The owner's own colours on top of the theme (#21): the background, and an accent colour for the
+// faders' knobs, the meters and what is shown selected (tabs, the channel; on the Mod page
+// DLZMOD_accent). Index 0 keeps the theme's; the rest are what dlzmod.bgColor / dlzmod.faderColor save, so
+// only ever add to the end. All dark backgrounds: the text stays white or Mackie's light grey. The
+// fader colours differ from every theme's palette values (DLZMOD_ledColor tells them apart).
+function DLZMOD_bgColors() {
+  return [null, ["Black", "#000000"], ["Dark grey", "#141414"], ["Blue grey", "#111820"], ["Green grey", "#121a14"]];
+}
+
+// Mackie's channel colours (Color.channel) with more colour in them, lighter with High contrast; no red: on a
+// mixer red is a clip or a warning
+function DLZMOD_faderColors() {
+  return [null, ["White", "#f9f9f9", "#ffffff"], ["Yellow", "#ffcc00", "#ffde2e"], ["Orange", "#ff9a1f", "#ffaa33"],
+    ["Green", "#8ee03a", "#a6f04d"], ["Teal", "#3ed9a0", "#5cf0b8"], ["Light blue", "#3fd0f5", "#5ce0ff"],
+    ["Blue", "#1a9fff", "#4db2ff"], ["Purple", "#b36ae0", "#c98af0"]];
+}
+
+// a swatch's colour in a theme: the lighter one with High contrast
+function DLZMOD_faderTone(c, themeId) {
+  return c && (themeId === 1 ? c[2] : c[1]);
+}
+
+// the theme with the owner's colours put in: the palette keys and drawn colours they replace
+function DLZMOD_look(sel = DLZMOD_lookSel()) {
+  const th = DLZMOD_theme(sel.theme);
+  const colors = Object.assign({}, th.colors), literals = Object.assign({}, th.literals);
+  const bg = DLZMOD_bgColors()[sel.bg];
+  if (bg) {
+    for (const k of ["bg", "bgOld", "bgDark", "bgDark2", "bgList", "stripBg", "stripNameBg", "subNavButtonBg"]) colors[k] = bg[1];
+    // the stereo strips' and LR's own darker panels
+    for (const k of ["#1a1a1a", "#171e0d", "#191919"]) literals[k] = bg[1];
+  }
+  const fader = DLZMOD_faderColors()[sel.fader];
+  let outline = th.outline;
+  const tone = DLZMOD_faderTone(fader, th.id);
+  if (fader) {
+    const c = tone, g = colors.vuGrad || Color.vuGrad;
+    colors.green = colors.vuPeak = c;
+    // the warning colours at the top of the meter stay
+    colors.vuGrad = g.map(([at, col]) => [at, at < 0.8 ? c : col]);
+    for (const k of ["main", "menuBgActive", "subNavButtonBgActive", "bankButtonsActive", "stripNameBgSelected"]) colors[k] = c;
+    if (outline) outline = [outline[0], c];
+  }
+  return { id: th.id, colors, literals, outline, bg: bg && bg[1], fader: fader ? tone : null };
+}
+
+// Themes (#21): each changes only the colours of Mackie's palette (Color) it names, the rest stays
+// Mackie's. `literals`: colours written into Mackie's code (and ours) outside the palette, swapped
+// where every colour is set for drawing (DLZMOD_drawColor); the FX pages' light panels keep theirs
+// (#333, #cccccc, #eee, #232323: not listed). `outline`: Mackie's buttons get its border (white, the
+// selected one yellow). The id is what dlzmod.theme saves: never reuse one. Pad and knob LEDs are
+// not themed (DLZMOD_ledColor).
+function DLZMOD_themes() {
+  const white = "#ffffff", line = "#8a8a8a", track = "#707070", yellow = "#ffcc00";
+  return [
+    { id: 0, name: "Mackie", colors: {}, literals: {} },
+    { id: 1, name: "High contrast", outline: ["#b0b0b0", yellow], literals: {
+      // grey text and marks white
+      "#888888": white, "#888": white, "#8c8c8c": white, "#999999": white, "#aaaaaa": white, "#bbb": white,
+      "#c8c8c8": white, "#d0d0d0": white, "#efefef": white, "#464646": "#bdbdbd",
+      // tracks, marks, disabled icons and the pads' dots a light grey; lines lighter
+      "#303030": track, "#393939": track, "#404040": track, "#666666": line, "#363635": line,
+      // dark panels black; knobs black in a light ring
+      "#1a1a1a": "#000000", "#171e0d": "#000000", "#191919": "#000000", "#181818": "#1e1e1e",
+      "#111": "#000000", "#090909": "#bdbdbd",
+      // the little arrows on lists and the side panel
+      "rgba(255,255,255,0.16)": "rgba(255,255,255,0.7)", "rgba(255,255,255,0.30)": "rgba(255,255,255,0.85)",
+      "rgba(255,255,255,0.33)": "rgba(255,255,255,0.85)",
+    }, colors: {
+      // black behind everything, white text, light lines between areas
+      bg: "#000000", bgOld: "#000000", bgDark: "#000000", bgDark2: "#000000", bgList: "#000000",
+      bgPopup: "#111111", stripBg: "#000000", stripNameBg: "#000000", subNavButtonBg: "#000000",
+      white: white, text: white, gray: "#f2f2f2", gray69: "#bdbdbd", stripNameText: white, menuText: white,
+      editPageLabels: white, subNavButtonText: white, buttonTextPopup: white, panelText: white, graphMarks: white,
+      white15: "rgba(255,255,255,0.4)", white30: "rgba(255,255,255,0.55)", white60: "rgba(255,255,255,0.8)",
+      bgSeparator: line, stripBorder: line, graphBorders: line, subNavButtonSeparator: line, menuSeparator: line,
+      // buttons a clear step above the black, selected in the mod's yellow (black text on it)
+      buttonBg: "#3a3a3a", buttonBgPopup: "#3a3a3a", buttonBgDark: "#2a2a2a", menuBg: "#3a3a3a",
+      bankButtons: "#3a3a3a", knobOff: "#4a4a4a", panelValueBg: "#2a2a2a", vuBg: "#2a2a2a", vuBgEdit: "#2a2a2a",
+      main: yellow, menuBgActive: yellow, subNavButtonBgActive: yellow, bankButtonsActive: yellow,
+      stripNameBgSelected: yellow,
+      // meters and warnings: Mackie's colours, a little lighter
+      green: "#a6f04d", vuPeak: "#a6f04d", red: "#ff4a3d", clip: "#ff4a3d", yellow: "#ffde2e",
+      confirm: "#3d7a2e", deny: "#b3261e",
+      vuGrad: [[0, "#a6f04d"], [0.35, "#a6f04d"], [0.6, "#a6f04d"], [0.85, "#ffde2e"], [0.9, "#ffde2e"], [0.95, "#ff4a3d"]],
+    } },
+  ];
+}
+
+function DLZMOD_theme(id = Data.data["dlzmod.theme"] ?? 0) {
+  return DLZMOD_themes().find((t) => t.id === id) || DLZMOD_themes()[0];
+}
+
+// the saved theme and own colours
+function DLZMOD_lookSel() {
+  return { theme: Data.data["dlzmod.theme"] ?? 0, bg: Data.data["dlzmod.bgColor"] ?? 0,
+    fader: Data.data["dlzmod.faderColor"] ?? 0 };
+}
+
+// Before startGUI builds the pages (patch.py): widgets copy their colours when they are made, so a
+// theme is set once per start, and a change restarts the screen (DLZMOD_themeChanged). From a copy
+// of Mackie's palette each time: startGUI runs again after the first language choice.
+// A theme that fails is no reason for a screen that does not start: Mackie's look, as a stock start.
+function DLZMOD_applyTheme() {
+  try {
+    DLZMOD_setTheme();
+  } catch (e) {
+    console.log("dlzmod: theme not set: " + e);
+    const f = DLZMOD_applyTheme;
+    if (f.stock) Object.assign(Color, JSON.parse(JSON.stringify(f.stock)));
+    f.look = null;
+    f.led = {};
+    f.key = DLZMOD_lookKey();   // another choice still restarts the screen
+    if (!f.started) f.started = Date.now();
+    DLZMOD_drawColor.map = null;
+    DLZMOD_outline.colors = null;
+  }
+}
+
+function DLZMOD_setTheme() {
+  const f = DLZMOD_applyTheme;
+  if (!f.stock) f.stock = JSON.parse(JSON.stringify(Color));
+  const th = DLZMOD_look();
+  Object.assign(Color, JSON.parse(JSON.stringify(f.stock)), JSON.parse(JSON.stringify(th.colors)));
+  // what Mackie derives from the palette right after it
+  for (const p of [75, 50, 30, 10]) Color["main" + p] = Util.hex2rgba(Color.main, p / 100);
+  Color.samples = [Color.purple, Color.red, Color.orange, Color.blue, Color.yellow, Color.green];
+  Color.knobs = [Color.red, Color.yellow, Color.blue, Color.purple, Color.green];
+  f.id = th.id;
+  f.look = th;
+  f.key = DLZMOD_lookKey();
+  if (!f.started) f.started = Date.now();
+  // Mackie writes some in capitals ("#AAAAAA"): both spellings
+  const lit = {};
+  for (const [k, v] of Object.entries(th.literals || {})) lit[k] = lit[k.toUpperCase()] = v;
+  DLZMOD_drawColor.map = Object.keys(lit).length ? lit : null;
+  DLZMOD_outline.colors = th.outline || null;
+  // in a browser Mackie draws on the canvas itself; the mixer's screen gets the drawing through
+  // wrapObject's setters (patch.py)
+  if (DLZMOD_drawColor.map && !f.canvas && typeof CanvasRenderingContext2D !== "undefined" &&
+    !(typeof $CFG !== "undefined" && $CFG.ctxPipeline)) {
+    f.canvas = 1;
+    const P = CanvasRenderingContext2D.prototype;
+    for (const prop of ["fillStyle", "strokeStyle"]) {
+      const d = Object.getOwnPropertyDescriptor(P, prop);
+      if (d && d.set) Object.defineProperty(P, prop, { configurable: true, get: d.get,
+        set(v) { d.set.call(this, DLZMOD_drawColor(prop, v)); } });
+    }
+  }
+  // the knob rings' colours (K.N.color, sent to the fader board) are Color values: a themed one goes
+  // out as the stock colour it stands for
+  // A themed value that is also one of Mackie's own (an aux in yellow) is moved one step in blue
+  // first, so it can be told apart; on screen the same colour.
+  f.led = {};
+  const own = new Set(JSON.stringify(f.stock).toLowerCase().match(/#[0-9a-f]{6}/g) || []);
+  for (const k of DLZMOD_ledKeys()) {
+    let v = th.colors[k];
+    if (typeof v !== "string" || !/^#[0-9a-f]{6}$/i.test(v)) continue;
+    v = v.toLowerCase();
+    while (own.has(v) || (v in f.led && f.led[v] !== f.stock[k])) {
+      const b = parseInt(v.substr(5, 2), 16);
+      v = v.substr(0, 5) + (b > 0 ? b - 1 : b + 1).toString(16).padStart(2, "0");
+    }
+    Color[k] = v;
+    f.led[v] = f.stock[k];
+  }
+  if (!f.wrapped && Object.keys(f.led).length) {
+    f.wrapped = 1;
+    const set = Data.set;
+    Data.set = function (k, v, ...rest) {
+      if (typeof k === "string" && k[0] === "K" && /^K\.\d+\.color$/.test(k)) v = DLZMOD_ledColor(v);
+      return set.call(this, k, v, ...rest);
+    };
+  }
+}
+
+// the palette colours Mackie gives the knob rings (control.color in app.js; the channel and aux
+// colours are lists, never themed). A theme gives each of these its own value, or the stock one could
+// not be told back (test-dlzmod.js checks)
+function DLZMOD_ledKeys() {
+  return ["main", "red", "yellow", "blue", "azure", "gray", "eq", "gate", "comp", "ds", "reverb", "delay",
+    "purple", "green"];
+}
+
+function DLZMOD_ledColor(v) {
+  const led = DLZMOD_applyTheme.led || {};
+  return typeof v === "string" && Object.prototype.hasOwnProperty.call(led, v) ? led[v] : v;
+}
+
+// the Overview's own colours where Mackie writes them into the code (patch.py): its background
+// (Color.black, which also colours text on light buttons) and the faders' knobs
+function DLZMOD_ovColor(role, c) {
+  const look = DLZMOD_applyTheme.look;
+  return (look && look[role]) || c;
+}
+
+// a strip fader's knob: the owner's fader colour where Mackie's is white (an aux mix's own colour stays)
+function DLZMOD_knobColor(c) {
+  return !c || c === Color.white ? DLZMOD_ovColor("fader", Color.white) : c;
+}
+
+// a colour set for drawing (fillStyle, strokeStyle), as the theme set at the start has it; nothing
+// to look up with Mackie's look
+function DLZMOD_drawColor(prop, v) {
+  const lit = DLZMOD_drawColor.map;
+  if (!lit || typeof v !== "string" || (prop !== "fillStyle" && prop !== "strokeStyle")) return v;
+  return Object.prototype.hasOwnProperty.call(lit, v) ? lit[v] : v;
+}
+
+// Button.paintBody (patch.py): with a theme's outline, a filled button without a border of its own
+// gets one (Mackie's border: off colour, on colour)
+function DLZMOD_outline(b) {
+  const c = DLZMOD_outline.colors;
+  if (!c || b.border || b.bodyStyle !== "custom" || b.img0) return;
+  const fill = b.colors && b.colors[0];
+  if (!fill || fill === "transparent" || fill === Color.transparent) return;
+  b.border = 2;
+  b.borderColors = c;
+}
+
+// the theme and the owner's colours as one value, to see whether they changed since the start
+function DLZMOD_lookKey(sel = DLZMOD_lookSel()) {
+  return [sel.theme, sel.bg, sel.fader].join(",");
+}
+
+// dlzmod.theme or an own colour changed (only the mixer's own screen sets them, dlzmod-server.js):
+// this screen starts again in the new colours, like Mackie's language choice (restartApp:
+// "Restarting..."; a browser reloads its page). Once: the restart ends this app. Not sooner than
+// 15 s after this app started: evolve-app restarted 5 times within 10 s hits systemd's start limit
+// and leaves the screen dark until the mixer is switched off and on.
+function DLZMOD_themeChanged() {
+  const f = DLZMOD_themeChanged;
+  if (DLZMOD_applyTheme.key === undefined || DLZMOD_lookKey() === DLZMOD_applyTheme.key || f.going) return;
+  f.going = 1;
+  setTimeout(() => restartApp(), Math.max(0, DLZMOD_applyTheme.started + 15000 - Date.now()));
 }
 
 // "Meter marks" (Mod page): the mod's yellow and red zones, dB tick marks and the dB numbers beside
@@ -56,11 +303,20 @@ function DLZMOD_applyMeterMarks() {
 }
 
 // "Both": the "before the fader" bar's look (Mod page): colour green or grey, strong or soft over the
-// meter background. Green is the strip's own Color.green. Strengths per colour, compared in the
+// meter background. Green is the strip's own Color.green (a theme's or the owner's fader colour, #21).
+// Strengths per colour, compared in the
 // sandbox: green still shows on the empty track at 15 % and blurs into the bright bar above 50 %;
 // grey vanishes into the track below 25 % and stays apart from the green bar at 60 %.
 function DLZMOD_preColor() {
-  return ["#9CCC56", "#D0D0D0"][Data.data["dlzmod.preColor"] | 0] || "#9CCC56";
+  const green = DLZMOD_lookColor("green", "#9CCC56");
+  return [green, "#D0D0D0"][Data.data["dlzmod.preColor"] | 0] || green;
+}
+
+// a palette colour the theme set at the start replaced (a #rrggbb), else Mackie's
+function DLZMOD_lookColor(k, c) {
+  const look = DLZMOD_applyTheme.look;
+  const v = look && look.colors[k];
+  return typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v) ? v : c;
 }
 
 function DLZMOD_preAlpha() {
@@ -104,9 +360,13 @@ function DLZMOD_vuSet(m, gain, idx, post, pre, strip) {
 // a colour at strength a over Mackie's meter background (#393939): the "before the fader" bar
 function DLZMOD_dim(hex, a) {
   const c = DLZMOD_dim.cache || (DLZMOD_dim.cache = {});
-  const k = hex + a;
+  const k = hex + a + DLZMOD_lookColor("vuBg", "");
   if (!c[k]) {
-    const mix = (i) => Math.round(0x39 + (parseInt(hex.substr(i, 2), 16) - 0x39) * a).toString(16).padStart(2, "0");
+    const bg = DLZMOD_lookColor("vuBg", "#393939");
+    const mix = (i) => {
+      const b = parseInt(bg.substr(i, 2), 16);
+      return Math.round(b + (parseInt(hex.substr(i, 2), 16) - b) * a).toString(16).padStart(2, "0");
+    };
     c[k] = "#" + mix(1) + mix(3) + mix(5);
   }
   return c[k];
@@ -425,8 +685,8 @@ function DLZMOD_hookPopups() {
 // Mod page under Settings, after About. Unlike Mackie's pages (829 x 392 with wide margins) it fills
 // the Settings area with 12 px margins: on the device the knob panel leaves Settings 938 px, and with
 // the header shown 464 px below the tab bar (measured in the sandbox), so 914 x 440. Sub-tabs in the
-// style of Settings' own tab bar sit above one of three pages of panels: Display (Screen + Meters),
-// Network, Mod. Laid out for the header shown; with it hidden Mackie's centring (anchors) splits the
+// style of Settings' own tab bar sit above one of five pages of panels: Display (Screen + Meters),
+// Colours, Network, Remote, Mod. Laid out for the header shown; with it hidden Mackie's centring (anchors) splits the
 // extra 30 px above and below. glesgui only has Proxima Nova Light/Regular/Semibold: use font weights
 // 300-600.
 function DLZMOD_settingsPage(parent, y) {
@@ -434,6 +694,7 @@ function DLZMOD_settingsPage(parent, y) {
   DLZMOD_hookPopups();
   Data.regWidget("dlzmod.hideHeader", DLZMOD_applyHeader);   // also when changed from a browser
   Data.regWidget("dlzmod.meterMarks", DLZMOD_applyMeterMarks);
+  for (const k of ["dlzmod.theme", "dlzmod.bgColor", "dlzmod.faderColor"]) Data.regWidget(k, DLZMOD_themeChanged);
   const top = 44 + 8;   // sub-tabs (44) and a gap, then the panels
   return new Widget(parent, {
     anchors: [0, y, null, null, !0, !0],
@@ -444,20 +705,21 @@ function DLZMOD_settingsPage(parent, y) {
       this.sub = 0;
       // in a browser no Network and Remote: only the mixer's own screen changes those (the server
       // refuses them from other devices)
-      const names = ["Display", "Network", "Remote", "Mod"];
-      const shown = DLZMOD_external() ? [0, 3] : [0, 1, 2, 3];
+      const names = ["Display", "Colours", "Network", "Remote", "Mod"];
+      const shown = DLZMOD_external() ? [0, 1, 4] : [0, 1, 2, 3, 4];
       this.tabs = shown.map((i, k) => new ToggleButton(this, {
-        anchors: [k * 202, 0], w: 200, h: 44, text: names[i], opaque: !1,
-        colors: [Color.buttonBg, DLZMOD_yellow()], textColor: Color.subNavButtonText, textColorON: Color.black,
+        anchors: [k * 180, 0], w: 178, h: 44, text: names[i], opaque: !1,
+        colors: [Color.buttonBg, DLZMOD_accent()], textColor: Color.subNavButtonText, textColorON: Color.black,
         textStyle: { align: "left", valign: "middle", x: 7, y: 23, offsetX: 0, offsetY: 0, font: Font.font(600, "18px") },
         onToggleON: () => this.setSub(i), getVal: () => this.sub === i,
       }));
       this.screen = DLZMOD_screenPanel(this, 0, top, 290);
       this.meters = DLZMOD_metersPanel(this, 290 + 12, top, 914 - 290 - 12);
+      this.colours = DLZMOD_coloursPanel(this, 0, top, 914);
       this.network = DLZMOD_networkPanel(this, 0, top, 914);
       this.pair = DLZMOD_pairPanel(this, 0, top, 914);
       this.about = DLZMOD_aboutPanel(this, 0, top, 914);
-      this.groups = [[this.screen, this.meters], [this.network], [this.pair], [this.about]];
+      this.groups = [[this.screen, this.meters], [this.colours], [this.network], [this.pair], [this.about]];
       this.setSub(0);
       // the Network and Remote Control panels' status, every 3 s while one is on screen (the PIN
       // changes after each pairing)
@@ -468,7 +730,8 @@ function DLZMOD_settingsPage(parent, y) {
       this.sub = i;
       if (this.pair) this.pair.revealPin(!1);   // leaving or opening Remote Control hides the PIN
       this.groups.forEach((g, j) => g.forEach((p) => p.setVisible(j === i)));
-      if (i === 1 || i === 2) $NET.cmd("DLZMOD_NET", { op: "status" });
+      if (i === 2 || i === 3) $NET.cmd("DLZMOD_NET", { op: "status" });
+      if (i === 1 && this.colours) this.colours.reset();
       this.update();
     },
     onShow: function () {
@@ -501,7 +764,7 @@ function DLZMOD_paintPanel(w, t, title, color, font) {
 function DLZMOD_switch(parent, w, y, key, apply) {
   return new Switcher(parent, {
     anchors: [w - 24 - 72, y], size: [72, 46], margin: 10,
-    bgColors: [Color.buttonBg, DLZMOD_yellow()], knobMargin: 0, key: key,
+    bgColors: [Color.buttonBg, DLZMOD_accent()], knobMargin: 0, key: key,
     onToggleON: apply, onToggleOFF: apply,
   });
 }
@@ -511,7 +774,7 @@ function DLZMOD_switch(parent, w, y, key, apply) {
 function DLZMOD_switchBox(parent, x, y, h, key, items, itemWidth, size) {
   return new SwitchBox(parent, {
     anchors: [x, y], w: items.length * itemWidth, h: h, itemWidth: itemWidth, key: key,
-    items: [items], bgColor: Color.buttonBg, color: DLZMOD_yellow(),
+    items: [items], bgColor: Color.buttonBg, color: DLZMOD_accent(),
     alphaOn: 1, textColorOn: "#000000", border: 0, borderOn: 0,
     textStyle: { offsetX: 0, offsetY: 1, font: Font.font(500, size), align: "center", valign: "middle" },
   });
@@ -537,6 +800,132 @@ function DLZMOD_screenPanel(parent, x, y, w) {
   });
 }
 
+// Colours (#21): the theme, the background and the accent colour, chosen with big swatches, shown in
+// the preview, saved with Apply (one restart of the screen for all three). Only on the mixer's own
+// screen: a browser sees what is set (the server refuses these keys from other devices)
+function DLZMOD_coloursPanel(parent, x, y, w) {
+  const local = !DLZMOD_external();
+  const sw = 62, gap = 6, left = 170, swH = 56;
+  return new Widget(parent, {
+    anchors: [x, y],
+    size: [w, DLZMOD_panelH()],
+    bgColor: Color.bgDark,
+    _constructor: function () {
+      this.sel = DLZMOD_lookSel();
+      const pick = (k, v) => () => {
+        if (!local) return;
+        this.sel = Object.assign({}, this.sel, { [k]: v });
+        this.sync();
+      };
+      this.themeBtns = DLZMOD_themes().map((th, i) => new Button(this, {
+        anchors: [left + i * 214, 40], size: [206, swH], text: th.name, round: 6, triggerOnUp: !0, border: 3,
+        textStyle: { font: Font.font(600, "15pt"), offsetX: 0, offsetY: 1, align: "center", valign: "middle" },
+        onPress: pick("theme", th.id),
+      }));
+      // the chosen one: a thick white edge and a tick, dark or light against the swatch
+      const swatch = (k, i, row) => new Button(this, {
+        anchors: [left + i * (sw + gap), row], size: [sw, swH], round: 6, triggerOnUp: !0, border: 2,
+        onPress: pick(k, i),
+        paintOverlay: function (t) {
+          if (!this.chosen) return;
+          t.drawText("✓", sw / 2, swH / 2 + 1, { color: DLZMOD_light(this.colors[0]) ? "#000000" : "#ffffff",
+            font: Font.font(600, "24pt"), align: "center", valign: "middle" });
+        },
+      });
+      this.bgBtns = DLZMOD_bgColors().map((c, i) => swatch("bg", i, 138));
+      this.faderBtns = DLZMOD_faderColors().map((c, i) => swatch("fader", i, 246));
+      this.apply = new E1Button(this, {
+        anchors: [w - 28 - 200, 328], size: [200, 48], text: "Apply", visible: local,
+        onPress: () => this.save(),
+      });
+      this.sync();
+    },
+    // back to what is saved (each time the tab opens)
+    reset: function () {
+      this.sel = DLZMOD_lookSel();
+      this.sync();
+    },
+    sync: function () {
+      const look = DLZMOD_look(this.sel), on = "#ffffff", off = "#5a5a5a";
+      // "Theme": the theme's own background and colour
+      const plain = DLZMOD_look({ theme: this.sel.theme, bg: 0, fader: 0 });
+      this.themeBtns.forEach((b, i) => {
+        const chosen = DLZMOD_themes()[i].id === this.sel.theme;
+        b.colors = [chosen ? DLZMOD_accent(look) : Color.buttonBg, DLZMOD_accent(look)];
+        b.textColor = b.textColorON = chosen && DLZMOD_light(DLZMOD_accent(look)) ? "#000000" : Color.white;
+        b.borderColors = [chosen ? on : off, on];
+      });
+      const mark = (btns, k, fill) => btns.forEach((b, i) => {
+        const c = fill(i);
+        b.colors = [c, c];
+        b.chosen = i === this.sel[k];
+        b.border = b.chosen ? 5 : 2;
+        b.borderColors = b.chosen ? [on, on] : [off, off];
+      });
+      mark(this.bgBtns, "bg", (i) => (DLZMOD_bgColors()[i] || [0, plain.colors.bg || "#000000"])[1]);
+      mark(this.faderBtns, "fader", (i) => DLZMOD_faderTone(DLZMOD_faderColors()[i], this.sel.theme) || DLZMOD_accent(plain));
+      this.apply.enabled = DLZMOD_lookKey(this.sel) !== DLZMOD_lookKey();
+      this.update();
+    },
+    save: function () {
+      if (!local || DLZMOD_lookKey(this.sel) === DLZMOD_lookKey()) return;
+      // all three go out before the restart (restartApp waits 120 ms before it restarts)
+      Data.set("dlzmod.theme", this.sel.theme);
+      Data.set("dlzmod.bgColor", this.sel.bg);
+      Data.set("dlzmod.faderColor", this.sel.fader);
+    },
+    paint: function (t) {
+      PAINT_WINDOW_BG.call(this, t);
+      t.fRect(DLZMOD_yellow(), 0, 0, this.w, 4);
+      const label = { color: Color.white, font: Font.font(500, "16pt"), align: "left", valign: "middle" };
+      const small = { color: "#bdbdbd", font: Font.font(500, "11pt"), align: "center", valign: "middle" };
+      t.drawText("Theme", 28, 40 + swH / 2, label);
+      t.drawText("Background", 28, 138 + swH / 2, label);
+      t.drawText("Colour", 28, 246 + swH / 2 - 10, label);
+      t.drawText("Faders, meters,", 28, 246 + swH / 2 + 14, Object.assign({}, small, { align: "left" }));
+      t.drawText("what is selected", 28, 246 + swH / 2 + 32, Object.assign({}, small, { align: "left" }));
+      // a two-word name on two lines
+      const names = (list, row) => list.forEach((c, i) => (c ? c[0] : "Theme").split(" ").forEach((word, j, all) =>
+        t.drawText(word, left + i * (sw + gap) + sw / 2, row + swH + 13 + j * 15 - (all.length - 1) * 2, small)));
+      names(DLZMOD_bgColors(), 138);
+      names(DLZMOD_faderColors(), 246);
+      DLZMOD_paintPreview(t, DLZMOD_look(this.sel), w - 28 - 230, 40, 230, 174);
+      t.drawText(local ? (this.apply.enabled ? "The screen restarts to apply" : "") : "Set on the mixer's screen",
+        local ? w - 28 - 200 - 16 : w - 28, 328 + 24, { color: "#bdbdbd", font: Font.font(500, "12pt"), align: "right",
+          valign: "middle" });
+    },
+  });
+}
+
+// whether a #rrggbb is light (dark text on it)
+function DLZMOD_light(c) {
+  if (typeof c !== "string" || !/^#[0-9a-f]{6}$/i.test(c)) return false;
+  const v = [1, 3, 5].map((i) => parseInt(c.substr(i, 2), 16));
+  return 0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2] > 150;
+}
+
+// the Colours tab's preview: a selected and a plain tab, two meters and a fader, in a look's colours
+function DLZMOD_paintPreview(t, look, x, y, w, h) {
+  const c = Object.assign({}, DLZMOD_applyTheme.stock || Color, look.colors);
+  const accent = DLZMOD_accent(look);
+  t.fRect("#9a9a9a", x - 1, y - 1, w + 2, h + 2, 7);
+  t.fRect(c.bg || "#000000", x, y, w, h, 6);
+  t.fRect(accent, x + 12, y + 12, 84, 32, 4);
+  t.drawText("Tab", x + 54, y + 29, { color: DLZMOD_light(accent) ? "#000000" : "#ffffff", font: Font.font(600, "12pt"),
+    align: "center", valign: "middle" });
+  t.fRect(c.buttonBg || "#303030", x + 104, y + 12, 84, 32, 4);
+  t.drawText("Tab", x + 146, y + 29, { color: c.white || "#ffffff", font: Font.font(600, "12pt"), align: "center",
+    valign: "middle" });
+  const top = y + 56, mh = h - 68, meter = c.vuBg || "#393939", bar = look.fader || c.green || "#9CCC56";
+  for (const [mx, lvl] of [[x + 50, 0.7], [x + 80, 0.5]]) {
+    t.fRect(meter, mx, top, 20, mh);
+    t.fRect(bar, mx, top + mh * (1 - lvl), 20, mh * lvl);
+  }
+  t.fRect(look.outline ? "#8a8a8a" : "#393939", x + 158, top, 4, mh);
+  t.fillStyle = look.fader || "#ffffff";
+  t.fillCircle(x + 160, top + mh * 0.4, 12);
+}
+
 function DLZMOD_meterModeNow() {
   return Data.data["dlzmod.meterMode"] ?? 0;
 }
@@ -552,7 +941,9 @@ function DLZMOD_metersPanel(parent, x, y, w) {
       const inner = w - 56, item3 = inner / 3 | 0, item2 = (inner - 40) / 4 | 0;
       this.meterMode = DLZMOD_switchBox(this, 28, 124, 52, "dlzmod.meterMode", ["Mackie", "Both", "Before fader"], item3, "15pt");
       // the "before the fader" bar's look, only with Both (the other modes have no second bar)
-      this.preColor = DLZMOD_switchBox(this, 28, 244, 46, "dlzmod.preColor", ["Green", "Grey"], item2, "14pt");
+      // "Green" is the meters' colour: with an own colour (#21) its name
+      const own = DLZMOD_faderColors()[DLZMOD_lookSel().fader];
+      this.preColor = DLZMOD_switchBox(this, 28, 244, 46, "dlzmod.preColor", [own ? own[0] : "Green", "Grey"], item2, "14pt");
       this.preLevel = DLZMOD_switchBox(this, 28 + 2 * item2 + 40, 244, 46, "dlzmod.preLevel", ["Strong", "Soft"], item2, "14pt");
       const sync = () => {
         const both = DLZMOD_meterModeNow() === 1;
@@ -720,7 +1111,7 @@ function DLZMOD_sshCard(parent, x, w) {
       // status, so ON asks for the password and OFF switches SSH off
       this.ssh = new Switcher(this, {
         anchors: [w - 24 - 72, 73], size: [72, 46], margin: 10,
-        bgColors: [Color.buttonBg, DLZMOD_yellow()], knobMargin: 0,
+        bgColors: [Color.buttonBg, DLZMOD_accent()], knobMargin: 0,
         getState: function () {
           const s = DLZMOD_netState();
           this.value = !!s.ssh;
@@ -734,7 +1125,7 @@ function DLZMOD_sshCard(parent, x, w) {
       });
       this.keepOn = new Switcher(this, {
         anchors: [w - 24 - 72, 206], size: [72, 46], margin: 10,
-        bgColors: [Color.buttonBg, DLZMOD_yellow()], knobMargin: 0,
+        bgColors: [Color.buttonBg, DLZMOD_accent()], knobMargin: 0,
         getState: function () {
           const s = DLZMOD_netState();
           this.value = !!s.sshKeep;
@@ -874,7 +1265,7 @@ function DLZMOD_pairPanel(parent, x, y, w) {
       // as the SSH switch: the server's state; ON asks first, OFF switches off right away
       this.on = new Switcher(this, {
         anchors: [w - 24 - 72, 73], size: [72, 46], margin: 10,
-        bgColors: [Color.buttonBg, DLZMOD_yellow()], knobMargin: 0,
+        bgColors: [Color.buttonBg, DLZMOD_accent()], knobMargin: 0,
         getState: function () {
           const p = DLZMOD_netState().pair;
           this.value = !!(p && p.on);
@@ -957,7 +1348,7 @@ function DLZMOD_pairPanel(parent, x, y, w) {
       t.drawText(p.own ? "Your own PIN" : "PIN", this.w - 24, 200,
         { color: "#888888", font: Font.font(500, "12pt"), align: "right", valign: "middle" });
       t.drawText(this.shown ? p.pin.slice(0, 3) + " " + p.pin.slice(3) : "••• •••", this.w - 24, 238,
-        { color: DLZMOD_yellow(), font: Font.font(600, "34pt"), align: "right", valign: "middle" });
+        { color: DLZMOD_accent(), font: Font.font(600, "34pt"), align: "right", valign: "middle" });
       t.drawText(p.wait ? "Too many wrong PINs: wait " + p.wait + " s"
         : p.own ? "Stays until you change it" : "A new one after each pairing", this.w - 24, 276,
         { color: p.wait ? Color.red2 : "#888888", font: Font.font(500, "12pt"), align: "right", valign: "middle" });
