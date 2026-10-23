@@ -65,8 +65,11 @@ else
     || die "uncommitted changes in install/ or VERSION: commit first (an unsigned build is refused by the card)"
   echo "== build $(git -C "$REPO" rev-parse --short HEAD) in WSL"
   LOG=$OUT/build.log
+  # GIT_DIR/GIT_WORK_TREE as WSL paths: a worktree's .git file names its git folder by a Windows
+  # path, which WSL's git cannot follow
   MSYS_NO_PATHCONV=1 wsl -d Ubuntu -u root --cd "$(wslpath_of "$REPO")" -e \
-    env "DLZMOD_SIGNING_KEYS=$(wslpath_of "$KEYS")" bash install/release/mkpackage.sh build/push > "$LOG" 2>&1 \
+    env "DLZMOD_SIGNING_KEYS=$(wslpath_of "$KEYS")" "GIT_DIR=$(wslpath_of "$(git -C "$REPO" rev-parse --absolute-git-dir)")" \
+    "GIT_WORK_TREE=$(wslpath_of "$REPO")" bash install/release/mkpackage.sh build/push > "$LOG" 2>&1 \
     || { tail -n 20 "$LOG" >&2; die "build failed (full log: build/push/build.log)"; }
   NAME=$(sed -n 's#^package: .*/\(dlzmod-[^/ ]*\)\.tar .*#\1#p' "$LOG" | tail -n 1)
   [ -n "$NAME" ] || die "no package name in build/push/build.log"
