@@ -5,10 +5,11 @@
 # 2. one card per model from the rig cache (rig.sh: an install rehearsal once per package and model);
 #    on each: mixer-id = the rehearsal's stand-in hash, the gate and its FPGA drop-in as in the source,
 #    check-rootfs.sh accepts it as its own model and refuses it as the other
-# 3. the drop-in update tests, in parallel on scratch copies: XS all cases, full-size QUICK=1
+# 3. the drop-in update tests, side by side on scratch copies: XS all cases in SHARDS parts (default 4;
+#    SHARDS=1: one part, the updater switching the PC's own user namespace setting), full-size QUICK=1
 # FULL=1 adds the full-size install rehearsal from a fresh source (fullsize.sh, ~8 min): only when the
 # install's write path changes, and once on a release candidate.
-# Usage: [FULL=1] [DLZMOD_SIGNING_KEYS=<dev key folder>] cardbind.sh [pkg dir, default: a package of
+# Usage: [FULL=1] [SHARDS=N] [DLZMOD_SIGNING_KEYS=<dev key folder>] cardbind.sh [pkg dir, default: a package of
 #        the working tree]
 set -u
 fails=0
@@ -43,16 +44,40 @@ for m in XS full-size; do
   umount /mnt/cbc; losetup -d "$L"; rmdir /mnt/cbc
 done
 
-echo "=== drop-in update tests (XS all, full-size quick; in parallel)"
-X=$(bash tests/rig.sh copy XS "$PKG" /root/cb-XS.img) && F=$(bash tests/rig.sh copy full-size "$PKG" /root/cb-full.img) || note "FAIL: scratch copies"
-bash tests/update.sh "$X" "$PKG.tar" > build/cardbind-update-XS.log 2>&1 &
-QUICK=1 bash tests/update.sh "$F" "$PKG.tar" > build/cardbind-update-full-size.log 2>&1 &
-wait
-for l in build/cardbind-update-XS.log build/cardbind-update-full-size.log; do
+N=${SHARDS:-4}
+echo "=== drop-in update tests (XS all in $N parts, full-size quick; side by side)"
+rm -f build/cardbind-update-*.log
+cards=()
+for k in $(seq 1 $N); do c=$(bash tests/rig.sh copy XS "$PKG" /root/cb-XS-$k.img) && cards+=("$c") || note "FAIL: scratch copy XS $k"; done
+F=$(bash tests/rig.sh copy full-size "$PKG" /root/cb-full.img) || note "FAIL: scratch copy full-size"
+UNS=/proc/sys/user/max_user_namespaces
+if [ "$N" = 1 ]; then
+  # one part: the updater switches the PC's own setting, as on the mixer (the runs take turns on the lock)
+  bash tests/update.sh "${cards[0]}" "$PKG.tar" > build/cardbind-update-XS-1.log 2>&1 &
+  QUICK=1 bash tests/update.sh "$F" "$PKG.tar" > build/cardbind-update-full-size.log 2>&1 &
+  wait
+else
+  # parts side by side (#145): the PC's setting held at 0 for all of them (taken under update.sh's lock, so
+  # no other run switches it meanwhile; put back on any exit), each part's updater switching its own copy
+  exec 9> /tmp/dlzmod-update-test-userns.lock
+  if ! flock -w 600 9; then note "FAIL: another update test holds the lock for 10 min"
+  elif ! uns=$(cat $UNS) || [ "$uns" = 0 ]; then note "FAIL: max_user_namespaces is 0 before the run (left by an earlier run: set it back to the value of /proc/sys/user/max_pid_namespaces)"
+  else
+    trap 'echo "$uns" > $UNS' EXIT; echo 0 > $UNS
+    for k in $(seq 1 $N); do
+      SHARD=$k/$N UNS_PRIVATE=$uns bash tests/update.sh "${cards[k-1]}" "$PKG.tar" > build/cardbind-update-XS-$k.log 2>&1 9>&- &
+    done
+    QUICK=1 UNS_PRIVATE=$uns bash tests/update.sh "$F" "$PKG.tar" > build/cardbind-update-full-size.log 2>&1 9>&- &
+    wait
+    echo "$uns" > $UNS; trap - EXIT
+  fi
+  exec 9>&-
+fi
+for l in build/cardbind-update-*.log; do
   r=$(grep -E "^ALL UPDATE CHECKS PASSED|FAIL" "$l" | head -5)
-  grep -q "^ALL UPDATE CHECKS PASSED" "$l" && note "ok: ${l#build/} ($(grep -c '^  ok' "$l") ok)" || note "FAIL: ${l#build/}: $r"
+  grep -q "^ALL UPDATE CHECKS PASSED" "$l" && note "ok: ${l#build/} ($(grep -c '^  ok' "$l") ok, $(grep -o '^== timing: [0-9]* s' "$l" | grep -o '[0-9]* s'))" || note "FAIL: ${l#build/}: $r"
 done
-rm -f /root/cb-XS.img /root/cb-full.img /root/cb-XS.log /root/cb-full.log
+rm -f /root/cb-XS-*.img /root/cb-full.img
 
 if [ "${FULL:-}" = 1 ]; then
   echo "=== full-size install rehearsal from a fresh source"
