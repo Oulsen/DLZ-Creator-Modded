@@ -871,7 +871,8 @@ if grep -qx usr/local/sbin/dlzmod-update <<< "$changed"; then
       'remount,bind,ro' 'blockdev --getro' '/device/type" 2>/dev/null)" = SD' \
       'refuse "the update changes /$p, which an update may not' '[ "$(key_sums)" = "$keys_before" ]' \
       'if [ "$(cat "$STATE/approved" 2>/dev/null)" = "$SUM" ]' '[ "$APPROVED" = yes ] || wait_for_approval' \
-      '! withdrawn "$k" || KEY=withdrawn' '[ "$KEY" != withdrawn ] || fail' 'grep -qx -- "$1" "$STATE/withdrawn"'; do
+      '! withdrawn "$k" || KEY=withdrawn' '[ "$KEY" != withdrawn ] || fail' 'grep -qx -- "$1" "$STATE/withdrawn"' \
+      'case $w in release|dev) ;; *) fail' 'if [ "$KEYFILE" != release2 ]; then'; do
     grep -qF -- "$g" <<< "$code" || refuse "its new update script lacks a check ($g): needs a full install"
   done
 fi

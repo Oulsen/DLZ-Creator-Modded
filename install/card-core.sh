@@ -459,7 +459,7 @@ install_update_keys() {
   [ "$channel" = dev ] || keys="release release2"
   # the package's WITHDRAWN; without a package (build-sd.sh) the repo's keys/withdrawn, one per line
   if [ -f "$TOOLS/../package.env" ]; then
-    gone=$(sed -n 's/^WITHDRAWN=//p' "$TOOLS/../package.env" | tr ',' ' ')
+    gone=$(sed -n 's/^WITHDRAWN=//p' "$TOOLS/../package.env" | tr -d '\r' | tr ',' ' ')
   elif [ -f "$TOOLS/keys/withdrawn" ]; then
     gone=$({ grep -v '^#' "$TOOLS/keys/withdrawn" || true; } | tr -d '\r' | tr '\n' ' ')
   fi

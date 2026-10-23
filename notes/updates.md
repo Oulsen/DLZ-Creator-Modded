@@ -54,9 +54,10 @@ What a build on GitHub would need [static, rebuilds of v0.2.0 in WSL]:
   order and every FAT time (the label's too) is set in UTC, so the host's directory order and time
   zone do not count.
 - **Decision: GitHub signs, after #63.** Signing moves to a GitHub workflow (release key as a
-  secret in a protected environment that needs the maintainer's approval) only once a leaked key
-  can be withdrawn from cards (#63); until then the PC signs, because a key stolen from GitHub would
-  be trusted by every card for life. Then the files GitHub builds and signs are the ones tested on
+  secret in a protected environment that needs the maintainer's approval) because a leaked key can
+  now be withdrawn from cards installed with v0.3.0 or later (#63, "Signing keys"); before that, a
+  key stolen from GitHub would have been trusted by every card for life (cards from v0.2.0 and older
+  still trust theirs). Until #158 the PC signs. Then the files GitHub builds and signs are the ones tested on
   the mixer (from the draft) and published; the PC's build of the same commit must match them.
 
 ## Drop-in update
@@ -389,7 +390,10 @@ internal storage.
     the allowlist, and a removal in the stage is never carried over), and the snapshot never holds it,
     so a put-back cannot bring a key back; a new updater copy must keep the check (its gate strings);
   - the installer (`install_update_keys`) leaves the package's withdrawn keys out and writes the list;
-    `build-sd.sh` (no package) reads `install/keys/withdrawn` instead.
+    `build-sd.sh` (no package) reads `install/keys/withdrawn` instead. A full install always makes a
+    new card (a fresh copy of the eMMC), so its list is the package's, whatever the card held before;
+  - withdrawing `dev` names the channel: it also stops a developer's own dev key (`mkpackage.sh`
+    refuses to sign with it, cards leave it out), so the dev card needs a new dev key and a reinstall.
 
   Accepted: no update adds a key, so after a withdrawal `release2` is the only release key, with no
   new spare until a full install with new keys; an installer image from before the leak still
