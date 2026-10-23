@@ -47,11 +47,20 @@ done
 N=${SHARDS:-4}
 echo "=== drop-in update tests (XS all in $N parts, full-size quick; side by side)"
 rm -f build/cardbind-update-*.log
-cards=()
-for k in $(seq 1 $N); do c=$(bash tests/rig.sh copy XS "$PKG" /root/cb-XS-$k.img) && cards+=("$c") || note "FAIL: scratch copy XS $k"; done
-F=$(bash tests/rig.sh copy full-size "$PKG" /root/cb-full.img) || note "FAIL: scratch copy full-size"
 UNS=/proc/sys/user/max_user_namespaces
-if [ "$N" = 1 ]; then
+uns=""
+# every exit (a failure, Ctrl-C, TERM): the parts stopped, the PC's setting put back, the copies removed
+# (background jobs of a script ignore Ctrl-C: without this they would run on with the setting back on)
+done_parts() { kill $(jobs -p) 2>/dev/null; wait; [ -z "$uns" ] || echo "$uns" > $UNS; uns=""; rm -f /root/cb-XS-*.img /root/cb-full.img; }
+trap done_parts EXIT; trap 'exit 130' INT TERM
+cards=() ok_cards=yes
+if ! [[ $N =~ ^[1-9][0-9]*$ ]]; then note "FAIL: SHARDS='$N' (a number from 1)"; ok_cards=no
+else
+  for k in $(seq 1 $N); do c=$(bash tests/rig.sh copy XS "$PKG" /root/cb-XS-$k.img) && cards+=("$c") || { note "FAIL: scratch copy XS $k"; ok_cards=no; }; done
+  F=$(bash tests/rig.sh copy full-size "$PKG" /root/cb-full.img) || { note "FAIL: scratch copy full-size"; ok_cards=no; }
+fi
+if [ $ok_cards = no ]; then note "FAIL: drop-in update tests not run"
+elif [ "$N" = 1 ]; then
   # one part: the updater switches the PC's own setting, as on the mixer (the runs take turns on the lock)
   bash tests/update.sh "${cards[0]}" "$PKG.tar" > build/cardbind-update-XS-1.log 2>&1 &
   QUICK=1 bash tests/update.sh "$F" "$PKG.tar" > build/cardbind-update-full-size.log 2>&1 &
@@ -61,24 +70,24 @@ else
   # no other run switches it meanwhile; put back on any exit), each part's updater switching its own copy
   exec 9> /tmp/dlzmod-update-test-userns.lock
   if ! flock -w 600 9; then note "FAIL: another update test holds the lock for 10 min"
-  elif ! uns=$(cat $UNS) || [ "$uns" = 0 ]; then note "FAIL: max_user_namespaces is 0 before the run (left by an earlier run: set it back to the value of /proc/sys/user/max_pid_namespaces)"
+  elif ! u=$(cat $UNS) || [ "$u" = 0 ]; then note "FAIL: max_user_namespaces is 0 before the run (left by an earlier run: set it back to the value of /proc/sys/user/max_pid_namespaces)"
   else
-    trap 'echo "$uns" > $UNS' EXIT; echo 0 > $UNS
+    uns=$u; echo 0 > $UNS
     for k in $(seq 1 $N); do
       SHARD=$k/$N UNS_PRIVATE=$uns bash tests/update.sh "${cards[k-1]}" "$PKG.tar" > build/cardbind-update-XS-$k.log 2>&1 9>&- &
     done
     QUICK=1 UNS_PRIVATE=$uns bash tests/update.sh "$F" "$PKG.tar" > build/cardbind-update-full-size.log 2>&1 9>&- &
     wait
-    echo "$uns" > $UNS; trap - EXIT
+    echo "$uns" > $UNS; uns=""
   fi
   exec 9>&-
 fi
 for l in build/cardbind-update-*.log; do
+  [ -e "$l" ] || continue
   r=$(grep -E "^ALL UPDATE CHECKS PASSED|FAIL" "$l" | head -5)
   grep -q "^ALL UPDATE CHECKS PASSED" "$l" && note "ok: ${l#build/} ($(grep -c '^  ok' "$l") ok, $(grep -o '^== timing: [0-9]* s' "$l" | grep -o '[0-9]* s'))" || note "FAIL: ${l#build/}: $r"
 done
-rm -f /root/cb-XS-*.img /root/cb-full.img
-
+done_parts
 if [ "${FULL:-}" = 1 ]; then
   echo "=== full-size install rehearsal from a fresh source"
   SKIP_XS=1 bash tests/fullsize.sh "$PKG" 2>&1 | grep -E "^test image|^== |step [45]|card-core|rc=|^card|FAIL|refus" | tail -12

@@ -6,7 +6,8 @@
 # under test can stop them. Signed (#11): the card's trusted keys are swapped for throwaway test keys
 # made here (release + dev, as on a developer card), and every package is signed with them; the real
 # keys are never used. The card's own keys from the install are checked against install/keys first.
-# Usage: update.sh <card.img> <package .tar>
+# Usage: [CASES=3c,75 | QUICK=1] [SHARD=k/N] [UNS_PRIVATE=<value>] update.sh <card.img> <package .tar>
+#        (below: CASES, SHARD and UNS_PRIVATE; tests/README.md for the times)
 set -u
 # own mount namespace, private: WSL's mounts are shared, and unmounting the chroot's /dev bind
 # recursively took WSL's own /dev/pts with it (WSL hung)
@@ -27,13 +28,16 @@ T0=$(now); TC=$T0; CASE=setup; UT=0; UW=0; NU=0
 [ -n "${QUICK:-}" ] && CASES=${CASES:-1,2,3,3a,3b,3c,3d,9,9b,12}
 CASES=${CASES:-}; SEEN=,
 # SHARD=2/4: every 4th of the selected cases, from the 2nd on (cardbind.sh runs the parts side by side)
-SHARD=${SHARD:-1/1}; NTH=0
+SHARD=${SHARD:-1/1}; NTH=0; RAN=0
+[[ $SHARD =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] && [ ${BASH_REMATCH[1]} -le ${BASH_REMATCH[2]} ] \
+  || { echo "SHARD='$SHARD': k/N with 1 <= k <= N"; rm -rf $W; exit 1; }
 case_() {   # case_ [<header>]: ends the timing of the case before; false when this one is not selected
   local t ct id=${1-}
   id=${id%%:*}; [ -z "${id##[0-9]*}" ] || id=setup
   if [ $# != 0 ] && [ "$id" != setup ] && [ "$id" != 14 ]; then
     [ -z "$CASES" ] || [[ ",$CASES," == *",$id,"* ]] || return 1
     NTH=$((NTH + 1)); [ $(((NTH - 1) % ${SHARD#*/})) = $((${SHARD%/*} - 1)) ] || { SEEN=$SEEN$id,; return 1; }
+    RAN=$((RAN + 1))
   fi
   t=$(now); ct=$(awk '{s += $1} END {print s + 0}' $W/craft.t 2>/dev/null || echo 0); rm -f $W/craft.t
   echo "$(((t - TC) / 1000000)) $((UT / 1000000)) $((UW / 1000000)) $((ct / 1000000)) $NU $CASE" >> $W/times
@@ -61,8 +65,6 @@ mount -t binfmt_misc binfmt_misc $R/proc/sys/fs/binfmt_misc || echo "WARNING: no
 mount -t tmpfs tmpfs $R/run && python3 -c "import socket,sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])" $R/run/fake.sock
 cleanup() { chattr -i $R/srv/app.js 2>/dev/null; umount $R/proc/sys/user/max_user_namespaces 2>/dev/null; umount $R/proc/sys/user/max_user_namespaces 2>/dev/null; umount -R $R/dev 2>/dev/null; umount $R/proc/sys/fs/binfmt_misc $R/run 2>/dev/null; umount $R/tmp $R/proc $R/mnt/dlzdata 2>/dev/null; rmdir $R/mnt/dlzdata 2>/dev/null; umount $R $D; losetup -d $L; rm -rf $W; }
 trap cleanup EXIT
-# every run: no temp files of the updater left in the card's /tmp afterwards (its report, work and
-# restore folders)
 # (the chroot has no /sys: the refusal of the rehearsal settings on an SD card, #84, never fires
 # here; it is shown on the mixer, notes/updates.md "Rehearsal settings")
 # run: a start after Install on the screen (#65): the one package with its .sig approved, as the server
@@ -92,6 +94,8 @@ run_asking() {
   UW=$((UW + tl - t0)); UT=$((UT + $(now) - tl)); NU=$((NU + 1))
   [ $rc != 75 ] || bad "waited 10 min for $UNS_LOCK: another run's updater hangs (the updater did not run)"
   echo "rc=$rc" >> $W/run.out; sed 's/^/    | /' $W/run.out
+  # every run: no temp files of the updater left in the card's /tmp afterwards (its report, work and
+  # restore folders)
   ls $R/tmp | grep -q '^dlzmod-' && { bad "temp files left in /tmp: $(ls $R/tmp | grep '^dlzmod-' | tr '\n' ' ')"; rm -rf $R/tmp/dlzmod-*; }
 }
 approve() {
@@ -145,7 +149,7 @@ if [ -n "$UNS_PRIVATE" ]; then
     || { bad "UNS_PRIVATE: the PC's setting is $(cat /proc/sys/user/max_user_namespaces), not held at 0, or the own one ('$UNS_PRIVATE') not bound"; echo "$F UPDATE CHECK(S) FAILED (stopped before the cases)"; exit 1; }
 elif [ "$(uns_now)" != 0 ]; then ok "max_user_namespaces $(uns_now)"
 else
-  bad "max_user_namespaces is 0 before this run started: left by an earlier run (set it back: the value of /proc/sys/user/max_pid_namespaces)"
+  bad "max_user_namespaces is 0 before this run started: left by an earlier run (set it back: the value of /proc/sys/user/max_pid_namespaces), or held there by cardbind.sh's parts (a run of its own waits until they are done)"
   echo "$F UPDATE CHECK(S) FAILED (stopped before the cases)"; exit 1
 fi
 fi
@@ -612,11 +616,14 @@ rm -f $U/dlzmod-vremount.tar $U/dlzmod-vremount.tar.sig
 fi
 
 if case_ "42: the steps leave a process behind that writes later: it dies with the sandbox"; then
-put $(craft dlzmod-vlate "printf '\n// late test\n' >> mod/app-mod/dlzmod.js; printf '( sleep 4; echo late > \"\$MNT/srv/late.txt\"; echo late > /tmp/dlzmod-late ) &\n' >> mod/apply-mod.sh"); run
+# (it writes once the steps' shell is gone, not after a fixed time: the steps take longer when runs
+# go side by side, and a write while they still run is refused as a change, not tested here)
+put $(craft dlzmod-vlate "printf '\n// late test\n' >> mod/app-mod/dlzmod.js; printf '( p=\$\$; while kill -0 \$p 2>/dev/null; do sleep 0.21; done; sleep 1; echo late > \"\$MNT/srv/late.txt\"; echo late > /tmp/dlzmod-late ) &\n' >> mod/apply-mod.sh"); run
 installed && ok "installed" || bad "not installed"
 sleep 6
-[ ! -e $R/srv/late.txt ] && [ ! -e $R/tmp/dlzmod-late ] && ! pgrep -f "sleep 4" > /dev/null && ok "no leftover process, nothing written late" || bad "A LEFTOVER PROCESS RAN"
+[ ! -e $R/srv/late.txt ] && [ ! -e $R/tmp/dlzmod-late ] && ! pgrep -f "sleep 0.21" > /dev/null && ok "no leftover process, nothing written late" || bad "A LEFTOVER PROCESS RAN"
 APP=$(sha $R/srv/app.js)
+rm -f $U/dlzmod-vlate.tar $U/dlzmod-vlate.tar.sig   # left only when this case failed
 fi
 
 if case_ "43: a new boot.scr, even a proper U-Boot script image: refused (only a full install brings one)"; then
@@ -714,7 +721,6 @@ fi
 
 if case_ "55: the eMMC lock's udev rule is on the card (a guard)"; then
 cmp -s $R/etc/udev/rules.d/60-dlzmod-emmc-ro.rules $REPO/install/sd-system/60-dlzmod-emmc-ro.rules && ok "60-dlzmod-emmc-ro.rules as in the repo" || bad "eMMC udev rule missing or different"
-
 fi
 
 if case_ "56: a boot.scr that writes the eMMC: refused (by the allowlist, as 43-44b; kept for the day boot.scr gets a content check again)"; then
@@ -827,10 +833,10 @@ fi
 
 if case_ "69: a progress marker without its snapshot, no file there: cleared (nothing was placed behind it)"; then
 rinc
-for f in previous.tar previous.list; do mv $ST/$f $W/$f.keep69; done
+for f in previous.tar previous.list; do [ ! -e $ST/$f ] || mv $ST/$f $W/$f.keep69; done   # (none when it runs on its own)
 echo "$S" > $ST/inprogress; run
 [ ! -e $ST/inprogress ] && ok "marker cleared" || bad "marker without a snapshot kept"
-for f in previous.tar previous.list; do mv $W/$f.keep69 $ST/$f; done
+for f in previous.tar previous.list; do [ ! -e $W/$f.keep69 ] || mv $W/$f.keep69 $ST/$f; done
 fi
 
 if case_ "70: a resumed cut-off try stops for a reason not the package's: put back, Install kept, then installed"; then
@@ -934,5 +940,6 @@ fi
 
 case_; times_summary
 [ -z "$(unknown_cases)" ] || bad "CASES names cases this file does not have: $(unknown_cases)"
+[ $RAN != 0 ] || bad "no case ran (CASES='$CASES', SHARD=$SHARD)"
 echo
 [ $F = 0 ] && echo "ALL UPDATE CHECKS PASSED" || echo "$F UPDATE CHECK(S) FAILED"
