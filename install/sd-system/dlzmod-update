@@ -6,7 +6,8 @@
 # patches, mod defaults): run in a sandbox on a copy (step 3), then placed by this script from its
 # allowlist (the mod's own files). Not boot.scr, the boot visuals, the installer, the card layout or
 # the safety guards themselves: a package that changes those needs the full install (REINSTALL=yes,
-# or refused here) (notes/updates.md, "Drop-in update").
+# REINSTALL_BELOW, or refused here) (notes/updates.md, "Drop-in update"). A package signed with the
+# spare release key can withdraw the release or dev key on this card for good (WITHDRAWN, #63).
 # - success: the package is deleted, the report is DLZDATA/dlzmod-logs/update-N-<version>.txt
 # - refused or failed: nothing of it stays; what it placed is put back from the snapshot taken before
 #   it (files it added are removed), the package stays (to look at) and is not tried again until a
@@ -83,7 +84,8 @@ SNAP_GLOBS="srv/app.js srv/server.js srv/srv_data.json usr/local/sbin/dlzmod-* e
 etc/systemd/system/flash-gd32.service etc/systemd/system/flash-fpga.service etc/systemd/system/upgradedaemon.service
 etc/systemd/system/upgraderun.service
 etc/systemd/system/*.service.d/dlzmod.conf etc/systemd/system/*.wants/dlzmod-*.service etc/udev/rules.d/*dlzmod*
-var/lib/dlzmod-update/version var/lib/dlzmod-update/installed boot/boot.scr usr/local/share/dlzmod-keys/*"
+var/lib/dlzmod-update/version var/lib/dlzmod-update/installed boot/boot.scr usr/local/share/dlzmod-keys/*
+usr/local/share/evolve-a1/mixergraph.js usr/local/share/evolve-a1/mixergraph-dlzlite.js usr/local/share/evolve-a1/mixergraph*.js.orig"
 
 snap_list() {   # the paths matching SNAP_GLOBS that exist now, one per line
   (cd "$ROOT/" && shopt -s nullglob && for g in $SNAP_GLOBS; do for f in $g; do [ -e "$f" ] || [ -L "$f" ] && echo "$f"; done; done) | sort -u
@@ -98,6 +100,11 @@ stock_sums() {   # the stock units the guards act on, and everything in their dr
 key_sums() {   # the trusted keys: an update must leave them exactly as installed
   ls -A "$KEYS" 2>/dev/null
   (cd "$KEYS" 2>/dev/null && sha256sum -- *) 2>/dev/null
+}
+withdrawn() {   # withdrawn <key>: on this card's withdrawal list (#63; written by the installer and below)
+  [ -e "$STATE/withdrawn" ] || return 1
+  grep -qx -- "$1" "$STATE/withdrawn" 2>/dev/null
+  [ $? != 1 ]   # a list that cannot be read counts as withdrawing every key
 }
 extra_dropins() {   # drop-ins anywhere systemd 249 reads them that could override the guards: none but ours
   local d x f
@@ -211,7 +218,8 @@ trap finish EXIT
 clean_new() {   # half-written files from a write cut off before its rename (put_file/put_link/restore)
   (cd "$ROOT/" && shopt -s nullglob && rm -f etc/systemd/system/*.dlzmod-new etc/systemd/system/*.service.d/*.dlzmod-new \
     etc/systemd/system/*.wants/*.dlzmod-new usr/local/sbin/*.dlzmod-new etc/udev/rules.d/*.dlzmod-new srv/*.dlzmod-new \
-    var/lib/dlzmod-update/*.dlzmod-new usr/local/share/dlzmod-keys/*.dlzmod-new boot/*.dlzmod-new)
+    var/lib/dlzmod-update/*.dlzmod-new usr/local/share/dlzmod-keys/*.dlzmod-new boot/*.dlzmod-new \
+    usr/local/share/evolve-a1/*.dlzmod-new)
 }
 restore() {   # the snapshot back, and what the update added removed; not stopped halfway by a TERM
   local r f t ok=yes
@@ -327,7 +335,7 @@ if [ -n "$CHECK_ONLY" ]; then
   # the state the checks read (the card's version, a cut-off try's snapshot), copied; no try records,
   # so every run checks afresh
   CHECK_STATE=$(mktemp -d /tmp/dlzmod-checks.XXXXXX) || { CHECK_STATE=""; later "no room in /tmp"; }
-  for f in version inprogress previous.tar previous.list; do
+  for f in version inprogress previous.tar previous.list withdrawn; do
     [ ! -f "$STATE/$f" ] || cp "$STATE/$f" "$CHECK_STATE/" || later "the state could not be copied"
   done
   STATE=$CHECK_STATE
@@ -492,18 +500,21 @@ fi
 [ "$(stat -c %s "$PKG")" -le "$MAX_PKG" ] || fail "too big for an update file"
 [ "$(stat -c %s "$SIGF")" = 64 ] || fail "the signature file is not an ed25519 signature"
 command -v openssl > /dev/null || fail "openssl is missing on this card: install again with the installer image"
-# KEY: the channel of the key that verified (release2, the spare release key, counts as release)
+# KEY: the channel of the key that verified (release2, the spare release key, counts as release).
+# #63: a key on this card's withdrawal list ($STATE/withdrawn, below) verifies nothing any more
 KEY="" KEYFILE=""
 for k in release release2 dev; do
   [ -f "$KEYS/$k.pub" ] || continue
   [ -n "$KEY" ] || KEY=none
   if openssl pkeyutl -verify -pubin -inkey "$KEYS/$k.pub" -rawin -in "$PKG" -sigfile "$SIGF" > /dev/null 2>&1; then
     KEY=${k%2} KEYFILE=$k
+    ! withdrawn "$k" || KEY=withdrawn
     break
   fi
 done
 [ -n "$KEY" ] || fail "this card has no update keys (made before signed updates): install again with the installer image"
 [ "$KEY" != none ] || fail "not signed with a key this card trusts (a test build on a normal card, or a changed file)"
+[ "$KEY" != withdrawn ] || fail "signed with the $KEYFILE key, which was withdrawn on this card: it takes no update signed with it"
 log "signature: $KEYFILE key"
 [ "$(dd if="$PKG" bs=1 skip=257 count=5 2>/dev/null)" = ustar ] || fail "not a plain tar file"
 listing=$(tar -tvf "$PKG") || fail "not a readable tar file"
@@ -539,6 +550,25 @@ log "version $NEWV ($(penv BUILD)), models $(penv MODELS), evolve-node $(penv EV
 LOGV=$NEWV
 case $(penv BUILD) in ''|release) ;; *) LOGV=$NEWV-$(penv BUILD) ;; esac
 LOGV=$(printf '%s' "$LOGV" | tr -cd 'A-Za-z0-9._+-' | cut -c1-40)
+# #63: the keys the package withdraws (WITHDRAWN, comma list), onto this card's list right after its
+# signature and contents are checked, before the checks that can refuse it below: the signature says
+# it is the signer's. Only the spare release key adds one (a leaked release key cannot withdraw the
+# spare); from another key's package the name is ignored (every package carries the whole list);
+# release2 itself can never be withdrawn. The list only grows: nothing here removes a line, an update
+# cannot write it (not on the allowlist) and a snapshot never holds it
+for w in $(penv WITHDRAWN | tr ',' ' '); do
+  case $w in release|dev) ;; *) fail "it withdraws a key that cannot be withdrawn ($w)" ;; esac
+  # (logged every time: the report of a package that waited for Install starts afresh)
+  if withdrawn "$w"; then log "the $w key: withdrawn on this card"; continue; fi
+  if [ "$KEYFILE" != release2 ]; then
+    log "the $w key: not withdrawn, only the spare release key can withdraw a key (this file is signed with the $KEYFILE key)"
+    continue
+  fi
+  { { cat "$STATE/withdrawn" 2>/dev/null; echo "$w"; } > "$STATE/withdrawn.dlzmod-new" && sync "$STATE/withdrawn.dlzmod-new" \
+      && mv -f "$STATE/withdrawn.dlzmod-new" "$STATE/withdrawn" && sync -f "$STATE"; } \
+    || { rm -f "$STATE/withdrawn.dlzmod-new"; later "the $w key could not be withdrawn (card full?)"; }
+  log "WITHDRAWN: the $w key; this card takes no update signed with it any more"
+done
 
 # 2. made for this mixer and this firmware, not older than what is here, applicable here, complete,
 # and the safety guards exactly as they are
@@ -546,7 +576,6 @@ model=full-size; [ -f "$ROOT/root/.dlzlite" ] && model=XS
 node=$(awk '/^Package: evolve-node$/ {f=1} f && /^Version:/ {print $2; exit}' "$ROOT/var/lib/dpkg/status" 2>/dev/null)
 case ",$(penv MODELS)," in *",$model,"*) ;; *) fail "made for the $(penv MODELS), this is the $model" ;; esac
 [ "$(penv EVOLVE_NODE)" = "$node" ] || fail "made for evolve-node $(penv EVOLVE_NODE), this card has $node"
-[ "$(penv REINSTALL)" = no ] || fail "this version needs a full install with the installer image"
 [ "$(penv PLACEHOLDER)" = no ] && [ "$(penv DRYRUN_ONLY)" = no ] || fail "not a release package"
 [ "$(penv CHANNEL)" = "$KEY" ] || fail "a '$(penv CHANNEL)' package signed with the $KEY key"
 [ "$(cat "$WORK/root/pkg/VERSION")" = "$NEWV" ] || fail "VERSION and package.env disagree"
@@ -558,6 +587,16 @@ OLDV=""
 [ -n "$OLDV" ] || OLDV=$(cat "$STATE/version" 2>/dev/null)
 if [ -n "$OLDV" ] && [ "$(printf '%s\n%s\n' "$OLDV" "$NEWV" | sort -V | head -n 1)" != "$OLDV" ]; then
   fail "older ($NEWV) than this card's $OLDV"
+fi
+# a full install: REINSTALL=yes for the updaters from before #63 (they refuse it); this one reads
+# REINSTALL_BELOW when it is there, so a card installed at that version or later takes it as a drop-in
+below=$(penv REINSTALL_BELOW)
+if [ -n "$below" ]; then
+  case $below in v[0-9]*.[0-9]*.[0-9]*) ;; *) fail "REINSTALL_BELOW is not a version ($below)" ;; esac
+  [ -n "$OLDV" ] && [ "$(printf '%s\n%s\n' "$OLDV" "$below" | sort -V | head -n 1)" = "$below" ] \
+    || fail "this version needs a full install with the installer image (cards from before $below)"
+else
+  [ "$(penv REINSTALL)" = no ] || fail "this version needs a full install with the installer image"
 fi
 for f in apply-mod.sh check-rootfs.sh patch.py modversion.py app-mod/dlzmod.js server-mod/dlzmod-server.js \
     sd-system/dlzmod-grow-data sd-system/dlzmod-grow-data.service sd-system/dlzmod-bootlog \
@@ -741,6 +780,9 @@ allowed() {
   case $p in */*) ;; *) return 1 ;; esac
   case $d in
     srv) case $b in app.js|server.js|srv_data.json) return 0 ;; esac ;;
+    # the audio graph (v0.5.0's sound features patch it like app.js, with a .orig): not changed by
+    # any package yet; here so that they need no full install of their own
+    usr/local/share/evolve-a1) case $b in mixergraph.js|mixergraph-dlzlite.js|mixergraph.js.orig|mixergraph-dlzlite.js.orig) return 0 ;; esac ;;
     var/lib/dlzmod-update) case $b in version|installed) return 0 ;; esac ;;
     usr/local/sbin) case $b in dlzmod-*) return 0 ;; esac ;;
     etc/udev/rules.d) case $b in *dlzmod*.rules) return 0 ;; esac ;;
@@ -756,6 +798,10 @@ allowed() {
         glesgui.service.d:dlzmod.conf|evolve-node.service.d:dlzmod.conf|evolve-app.service.d:dlzmod.conf) return 0 ;;
         # (the same for this line)
         dlzmod-update.service.d:dlzmod.conf|dlzmod-grow-data.service.d:dlzmod.conf) return 0 ;;
+        # #96 (the screen during an update): not placed by any package yet; here so that it needs no
+        # full install of its own (stock weston-mackie.service starts early itself, after sysinit.target
+        # and so after the eMMC lock; shape_ok refuses a drop-in that sets DefaultDependencies=no)
+        weston-mackie.service.d:dlzmod.conf) return 0 ;;
         multi-user.target.wants:dlzmod-*.service|sysinit.target.wants:dlzmod-emmc-ro.service) return 0 ;;
       esac ;;
   esac
@@ -824,7 +870,9 @@ if grep -qx usr/local/sbin/dlzmod-update <<< "$changed"; then
   for g in 'openssl pkeyutl -verify -pubin' '--bounding-set=-all' '--reuid=65533' 'max_user_namespaces' \
       'remount,bind,ro' 'blockdev --getro' '/device/type" 2>/dev/null)" = SD' \
       'refuse "the update changes /$p, which an update may not' '[ "$(key_sums)" = "$keys_before" ]' \
-      'if [ "$(cat "$STATE/approved" 2>/dev/null)" = "$SUM" ]' '[ "$APPROVED" = yes ] || wait_for_approval'; do
+      'if [ "$(cat "$STATE/approved" 2>/dev/null)" = "$SUM" ]' '[ "$APPROVED" = yes ] || wait_for_approval' \
+      '! withdrawn "$k" || KEY=withdrawn' '[ "$KEY" != withdrawn ] || fail' 'grep -qx -- "$1" "$STATE/withdrawn"' \
+      'case $w in release|dev) ;; *) fail' 'if [ "$KEYFILE" != release2 ]; then'; do
     grep -qF -- "$g" <<< "$code" || refuse "its new update script lacks a check ($g): needs a full install"
   done
 fi

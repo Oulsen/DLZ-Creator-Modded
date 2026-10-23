@@ -81,6 +81,22 @@ fi
 for k in release release2 dev; do
   [ -f "$INST/keys/$k.pub" ] || { echo "no public key: $INST/keys/$k.pub (mkkeys.sh)" >&2; exit 1; }
 done
+# a full install (notes/updates.md, "Release files"): install/release/reinstall-below holds the first
+# version every card must have been installed with; the updaters from before #63 only know REINSTALL
+below=$(tr -d '\r\n' < "$INST/release/reinstall-below" 2>/dev/null || true)
+reinstall=no
+if [ -n "$below" ]; then
+  [[ $below =~ ^v[0-9]\.[0-9]{1,2}\.[0-9]{1,2}$ ]] || { echo "install/release/reinstall-below: bad version '$below'" >&2; exit 1; }
+  reinstall=yes
+fi
+# #63: withdrawn keys (install/keys/withdrawn, one name per line: release or dev, never release2),
+# in every package from then on: the updater adds them to a card's list (from the spare key's
+# package), the installer leaves them out
+withdrawn=$( { grep -v '^#' "$INST/keys/withdrawn" 2>/dev/null || true; } | tr -d '\r' | grep . | LC_ALL=C sort -u | paste -sd, || true)
+for w in ${withdrawn//,/ }; do
+  case $w in release|dev) ;; *) echo "install/keys/withdrawn: $w cannot be withdrawn (only release or dev)" >&2; exit 1 ;; esac
+  [ "$w" != "$KEYNAME" ] || { echo "the $KEYNAME key is withdrawn (install/keys/withdrawn): sign with another" >&2; exit 1; }
+done
 # the dev key the package's cards trust: your own next to dev.pem, else the repo's
 DEVPUB=$INST/keys/dev.pub
 if [ "$CHANNEL" = dev ] && [ -n "${DLZMOD_SIGNING_KEYS:-}" ] && [ -f "$DLZMOD_SIGNING_KEYS/dev.pub" ]; then
@@ -192,7 +208,9 @@ DLZMOD_VERSION=$VERSION
 MODEL=XS
 MODELS=XS,full-size
 EVOLVE_NODE=3297
-REINSTALL=no
+REINSTALL=$reinstall
+REINSTALL_BELOW=$below
+WITHDRAWN=$withdrawn
 PLACEHOLDER=$placeholder
 DRYRUN_ONLY=$dryrun_only
 BUILT=$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ)

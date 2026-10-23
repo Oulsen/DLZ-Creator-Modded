@@ -34,6 +34,8 @@ below. They all start as stock: turn on what you want.
 - Update the mod without losing recordings or settings: copy the update to the card, or send it
   from a paired computer *(Mod)*
 - An update installs only after you tap Install on the mixer's own screen
+- Updates are signed; if a signing key ever leaks, an update withdraws it and the mixer refuses
+  anything signed with it
 - The mixer's internal storage is never changed, and no firmware updates run from the card
 - Logs of the install and the last starts on the card, for bug reports *(the `dlzmod-logs`
   folder, readable in any card reader)*

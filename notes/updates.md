@@ -54,9 +54,10 @@ What a build on GitHub would need [static, rebuilds of v0.2.0 in WSL]:
   order and every FAT time (the label's too) is set in UTC, so the host's directory order and time
   zone do not count.
 - **Decision: GitHub signs, after #63.** Signing moves to a GitHub workflow (release key as a
-  secret in a protected environment that needs the maintainer's approval) only once a leaked key
-  can be withdrawn from cards (#63); until then the PC signs, because a key stolen from GitHub would
-  be trusted by every card for life. Then the files GitHub builds and signs are the ones tested on
+  secret in a protected environment that needs the maintainer's approval) because a leaked key can
+  now be withdrawn from cards installed with v0.3.0 or later (#63, "Signing keys"); before that, a
+  key stolen from GitHub would have been trusted by every card for life (cards from v0.2.0 and older
+  still trust theirs). Until #158 the PC signs. Then the files GitHub builds and signs are the ones tested on
   the mixer (from the draft) and published; the PC's build of the same commit must match them.
 
 ## Drop-in update
@@ -74,10 +75,12 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    adding the `.sig` later works. More than one tar: nothing is installed.
 3. **Check, on a copy in `/tmp`** (tmpfs, ~500 MiB [static: fstab]), before anything in it is read:
    size at most 64 MiB (a real package is ~1 MB); the ed25519 signature against the card's trusted
-   keys, and `CHANNEL` = the channel of the key that verified; only plain files and folders in the
+   keys (a withdrawn one verifies nothing: "Signing keys"), and `CHANNEL` = the channel of the key
+   that verified; then the keys the package withdraws (`WITHDRAWN`) onto the card's list; only plain files and folders in the
    tar and in the initramfs inside it (no links, no `..`; the initramfs may hold `dev/console`); both manifests, and the manifest = the file
-   list; the card's model in `MODELS`, `EVOLVE_NODE` and `REINSTALL=no`; not older than the card's version
-   (`/var/lib/dlzmod-update/version`); and the package's **guards** byte for byte
+   list; the card's model in `MODELS`, `EVOLVE_NODE`; not older than the card's version
+   (`/var/lib/dlzmod-update/version`); no full install needed (`REINSTALL_BELOW` not above the card's
+   version; without it `REINSTALL=no`); and the package's **guards** byte for byte
    as the installed updater knows them (sha256 list `GUARDS` in `dlzmod-update`, checked against the
    files by `mkpackage.sh`). A package that changes a guard needs a full install. Then the one
    piece of package code that runs as root outside the sandbox: its own `check-rootfs.sh` (does
@@ -130,11 +133,17 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    rehearsal: `tests/update.sh` cases 13, 17, 19, 34-35, 62, 64-74].
 
 Not covered by the drop-in (installer only): boot visuals, the installer itself, the card layout,
-the guards. A package can declare `REINSTALL=yes` for such changes; the drop-in refuses it.
+the guards, the updater's own gates and allowlist, the trusted keys. Such a version is a **full
+install**: `install/release/reinstall-below` holds the first version every card must have been
+installed with, and `mkpackage.sh` writes `REINSTALL_BELOW=<it>` and `REINSTALL=yes` into every
+package from then on. The updaters from before #63 know only `REINSTALL` and refuse it; this one
+refuses only a card whose version is below `REINSTALL_BELOW`, so cards installed with that version
+(the dev card too) take later builds as drop-ins again. v0.3.0 is one (#63, and #96's allowlist
+entry); the file stays until a later full install raises it.
 
 Tested: `tests/update.sh` on a card image (power cut, failure after the patches, the sandbox walls,
-placing and putting back, a card on v0.1.0's updater taking a new package, one on v0.2.0's taking it
-without the #140 drop-ins, placed by the new updater at the next start) and `tests/update-checks.sh`
+placing and putting back, cards on v0.1.0's and v0.2.0's updaters refusing a full-install package,
+the #140/#141 drop-ins placed by the new updater at a start, the key withdrawal) and `tests/update-checks.sh`
 without one (every released updater's gate for the new copy; the package and card checks: links,
 wrong model, older version, a weakened guard, the signing cases), on the PC; installed and refused (one
 byte changed, original `.sig`) on the mixer, by the mixer's own OpenSSL 3.0.2 [device].
@@ -256,7 +265,8 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   `usr/local/sbin/dlzmod-*`, `etc/udev/rules.d/*dlzmod*.rules`, `etc/systemd/system/dlzmod-*.service`,
   `ssh.socket`, the `dlzmod.conf` drop-ins of flash-gd32, flash-fpga, upgradedaemon, upgraderun,
   dspserver and ssh, and since v0.3.0 those of glesgui, evolve-node and evolve-app (#140) and of
-  dlzmod-update and dlzmod-grow-data (#141), `dlzmod-*.service` links in `multi-user.target.wants`, and only
+  dlzmod-update and dlzmod-grow-data (#141), and of weston-mackie (for #96, no package brings one
+  yet), `dlzmod-*.service` links in `multi-user.target.wants`, and only
   `dlzmod-emmc-ro.service` in `sysinit.target.wants`. Not `boot/boot.scr` (below). Also refused: names
   with a space, newline, quote or glob character; special files; wrongly shaped links; units with
   `DefaultDependencies=no` (only the eMMC lock's own unit has it), and since v0.3.0 drop-ins with it
@@ -364,9 +374,34 @@ internal storage.
   The updater tries `release`, `release2`, `dev`; `release2` counts as the release channel.
 - **Private keys** live outside the repo, in the folder `DLZMOD_SIGNING_KEYS` points to. Losing every
   copy of both release keys means no installed card takes an update again (only a fresh install).
-  A leaked release key cannot be withdrawn yet: cards trust their keys for life and no update
-  changes them, so whoever has the key and its passphrase can sign updates for every card (#63).
   The passphrase is the second lock: keep it apart from the key file.
+- **Withdrawing a leaked key** (#63, cards installed with v0.3.0 or later): add its name to
+  `install/keys/withdrawn` (`release` or `dev`, one per line; never `release2`) and release with the
+  spare key (`RELEASE_KEY=release2`). Every package from then on carries `WITHDRAWN=<names>`:
+  - the updater, after the signature and contents checks and before the checks that can refuse the
+    package, adds a name to the card's list `/var/lib/dlzmod-update/withdrawn` only for a package
+    signed with `release2` (a leaked `release` key cannot withdraw the spare), without waiting for
+    Install; from another key's package the name is ignored ("not withdrawn, only the spare release
+    key can withdraw a key"), so later release and dev builds carrying the list still install. It
+    sticks even when that package is refused later on; the report names a key withdrawn before;
+  - a key on the list verifies nothing: "signed with the release key, which was withdrawn on this card";
+    a list that cannot be read counts as withdrawing every key;
+  - the list only grows: the updater never removes a line, an update's steps cannot write it (not on
+    the allowlist, and a removal in the stage is never carried over), and the snapshot never holds it,
+    so a put-back cannot bring a key back; a new updater copy must keep the check (its gate strings);
+  - the installer (`install_update_keys`) leaves the package's withdrawn keys out and writes the list;
+    `build-sd.sh` (no package) reads `install/keys/withdrawn` instead. A full install always makes a
+    new card (a fresh copy of the eMMC), so its list is the package's, whatever the card held before;
+  - withdrawing `dev` names the channel: it also stops a developer's own dev key (`mkpackage.sh`
+    refuses to sign with it, cards leave it out), so the dev card needs a new dev key and a reinstall.
+
+  Accepted: no update adds a key, so after a withdrawal `release2` is the only release key, with no
+  new spare until a full install with new keys; an installer image from before the leak still
+  trusts the leaked key; a card that does not take the withdrawal update keeps trusting it (whoever
+  holds the key can reach it first, and can then replace the updater); the withdrawal package is
+  stopped like any other by a second update file in the folder, or by a failed unpack (no room in
+  `/tmp`: refused for good, so a new file is needed); nothing checks that `install/keys/withdrawn`
+  never shrinks. Cards from v0.2.0 and older trust their keys for life.
 - `mkpackage.sh` signs dev builds with the dev key and `RELEASE=1` with the release key
   (`RELEASE_KEY=release2` for the spare), asks an encrypted key's passphrase once (or reads
   `DLZMOD_SIGNING_PASS`, passed only to the two openssl calls), and checks the private key against

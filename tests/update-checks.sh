@@ -55,6 +55,14 @@ codesub '[ "$APPROVED" = yes ] || wait_for_approval' '[ "$APPROVED" = yes ] || t
 out=$(gate "$cur" "$TMP/no-ask"); [ $? = 1 ] && ok "a copy that installs without Install on the screen (#65) is refused: $out" || bad "a copy without the approval gate: not refused ($out)"
 codesub 'if [ "$(cat "$STATE/approved" 2>/dev/null)" = "$SUM" ]' 'if true' > "$TMP/any-ok"
 out=$(gate "$cur" "$TMP/any-ok"); [ $? = 1 ] && ok "a copy that takes any approval (#65) is refused: $out" || bad "a copy that takes any approval: not refused ($out)"
+codesub '! withdrawn "$k" || KEY=withdrawn' ': withdrawn "$k"' > "$TMP/no-withdrawn"
+out=$(gate "$cur" "$TMP/no-withdrawn"); [ $? = 1 ] && ok "a copy that trusts withdrawn keys again (#63) is refused: $out" || bad "a copy without the withdrawal check: not refused ($out)"
+codesub 'grep -qx -- "$1" "$STATE/withdrawn"' 'false' > "$TMP/no-list"
+out=$(gate "$cur" "$TMP/no-list"); [ $? = 1 ] && ok "a copy that ignores the withdrawal list (#63) is refused: $out" || bad "a copy that ignores the list: not refused ($out)"
+codesub 'case $w in release|dev) ;; *) fail' 'case $w in release|dev|release2) ;; *) fail' > "$TMP/wd-spare"
+out=$(gate "$cur" "$TMP/wd-spare"); [ $? = 1 ] && ok "a copy that lets the spare key be withdrawn (#63) is refused: $out" || bad "a copy that lets release2 be withdrawn: not refused ($out)"
+codesub 'if [ "$KEYFILE" != release2 ]; then' 'if false; then' > "$TMP/wd-any"
+out=$(gate "$cur" "$TMP/wd-any"); [ $? = 1 ] && ok "a copy that lets any key withdraw (#63) is refused: $out" || bad "a copy that lets any key withdraw: not refused ($out)"
 sed 's/^if grep -qx usr\/local\/sbin\/dlzmod-update <<< "\$changed"; then$/if true; then/' "$NEW" > "$TMP/no-block"
 out=$(gate "$cur" "$TMP/no-block"); [ $? = 1 ] && ok "a copy without the check of its own next copy is refused: $out" || bad "a copy without the check of its next copy: not refused ($out)"
 sed '/^GUARDS="/s/^GUARDS="./GUARDS="0/' "$NEW" > "$TMP/guards"
@@ -86,6 +94,14 @@ for u in dlzmod-update dlzmod-grow-data; do
     && ok "EARLY_CONF matches sd-system/$u.service.d/dlzmod.conf" || bad "EARLY_CONF differs from sd-system/$u.service.d/dlzmod.conf"
   grep -qF "$u.service.d:dlzmod.conf" "$NEW" && ok "allowlist takes $u.service.d/dlzmod.conf" || bad "allowlist lacks $u.service.d/dlzmod.conf"
 done
+# v0.3.0's full install widens the allowlist for later drop-ins: #96's Weston drop-in, v0.5.0's audio
+# graph (and the graph in the snapshot, so a failed patch of it is put back)
+al=$(sed -n '/^allowed() {/,/^}/p' "$NEW")
+for e in 'weston-mackie.service.d:dlzmod.conf' 'mixergraph.js|mixergraph-dlzlite.js|mixergraph.js.orig|mixergraph-dlzlite.js.orig'; do
+  grep -qF -- "$e" <<< "$al" && ok "allowlist takes $e" || bad "allowlist lacks $e"
+done
+grep -qF 'usr/local/share/evolve-a1/mixergraph-dlzlite.js' <<< "$(sed -n '/^SNAP_GLOBS=/,/"$/p' "$NEW")" \
+  && ok "the snapshot holds the audio graph" || bad "the audio graph is not in SNAP_GLOBS"
 
 # 2. Checks only (DLZMOD_CHECK_ONLY=1): this updater's checks of steps 1 and 2 (signature, package
 # shape, model, firmware, version, guards) on a fixture tree, against packages made here the way
@@ -222,6 +238,66 @@ mkpkg missing "rm mod/check-rootfs.sh"; fresh; put missing; check "incomplete: c
 mkpkg noparse "echo 'if then' >> mod/apply-mod.sh"; fresh; put noparse; check "its scripts do not parse" "a package whose steps do not parse"
 mkpkg reinstall "sed -i 's/^REINSTALL=.*/REINSTALL=yes/' package.env" "sed -i 's/^REINSTALL=.*/REINSTALL=yes/' package.env"
 fresh; put reinstall; check "needs a full install" "a package that needs a full install"
+# REINSTALL_BELOW: a card installed at that version or later takes it; an older one does not
+rb() { echo "sed -i 's/^REINSTALL=.*/REINSTALL=yes/' package.env && echo REINSTALL_BELOW=$1 >> package.env"; }
+mkpkg below "$(rb "$VER")" "sed -i 's/^REINSTALL=.*/REINSTALL=yes/' package.env"
+fresh; put below; check "CHECKS PASSED" "REINSTALL_BELOW: a card on that version takes it"
+fresh; echo v0.0.9 > "$R/var/lib/dlzmod-update/version"; put below; check "needs a full install with the installer image (cards from before $VER)" "REINSTALL_BELOW: an older card is refused"
+fresh; rm "$R/var/lib/dlzmod-update/version"; put below; check "needs a full install" "REINSTALL_BELOW: a card without a version is refused"
+mkpkg belowbad "$(rb x)"; fresh; put belowbad; check "REINSTALL_BELOW is not a version" "REINSTALL_BELOW: not a version"
+
+echo "-- checks only: withdrawn keys (#63)"
+rel() { echo "setchan release${1:+ && echo WITHDRAWN=$1 >> package.env}"; }
+RELCARD() { fresh; rm "$R/usr/local/share/dlzmod-keys/dev.pub"; }
+SIGNKEY=release2 mkpkg wd "$(rel release)" "setchan release"
+RELCARD; put wd; check "WITHDRAWN: the release key" "the spare key withdraws the release key"
+RELCARD; put wd; check "CHECKS PASSED" "and the package itself passes"
+SIGNKEY=release mkpkg wdbyrel "$(rel release)" "setchan release"
+RELCARD; put wdbyrel; check "the release key: not withdrawn, only the spare release key can withdraw a key (this file is signed with the release key)" "the release key cannot withdraw (itself): the name is ignored"
+RELCARD; put wdbyrel; check "CHECKS PASSED" "and the package itself passes (every package carries the whole list)"
+SIGNKEY=release mkpkg wd2 "$(rel release2)" "setchan release"
+RELCARD; put wd2; check "it withdraws a key that cannot be withdrawn (release2)" "nobody withdraws the spare key"
+SIGNKEY=release2 mkpkg wd2self "$(rel release2)" "setchan release"
+RELCARD; put wd2self; check "it withdraws a key that cannot be withdrawn (release2)" "the spare key cannot withdraw itself"
+SIGNKEY=release2 mkpkg wdx "$(rel 'release,../x')" "setchan release"
+RELCARD; put wdx; check "it withdraws a key that cannot be withdrawn (../x)" "an odd name in WITHDRAWN"
+mkpkg wddev "setchan dev && echo WITHDRAWN=dev >> package.env" "setchan dev"
+fresh; put wddev; check "the dev key: not withdrawn, only the spare release key can withdraw a key (this file is signed with the dev key)" "the dev key cannot withdraw itself: the name is ignored"
+# a card whose list has the key (after the spare's package, or from the installer)
+withdraw() { printf '%s\n' "$@" > "$R/var/lib/dlzmod-update/withdrawn"; }
+RELCARD; withdraw release; put rel; check "signed with the release key, which was withdrawn on this card" "a withdrawn key verifies nothing"
+fresh; withdraw dev; put good; check "signed with the dev key, which was withdrawn on this card" "a withdrawn dev key on a developer card"
+RELCARD; withdraw release; put spare; check "CHECKS PASSED" "the spare key still works after the release key is withdrawn"
+RELCARD; withdraw release; put wdbyrel; check "signed with the release key, which was withdrawn" "a withdrawn key cannot sign a withdrawal either"
+# a package that names a key the card already withdrew needs no spare key (a later dev build)
+mkpkg wddone "setchan dev && echo WITHDRAWN=release >> package.env" "setchan dev"
+fresh; withdraw release; put wddone; check "CHECKS PASSED" "a key already withdrawn: any trusted key may name it"
+grep -qF "the release key: withdrawn on this card" "$OUT" && ok "the report says it was withdrawn before" || bad "no line for the key withdrawn before"
+grep -q WITHDRAWN "$OUT" && bad "a key already withdrawn was withdrawn again" || ok "and it is not withdrawn again"
+
+echo "-- the withdrawal sticks (a real run on the fixture: it stops at the question for the screen)"
+# not checks only: the run writes the list, then waits for Install on the screen (#65), nothing applied
+run() { DLZMOD_ROOT=$R DLZMOD_DATA=$D bash "$NEW" > "$OUT" 2>&1; echo "rc=$?" >> "$OUT"; }
+RELCARD; put wd; run
+[ "$(cat "$R/var/lib/dlzmod-update/withdrawn" 2>/dev/null)" = release ] && ok "the list holds the release key" || { bad "the list after the spare's package: $(cat "$R/var/lib/dlzmod-update/withdrawn" 2>&1)"; sed 's/^/    | /' "$OUT"; }
+grep -q "waits for Install" "$OUT" && ok "and the package waits for Install as any other" || bad "the withdrawal package did not wait for Install: $(tail -1 "$OUT")"
+# the next start (the same card, a release-signed file): refused; the list as it was
+rm -f "$U"/*; put rel; run
+grep -q "which was withdrawn on this card" "$OUT" && ok "at the next start the release key is refused" || bad "next start: $(grep -v '^rc=' "$OUT" | tail -1)"
+[ "$(cat "$R/var/lib/dlzmod-update/withdrawn")" = release ] && ok "the list unchanged" || bad "the list changed"
+# refused packages leave it too: one that withdraws again, and one from the spare key with an odd name
+rm -f "$U"/* "$R/var/lib/dlzmod-update/failed"; put wdx; run
+[ "$(cat "$R/var/lib/dlzmod-update/withdrawn")" = release ] && ok "a refused package leaves the list as it is" || bad "the list after a refused package: $(cat "$R/var/lib/dlzmod-update/withdrawn")"
+# the withdrawal of a package that is refused later still counts (it is the signer's)
+SIGNKEY=release2 mkpkg wdold "$(rel release) && echo v0.0.9 > VERSION && sed -i 's/^DLZMOD_VERSION=.*/DLZMOD_VERSION=v0.0.9/' package.env" \
+  "setchan release && sed -i 's/^DLZMOD_VERSION=.*/DLZMOD_VERSION=v0.0.9/' package.env"
+RELCARD; put wdold; run
+grep -q "older (v0.0.9)" "$OUT" && [ "$(cat "$R/var/lib/dlzmod-update/withdrawn" 2>/dev/null)" = release ] \
+  && ok "a withdrawal in a package refused for another reason still counts" || bad "withdrawal in a refused package: $(cat "$R/var/lib/dlzmod-update/withdrawn" 2>&1), $(grep -v '^rc=' "$OUT" | tail -1)"
+# a list that cannot be read (here a folder) withdraws every key
+RELCARD; mkdir "$R/var/lib/dlzmod-update/withdrawn"; put rel; run
+grep -q "signed with the release key, which was withdrawn on this card" "$OUT" && ok "a list that cannot be read withdraws every key" || bad "unreadable list: $(grep -v "^rc=" "$OUT" | tail -1)"
+rmdir "$R/var/lib/dlzmod-update/withdrawn"
 
 echo "-- checks only: the card's side"
 fresh; echo "v9.9.9" > "$R/var/lib/dlzmod-update/version"; put good; check "older ($VER) than this card's v9.9.9" "a card on a newer version"
