@@ -1452,23 +1452,39 @@ test("theme: High contrast sets the palette it names, the grey colours written i
 });
 test("theme: an own background and colour on top of the theme; warnings at the top of the meters stay", () => {
   reset();
-  withTheme([1, 3, 6], (c) => {
-    assert.strictEqual(c.bg, "#111820");
-    assert.strictEqual(ctx.DLZMOD_drawColor("fillStyle", "#1a1a1a"), "#111820", "the stereo strips' own panels too");
-    assert.deepStrictEqual([c.green, c.main], ["#5ce0ff", "#5ce0ff"], "Light blue, High contrast's lighter one");
-    assert.deepStrictEqual(plain(c.vuGrad).map((s) => s[1]), ["#5ce0ff", "#5ce0ff", "#5ce0ff", "#ffde2e", "#ffde2e",
+  withTheme([1, 2, 6], (c) => {
+    assert.strictEqual(c.bg, "#061514", "Tinted: a dark shade of High contrast's teal");
+    assert.strictEqual(ctx.DLZMOD_drawColor("fillStyle", "#1a1a1a"), "#061514", "the stereo strips' own panels too");
+    assert.deepStrictEqual([c.green, c.main], ["#40d6c8", "#40d6c8"], "Teal, High contrast's lighter one");
+    assert.deepStrictEqual(plain(c.vuGrad).map((s) => s[1]), ["#40d6c8", "#40d6c8", "#40d6c8", "#ffde2e", "#ffde2e",
       "#ff4a3d"]);
     assert.deepStrictEqual([ctx.DLZMOD_ovColor("bg", "x"), ctx.DLZMOD_knobColor(c.white), ctx.DLZMOD_knobColor(undefined),
-      ctx.DLZMOD_knobColor("#ea1a5b")], ["#111820", "#5ce0ff", "#5ce0ff", "#ea1a5b"], "an aux's own knob colour stays");
-    assert.strictEqual(ctx.DLZMOD_accent(), "#5ce0ff", "the Mod page's switches and tabs");
-    assert.strictEqual(ctx.DLZMOD_preColor(), "#5ce0ff", "the before-fader bar");
+      ctx.DLZMOD_knobColor("#ea1a5b")], ["#061514", "#40d6c8", "#40d6c8", "#ea1a5b"], "an aux's own knob colour stays");
+    assert.strictEqual(ctx.DLZMOD_accent(), "#40d6c8", "the Mod page's switches and tabs");
+    assert.strictEqual(ctx.DLZMOD_preColor(), "#40d6c8", "the before-fader bar");
+    assert.deepStrictEqual([c.buttonBg, c.vuBg], ["#2b4341", "#1b3331"], "the theme's greys in the background's hue");
+    assert.strictEqual(ctx.DLZMOD_drawColor("fillStyle", "#303030"), "#617977", "grey written into the code too (High contrast's track grey)");
+    assert.strictEqual(c.stripBorder, "#298980", "panel edges a soft shade of the colour");
   });
-  withTheme([0, 0, 6], (c) => assert.strictEqual(c.green, "#3fd0f5", "with Mackie: the stronger Mackie tone"));
+  withTheme([0, 1, 0], (c) => {
+    assert.deepStrictEqual([c.buttonBg, c.vuBg, c.stripBorder], [MACKIE.buttonBg, MACKIE.vuBg, undefined],
+      "a neutral background, no own colour: Mackie's greys and lines");
+    assert.strictEqual(ctx.DLZMOD_drawColor("fillStyle", "#303030"), "#303030");
+  });
+});
+test("theme: Tinted is a dark shade of the colour, the greys on it in its hue", () => {
+  reset();
+  withTheme([0, 2, 6], (c) => {
+    assert.deepStrictEqual([c.bg, c.buttonBg, ctx.DLZMOD_drawColor("fillStyle", "#303030")],
+      ["#031311", "#203a36", "#203a36"]);
+  });
+  withTheme([0, 2, 0], (c) => assert.strictEqual(c.bg, "#101409", "no own colour: the theme's (Mackie's green)"));
+  withTheme([0, 0, 6], (c) => assert.strictEqual(c.green, "#21baac", "with Mackie: Mackie's own teal"));
 });
 test("theme: the knob rings get Mackie's colours, also where a themed colour is one Mackie uses itself", () => {
   reset();
   withTheme([1, 0, 2], (c) => {
-    assert.strictEqual(c.main, "#ffde2e");
+    assert.strictEqual(c.main, "#ffd633");
     assert.notStrictEqual(c.yellow, c.main, "Mackie's yellow and green told apart (one step in blue)");
     ui.sets.length = 0;
     for (const [k, v] of [["K.0.color", c.main], ["K.1.color", c.yellow], ["K.2.color", "#ea1a5b"], ["x.color", c.main]]) {
@@ -1478,7 +1494,7 @@ test("theme: the knob rings get Mackie's colours, also where a themed colour is 
       ["x.color", c.main]]);
   });
   withTheme([0, 0, 2], (c) => {
-    assert.strictEqual(c.main, "#ffcc01", "Yellow is an aux colour of Mackie's: moved one step");
+    assert.strictEqual(c.main, "#ffc908", "Yellow is a colour of Mackie's own: moved one step");
     ui.sets.length = 0;
     ctx.Data.set("K.0.color", c.main);
     ctx.Data.set("K.3.color", "#ffcc00");

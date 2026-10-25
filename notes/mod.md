@@ -134,9 +134,10 @@ Sub-tabs Display / Colours / Network / Remote / Mod; layout and how to add a set
 
 ## Themes and colours (#21)
 
-Settings → DLZ Creator Modded → Colours: a theme (Mackie, High contrast), a background (4 dark ones)
-and one colour for the faders' knobs, the meters and what is selected (8, Mackie's channel colours
-with more colour in them; no red: on a mixer red is a clip). Keys `dlzmod.theme`, `dlzmod.bgColor`,
+Settings → DLZ Creator Modded → Colours: a theme (Mackie, High contrast), a background (Black,
+or "Tinted": a dark shade of the chosen colour) and one colour for the faders' knobs, the meters and
+what is selected (8: white and Mackie's own channel colours, so they sit with the strips' colours as
+one family, lighter with High contrast; no red: on a mixer red is a clip). Keys `dlzmod.theme`, `dlzmod.bgColor`,
 `dlzmod.faderColor`, 0 = stock; the numbers are saved, so the lists only grow at the end. The tab
 shows the choice in a preview; Apply saves all three and restarts the screen once.
 
@@ -153,8 +154,13 @@ shows the choice in a preview; Apply saves all three and restarts the screen onc
 - **High contrast**: black behind everything, white text, grey lines, buttons a step above the black
   with an outline (Mackie's own `Button` border, patched on in `paintBody`), selection in a strong
   yellow, meters a lighter green.
-- **The Mod page** follows the chosen colour for its switches, choices and tabs; the mod's name, the
-  line on its panels and status texts stay the mod's yellow.
+- **One piece** [sandbox]: Tinted also moves Mackie's greys on it (buttons, panels, meter
+  tracks, tab bars; palette and written into the code) into its hue (`DLZMOD_tint`), and with an own
+  colour the panel edges and lines between areas are a soft shade of it. Black leaves
+  the greys stock. Channel icons and colours, warnings (mute, clip, +48V) and the knob panel's
+  parameter colours (they match the knob rings) stay Mackie's.
+- **The Mod page** follows the chosen colour everywhere: switches, choices, tabs, the mod's name,
+  the line on its panels and status texts; the mod's yellow only without an own colour.
 - **Knob LEDs stay Mackie's**: the knob rings' colours (`K.N.color`, to the fader board) are
   `Color` values; a themed one goes out as the stock colour it replaces (`DLZMOD_ledColor`). A
   themed value that is also one of Mackie's own (an aux in yellow) is moved one step in blue, so it
