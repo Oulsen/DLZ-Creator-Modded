@@ -41,7 +41,7 @@ tr -d '\r' < "$REPO/CHANGELOG.md" | awk -v ver="$VER" -v issues="$ISSUES" '
     if (issues != "/dev/null" && !(full in num)) print "release-notes: no issue with this exact title: " full > "/dev/stderr"
     item[i] = item[i] "- " title ((full in num) ? " (#" num[full] ")" : "") "\n"; n++
     # a fix reads as one in the highlights ("The mixer ..." -> "Fixed: the mixer ...", "DLZ ..." stays)
-    if (i == 2 || i == 4) title = "Fixed: " (substr(title, 2, 1) ~ /[a-z]/ ? tolower(substr(title, 1, 1)) substr(title, 2) : title)
+    if (i == 2 || i == 4) title = "Fixed: " (substr(title, 2, 1) ~ /[A-Z]/ ? title : tolower(substr(title, 1, 1)) substr(title, 2))
     if (i != 3) hl[i] = hl[i] "- " title "\n"
   }
   END {
