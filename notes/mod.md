@@ -108,7 +108,7 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
 
 ## Mod settings (Settings → DLZ Creator Modded)
 
-Sub-tabs Display / Network / Remote / Mod; layout and how to add a setting:
+Sub-tabs Display / Colors / Network / Remote / Mod; layout and how to add a setting:
 [modding-guide.md](modding-guide.md), "Mod settings". Every default on these tabs equals stock.
 
 - **Hide header** (#31): more room; also hides the toasts, the red pad indicators and "DEMO MODE".
@@ -125,11 +125,65 @@ Sub-tabs Display / Network / Remote / Mod; layout and how to add a setting:
   at the stops of `Color.vuGrad`, dB notches on every strip meter and numbers beside LR (painted by
   wrapping the LR fader's `paint`); off = Mackie's plain meters. The scale is dB-linear over 80 dB with
   0 dBFS at the top [device: test tones at -6 and -30 dBFS].
+- **Colors** (#21): see "Themes and colours" below.
 - **Network** (#12, #44): Wi-Fi and SSH, below.
 - **Remote Control** (#45, #48): control from a computer's web browser, off by default; below (phones
   and tablets: Mackie's web UI does not fit them and misses touches, #52).
 - **Mod**: version, update status (an update waiting on the card, with "Install Update..." on the
   mixer's own screen, #65), credits.
+
+## Themes and colours (#21)
+
+Settings → DLZ Creator Modded → Colors, three rows; Default in each is the contrast's own:
+- **Contrast**: Normal (Mackie's look) or High.
+- **Color**, for the faders' knobs, the meters and what is selected: White, Yellow, Orange, Red, Teal,
+  Blue, Purple. Mackie's own channel colours, so they sit with the strips' colours as one family,
+  except Red (`#e0533f`, calmer than Mackie's clip red); lighter with High contrast; no green, the
+  default is green already. Every colour colours the meters, Red too: the clip block above a meter
+  then stands out less, the owner's choice [sandbox, device]. A chosen light swatch gets a dark line
+  inside its white edge, or the edge does not show on white [device].
+- **Background**: Default or Tinted (a dark shade of the chosen colour). A plain black background
+  differs too little from Default to be a choice: Default is black with Mackie's dark grey panels
+  behind the stereo strips, LR, lists and popups [sandbox].
+
+Keys `dlzmod.theme`, `dlzmod.bgColor`, `dlzmod.faderColor`, 0 = stock; the numbers are saved, so once
+released the lists only grow at the end; a number a list does not have shows the default. A tap saves
+that choice and the whole screen shows it at once: the screen is the preview, no Apply, no restart
+[sandbox, device].
+
+- **How** [static + sandbox]: Mackie's palette is one object, `Color` (100 names, 1223 uses), but
+  widgets copy their colours when they are made, so changing `Color` later shows nothing. So, once,
+  before `startGUI` builds the pages (patch.py), every palette colour any look changes gets a value
+  of its own (`DLZMOD_tokens`: Mackie's colour moved one step in blue until it is no other palette
+  colour, no colour a theme swaps in the code and no other such value; also one for the Mod page's
+  accent and one for the Overview's background, where Mackie writes `Color.black`). Where every
+  colour is set for drawing (on the mixer in `wrapObject`'s property setters, every drawing call to
+  glesgui passes there; in a browser on the canvas) a table turns each such value into the chosen
+  look's colour, or Mackie's. A change rebuilds the table and repaints (`app.update()`): no restart
+  (one would also risk systemd's start limit, 5 restarts within 10 s: dark screen until a power
+  cycle). Mackie's look draws every value as Mackie's own colour. `Util.hex2rgba`/`brighter` of such a
+  value give a value of their own, so a colour Mackie works out when a page is built (a list's
+  selection colour from `Color.main`) follows a change too (`DLZMOD_sum`, at most 256 [static]);
+  `Color.vuGrad` is changed in place (the meters keep that list). Colours written
+  into the code outside the palette (~460 places, 226 values: greys for text, tracks, strip panels,
+  knobs) go through the same table. Checked against the dump's `app.js`: every palette name the looks
+  use exists, and no such value equals a colour written anywhere in it [static]. Found per page with a probe in the sandbox that records each colour drawn outside the
+  palette and the code that drew it. The FX pages' light panels keep theirs (already dark on light).
+- **High contrast** [sandbox]: black behind everything, white text, grey lines, buttons a step above the black
+  with an outline (Mackie's own `Button` border, patched on in `paintBody`), selection in a strong
+  yellow, meters a lighter green.
+- **One piece** [sandbox]: Tinted also moves Mackie's greys on it (buttons, panels, meter
+  tracks, tab bars; palette and written into the code) into its hue (`DLZMOD_tint`), and with an own
+  colour the panel edges and lines between areas are a soft shade of it. Default leaves
+  the greys stock. Channel icons and colours, warnings (mute, clip, +48V) and the knob panel's
+  parameter colours (they match the knob rings) stay Mackie's [static].
+- **The Mod page** follows the chosen colour everywhere: switches, choices, tabs, the mod's name,
+  the line on its panels and status texts; the mod's yellow only without an own colour.
+- **Knob LEDs stay Mackie's**: the knob rings' colours (`K.N.color`, to the fader board) are
+  `Color` values: each goes out as Mackie's colour it stands for (`DLZMOD_ledColor`). Pad colours
+  and Mackie's other colour lists (channels, auxes, samples) are never themed.
+- **Only from the mixer's screen**: the server refuses the three keys from other devices (the
+  mixer's own look); a browser shows the tab, cannot pick, and follows a change at once.
 
 ## Network panel: Wi-Fi and SSH
 

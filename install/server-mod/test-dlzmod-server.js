@@ -1197,6 +1197,14 @@ test("pairing: factory reset, restarting the screen and the System Lock PIN only
   }
   assert.ok(keyOk("i.0.lock", 1, PAIRED), "a channel's lock (mute groups) is another key");
 });
+test("theme: the theme and its colours only from the mixer's screen", () => {
+  for (const k of ["dlzmod.theme", "dlzmod.bgColor", "dlzmod.faderColor"]) {
+    assert.ok(!keyOk(k, 1, PAIRED), k + " from a paired device");
+    assert.ok(!keyOk(k, 1, {}), k + " from another device");
+    assert.ok(keyOk(k, 1, SCREEN), k + " from the screen");
+  }
+  assert.ok(keyOk("dlzmod.meterMode", 1, PAIRED), "the other mod settings stay as they were");
+});
 test("files: a paired device changes nothing outside those folders, and no sample paths or formatting", () => {
   for (const p of ["sd:/notes.txt", "sd:/DLZ_Creator_XS_Recordings", "sd:/DLZ_Creator_XS_Recordings/", "sd:/",
     "sd:/DLZ_Creator_XS_Recordings/../dlzmod-update/x.tar", "sd:/DLZ_Creator_XS_Recordings_old/a.wav",

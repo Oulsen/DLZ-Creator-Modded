@@ -41,6 +41,36 @@ VERSION_PLACEHOLDER = "%%DLZMOD_VERSION%%"
 # (what, anchor in Mackie's code, replacement)
 APP_PATCHES = [
     (
+        # startGUI builds the pages once the hub's INIT is in (dlzmod.theme with it); widgets copy
+        # their colours when they are made
+        "theme: palette set before the pages are built",
+        "function startGUI(t){",
+        "function startGUI(t){DLZMOD_applyTheme();",
+    ),
+    (
+        # the mixer's screen: every drawing property set is sent to glesgui from here (in a browser
+        # the mod wraps the canvas itself, DLZMOD_tokens)
+        "theme: colours written into the code",
+        "set:i=>{let a={obj:t,call:s,args:[i]};",
+        "set:i=>{i=DLZMOD_drawColor(s,i);let a={obj:t,call:s,args:[i]};",
+    ),
+    (
+        "theme: the Overview's background",
+        "MainMixer=class extends GenericMixer{constructor(t){super(t,{bgColor:Color.black,margin:2}),",
+        'MainMixer=class extends GenericMixer{constructor(t){super(t,{bgColor:DLZMOD_ovColor("bg",Color.black),margin:2}),',
+    ),
+    (
+        # an aux mix colours the knobs itself (knobColor: the aux's colour), that stays (DLZMOD_knobColor)
+        "theme: the Overview's fader knobs",
+        "Color.channel[s]||Color.white,t.fillCircle(0|e,0|i,o),o-=3.5)}t.fillStyle=this.knobColor||Color.white,t.fillCircle(0|e,0|i,o)",
+        "Color.channel[s]||Color.white,t.fillCircle(0|e,0|i,o),o-=3.5)}t.fillStyle=DLZMOD_knobColor(this.knobColor),t.fillCircle(0|e,0|i,o)",
+    ),
+    (
+        "theme: button outlines",
+        "paintBody(t){t.beginPath(),t.fillStyle=this.colors[+this.state];let e=this.border/2;",
+        "paintBody(t){DLZMOD_outline(this),t.beginPath(),t.fillStyle=this.colors[+this.state];let e=this.border/2;",
+    ),
+    (
         # app.setPage shows the header on every page switch (full-screen pages hide it again)
         "header: follow the Hide header setting",
         "t.topBar.show(),t.navBar.show(),t.panel.show(),e){case E_PAGE.EZASSISTANT:",
@@ -52,9 +82,9 @@ APP_PATCHES = [
         'let t=[lang.SYSTEM,lang.BLUETOOTH_SD,lang.ROUTING_RECORDING,lang.ABOUT,DLZMOD_tabLabel()];',
     ),
     (
-        "settings: Mod tab in mod yellow",
+        "settings: Mod tab in mod yellow (the accent colour with a theme)",
         "text:t[e],opaque:!1,colors:[Color.subNavButtonBg,Color.main],",
-        "text:t[e],opaque:!1,colors:[Color.subNavButtonBg,4===e?DLZMOD_yellow():Color.main],",
+        "text:t[e],opaque:!1,colors:[Color.subNavButtonBg,4===e?DLZMOD_accent():Color.main],",
     ),
     (
         "settings: show Mod page",
@@ -77,7 +107,7 @@ APP_PATCHES = [
         "t.fRect(Color.main,0,40,this.w,2)}},PageSamples=class",
         "onResize(){DLZMOD_layoutTabs(this)}"
         "paint(t){t.fRect(this.bgColor,0,0,this.w,this.h),t.fRect(Color.subNavButtonSeparator,0,0,this.w,40),"
-        "t.fRect(4===this.page?DLZMOD_yellow():Color.main,0,40,this.w,2)}},PageSamples=class",
+        "t.fRect(4===this.page?DLZMOD_accent():Color.main,0,40,this.w,2)}},PageSamples=class",
     ),
     (
         # booted from SD, the only SD slot holds the boot card: FORMAT SD would wipe the running

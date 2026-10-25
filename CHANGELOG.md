@@ -2,6 +2,7 @@
 
 ## v0.3.0
 
+- (DLZ FEATURE) Themes: high contrast and your own colors
 - (DLZ BUG) The mixer sometimes gets stuck while starting
 - (MOD FEATURE) Each start leaves a clear log: start order, timings, errors and how the audio chips started
 - (MOD FEATURE) Withdraw a leaked update key from the mixers
