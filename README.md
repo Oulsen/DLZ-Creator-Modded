@@ -71,8 +71,8 @@ What is planned and what is being worked on, all on GitHub:
 | Mixer | Firmware (Settings → About) | Status |
 |---|---|---|
 | DLZ Creator XS | 1.2.0, build 1731 | Supported, tested |
-| DLZ Creator (full-size) | 1.2.0, build 1731 | Supported: installed and running on an owner's mixer (v0.1.0); our test mixer is an XS |
-| Either model | another build, such as 1794 | Not supported: the installer can save a backup so we can add it |
+| DLZ Creator (full-size) | 1.2.0, build 1731 | Supported: installed and running on an owner's mixer (v0.1.0); my test mixer is an XS |
+| Either model | another build, such as 1794 | Not supported: the installer can save a backup so I can add it |
 
 ## Install
 
@@ -106,8 +106,8 @@ could void your mixer's warranty.
 - **Bugs.** It is an alpha made by one person and tested on one mixer (an XS). A feature can
   misbehave or a start can hang; switching off and on, or taking the card out, gets you back.
 - **A fresh install now and then.** Until v1.0, a new version can need a fresh install from the
-  installer image instead of an update, when that is the only clean way to bring a change. We avoid
-  it where we can; the release says so, and you copy your recordings off the card first.
+  installer image instead of an update, when that is the only clean way to bring a change. I avoid
+  it where I can; the release says so, and you copy your recordings off the card first.
 - **Recordings.** An SD card can fail, and a bug can cost a take. Copy recordings you care about to
   a computer soon; don't use the mod as the only recorder for a show you cannot repeat.
 - **The network.** The connection to the mixer is not encrypted. Other devices (cable or Wi-Fi) can
@@ -177,7 +177,7 @@ How it works, the tools, building a card from source and the knowledge base:
 
 ## Legal
 
-Our own code, notes and artwork are licensed under the [GPL-3.0](LICENSE). Mackie's software is not
+The mod's own code, notes and artwork are licensed under the [GPL-3.0](LICENSE). Mackie's software is not
 covered: it is not in this repo and not in the downloads.
 
 The installer image carries two GPL-2.0 programs from Debian: U-Boot (`u-boot-sunxi`
