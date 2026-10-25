@@ -113,8 +113,18 @@ The pattern, as used by "Hide header" (`install/app-mod/dlzmod.js`):
 - Segmented controls (`SwitchBox`) and buttons on these pages are sized for fingers: 46-56 px high.
 - Header specifics: `app.setPage` shows the header on every page switch (patched to ask
   `DLZMOD_headerHidden()`); hidden widgets count as 0 px in anchors, so everything moves up.
-  Hiding it also hides toasts (`showToast` draws in the header), the red pad indicators and
-  "DEMO MODE". The right knob panel gets 30 px of empty space at the bottom.
+  Hiding it also hides the red pad indicators and "DEMO MODE"; toasts (`showToast` draws in the
+  header) then show in the mod's message bar (#58, below). The right knob panel gets 30 px of empty
+  space at the bottom.
+- Drawing over everything without moving it: the foreground layer, as Mackie's popups do. A widget
+  with `setOverlay(true)` joins the UI's modal list (`app.mWidgets`) and draws on the overlay
+  canvas, so pages that draw all the time (meters) do not paint over it [sandbox]. A tap is first
+  offered to the modal list; with `ignoreEvents` the widget takes none, and a tap that no modal widget
+  takes closes every one with `autoCloseModal` (the default) and, when none has `clickBlockModal`,
+  goes on to the widget below. Closing one leaves it drawn on the device until what is below draws
+  again and clears the whole foreground layer there ("PC sandbox", below: a closed popup): draw both
+  again.
+  Used by the message bar (`DLZMOD_messageBar`).
 
 ## Where to hook in (least to most invasive)
 

@@ -20,7 +20,7 @@ below. They all start as stock: turn on what you want.
 
 - Meters that show the level before the fader, after it, or both *(Display)*
 - Yellow and red zones and a dB scale on the meters *(Display)*
-- Hide the header bar for more room *(Display)*
+- Hide the header bar for more room; messages still show for a moment *(Display)*
 - A high-contrast look, your own background and your own color for the faders, meters and what is
   selected *(Colors)*
 - The mod's own startup screens
