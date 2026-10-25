@@ -117,14 +117,16 @@ The pattern, as used by "Hide header" (`install/app-mod/dlzmod.js`):
   header) then show in the mod's message bar (#58, below). The right knob panel gets 30 px of empty
   space at the bottom.
 - Drawing over everything without moving it: the foreground layer, as Mackie's popups do. A widget
-  with `setOverlay(true)` joins the UI's modal list (`app.mWidgets`) and draws on the overlay
-  canvas, so pages that draw all the time (meters) do not paint over it [sandbox]. A tap is first
-  offered to the modal list; with `ignoreEvents` the widget takes none, and a tap that no modal widget
-  takes closes every one with `autoCloseModal` (the default) and, when none has `clickBlockModal`,
-  goes on to the widget below. Closing one leaves it drawn on the device until what is below draws
-  again and clears the whole foreground layer there ("PC sandbox", below: a closed popup): draw both
-  again.
-  Used by the message bar (`DLZMOD_messageBar`).
+  with `setOverlay(true)` draws on the overlay canvas, so pages that draw all the time (meters) do
+  not paint over it [sandbox], and joins the UI's modal list (`app.mWidgets`) [static]. Modal
+  widgets close easily: `app.setPage` and Escape run `closeModals` first, and a tap that none of them
+  takes closes every one with `autoCloseModal` (the default) [static]. `closeModals` destroys while
+  it iterates the list, so a modal widget after a destroyed one is skipped [static]. For something
+  that must outlive a page switch, `setOverlay(true, true)`: the overlay canvas, not the modal
+  list [static, sandbox]; with `ignoreEvents` it takes no taps, the widget below gets them. Closing
+  either kind leaves it drawn on the device until what is below draws again, and clears the whole
+  foreground layer there ("PC sandbox", below: a closed popup): draw both again. Used by the message
+  bar (`DLZMOD_messageBar`).
 
 ## Where to hook in (least to most invasive)
 

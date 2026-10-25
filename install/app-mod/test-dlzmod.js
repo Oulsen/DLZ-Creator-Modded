@@ -35,12 +35,18 @@ Object.assign(Widget.prototype, {
   geomCenterY() {
     return 0;
   },
-  setOverlay(v) {
+  // the foreground layer; as Mackie's, without a second argument the widget also joins the UI's modal
+  // widgets (its parent's mWidgets here), and destroy takes it out again
+  setOverlay(v, child) {
     this._overlay = v;
+    const d = this.parent;
+    if (!child && d && d.mWidgets && !d.mWidgets.includes(this)) d.mWidgets.push(this);
   },
   destroy() {
     this.destroyed = true;
     if (this.onDestroy) this.onDestroy();
+    const m = this.parent && this.parent.mWidgets, i = m ? m.indexOf(this) : -1;
+    if (i >= 0) m.splice(i, 1);
   },
 });
 // Mackie's header: its own showMessage puts the message in the bar (ui.headerMsgs)
@@ -515,12 +521,25 @@ test("header: hidden or shown at once, but not on full-screen pages; saved setti
 
 // #58: Mackie's messages (showToast) while the header is hidden. o.shown: the header shown, o.nav false:
 // a full-screen page (no tab bar)
+// a full-screen page (no tab bar). closeModals as Mackie's (app.setPage and Escape run it): a forEach
+// that destroys, so a widget after a destroyed one is skipped
 const msgApp = (o = {}) => {
   const nav = new Widget(null, { w: 950, h: 66, globalX: () => 0, globalY: () => 0, visible: o.nav !== false });
-  const top = Object.assign(new TopBar(), { visible: !!o.shown, h: 30, bgColor: "black" });
+  const top = Object.assign(new TopBar(), { visible: !!o.shown, h: 30, bgColor: "black",
+    setVisible(v) {
+      this.visible = v;
+    } });
   return { navBar: nav, topBar: top, mWidgets: [], fg: 0, drawAllFg() {
     this.fg++;
-  } };
+  }, closeModals() {
+    this.mWidgets.forEach((w) => w.autoCloseModal !== false && w.destroy());
+  }, updateGeometry() {}, update() {} };
+};
+const barTexts = (bar) => {
+  const texts = [];
+  Object.assign(bar, { w: 950, h: 30 });   // as Mackie's Widget takes its size
+  bar.paint({ fillRect() {}, fRect() {}, drawText: (...x) => texts.push(x) });
+  return plain(texts);
 };
 test("header hidden: a message shows in a bar over the tab bar for its time; a new one takes its place", async () => {
   reset();
@@ -534,11 +553,10 @@ test("header hidden: a message shows in a bar over the tab bar for its time; a n
     assert.deepStrictEqual(plain(ui.headerMsgs), [["Saved: Show 1", "main", 30]], "the header keeps it too, once");
     const bar = ctx.DLZMOD_messageBar.bar;
     assert.ok(bar._overlay && bar.ignoreEvents, "on the foreground layer; a tap goes to the tab below");
+    assert.deepStrictEqual(a.mWidgets, [], "not a modal widget");
+    assert.ok(bar.updates > 0, "drawn at once");
     assert.deepStrictEqual(plain([bar.anchors, bar.size]), [[0, 0], [950, 30]], "the tab bar's width, the header's height");
-    const texts = [];
-    Object.assign(bar, { w: 950, h: 30 });   // as Mackie's Widget takes its size
-    bar.paint({ fillRect() {}, fRect() {}, drawText: (...x) => texts.push(x) });
-    assert.deepStrictEqual(plain(texts), [["Saved: Show 1", 475, 16,
+    assert.deepStrictEqual(barTexts(bar), [["Saved: Show 1", 475, 16,
       { color: "main", font: "600 13pt", align: "center", valign: "middle" }]]);
     a.topBar.showMessage("Loaded: Show 2", "red", 30);
     const second = ctx.DLZMOD_messageBar.bar;
@@ -547,10 +565,43 @@ test("header hidden: a message shows in a bar over the tab bar for its time; a n
     assert.ok(second.destroyed && ctx.DLZMOD_messageBar.bar === null, "gone after its time");
     assert.strictEqual(a.navBar.updates, 2, "the tab bar draws again after each (the device keeps a closed overlay drawn)");
     assert.strictEqual(a.fg, 0);
-    a.mWidgets.push({});
+    const popup = new Widget(a, {});
+    popup.setOverlay(true);
     a.topBar.showMessage("Renamed", undefined, 5);
     await tick(30);
     assert.strictEqual(a.fg, 1, "an open popup draws again too");
+  } finally {
+    ctx.app = undefined;
+  }
+});
+test("message bar: stays through a page switch, which still closes a popup; gone with the header or a full-screen page", async () => {
+  reset();
+  settings({ "dlzmod.hideHeader": 1 });
+  ctx.DLZMOD_hookMessages();
+  const a = msgApp();
+  ctx.app = a;
+  try {
+    // a snapshot load: "Loaded: ..." and at once app.setPage, which first closes the modal widgets
+    const popup = new Widget(a, {});
+    popup.setOverlay(true);
+    a.topBar.showMessage("Loaded: Show 1", undefined, 1000);
+    const bar = ctx.DLZMOD_messageBar.bar;
+    a.closeModals();
+    assert.ok(popup.destroyed, "the popup closed, as in stock");
+    assert.ok(!bar.destroyed && ctx.DLZMOD_messageBar.bar === bar, "the message still shows");
+    a.navBar.visible = false;   // a full-screen page: drawn without the bar
+    assert.deepStrictEqual(barTexts(bar), []);
+    a.navBar.visible = true;
+    ctx.DLZMOD_applyHeader();   // Hide header changed (also from a browser): its place moves
+    assert.ok(bar.destroyed && ctx.DLZMOD_messageBar.bar === null);
+    const before = bar.updates;
+    a.topBar.showMessage("Saved: Show 1", undefined, 1000);
+    const again = ctx.DLZMOD_messageBar.bar;
+    ctx.DLZMOD_repaintSoon();   // a popup closed: the cleared foreground layer took the bar along
+    await tick(10);
+    assert.ok(again.updates >= 2 && bar.updates === before, "drawn again");
+    again.destroy();
+    await tick(10);
   } finally {
     ctx.app = undefined;
   }
