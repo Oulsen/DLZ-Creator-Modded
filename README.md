@@ -105,6 +105,9 @@ could void your mixer's warranty.
 
 - **Bugs.** It is an alpha made by one person and tested on one mixer (an XS). A feature can
   misbehave or a start can hang; switching off and on, or taking the card out, gets you back.
+- **A fresh install now and then.** Until v1.0, a new version can need a fresh install from the
+  installer image instead of an update, when that is the only clean way to bring a change. We avoid
+  it where we can; the release says so, and you copy your recordings off the card first.
 - **Recordings.** An SD card can fail, and a bug can cost a take. Copy recordings you care about to
   a computer soon; don't use the mod as the only recorder for a show you cannot repeat.
 - **The network.** The connection to the mixer is not encrypted. Other devices (cable or Wi-Fi) can
