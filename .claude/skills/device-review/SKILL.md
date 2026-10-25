@@ -1,6 +1,6 @@
 ---
 name: device-review
-description: Review before anything new or changed runs on the mixer or lands on a card - mod changes (patches, app/server mods, sd-system units), card/image builds (build-sd.sh, U-Boot scripts, uboot.env, initramfs, installer, dumper) and spikes. Once per image that goes onto the mixer; the effort follows the risk tier (no agent for tests-covered changes and other mod logic, read against a brick checklist; 1 blind brick reviewer for a sensitive path; 2 reviewers for new write paths and boot routes). Use before asking the user to flash or boot anything, or when the user says "review this for the device", "device review", "brick check".
+description: Review before anything new or changed runs on the mixer or lands on a card - mod changes (patches, app/server mods, sd-system units), card/image builds (build-sd.sh, U-Boot scripts, uboot.env, initramfs, installer, dumper) and spikes. On each PR that changes the mod or what runs on the mixer, after /cr and before its drop-in and merge; on an image or spike, for what no merged PR's review covered; the effort follows the risk tier (no agent for tests-covered changes and other mod logic, read against a brick checklist; 1 blind brick reviewer for a sensitive path; 2 reviewers for new write paths and boot routes). Use before asking the user to flash or boot anything, or when the user says "review this for the device", "device review", "brick check".
 ---
 
 # device-review
@@ -25,14 +25,18 @@ Not part of it: notes, README/CHANGELOG, GitHub issues, tests, CI, the PC sandbo
 get no device review; their PR gets the normal `/cr` review like every PR (`docs/DEVELOPMENT.md`,
 "Review").
 
-**Once per image that goes onto the mixer, not per commit or fix.** Collect the changes since the
-last version that passed on the device, run the tests, then review that batch once, on the build
-that will be flashed.
+**Once per PR, before the merge, not per commit or fix.** A PR that changes the mod or anything else
+that runs on the mixer goes `/pr` → `/cr` → fixes → this review on the PR's final diff → a drop-in of
+the PR branch on the dev card → merge (`docs/DEVELOPMENT.md`, "On the mixer before the merge"). A fix
+from the review or the drop-in is a new commit on the PR: read it again at its tier. Docs and DEV PRs
+skip it. An image, card or spike that goes onto the mixer gets this review for what no merged PR's
+review covered (build scripts, the card, the installer, the spike itself), on the build that will be
+flashed.
 
 ## Tiers
 
-Pick the tier from the diff against the last version that passed on the device; the highest
-matching row wins. Tell the user which tier and why before starting.
+Pick the tier from the PR's diff (an image: the diff against the last version that passed on the
+device); the highest matching row wins. Tell the user which tier and why before starting.
 
 | Tier | Change touches | Review |
 |---|---|---|
