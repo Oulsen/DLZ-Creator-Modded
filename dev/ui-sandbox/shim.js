@@ -25,16 +25,27 @@ if (!ROOT || !fs.existsSync(path.join(ROOT, 'srv', 'server.js'))) {
 }
 const TOPS = new Set(['srv', 'tmp', 'etc', 'root', 'dev', 'proc', 'boot']);
 const ROOT_DRIVE = path.win32.parse(ROOT).root.slice(0, 1).toLowerCase();
+const ROOT_LOW = path.resolve(ROOT).toLowerCase();
+const inRoot = (p) => {
+  const r = path.relative(ROOT_LOW, path.resolve(p).toLowerCase());
+  return r === '' || (!r.startsWith('..') && !path.isAbsolute(r));
+};
 function inSandbox(p) {
+  if (Buffer.isBuffer(p)) p = p.toString();
+  else if (p instanceof URL && p.protocol === 'file:') p = require('url').fileURLToPath(p);
   if (typeof p !== 'string') return p;
   let rest = null;
   if (/^[\\/](?![\\/])/.test(p)) rest = p.slice(1);   // /srv/x, not a share (//host)
   else {
     const m = /^([A-Za-z]):[\\/](.*)$/.exec(p);
-    if (m && m[1].toLowerCase() === ROOT_DRIVE) rest = m[2];
+    // the sandbox's own files stay as they are (a repo under D:\dev\ or D:\tmp\ too)
+    if (m && m[1].toLowerCase() === ROOT_DRIVE && !inRoot(p)) rest = m[2];
   }
-  if (rest === null || !TOPS.has(rest.split(/[\\/]/)[0])) return p;
-  return path.join(ROOT, rest);
+  if (rest === null || !TOPS.has(rest.split(/[\\/]/)[0].toLowerCase())) return p;
+  const out = path.join(ROOT, rest);
+  // never out of the sandbox folder (/tmp/../../x)
+  if (!inRoot(out)) throw Object.assign(new Error(`sandbox: ${p} leads out of the sandbox folder`), { code: 'EACCES' });
+  return out;
 }
 // the calls that take a path (first, or the first two), in fs and fs.promises; never the fd ones,
 // whose string argument is data
@@ -52,6 +63,8 @@ function redirect(obj, name, two) {
     obj[name].native = f.native;
     redirect(obj[name], 'native', two);
   }
+  const custom = f[util.promisify.custom];   // util.promisify(fs.exists)
+  if (typeof custom === 'function') obj[name][util.promisify.custom] = (a, ...rest) => custom(inSandbox(a), ...rest);
 }
 for (const [names, two] of [[ONE, false], [TWO, true]]) {
   for (const n of names) {

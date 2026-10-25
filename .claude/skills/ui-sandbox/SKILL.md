@@ -7,8 +7,9 @@ description: Start, check, re-patch, screenshot and stop the UI sandbox ("the de
 
 Mackie's `server.js` and `app.js` (the mod's patches applied) run with Windows Node on a private
 copy of the mixer's `/srv` (`dumps/sandbox/`, git-ignored); the shim takes the absolute paths in
-`server.js` (`/srv`, `/tmp`, `/root` ...) into that folder, no drive letter. Shell commands are blocked and it listens on
-127.0.0.1 only (`dev/ui-sandbox/shim.js`). No DSP, no faders: the UI and its state/preset logic work,
+`server.js` (`/srv`, `/tmp`, `/root` ...) into that folder, no drive letter. Shell commands are
+blocked and it listens on 127.0.0.1 only (`dev/ui-sandbox/shim.js`). No DSP, no faders: the UI and
+its state/preset logic work,
 real meters and audio do not (moving fake meters do). Details and limits: `notes/modding-guide.md`,
 "PC sandbox".
 
