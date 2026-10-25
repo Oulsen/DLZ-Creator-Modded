@@ -49,7 +49,7 @@ APP_PATCHES = [
     ),
     (
         # the mixer's screen: every drawing property set is sent to glesgui from here (in a browser
-        # the mod wraps the canvas itself, DLZMOD_applyTheme)
+        # the mod wraps the canvas itself, DLZMOD_tokens)
         "theme: colours written into the code",
         "set:i=>{let a={obj:t,call:s,args:[i]};",
         "set:i=>{i=DLZMOD_drawColor(s,i);let a={obj:t,call:s,args:[i]};",

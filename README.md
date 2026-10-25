@@ -21,7 +21,7 @@ below. They all start as stock: turn on what you want.
 - Yellow and red zones and a dB scale on the meters *(Display)*
 - Hide the header bar for more room *(Display)*
 - A high-contrast look, your own background and your own colour for the faders, meters and what is
-  selected *(Colours)*
+  selected *(Colors)*
 - The mod's own startup screens
 
 ### Network and remote control

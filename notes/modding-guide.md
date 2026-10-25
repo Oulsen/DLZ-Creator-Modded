@@ -100,14 +100,14 @@ The pattern, as used by "Hide header" (`install/app-mod/dlzmod.js`):
 - The key is global: a browser remote sees the same setting as the device.
 - Not for state the server owns (Wi-Fi, SSH on the Network panel): those come from the server mod
   as messages (`DLZMOD_NET_STATE`), so nothing is broadcast or saved in `srv_data.json`.
-- Layout: sub-tabs Display / Colours / Network / Remote / Mod (Mackie `ToggleButton`, 178 x 44, mod
+- Layout: sub-tabs Display / Colors / Network / Remote / Mod (Mackie `ToggleButton`, 178 x 44, mod
   yellow when active, or the owner's colour: `DLZMOD_accent()`, #21), 8 px gap, then that sub-page's
   cards, 388 px high. Unlike Mackie's pages
   (829 x 392) the page fills Settings with 12 px margins: 914 x 440, laid out for the header shown
   (464 px under the tab bar, measured in the sandbox); with it hidden,
   Mackie's centring splits the extra 30 px. Display = Screen (290) + Meters (612); Network = Wi-Fi +
   SSH cards (451 each) inside `page.network`, a paint-less container so `page.network.update()`
-  still repaints both; Colours = one card (theme, background and colour swatches, preview, Apply); Remote Control = one card (switch, warning, address, PIN, Forget, #45); Mod =
+  still repaints both; Colors = one card (theme, background and colour swatches; a tap applies at once); Remote Control = one card (switch, warning, address, PIN, Forget, #45); Mod =
   one card (version, update hint or refusal in red, credits). A new
   setting goes on the sub-page it belongs to; a new topic gets a sub-tab, not a squeezed row.
 - Segmented controls (`SwitchBox`) and buttons on these pages are sized for fingers: 46-56 px high.

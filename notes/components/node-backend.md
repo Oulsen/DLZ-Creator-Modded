@@ -182,7 +182,8 @@ Whether the `HAVE_*` flags unlock anything without native support is unknown [gu
   tracks, `#1a1a1a` strip panels, `#888888` text ...) [static]. Widgets copy their colours when they
   are made (86 `this.x=Color.y`, plus option objects), so changing `Color` after the pages are built
   changes nothing on screen; Mackie's own language choice restarts the screen for the same reason
-  [static + sandbox]. The mod's themes: [../mod.md](../mod.md), "Themes and colours".
+  [static + sandbox]. Every drawn colour passes `fillStyle`/`strokeStyle`, so a colour swapped there
+  changes the screen at the next repaint (`app.update()`) [sandbox]. The mod's themes: [../mod.md](../mod.md), "Themes and colours".
 - On the mixer every drawing call goes to glesgui through `wrapObject` (`$CFG.ctxPipeline`): methods
   are recorded, property sets (`fillStyle` ...) pass a setter that records them [static].
 - The knob rings' colours (`K.N.color`) are `Color` values from each knob's `control.color`

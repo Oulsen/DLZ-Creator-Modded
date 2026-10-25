@@ -348,9 +348,9 @@ function DLZMOD_cmdAllowed(handlers, cmd, args, send, roots) {
 // plain key/value messages (stock stores and relays every key): no prototype keys; keys with a file
 // path dspserver opens or records to only from the screen; the System Lock PIN (`lock`: setting,
 // changing or removing it) only from the screen (#45: other devices still receive it, Mackie's web
-// UI needs it for its own lock screen); the theme and its colours (#21) only from the screen (a change restarts the
-// screen, and a few restarts in a row leave it dark, see RESTART_GUI above); track names (multitrack
-// file names) from other devices plain
+// UI needs it for its own lock screen); the theme and its colours (#21) only from the screen (the
+// mixer's own look; a browser shows it and follows a change); track names (multitrack file names)
+// from other devices plain
 function DLZMOD_keyAllowed(key, value, send) {
   if (key === "__proto__" || key === "constructor" || key === "prototype") return false;
   const local = !!(send && send.dlzmodLocal === true);
