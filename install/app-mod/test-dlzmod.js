@@ -1,6 +1,6 @@
 // Tests for dlzmod.js (the app mod): node install/app-mod/test-dlzmod.js
 // Loads the file in a vm context, as it runs once appended to app.js, with small stand-ins for the
-// Mackie UI globals it uses (Widget and its kinds, PopupWindow, askConfirm, showMessage, showToast,
+// Mackie UI globals it uses (Widget and its kinds, PopupWindow, TopBar, askConfirm, showMessage, showToast,
 // PopupConfirm, askInput, setKbdTitle, Data, $NET, app, Font, Color, $FA, lang, deconvertVU, VU_STRUCT,
 // E_CH_TYPE, VtoMix, modVuByDb, EXTERNAL) and for the browser
 // (fetch, document). What the stand-ins record is what the tests look at; what is drawn where stays
@@ -11,7 +11,7 @@ const path = require("path");
 const vm = require("vm");
 
 const ui = { buttons: [], popups: [], toasts: [], links: [], fetches: [], cmds: [], windows: [], progress: [],
-  widgets: [], inputs: [], titles: [], destroyed: [], pickers: [], attached: [], sets: [] };
+  widgets: [], inputs: [], titles: [], destroyed: [], pickers: [], attached: [], sets: [], headerMsgs: [] };
 const regs = {};   // Data.regWidget: key -> callbacks
 // Mackie's Widget: the parameters become properties, then _constructor runs
 function Widget(parent, p) {
@@ -35,7 +35,25 @@ Object.assign(Widget.prototype, {
   geomCenterY() {
     return 0;
   },
+  // the foreground layer; as Mackie's, without a second argument the widget also joins the UI's modal
+  // widgets (its parent's mWidgets here), and destroy takes it out again
+  setOverlay(v, child) {
+    this._overlay = v;
+    const d = this.parent;
+    if (!child && d && d.mWidgets && !d.mWidgets.includes(this)) d.mWidgets.push(this);
+  },
+  destroy() {
+    this.destroyed = true;
+    if (this.onDestroy) this.onDestroy();
+    const m = this.parent && this.parent.mWidgets, i = m ? m.indexOf(this) : -1;
+    if (i >= 0) m.splice(i, 1);
+  },
 });
+// Mackie's header: its own showMessage puts the message in the bar (ui.headerMsgs)
+function TopBar() {}
+TopBar.prototype.showMessage = function (text, color, time) {
+  ui.headerMsgs.push([text, color, time]);
+};
 const kind = (extra) => {
   const k = function (parent, p) {
     Widget.call(this, parent, p);
@@ -66,7 +84,7 @@ SwitchBox.prototype.setItems = function (items) {
 const ctx = vm.createContext({
   setTimeout, clearTimeout, setInterval: () => 0, console: { log() {}, error() {} },
   EXTERNAL: false, app: undefined,
-  Widget, PopupWindow, SwitchBox,
+  Widget, PopupWindow, SwitchBox, TopBar,
   E1Button: kind((b) => ui.buttons.push(b)),
   ToggleButton: kind(), Switcher: kind(), Button: kind(),
   Util: { hex2rgba: (c, a) => c + "@" + a },
@@ -107,7 +125,7 @@ const ctx = vm.createContext({
   lang: { CURRENT_VERSION: "Current version", UPDATE_VERSION: "Update version", CANCEL: "Cancel" },
   Font: { font: (w, s) => w + " " + s, fa: (s) => "fa " + s, mi: (s) => "mi " + s },
   Color: { main: "main", confirm: "confirm", deny: "deny", red: "red", blue: "blue", white: "white", green: "green",
-    red2: "red2", black: "black", bgDark: "bgDark", buttonBg: "buttonBg", subNavButtonText: "subNavButtonText",
+    red2: "red2", black: "black", bgDark: "bgDark", menuSeparator: "menuSeparator", buttonBg: "buttonBg", subNavButtonText: "subNavButtonText",
     bgPopup: "bgPopup", text: "text",
     vuGrad: [[0, "#00ff00"], [0.7, "#00ff00"], [0.75, "#ffff00"], [0.9, "#ff0000"]] },
   $FA: { times: "times", lock: "lock", check: "check", arrow_to_top: "arrow_to_top", wifi: "wifi",
@@ -145,6 +163,7 @@ const reset = () => {
   ctx.DLZMOD_setUpdateStatus(null);
   ctx.DLZMOD_uploadFiles.busy = false;
   ctx.DLZMOD_uploadPick.input = null;
+  ctx.DLZMOD_messageBar.bar = null;
   for (const k of Object.keys(ui)) ui[k].length = 0;
   for (const k of Object.keys(regs)) delete regs[k];
 };
@@ -498,6 +517,110 @@ test("header: hidden or shown at once, but not on full-screen pages; saved setti
   ctx.DLZMOD_initKeys();
   assert.deepStrictEqual(ctx.Data.data, { "dlzmod.hideHeader": 1, "dlzmod.meterMode": 0, "dlzmod.preColor": 0,
     "dlzmod.preLevel": 0, "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0 });
+});
+
+// #58: Mackie's messages (showToast) while the header is hidden. o.shown: the header shown, o.nav false:
+// a full-screen page (no tab bar)
+// a full-screen page (no tab bar). closeModals as Mackie's (app.setPage and Escape run it): a forEach
+// that destroys, so a widget after a destroyed one is skipped
+const msgApp = (o = {}) => {
+  const nav = new Widget(null, { w: 950, h: 66, globalX: () => 0, globalY: () => 0, visible: o.nav !== false });
+  const top = Object.assign(new TopBar(), { visible: !!o.shown, h: 30, bgColor: "black",
+    setVisible(v) {
+      this.visible = v;
+    } });
+  return { navBar: nav, topBar: top, mWidgets: [], fg: 0, drawAllFg() {
+    this.fg++;
+  }, closeModals() {
+    this.mWidgets.forEach((w) => w.autoCloseModal !== false && w.destroy());
+  }, updateGeometry() {}, update() {} };
+};
+const barTexts = (bar) => {
+  const texts = [];
+  Object.assign(bar, { w: 950, h: 30 });   // as Mackie's Widget takes its size
+  bar.paint({ fillRect() {}, fRect() {}, drawText: (...x) => texts.push(x) });
+  return plain(texts);
+};
+test("header hidden: a message shows in a bar over the tab bar for its time; a new one takes its place", async () => {
+  reset();
+  settings({ "dlzmod.hideHeader": 1 });
+  ctx.DLZMOD_hookMessages();
+  ctx.DLZMOD_hookMessages();   // once, however often the page is built
+  const a = msgApp();
+  ctx.app = a;
+  try {
+    a.topBar.showMessage("Saved: Show 1", undefined, 30);
+    assert.deepStrictEqual(plain(ui.headerMsgs), [["Saved: Show 1", "main", 30]], "the header keeps it too, once");
+    const bar = ctx.DLZMOD_messageBar.bar;
+    assert.ok(bar._overlay && bar.ignoreEvents, "on the foreground layer; a tap goes to the tab below");
+    assert.deepStrictEqual(a.mWidgets, [], "not a modal widget");
+    assert.ok(bar.updates > 0, "drawn at once");
+    assert.deepStrictEqual(plain([bar.anchors, bar.size]), [[0, 0], [950, 30]], "the tab bar's width, the header's height");
+    assert.deepStrictEqual(barTexts(bar), [["Saved: Show 1", 475, 16,
+      { color: "main", font: "600 13pt", align: "center", valign: "middle" }]]);
+    a.topBar.showMessage("Loaded: Show 2", "red", 30);
+    const second = ctx.DLZMOD_messageBar.bar;
+    assert.ok(bar.destroyed && second !== bar, "replaced");
+    await tick(60);
+    assert.ok(second.destroyed && ctx.DLZMOD_messageBar.bar === null, "gone after its time");
+    assert.strictEqual(a.navBar.updates, 2, "the tab bar draws again after each (the device keeps a closed overlay drawn)");
+    assert.strictEqual(a.fg, 0);
+    const popup = new Widget(a, {});
+    popup.setOverlay(true);
+    a.topBar.showMessage("Renamed", undefined, 5);
+    await tick(30);
+    assert.strictEqual(a.fg, 1, "an open popup draws again too");
+  } finally {
+    ctx.app = undefined;
+  }
+});
+test("message bar: stays through a page switch, which still closes a popup; gone with the header or a full-screen page", async () => {
+  reset();
+  settings({ "dlzmod.hideHeader": 1 });
+  ctx.DLZMOD_hookMessages();
+  const a = msgApp();
+  ctx.app = a;
+  try {
+    // a snapshot load: "Loaded: ..." and at once app.setPage, which first closes the modal widgets
+    const popup = new Widget(a, {});
+    popup.setOverlay(true);
+    a.topBar.showMessage("Loaded: Show 1", undefined, 1000);
+    const bar = ctx.DLZMOD_messageBar.bar;
+    a.closeModals();
+    assert.ok(popup.destroyed, "the popup closed, as in stock");
+    assert.ok(!bar.destroyed && ctx.DLZMOD_messageBar.bar === bar, "the message still shows");
+    a.navBar.visible = false;   // a full-screen page: drawn without the bar
+    assert.deepStrictEqual(barTexts(bar), []);
+    a.navBar.visible = true;
+    ctx.DLZMOD_applyHeader();   // Hide header changed (also from a browser): its place moves
+    assert.ok(bar.destroyed && ctx.DLZMOD_messageBar.bar === null);
+    const before = bar.updates;
+    a.topBar.showMessage("Saved: Show 1", undefined, 1000);
+    const again = ctx.DLZMOD_messageBar.bar;
+    ctx.DLZMOD_repaintSoon();   // a popup closed: the cleared foreground layer took the bar along
+    await tick(10);
+    assert.ok(again.updates >= 2 && bar.updates === before, "drawn again");
+    again.destroy();
+    await tick(10);
+  } finally {
+    ctx.app = undefined;
+  }
+});
+test("header shown, or a full-screen page: the message stays Mackie's, no bar", () => {
+  for (const [hide, o] of [[0, { shown: true }], [1, { nav: false }]]) {
+    reset();
+    settings({ "dlzmod.hideHeader": hide });
+    ctx.DLZMOD_hookMessages();
+    const a = msgApp(o);
+    ctx.app = a;
+    try {
+      a.topBar.showMessage("Deleted: Show 1");
+      assert.strictEqual(ui.headerMsgs.length, 1, JSON.stringify(o));
+      assert.strictEqual(ctx.DLZMOD_messageBar.bar, null, JSON.stringify(o));
+    } finally {
+      ctx.app = undefined;
+    }
+  }
 });
 
 // The Mod page (Settings, DLZ Creator Modded): its tabs and what they show

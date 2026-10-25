@@ -587,9 +587,58 @@ function DLZMOD_headerHidden() {
 // (assistant, keyboard, language, ...) hide the nav bar as well: leave those alone.
 function DLZMOD_applyHeader() {
   if (typeof app === "undefined" || !app.topBar || !app.navBar.visible) return;
+  if (DLZMOD_messageBar.bar) DLZMOD_messageBar.bar.destroy();   // its place moves with the header
   app.topBar.setVisible(!DLZMOD_headerHidden());
   app.updateGeometry();
   app.update();
+}
+
+// #58: with the header hidden, Mackie's messages still show (showToast: "Saved: ...", "Loaded: ...",
+// "Renamed", ..., each right after something the owner did). The header keeps them as in stock
+// (shown again within their time: there); while it is hidden, DLZMOD_messageBar shows them as well.
+function DLZMOD_hookMessages() {
+  if (DLZMOD_hookMessages.done) return;
+  DLZMOD_hookMessages.done = !0;
+  const show = TopBar.prototype.showMessage;
+  TopBar.prototype.showMessage = function (text, color = Color.main, time = 3e3) {
+    show.call(this, text, color, time);
+    if (DLZMOD_headerHidden() && !this.visible && app.navBar.visible) DLZMOD_messageBar(text, color, time);
+  };
+}
+
+// A bar in the header's look (its background, separator line and message text) over the tab bar, up
+// to the gear, for the message's time; a new message takes its place. It draws on the foreground
+// layer, as popups do, so nothing moves, but it is not one of the UI's modal widgets: app.setPage and
+// Escape close those (a snapshot load shows "Loaded: ..." and switches page at once), and a tap beside
+// them closes them. It takes no taps: a tap on it reaches the tab below. On a full-screen page (no tab
+// bar) it draws nothing. On the device a closed overlay stays drawn until what is below draws again,
+// and closing one clears the whole foreground layer (DLZMOD_repaintSoon): so the tab bar draws again,
+// and so does an open popup.
+function DLZMOD_messageBar(text, color, time) {
+  if (DLZMOD_messageBar.bar) DLZMOD_messageBar.bar.destroy();
+  const nav = app.navBar, top = app.topBar;
+  const bar = DLZMOD_messageBar.bar = new Widget(app, {
+    anchors: [nav.globalX(), nav.globalY()],
+    size: [nav.w, top.h],
+    ignoreEvents: !0,
+    paint: function (t) {
+      if (!nav.visible) return;
+      t.fillStyle = top.bgColor;
+      t.fillRect(0, 0, this.w, this.h);
+      t.fRect(Color.menuSeparator, 0, this.h - 1, this.w, 1);
+      t.drawText(text, this.w / 2 | 0, 16, { color: color, font: Font.font(600, "13pt"), align: "center", valign: "middle" });
+    },
+    onDestroy: function () {
+      if (DLZMOD_messageBar.bar === this) DLZMOD_messageBar.bar = null;
+      setTimeout(() => {
+        nav.update();
+        if (app.mWidgets.length) app.drawAllFg();
+      }, 0);
+    },
+  });
+  bar.setOverlay(!0, !0);   // the foreground layer without joining the modal widgets
+  bar.update();
+  setTimeout(() => DLZMOD_messageBar.bar === bar && bar.destroy(), time);
 }
 
 // Settings → Bluetooth / Disk: the only SD slot holds the boot card, so its Format button is hidden
@@ -787,11 +836,13 @@ function DLZMOD_page() {
 
 // On the device a closed popup stays on screen until the page below it draws again: on the Mod page,
 // which draws nothing until its next status, up to 3 s [device] (notes/modding-guide.md). A repaint
-// of the page right after it closes, only while the page is on screen.
+// of the page right after it closes, only while the page is on screen; and of the message bar, which
+// the cleared foreground layer took along.
 function DLZMOD_repaintSoon() {
   setTimeout(() => {
     const page = DLZMOD_page();
     if (page && page.globalVisible()) page.update();
+    if (DLZMOD_messageBar.bar) DLZMOD_messageBar.bar.update();
   }, 0);
 }
 
@@ -817,6 +868,7 @@ function DLZMOD_hookPopups() {
 function DLZMOD_settingsPage(parent, y) {
   DLZMOD_initKeys();
   DLZMOD_hookPopups();
+  DLZMOD_hookMessages();
   Data.regWidget("dlzmod.hideHeader", DLZMOD_applyHeader);   // also when changed from a browser
   Data.regWidget("dlzmod.meterMarks", DLZMOD_applyMeterMarks);
   for (const k of ["dlzmod.theme", "dlzmod.bgColor", "dlzmod.faderColor"]) Data.regWidget(k, DLZMOD_themeChanged);
@@ -918,8 +970,8 @@ function DLZMOD_screenPanel(parent, x, y, w) {
       const grey = { color: "#888888", font: Font.font(500, "12pt"), align: "left", valign: "middle", max: this.w - 48 };
       t.drawText("Hide header", 24, this.hideHeader.geomCenterY(),
         { color: Color.white, font: Font.font(500, "16pt"), align: "left", valign: "middle" });
-      t.drawText("Status icons and messages", 24, 136, grey);
-      t.drawText("at the top of the screen", 24, 156, grey);
+      t.drawText("Status icons at the top of the screen", 24, 136, grey);
+      t.drawText("Messages still show for a moment", 24, 156, grey);
     },
   });
 }

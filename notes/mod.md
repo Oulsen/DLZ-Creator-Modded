@@ -111,7 +111,13 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
 Sub-tabs Display / Colors / Network / Remote / Mod; layout and how to add a setting:
 [modding-guide.md](modding-guide.md), "Mod settings". Every default on these tabs equals stock.
 
-- **Hide header** (#31): more room; also hides the toasts, the red pad indicators and "DEMO MODE".
+- **Hide header** (#31): more room; also hides the red pad indicators and "DEMO MODE". Mackie's
+  messages (toasts: "Saved: …", "Loaded: …", "Renamed", …) still show (#58): for their time (3 s) a
+  message-only bar in the header's look lies over the tab bar, up to the gear, on the foreground layer,
+  so nothing moves [sandbox]. It stays through a page switch (a snapshot load shows "Loaded: …" and
+  goes to the Overview at once), a tap on it goes to the tab below, and it is gone on a full-screen
+  page or when Hide header changes [sandbox] (`DLZMOD_messageBar`, wrapping `TopBar.showMessage`). No
+  setting of its own: every toast follows something the owner just did.
 - **Meters** (#38), key `dlzmod.meterMode`: 0 Mackie (default), 1 Both, 2 Before fader. In Both,
   a dim second bar shows the level after the gain, before the fader (`.gain`), using the second bar
   `VUMeter` has but stock never turns on, and the clip light follows it; `dlzmod.preColor` (green /
