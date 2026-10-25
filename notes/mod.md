@@ -137,8 +137,10 @@ Sub-tabs Display / Colors / Network / Remote / Mod; layout and how to add a sett
 Settings → DLZ Creator Modded → Colors: Contrast (Normal = Mackie's look, High), a colour for
 the faders' knobs, the meters and what is selected, and a background (Default, or "Tinted": a dark
 shade of the chosen colour); Default in each row is the contrast's own. Colours
-(8: white and Mackie's own channel colours, so they sit with the strips' colours as
-one family, lighter with High contrast; no red: on a mixer red is a clip). Keys `dlzmod.theme`, `dlzmod.bgColor`,
+(7: white and Mackie's own channel colours, so they sit with the strips' colours as
+one family, lighter with High contrast; no green: that is the default already). Red is a calmer red than
+Mackie's clip red (`#e0533f`) and, like every colour, colours the meters too: the owner's choice, though
+the clip block above a meter then stands out less [sandbox]. A chosen light swatch gets a dark line inside its white edge (white on white did not show). Keys `dlzmod.theme`, `dlzmod.bgColor`,
 `dlzmod.faderColor`, 0 = stock; the numbers are saved, so the lists only grow at the end (a number
 a list does not have, like the dropped "Black" background, shows the default). "Black" (Mackie's
 dark grey panels behind the stereo strips, LR, lists and popups black) was dropped: next to Default

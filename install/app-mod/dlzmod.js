@@ -64,12 +64,11 @@ function DLZMOD_bgColors() {
 }
 
 // Mackie's own channel colours (Color.channel), so they sit with the strips' colours as one family;
-// lighter with High contrast. No red: on a mixer red is a clip or a warning. Where one is a colour
-// Mackie uses itself, DLZMOD_ledColor still tells them apart (one step in blue)
+// lighter with High contrast. Green is the default's already. Red a calmer red than Mackie's clip red
 function DLZMOD_faderColors() {
   return [null, ["White", "#f9f9f9", "#ffffff"], ["Yellow", "#ffc909", "#ffd633"], ["Orange", "#f9a42b", "#ffb84d"],
-    ["Green", "#9ccc56", "#b4e070"], ["Mint", "#85cca9", "#a0e0c0"], ["Teal", "#21baac", "#40d6c8"],
-    ["Blue", "#1ba9d5", "#45c3ee"], ["Purple", "#a276b3", "#bc95cc"]];
+    ["Red", "#e0533f", "#f0705c"], ["Teal", "#21baac", "#40d6c8"], ["Blue", "#1ba9d5", "#45c3ee"],
+    ["Purple", "#a276b3", "#bc95cc"]];
 }
 
 // Mackie's greys under a tinted background, as palette keys and as colours written into the code:
@@ -928,6 +927,8 @@ function DLZMOD_coloursPanel(parent, x, y, w) {
         onPress: pick(k, i),
         paintOverlay: function (t) {
           if (!this.chosen) return;
+          // on a light swatch the white edge needs a dark line inside to show
+          if (DLZMOD_light(this.colors[0])) t.sRect("#000000", 2, 5, 5, sw - 10, swH - 10, 3);
           t.drawText("✓", sw / 2, swH / 2 + 1, { color: DLZMOD_light(this.colors[0]) ? "#000000" : "#ffffff",
             font: Font.font(600, "24pt"), align: "center", valign: "middle" });
         },

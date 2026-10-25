@@ -1480,7 +1480,7 @@ test("theme: High contrast draws the palette it names, the grey colours written 
 });
 test("theme: an own background and colour on top of the theme; warnings at the top of the meters stay", () => {
   reset();
-  withTheme([1, 1, 6], (c) => {
+  withTheme([1, 1, 5], (c) => {
     assert.strictEqual(draw(c.bg), "#061514", "Tinted: a dark shade of High contrast's teal");
     assert.strictEqual(draw("#1a1a1a"), "#061514", "the stereo strips' own panels too");
     assert.deepStrictEqual([draw(c.green), draw(c.main)], ["#40d6c8", "#40d6c8"], "Teal, High contrast's lighter one");
@@ -1502,11 +1502,21 @@ test("theme: an own background and colour on top of the theme; warnings at the t
 });
 test("theme: Tinted is a dark shade of the colour, the greys on it in its hue", () => {
   reset();
-  withTheme([0, 1, 6], (c) => {
+  withTheme([0, 1, 5], (c) => {
     assert.deepStrictEqual([draw(c.bg), draw(c.buttonBg), draw("#303030")], ["#031311", "#203a36", "#203a36"]);
   });
   withTheme([0, 1, 0], (c) => assert.strictEqual(draw(c.bg), "#101409", "no own colour: the theme's (Mackie's green)"));
-  withTheme([0, 0, 6], (c) => assert.strictEqual(draw(c.green), "#21baac", "with Mackie: Mackie's own teal"));
+  withTheme([0, 0, 5], (c) => assert.strictEqual(draw(c.green), "#21baac", "with Mackie: Mackie's own teal"));
+});
+test("theme: Red like every colour, meters included; the warning stops at the top stay Mackie's", () => {
+  reset();
+  withTheme([0, 0, 4], (c) => {
+    assert.deepStrictEqual([draw(c.main), draw(c.green), draw(ctx.DLZMOD_accent()), ctx.DLZMOD_preColor()],
+      ["#e0533f", "#e0533f", "#e0533f", "#e0533f"]);
+    assert.deepStrictEqual(plain(c.vuGrad), [[0, "#e0533f"], [0.85, "#ffc909"], [0.95, "#ee3524"]]);
+  });
+  settings({ "dlzmod.faderColor": 4 });
+  assert.strictEqual(settingsPage().meters.preColor.items[0][0], "Red", "the meters panel names it");
 });
 test("theme: the knob rings get Mackie's colours, whatever the look", () => {
   reset();
@@ -1591,7 +1601,7 @@ test("Colors tab: a tap saves that choice at once; the marks follow any change; 
 });
 test("Meters panel: the before-fader colour is named after the own colour, also after a change", () => {
   reset();
-  settings({ "dlzmod.faderColor": 6 });
+  settings({ "dlzmod.faderColor": 5 });
   const m = settingsPage().meters;
   assert.strictEqual(m.preColor.items[0][0], "Teal");
   ctx.Data.data["dlzmod.faderColor"] = 0;
