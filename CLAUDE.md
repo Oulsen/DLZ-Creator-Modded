@@ -89,7 +89,7 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
 - "The dev page" / "the sandbox" = Mackie's mixer UI running on this PC in the device layout, with
   the mod's patches. Start, re-patch, screenshots and stop: the `ui-sandbox` skill
   (`.claude/skills/ui-sandbox/`). Always stop it with the skill's `stop`: ending the background
-  task alone leaves node.exe on ports 80/89 and the sandbox drive mapped.
+  task alone leaves node.exe on ports 80/89.
 - Details and limits: `notes/modding-guide.md`, section "PC sandbox".
 
 ## Working with the dump (WSL)

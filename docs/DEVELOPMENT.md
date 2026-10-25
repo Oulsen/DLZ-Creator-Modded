@@ -58,7 +58,7 @@ backup the installer makes.
    (`.github/workflows/checks.yml`).
 4. **Look at the UI on the PC**: `bash dev/ui-sandbox.sh` (Git Bash) serves the mixer's UI with the
    mod at http://127.0.0.1/ (the first start copies `/srv` from the mount). Always stop it with
-   `bash .claude/skills/ui-sandbox/sandbox.sh stop`: it leaves Node on ports 80/89 and a mapped drive
+   `bash .claude/skills/ui-sandbox/sandbox.sh stop`: it leaves Node on ports 80/89
    otherwise. Details: [notes/modding-guide.md](../notes/modding-guide.md), "PC sandbox".
 5. **Make your own dev key** (Git Bash): `bash install/release/mkkeys.sh ~/.dlzmod-keys dev` writes
    `dev.pem` and `dev.pub` into that folder, outside the repo. Set `DLZMOD_SIGNING_KEYS` to it (from

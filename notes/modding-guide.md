@@ -284,7 +284,7 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
   `DLZ_SHOT_DOWNLOADS=<folder>` keeps what it downloads.
 - **A pretend SD card and/or USB stick**: `DLZ_FAKE_MEDIA=sd` (or `usb`, `sd,usb`) in front of the
   start. The shim reports a FAT partition in `lsblk`, lets server.js "mount" it at
-  `/tmp/mnt/mmcblk0p2` / `sda1` (a folder on the sandbox drive, seeded once with a few short silent
+  `/tmp/mnt/mmcblk0p2` / `sda1` (a folder in the sandbox folder, seeded once with a few short silent
   recordings, a `*.unfinished` one and a sub-folder), answers its remounts and `df`, and its look for
   a firmware file (`find ... *.upd`: unguarded in server.js, an error there ends the server).
   `/proc/mounts` lists them read-only for the mod's read-only watcher. Mackie's `wavfinalizer` stays
