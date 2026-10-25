@@ -1,4 +1,5 @@
 // Preloaded into Mackie's server.js by ui-sandbox.sh (node -r shim.js server.js).
+// - the mixer's paths in the sandbox folder (DLZ_SANDBOX_ROOT): /srv, /tmp, /root ... without a drive
 // - no shell commands: server.js runs mkfs/dd/parted/mount/systemctl, all blocked and logged,
 //   except the mv + sync it uses to save srv_data.json (done natively here)
 // - ports 80/89 bound to 127.0.0.1 only, so the unauthenticated mixer API stays off the LAN, and
@@ -12,6 +13,67 @@ const net = require('net');
 const path = require('path');
 const util = require('util');
 
+// server.js uses the mixer's absolute paths (/srv, /root/.dlzlite, /tmp/mnt, /dev/disk/by-id, /etc).
+// On Windows those would land at the root of the current drive, so the file calls take them to the
+// sandbox folder: a path under one of these top folders, written as /srv/... or as path.resolve
+// gives it on Windows (<the sandbox's drive>:\srv\...). Everything else as it is. Without
+// DLZ_SANDBOX_ROOT no start: those paths, and what the shim itself writes there, would hit a real drive.
+const ROOT = process.env.DLZ_SANDBOX_ROOT || '';
+if (!ROOT || !fs.existsSync(path.join(ROOT, 'srv', 'server.js'))) {
+  console.error('[sandbox] DLZ_SANDBOX_ROOT must be the sandbox folder (with srv/server.js): start it with dev/ui-sandbox.sh');
+  process.exit(1);
+}
+const TOPS = new Set(['srv', 'tmp', 'etc', 'root', 'dev', 'proc', 'boot']);
+const ROOT_DRIVE = path.win32.parse(ROOT).root.slice(0, 1).toLowerCase();
+const ROOT_LOW = path.resolve(ROOT).toLowerCase();
+const inRoot = (p) => {
+  const r = path.relative(ROOT_LOW, path.resolve(p).toLowerCase());
+  return r === '' || (!r.startsWith('..') && !path.isAbsolute(r));
+};
+function inSandbox(p) {
+  if (Buffer.isBuffer(p)) p = p.toString();
+  else if (p instanceof URL && p.protocol === 'file:') p = require('url').fileURLToPath(p);
+  if (typeof p !== 'string') return p;
+  let rest = null;
+  if (/^[\\/](?![\\/])/.test(p)) rest = p.slice(1);   // /srv/x, not a share (//host)
+  else {
+    const m = /^([A-Za-z]):[\\/](.*)$/.exec(p);
+    // the sandbox's own files stay as they are (a repo under D:\dev\ or D:\tmp\ too)
+    if (m && m[1].toLowerCase() === ROOT_DRIVE && !inRoot(p)) rest = m[2];
+  }
+  if (rest === null || !TOPS.has(rest.split(/[\\/]/)[0].toLowerCase())) return p;
+  const out = path.join(ROOT, rest);
+  // never out of the sandbox folder (/tmp/../../x)
+  if (!inRoot(out)) throw Object.assign(new Error(`sandbox: ${p} leads out of the sandbox folder`), { code: 'EACCES' });
+  return out;
+}
+// the calls that take a path (first, or the first two), in fs and fs.promises; never the fd ones,
+// whose string argument is data
+const ONE = ['access', 'appendFile', 'chmod', 'chown', 'createReadStream', 'createWriteStream', 'exists', 'lchown',
+  'lstat', 'lutimes', 'mkdir', 'mkdtemp', 'open', 'opendir', 'readdir', 'readFile', 'readlink', 'realpath', 'rm', 'rmdir',
+  'stat', 'statfs', 'truncate', 'unlink', 'unwatchFile', 'utimes', 'watch', 'watchFile', 'writeFile'];
+const TWO = ['copyFile', 'cp', 'link', 'rename', 'symlink'];
+function redirect(obj, name, two) {
+  const f = obj[name];
+  if (typeof f !== 'function') return;
+  obj[name] = function (a, b, ...rest) {
+    return f.call(this, inSandbox(a), two ? inSandbox(b) : b, ...rest);
+  };
+  if (typeof f.native === 'function') {   // fs.realpath.native
+    obj[name].native = f.native;
+    redirect(obj[name], 'native', two);
+  }
+  const custom = f[util.promisify.custom];   // util.promisify(fs.exists)
+  if (typeof custom === 'function') obj[name][util.promisify.custom] = (a, ...rest) => custom(inSandbox(a), ...rest);
+}
+for (const [names, two] of [[ONE, false], [TWO, true]]) {
+  for (const n of names) {
+    redirect(fs, n, two);
+    redirect(fs, n + 'Sync', two);
+    redirect(fs.promises, n, two);
+  }
+}
+
 const SAVE_MV = /^mv (\S+srv_data\.json)\.tmp \1$/;
 // Read-only queries polled by server.js: answer "no media, no network" instead of failing
 const CANNED = [
@@ -22,7 +84,7 @@ const logged = new Set();
 
 // DLZ_FAKE_MEDIA=sd, usb or sd,usb: a pretend SD card (its recordings part, mmcblk0p2) and/or USB
 // stick (sda1), so the player's lists and the recordings download (#26) can be tried. server.js
-// finds them in lsblk, "mounts" them (a folder /tmp/mnt/<name> on the sandbox drive, seeded once
+// finds them in lsblk, "mounts" them (a folder tmp/mnt/<name> in the sandbox folder, seeded once
 // with a few short silent recordings) and finds them mounted at the next lsblk. Remounts are
 // no-ops; /proc/mounts lists them read-only, so the mod's read-only watcher (#98) is content.
 // Off by default: other screens expect no media.
@@ -31,8 +93,8 @@ const FAKE_MEDIA = (process.env.DLZ_FAKE_MEDIA || '').split(',').filter((m) => m
     ? { name: 'mmcblk0p2', parent: 'mmcblk0', subsystems: 'block:mmc:mmc_host:platform', label: 'DLZDATA', mounted: false }
     : { name: 'sda1', parent: 'sda', subsystems: 'block:scsi:usb:platform', label: 'STICK', mounted: false });
 // an earlier run's list (the sandbox folder is shared between sessions): none until something mounts.
-// Only on the sandbox drive (ui-sandbox.sh starts server.js in <drive>:\srv), never a real /proc
-if (/^[A-Za-z]:\\srv$/.test(process.cwd())) fs.rmSync('/proc/mounts', { force: true });
+// (in the sandbox folder, like every root path here)
+fs.rmSync('/proc/mounts', { force: true });
 function fakeLsblk() {
   return JSON.stringify({ blockdevices: FAKE_MEDIA.map((d) => ({
     name: d.parent, path: '/dev/' + d.parent, fstype: null, mountpoint: null, subsystems: d.subsystems, size: '59.5G',
@@ -85,7 +147,7 @@ function run(cmd) {
     const d = m && FAKE_MEDIA.find((x) => x.name === m[1]);
     if (d) {
       fakeMount(d);
-      console.log(`[sandbox] fake: mounted ${d.name} at S:/tmp/mnt/${d.name}`);
+      console.log(`[sandbox] fake: mounted ${d.name} at ${inSandbox('/tmp/mnt/' + d.name)}`);
       return '';
     }
     // by mount point (recording) or by device (rename, delete: unguarded, an error ends server.js)
@@ -141,8 +203,8 @@ for (const name of ['execSync', 'execFileSync', 'spawn', 'spawnSync', 'fork']) {
 }
 
 // Network panel (dlzmod-server.js, DLZMOD_net): a pretend Wi-Fi stick and SSH, so the screens can
-// be tried. The mod's own keyfiles land in S:\etc\NetworkManager\system-connections (= dumps/sandbox
-// on the subst drive). No stick: DLZ_FAKE_WIFI=nostick. Password "12345678" acts as a wrong one.
+// be tried. The mod's own keyfiles land in etc/NetworkManager/system-connections in the sandbox
+// folder. No stick: DLZ_FAKE_WIFI=nostick. Password "12345678" acts as a wrong one.
 // Stdin (passwords) is never logged.
 const FAKE_NM = '/etc/NetworkManager/system-connections';
 fs.mkdirSync(FAKE_NM, { recursive: true });

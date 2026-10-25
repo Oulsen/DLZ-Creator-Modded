@@ -1,17 +1,18 @@
 #!/bin/bash
 # The UI sandbox ("the dev page"): Mackie's mixer UI on this PC (dev/ui-sandbox.sh), from Git Bash.
 #
-#   bash sandbox.sh status            running? (port 80/89, its node.exe, the mapped drive)
+#   bash sandbox.sh status            running? (port 80/89, its node.exe, a drive an older start mapped)
 #   bash sandbox.sh wait [seconds]    until http://127.0.0.1/ answers (after starting it in the background)
 #   bash sandbox.sh repatch [full]    the mod's patches again onto the sandbox's app.js and server.js
 #                                     (full: the full-size copy); app.js needs a browser reload, server.js
 #                                     a restart (stop, then start)
 #   bash sandbox.sh open              the dev page in the default browser
-#   bash sandbox.sh stop              node.exe on 80/89 ended and the sandbox drive unmapped
+#   bash sandbox.sh stop              node.exe on 80/89 ended (and a drive an older start mapped, unmapped)
 #
 # Starting is not done here: run "bash dev/ui-sandbox.sh" (DLZ_FULLSIZE=1 for the full-size UI) as a
 # background task from the repo root, then "wait". Stopping that task alone leaves node.exe listening
-# on 80/89 and the drive mapped: always "stop".
+# on 80/89: always "stop". Starts before #166 mapped the sandbox folder to a drive (subst): status and
+# stop still find and unmap such a drive.
 set -u
 REPO=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 
@@ -56,5 +57,5 @@ case ${1:-status} in
     sleep 1
     [ -z "$(listeners)" ] && [ -z "$(drives)" ] && echo "stopped" || { echo "something is still there:"; bash "$0" status; } ;;
   *)
-    sed -n '2,14p' "$0"; exit 2 ;;
+    sed -n '2,15p' "$0"; exit 2 ;;
 esac
