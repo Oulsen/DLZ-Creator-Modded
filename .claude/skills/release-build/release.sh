@@ -77,7 +77,7 @@ upload)
   [ "$want" = "$have" ] || { echo "the draft holds other files than these (remove the extra ones:"\
     "gh release delete-asset $TAG <file>, then upload again):"; echo "$have"; exit 1; }
   (cd "$t" && sha256sum -c SHA256SUMS) || { echo "CHECKSUMS DO NOT MATCH: do not publish"; exit 1; }
-  echo "OK: draft $TAG has ${files[*]} and SHA256SUMS, checked after download; replace the notes' first line, then publish"
+  echo "OK: draft $TAG has ${files[*]} and SHA256SUMS, checked after download; replace the notes' first line, edit the highlights (they go to Discord), then publish"
   ;;
 *)
   sed -n '2,9p' "$0"; exit 1 ;;

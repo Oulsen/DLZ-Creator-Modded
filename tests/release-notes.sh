@@ -1,6 +1,6 @@
 #!/bin/bash
 # The notes of a GitHub release (install/release/release-notes.sh, run by .github/workflows/release.yml):
-# grouped and in order, prefixes off, issue numbers, the GPL note with links at the tag, and the stops
+# the highlights for Discord, grouped and in order, prefixes off, issue numbers, the GPL note with links at the tag, and the stops
 # (no version tag, VERSION another one, no or an empty section, a bullet without a known prefix).
 # Offline, in a temporary folder; CI runs it.
 set -u
@@ -41,6 +41,9 @@ printf '%s\n' "$out" | grep -q '](https://github.com/Oulsen/DLZ-Creator-Modded/b
 printf '%s\n' "$out" | grep -q '](https://snapshot.debian.org/package/u-boot/x/)' && ok "outside links stay" || bad "outside links stay"
 printf '%s\n' "$out" | grep -q 'Dumps stay private\|GPL-3.0' && bad "only the GPL paragraph" || ok "only the GPL paragraph"
 printf '%s\n' "$out" | head -n 1 | grep -q '^\*\*Before publishing, replace this line' && ok "starts with the line to replace" || bad "starts with the line to replace"
+hl=$(printf '%s\n' "$out" | sed -n '2,/^### /p' | grep '^- ' | tr '\n' '|')
+[ "$hl" = '- A new thing|- Fixed: the mixer sometimes gets stuck while starting|- Fixed: the main output meter ignores the "Both" meter setting|' ] \
+  && ok "highlights: DLZ features, then fixes (no mod features, no numbers)" || bad "highlights ($hl)"
 grep -q $'\r' <<< "$out" && bad "no CR in the notes" || ok "no CR in the notes"
 bash "$S" v0.3.0 > /dev/null 2> "$T/err" && ! [ -s "$T/err" ] && ok "without an issue list: no numbers, no warnings" || bad "without an issue list"
 GITHUB_REPOSITORY=someone/fork bash "$S" v0.3.0-test2 2>/dev/null | grep -q 'someone/fork/blob/v0.3.0-test2/install' \

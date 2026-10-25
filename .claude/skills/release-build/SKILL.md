@@ -57,5 +57,5 @@ After the tag is pushed and its workflow has made the draft release (`docs/DEVEL
 (`--with-update`: the update `.tar` + `.tar.sig` too, only for a drop-in release). It refuses a build
 that is not of the tagged commit and a release that is not a draft (a published release is never
 changed from here). Then it downloads the files again and checks that the draft holds exactly these
-files and that `sha256sum -c SHA256SUMS` passes. The notes' first line and publishing stay with the
+files and that `sha256sum -c SHA256SUMS` passes. The notes' first line, the highlights (posted in Discord on publishing) and publishing stay with the
 maintainer, on GitHub.

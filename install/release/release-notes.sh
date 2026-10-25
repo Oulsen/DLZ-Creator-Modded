@@ -2,6 +2,9 @@
 # The notes of a GitHub release, from CHANGELOG.md and the README (run by .github/workflows/release.yml
 # on a version tag; by hand to look at them first):
 #   - a line to replace before publishing: how to get it (a drop-in update or a full install)
+#   - the highlights for owners, drafted from the DLZ features, DLZ bugs and mod bugs ("Fixed: ...",
+#     no issue numbers): edited before publishing, they go to Discord as they are
+#     (.github/workflows/announce.yml)
 #   - the tag's `## vX.Y.Z` section of CHANGELOG.md, grouped under the section headings without the
 #     title prefixes ("DLZ features", "DLZ bugs fixed", "Mod features", "Mod bugs fixed"; empty ones
 #     left out), each with its issue number when the issue list has its exact title
@@ -37,12 +40,16 @@ tr -d '\r' < "$REPO/CHANGELOG.md" | awk -v ver="$VER" -v issues="$ISSUES" '
     full = substr($0, 3); title = substr(full, length(pre[i]) + 4)
     if (issues != "/dev/null" && !(full in num)) print "release-notes: no issue with this exact title: " full > "/dev/stderr"
     item[i] = item[i] "- " title ((full in num) ? " (#" num[full] ")" : "") "\n"; n++
+    # a fix reads as one in the highlights ("The mixer ..." -> "Fixed: the mixer ...", "DLZ ..." stays)
+    if (i == 2 || i == 4) title = "Fixed: " (substr(title, 2, 1) ~ /[a-z]/ ? tolower(substr(title, 1, 1)) substr(title, 2) : title)
+    if (i != 3) hl[i] = hl[i] "- " title "\n"
   }
   END {
     if (!seen) { print "release-notes: CHANGELOG.md has no ## " ver " section" > "/dev/stderr"; exit 1 }
     if (bad) exit 1
     if (!n) { print "release-notes: the ## " ver " section of CHANGELOG.md is empty" > "/dev/stderr"; exit 1 }
-    print "**Before publishing, replace this line:** \"**Update from vX.Y.Z:** copy both update files ...\" (a drop-in from the previous release) or \"**New install:** download the installer image ...\" (a full install; copy your recordings off the card first); see the notes of v0.2.0."
+    print "**Before publishing, replace this line:** \"**Update from vX.Y.Z:** copy both update files ...\" (a drop-in from the previous release) or \"**New install:** download the installer image ...\" (a full install; copy your recordings off the card first); see the notes of v0.2.0. Then edit the highlights below for owners (keep what they notice on the mixer, in their words): they go to Discord as they are."
+    if (hl[1] hl[2] hl[4] != "") printf "\n%s%s%s", hl[1], hl[2], hl[4]
     for (i = 1; i <= 4; i++) if (item[i] != "") printf "\n### %s\n%s", head[i], item[i]
   }'
 

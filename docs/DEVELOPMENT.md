@@ -84,7 +84,7 @@ organised: "GitHub workflow" below and [CONTRIBUTING.md](../CONTRIBUTING.md).
 | `vendor/` | Third-party U-Boot, downloaded in Setup (git-ignored) |
 | `build/` | Generated images/scripts (git-ignored) |
 | `dumps/` | Data read from the device (git-ignored, never share) |
-| `.github/` | Issue templates (bug, feature, help with an install), the pull request template, `CODEOWNERS` (who reviews) and the checks GitHub runs on every push and pull request (`workflows/checks.yml`: unit tests, key guards, updater checks, the SSH skill's read-only guard, the release notes, script syntax), and the draft release a version tag makes (`workflows/release.yml`, "Releases" step 5) |
+| `.github/` | Issue templates (bug, feature, help with an install), the pull request template, `CODEOWNERS` (who reviews) and the checks GitHub runs on every push and pull request (`workflows/checks.yml`: unit tests, key guards, updater checks, the SSH skill's read-only guard, the release notes, script syntax), the draft release a version tag makes (`workflows/release.yml`, "Releases" step 5) and the message in Discord when a release is published (`workflows/announce.yml`) |
 | `.claude/skills/` | Workflows for Claude Code: the device review, the UI sandbox, SSH to your mixer, the release build |
 
 ## Notes
@@ -456,7 +456,14 @@ issue's technical notes point to the note section instead of copying it.
      draft, and downloads the files again and runs `sha256sum -c SHA256SUMS`. Last, on GitHub: replace
      the notes' first line with how to get it ("Update from vX.Y.Z: copy the update files" or "Full
      install with the installer image (copy your recordings off the card first)"; v0.2.0's notes as
-     the example), add a line on what the release brings, and publish. The signing key stays on the
+     the example), edit the highlights under it for owners (drafted from the DLZ features, DLZ bugs and
+     mod bugs: keep what they notice on the mixer, merge and reword in their words), and publish.
+     Publishing posts one message in the project's Discord (`.github/workflows/announce.yml`):
+     @everyone, the name, the highlights as they are, how to get it (an update from the version in
+     "**Update from vX.Y.Z", else a new install only) and the link; it refuses notes that still say
+     "Before publishing, replace this line" or have no highlights (fix them, then re-run the job), skips
+     test releases, and posts nothing without the `DISCORD_WEBHOOK` secret (set once by the maintainer:
+     `gh secret set DISCORD_WEBHOOK`; the webhook URL is never in the repo). The signing key stays on the
      PC for now: the workflow builds and signs nothing; signing moves to GitHub only once a leaked
      key can be withdrawn from cards (#63), on a reproducible build ([notes/updates.md](../notes/updates.md),
      "Built where"). A try: a tag `vX.Y.Z-testN` on any branch makes
