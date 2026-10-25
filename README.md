@@ -2,7 +2,8 @@
 
 An unofficial mod for the Mackie DLZ Creator and DLZ Creator XS. It runs from a microSD card in the
 mixer: the mixer's own software stays as it is, and without the card the mixer starts normally.
-Alpha, at your own risk: read [DISCLAIMER.md](DISCLAIMER.md) first.
+Alpha, at your own risk, not supported by Mackie, and it could void your mixer's warranty: read
+[Is it safe?](#is-it-safe) and [DISCLAIMER.md](DISCLAIMER.md) first.
 
 ## What the mod does
 
@@ -80,17 +81,45 @@ the card, put it in the mixer and follow the screen. Step by step, with pictures
 
 ## Is it safe?
 
-- The mixer's internal storage is locked read-only during the install and while the mod runs; the
-  mod never writes to it
-- Take the card out and the mixer starts its normal Mackie software, as before
-- A card belongs to the mixer it was installed on: in another mixer it keeps the sound hardware off
-  and says so on the screen
-- The installer also saves a backup of the mixer's internal storage onto the card
-- On a network (cable or Wi-Fi), other devices can only control the mixer once you allow it
-  (Settings → DLZ Creator Modded → Remote, off by default) and pair them with the PIN shown
-  there. Open the mixer by its IP address or its `.local` name. The connection is not encrypted: only use it on networks you trust, not on an open café or
-  venue Wi-Fi
-- It is still an alpha made by one person: see [DISCLAIMER.md](DISCLAIMER.md)
+**For the mixer itself: it is built so that the mod cannot damage it, and taking the card out
+undoes it.** For your recordings and your setup: it is alpha software, so expect bugs and keep
+copies of what matters. And it is your own risk: Mackie does not support the mod, and installing it
+could void your mixer's warranty.
+
+### What protects your mixer
+
+- **The mixer's own software is never changed.** Its internal storage is locked read-only during
+  the install and while the mod runs. The mod lives only on the card.
+- **Card out, stock mixer.** Switch off, take the card out, switch on: the normal Mackie software
+  starts, as before.
+- **A power cut during the install is harmless.** The card only becomes startable in the very last
+  step; until then the mixer ignores it and starts normally. Start the install again.
+- **A card works only in the mixer it was made on.** In another mixer, or after a Mackie update of
+  the mixer itself, it keeps the sound hardware off and says so on the screen, so the mixer's sound
+  parts never run with software that does not belong to them.
+- **Only known firmware.** The installer refuses any firmware other than 1.2.0 build 1731.
+
+### What can still go wrong
+
+- **Bugs.** It is an alpha made by one person and tested on one mixer (an XS). A feature can
+  misbehave or a start can hang; switching off and on, or taking the card out, gets you back.
+- **Recordings.** An SD card can fail, and a bug can cost a take. Copy recordings you care about to
+  a computer soon; don't use the mod as the only recorder for a show you cannot repeat.
+- **The network.** The connection to the mixer is not encrypted. Other devices (cable or Wi-Fi) can
+  only control the mixer once you allow it (Settings → DLZ Creator Modded → Remote, off by default)
+  and pair them with the PIN shown there; they open it by its IP address or its `.local` name. Only
+  do this on networks you trust, not on an open café or venue Wi-Fi.
+- **Warranty.** See above; for problems with the mixer itself, take the card out before you
+  contact Mackie.
+
+### Your part
+
+- Copy the backup the installer saves (`dlzmod-backup` on the card) to your computer and keep it
+  private: it holds your settings, including the lock PIN.
+- Install Mackie firmware updates only with the card taken out (the mod refuses them anyway).
+- When the card is in your computer, never let Windows format a drive of it.
+
+The full terms: [DISCLAIMER.md](DISCLAIMER.md).
 
 ## SD cards
 

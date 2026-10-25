@@ -8,7 +8,8 @@ modded system on the same card from your mixer's own software. The mixer's inter
 read-only the whole time and is never changed. Afterwards, **with the card in** the mixer starts DLZ
 Creator Modded; **without the card** it starts its normal Mackie software, exactly as before.
 
-> Unofficial, alpha, at your own risk: read [DISCLAIMER.md](../DISCLAIMER.md) first.
+> Unofficial, alpha, at your own risk. Not supported by Mackie, and it could void your mixer's
+> warranty. Read [Is it safe?](../README.md#is-it-safe) and [DISCLAIMER.md](../DISCLAIMER.md) first.
 
 ## What you need
 
