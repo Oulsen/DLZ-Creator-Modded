@@ -464,7 +464,7 @@ issue's technical notes point to the note section instead of copying it.
      "**Update from vX.Y.Z", else a new install only) and the link (`install/release/announce.jq`); it
      refuses notes that still say "Before publishing, replace this line" or have no highlights (fix
      them, then re-run the failed job; a re-run of a job that posted posts again), skips
-     test releases, and posts nothing without the `DISCORD_WEBHOOK` secret (set once by the maintainer:
+     test releases and tags that are not on `main`, and posts nothing without the `DISCORD_WEBHOOK` secret (set once by the maintainer:
      `gh secret set DISCORD_WEBHOOK`; the webhook URL is never in the repo). The signing key stays on the
      PC for now: the workflow builds and signs nothing; signing moves to GitHub only once a leaked
      key can be withdrawn from cards (#63), on a reproducible build ([notes/updates.md](../notes/updates.md),

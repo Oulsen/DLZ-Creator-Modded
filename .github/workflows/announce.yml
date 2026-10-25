@@ -2,7 +2,7 @@
 # @everyone, the release's name, the highlights from the top of its notes (drafted by
 # install/release/release-notes.sh, edited by the maintainer for owners), how to get it and the link;
 # the message is made by install/release/announce.jq (tested by tests/announce.sh). Drafts never
-# trigger this; test releases (vX.Y.Z-testN) are skipped. The release is read again from GitHub, so a
+# trigger this; test releases (vX.Y.Z-testN) and tags that are not on main are skipped. The release is read again from GitHub, so a
 # re-run after fixing the notes posts the fixed text; a re-run of a run that posted posts again. The
 # webhook URL is the DISCORD_WEBHOOK secret (set by the maintainer with `gh secret set DISCORD_WEBHOOK`);
 # without it the job says so and posts nothing.
@@ -22,6 +22,17 @@ jobs:
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # as release.yml: a release is only made from main (a release published by hand from another
+      # branch is not announced)
+      - name: Check the tag is on main
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::$TAG is not on main: no message in Discord"; exit 1; }
 
       - name: Message in Discord
         env:
