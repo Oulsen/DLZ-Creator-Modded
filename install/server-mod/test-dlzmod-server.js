@@ -1197,7 +1197,7 @@ test("pairing: factory reset, restarting the screen and the System Lock PIN only
   }
   assert.ok(keyOk("i.0.lock", 1, PAIRED), "a channel's lock (mute groups) is another key");
 });
-test("theme: the theme and its colours only from the mixer's screen (a change restarts the screen)", () => {
+test("theme: the theme and its colours only from the mixer's screen", () => {
   for (const k of ["dlzmod.theme", "dlzmod.bgColor", "dlzmod.faderColor"]) {
     assert.ok(!keyOk(k, 1, PAIRED), k + " from a paired device");
     assert.ok(!keyOk(k, 1, {}), k + " from another device");

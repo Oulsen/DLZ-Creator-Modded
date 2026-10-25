@@ -282,12 +282,12 @@ function DLZMOD_tokens() {
   const accent = own(DLZMOD_yellow()), ovBg = own(stock.black || "#000000");
   slots.push([accent, (l) => l.fader || DLZMOD_yellow()], [ovBg, (l) => l.bg || stock.black || "#000000"]);
   Object.assign(Color, next);
-  Object.assign(f, { slots, back, accent, ovBg });
-  // Mackie's colour sums take the colour on screen
+  Object.assign(f, { slots, back, accent, ovBg, taken, slotOf: new Map(slots), sums: 0 });
+  // Mackie's colour sums (DLZMOD_sum): some are worked out once, when a page is built
   for (const fn of ["hex2rgba", "brighter"]) {
     const sum = Util[fn];
     if (typeof sum === "function") Util[fn] = function (c, ...rest) {
-      return sum.call(this, DLZMOD_drawColor("fillStyle", c), ...rest);
+      return DLZMOD_sum(sum, this, c, rest);
     };
   }
   const set = Data.set;
@@ -305,6 +305,28 @@ function DLZMOD_tokens() {
         set(v) { d.set.call(this, DLZMOD_drawColor(prop, v)); } });
     }
   }
+}
+
+// Util.hex2rgba / Util.brighter of a palette value (DLZMOD_tokens): the sum of the value itself, as
+// unique as it, and the table turns it into the same sum of the look's colour, so a colour Mackie
+// works out when a page is built (a list's selection colour from Color.main) follows a change too.
+// At most 256 such sums (Mackie also sums while drawing, with changing strengths): after that, and
+// for any other colour, the sum of the colour on screen
+function DLZMOD_sum(sum, self, c, rest) {
+  const f = DLZMOD_applyTheme, of = f.slotOf && typeof c === "string" && f.slotOf.get(c);
+  const onScreen = () => sum.call(self, DLZMOD_drawColor("fillStyle", c), ...rest);
+  if (!of) return onScreen();
+  const t = sum.call(self, c, ...rest);
+  if (f.slotOf.has(t)) return t;
+  if (typeof t !== "string" || f.taken.has(t.toLowerCase().replace(/\s/g, "")) || f.sums >= 256) return onScreen();
+  const colour = (l) => sum.call(self, of(l), ...rest);
+  f.sums++;
+  f.taken.add(t.toLowerCase().replace(/\s/g, ""));
+  f.slotOf.set(t, colour);
+  f.slots.push([t, colour]);
+  if (Object.prototype.hasOwnProperty.call(f.back, c)) f.back[t] = sum.call(self, f.back[c], ...rest);
+  if (DLZMOD_drawColor.map) DLZMOD_drawColor.map[t] = colour(f.look || { colors: {} });
+  return t;
 }
 
 // the saved look on screen: the table from the palette's values to its colours, its outline, the
@@ -489,7 +511,9 @@ function DLZMOD_vuPaint(m, t, s, e) {
   }
   if (!DLZMOD_meterMarks()) return;   // Mackie's plain look (Mod page "Meter marks" off)
   const g = m.gradArr;
-  const yellow = g.find((c) => c[1] !== g[0][1]);   // first stop that is not green
+  // the first stop that is not green in Mackie's own list: an own colour can be Mackie's yellow
+  const own = (DLZMOD_applyTheme.stock && DLZMOD_applyTheme.stock.vuGrad) || g;
+  const yellow = g[own.findIndex((c) => c[1] !== own[0][1])];
   const red = g[g.length - 1];
   const rect = (from, to) => m.horizontal ? t.fillRect(from, 0, to - from, m.h) : t.fillRect(0, m.h - to, m.w, to - from);
   // zones on the bright bar (0..s) and, dimmed, on the part of the "before the fader" bar above it

@@ -1404,7 +1404,7 @@ const withTheme = (sel, fn) => {
   const done = () => {
     Object.assign(ctx, { Color: keep.Color, Util: keep.Util, app: keep.app });
     ctx.Data.set = keep.set;
-    for (const k of ["stock", "look", "id", "slots", "back", "accent", "ovBg"]) delete f[k];
+    for (const k of ["stock", "look", "id", "slots", "back", "accent", "ovBg", "taken", "slotOf", "sums"]) delete f[k];
     ctx.DLZMOD_drawColor.map = null;
     ctx.DLZMOD_outline.colors = null;
   };
@@ -1517,6 +1517,29 @@ test("theme: Red like every colour, meters included; the warning stops at the to
   });
   settings({ "dlzmod.faderColor": 4 });
   assert.strictEqual(settingsPage().meters.preColor.items[0][0], "Red", "the meters panel names it");
+});
+test("theme: Yellow (Mackie's own warning yellow) still gets the meters' yellow zone", () => {
+  reset();
+  withTheme([0, 0, 2], (c) => {
+    ctx.Data.data["dlzmod.meterMarks"] = 1;
+    const t = canvas();
+    ctx.DLZMOD_vuPaint(stripMeter(), t, 96, 100);
+    assert.deepStrictEqual(zones(t), [["#ffc909", 85, 95], ["#ee3524", 95, 96]]);
+  });
+});
+test("theme: a colour Mackie sums from the palette when a page is built follows a change", () => {
+  reset();
+  withTheme([0, 0, 0], (c) => {
+    const v = ctx.Util.hex2rgba(c.red, 0.42);
+    assert.strictEqual(draw(v), "#ee3524@0.42");
+    look([1, 0, 0]);
+    assert.strictEqual(draw(v), "#ff4a3d@0.42", "after the change, without a new sum");
+    assert.strictEqual(ctx.Util.hex2rgba(c.red, 0.42), v, "the same sum, the same value");
+    assert.strictEqual(ctx.Util.hex2rgba("#123456", 0.5), "#123456@0.5", "other colours as they are");
+    ui.sets.length = 0;
+    ctx.Data.set("K.0.color", v);
+    assert.deepStrictEqual(plain(ui.sets), [["K.0.color", "#ee3524@0.42"]], "to the knob rings as Mackie's");
+  });
 });
 test("theme: the knob rings get Mackie's colours, whatever the look", () => {
   reset();
