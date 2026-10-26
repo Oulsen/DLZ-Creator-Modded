@@ -24,7 +24,8 @@ The board, Mackie's device tree, the boot chain, the eMMC layout and the SD slot
 - Backlight: `pwm-backlight`, PWM0 on PB2 (polarity inverted), enable GPIO PB3 (active high)
 - UARTs enabled: UART0 = ttyS0 (PB22/PB23: the kernel console, `console=ttyS0,115200` in `armbianEnv.txt`
   [static]; likely on the DEBUG header [guess]),
-  UART3 = ttyS1 (Bluetooth module), UART5 = ttyS2 (GD32 control surface MCU), both used by `faderlink`
+  UART3 = ttyS1 (Bluetooth module, an Actions ATS2853: [components/faderlink.md](components/faderlink.md)),
+  UART5 = ttyS2 (GD32 control surface MCU), both used by `faderlink`
 - No ALSA sound card: on-chip codec, I2S and SPI are disabled in the DTB; `dspserver` drives the
   audio hardware via `/dev/mem` DMA (see [components/dspserver.md](components/dspserver.md))
 - Touch: Goodix GT911 on i2c1 @ 0x5d (ID 911, firmware 1060), mounted like the panel: raw
@@ -192,6 +193,10 @@ Mackie publishes no maximum (spec sheet: microSDHC/microSDXC, FAT32). From the f
   or eMMC part named, no boot log. Its photos show 4 XLR + 4 jack inputs (the full-size) and the CPU
   board's silkscreen `EVOLVE-A1_A40i_V?.0_20221209` (version digit unreadable): the XS's board name
   (`mackie-evolve-a1`). PMIC marking not readable
+- FCC internal photos of the XS, FCC ID `2AD4XDLZXS` (LOUD Audio, filed 2023-12): fccid.io blocks
+  scripted fetches, save the PDF from a browser (21 JPEG pages, low resolution). XS CPU board
+  silkscreen `PMD_DLZ Lite_V2.0_20230527`; control surface MCU `GD32F305VCT6`; Bluetooth module with
+  an Actions ATS2853 and a `BT USB` header beside it; Samsung eMMC; two antennas on cables [static]
 - Bootsplash format: `include/uapi/linux/bootsplash_file.h` and `tools/bootsplash/bootsplash-packer.c`
   in Armbian-patched kernels, e.g. https://github.com/orangepi-xunlong/linux-orangepi
 - The installer's U-Boot: Debian `u-boot-sunxi` 2025.01-3+deb13u1, `Bananapi_M2_Ultra`, made safe by
