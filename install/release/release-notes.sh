@@ -64,6 +64,7 @@ cat <<EOF
 
 ### Check your download
 \`SHA256SUMS\` holds the checksums of all release files: \`sha256sum -c SHA256SUMS\` (Linux, Git Bash), or compare with \`certutil -hashfile <file> SHA256\` (Windows) or \`shasum -a 256 <file>\` (macOS).
+GitHub built these files from the source at [$TAG](https://github.com/$SLUG/tree/$TAG), in a pinned build environment (\`install/release/buildenv/\`): the same commit builds to the same bytes, and the build's log is under Actions, workflow "release".
 
 ### Source code of the installer's GPL parts
 $gpl

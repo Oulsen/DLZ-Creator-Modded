@@ -31,8 +31,13 @@ backup the installer makes.
 
   ```bash
   apt install python3 python3-pil fonts-dejavu-core qemu-user qemu-user-static binfmt-support \
-    cpio zstd dosfstools e2fsprogs fdisk openssl curl ffmpeg
+    cpio zstd dosfstools mtools e2fsprogs fdisk openssl curl ffmpeg
   ```
+
+- For the release build only: Docker Desktop (`winget install Docker.DockerDesktop`) with WSL
+  integration for **Ubuntu** (Settings → Resources → WSL integration). It need not start with
+  Windows ("Start Docker Desktop when you sign in" off): start it before a release build. The build
+  runs in the pinned build environment (`install/release/buildenv/`), the same as GitHub's
 
 - About 30 GB free in WSL: the dump is 7.8 GB, a card image as much again, and the tests keep
   cached cards (`tests/rig.sh clean` frees them)
@@ -84,7 +89,7 @@ organised: "GitHub workflow" below and [CONTRIBUTING.md](../CONTRIBUTING.md).
 | `vendor/` | Third-party U-Boot, downloaded in Setup (git-ignored) |
 | `build/` | Generated images/scripts (git-ignored) |
 | `dumps/` | Data read from the device (git-ignored, never share) |
-| `.github/` | Issue templates (bug, feature, help with an install), the pull request template, `CODEOWNERS` (who reviews) and the checks GitHub runs on every push and pull request (`workflows/checks.yml`: unit tests, key guards, updater checks, the SSH skill's read-only guard, the release notes and their Discord message, script syntax), the draft release a version tag makes (`workflows/release.yml`, "Releases" step 5) and the message in Discord when a release is published (`workflows/announce.yml`) |
+| `.github/` | Issue templates (bug, feature, help with an install), the pull request template, `CODEOWNERS` (who reviews) and the checks GitHub runs on every push and pull request (`workflows/checks.yml`: unit tests, key guards, updater checks, the SSH skill's read-only guard, the release notes and their Discord message, script syntax), the draft release a version tag makes, with the release files built and signed (`workflows/release.yml`, "Releases" step 5) and the message in Discord when a release is published (`workflows/announce.yml`) |
 | `.claude/skills/` | Workflows for Claude Code: the device review, the UI sandbox, SSH to your mixer, the release build |
 
 ## Notes
@@ -154,12 +159,14 @@ The repo is public, so what goes into it is limited by what the project may publ
 | `mkvisuals.sh` | WSL / device | Compose `/etc/dlz.png` and the kernel bootsplash from the device's originals + our layers (ffmpeg) |
 | `modversion.py` | any | Reads and checks the mod version from `VERSION` (`v0.1.0` .. `v9.99.99`) |
 | `build-sd.sh` | WSL (root) | Clone a dump into an SD-bootable image: checks the dump, copies it, renders the layers, then runs `card-core.sh` |
-| `release/mkpackage.sh` | WSL (root) | Build the release package `build/release/dlzmod-vX.Y.Z.tar`: one initramfs with the installer, `card-core.sh` and helpers, layers and screens, checked by an inner manifest; signed into `.tar.sig` (ed25519 over the whole tar: dev key, `RELEASE=1` release key, `RELEASE_KEY=release2` the spare; `DLZMOD_SIGNING_KEYS` = folder with the private keys, passphrase asked once or `DLZMOD_SIGNING_PASS`). Uncommitted changes: not signed |
+| `release/mkpackage.sh` | build environment / WSL (root) | Build the release package `build/release/dlzmod-vX.Y.Z.tar`: one initramfs with the installer, `card-core.sh` and helpers, layers and screens, checked by an inner manifest; signed into `.tar.sig` (ed25519 over the whole tar: dev key, `RELEASE=1` release key, `RELEASE_KEY=release2` the spare; `DLZMOD_SIGNING_KEYS` = folder with the private keys, passphrase asked once or `DLZMOD_SIGNING_PASS`). Uncommitted changes, or `UNSIGNED=1`: not signed |
 | `release/mkkeys.sh` | Git Bash / WSL | Make a signing key pair (`release`, the offline spare `release2`, or `dev`; release keys passphrase-encrypted): private key into a folder outside the repo, public key into `keys/`. Never overwrites: cards trust the keys they were installed with for good |
 | `keys/` | - | Public keys of the update signatures; `card-core.sh` puts `release.pub` and `release2.pub` on every card, and a dev key on cards built from a dev package or `build-sd.sh` (your own `dev.pub` from `DLZMOD_SIGNING_KEYS`, else `keys/dev.pub`); `keys/withdrawn` (only after a leak, #63): withdrawn keys, `release` or `dev`, in every package's `WITHDRAWN` from then on, and on cards from `build-sd.sh` |
 | `release/reinstall-below` | - | The first version every card must have been installed with (a full install, v0.3.0 now): `mkpackage.sh` writes it as `REINSTALL_BELOW` with `REINSTALL=yes`, so older cards refuse the package as a drop-in ([notes/updates.md](../notes/updates.md), "Drop-in update") |
-| `release/mkinstaller.sh` | WSL (root) | Build the flashable installer image around a package (`--dry-run`: writes nothing on the device). Development builds are named `-dev-<commit>`; `RELEASE=1` (clean tree only) gives the release name |
-| `release/build-release.cmd` | Windows (double-click) | The release build in one step: `RELEASE=1` package signed with the release key (asks its passphrase in its own window) and the installer image around it, in WSL; keys from `%USERPROFILE%\.dlzmod-keys` (or `DLZMOD_KEYS_WIN`) |
+| `release/mkinstaller.sh` | build environment / WSL | Build the flashable installer image around a package (`--dry-run`: writes nothing on the device); the FAT is made and filled inside the image file (dosfstools, mtools: no loop device, mount or root). Development builds are named `-dev-<commit>`; `RELEASE=1` (clean tree only) gives the release name |
+| `release/buildenv/`, `release/buildenv.sh` | WSL (Docker Desktop) / GitHub | The pinned build environment of the release files (Debian trixie by digest, every package from one snapshot.debian.org moment) and the wrapper that runs a command in it with the repo at `/src`: the PC and the tag's workflow build in the same image, so the same commit gives the same bytes |
+| `release/ci-build.sh` | GitHub | The tag's release build (`workflows/release.yml`): `RELEASE=1` package and installer image in the build environment, signed with the release key from the protected environment `release` (a test tag: unsigned), `SHA256SUMS`, and the files the draft gets (`attach.txt`: the update file only when a card can take it as a drop-in) |
+| `release/build-release.cmd` | Windows (double-click) | The PC's release build in one step, in the build environment: the `RELEASE=1` package unsigned (`UNSIGNED=1`, no key on the PC) and the installer image around it, to test on the mixer and compare with GitHub's build of the same commit; then a dev image of that commit (dev key from `%USERPROFILE%\.dlzmod-keys`, or `DLZMOD_KEYS_WIN`) |
 | `release/vendor.sh`, `release/uboot-safe.py`, `release/mkglyphs.py`, `release/mklogo.py`, `release/fat-fixtimes.py` | WSL | Pinned U-Boot/busybox downloads (Debian sha256); U-Boot's built-in defaults made safe (SD card only, no USB, the Banana Pi's Ethernet switched off in its device tree); font atlas for the installer screens; the MODDED sticker with the version for the installer screens; the installer image's FAT file times set to `SOURCE_DATE_EPOCH` (same package, same image) |
 | `installer/` | device | Installer U-Boot script (`boot.txt`), `/init` (checks, eMMC lock, accept screen, dry run, real install), `install-card.sh` (the write steps: `DLZDATA` first at the full card size, copy and compare with the eMMC backup made from the same read (`DLZDATA/dlzmod-backup/`), new UUID, partition table, `card-core.sh`, bootloader last; on a failure before `DLZDATA` exists, a small `DLZLOG` partition with the log) `ui.py` (screens and touch, stdlib only), busybox applet list, and for a mixer the mod does not support `probe.sh` (hardware report; the backup for analysis on other firmware, eMMC user area only, onto a `DLZDUMP` partition) with `boards.txt` (the bootloaders the backup is offered for) |
 | `card-core.sh` | WSL (root) / device | Finishes a card (shared with the on-device installer): checks that every tool and mod file is there before writing, refuses any target but a loop device or an SD card, and a card whose model differs from the source's (`DLZMOD_MODEL`), then new rootfs UUID, the mixer the card is bound to (`DLZMOD_MIXER_ID`: sha256 of the eMMC's CID from the installer, `any` from `build-sd.sh`), `DLZDATA` partition (or the installer's, `DLZDATA_KEEP=1`), brick guards, boot visuals, UI and server mods (`apply-mod.sh`), optional SSH key for test cards. `DLZMOD_UUID` / `SOURCE_DATE_EPOCH` make builds reproducible |
@@ -426,7 +433,9 @@ issue's technical notes point to the note section instead of copying it.
   commit, `develop`'s tip and the PR's head are one commit. In order:
   1. Make the release build from `develop`'s tip and test it (its `package.env` names that commit;
      the build also leaves a dev installer image of that commit in `build/devcard/`, for a new dev
-     card: the `release-build` skill).
+     card: the `release-build` skill). The PC builds unsigned, in the same build environment as
+     GitHub: the image is the one GitHub builds from the tag (step 5 compares them), so the mixer
+     test holds for the published files.
   2. Open the release PR `develop` → `main` and review it: a final `/cr` (or `/code-review`) on
      the PR, findings fixed (a fix PR into `develop`, then back to step 1) or named in the PR as
      accepted, before step 3.
@@ -448,12 +457,20 @@ issue's technical notes point to the note section instead of copying it.
      section headings of "`CHANGELOG.md`" below, without the title prefixes, with the issue numbers,
      then how to check the download and the GPL source note from the README's "Legal" (U-Boot and
      busybox versions and their Debian source links, at the tag; update the README when `vendor.sh`
-     pins new ones). Then, from the PC, attach the tested files and check them:
-     `bash .claude/skills/release-build/release.sh upload vX.Y.Z [--with-update]` (the installer
-     image with a `SHA256SUMS`; `--with-update` adds the update file, `.tar` + `.tar.sig`, only when
-     the release installs as a drop-in from the previous one: [notes/updates.md](../notes/updates.md),
-     "Release files"); it refuses a build that is not of the tagged commit or a release that is not a
-     draft, and downloads the files again and runs `sha256sum -c SHA256SUMS`. Last, on GitHub: replace
+     pins new ones). Then its job `build-release` waits for the maintainer's approval (the
+     environment `release`, GitHub: Actions, the run, "Review deployments"), builds the release files
+     in the build environment, signs the package with the release key and attaches them with a
+     `SHA256SUMS` (`install/release/ci-build.sh`): the installer image, and the update file (`.tar` +
+     `.tar.sig`) only when a card can take it as a drop-in, that is unless `reinstall-below` is this
+     version ([notes/updates.md](../notes/updates.md), "Release files"). Then, on the PC, check the
+     draft against the tested build of step 1:
+     `bash .claude/skills/release-build/release.sh compare vX.Y.Z` downloads the draft, runs
+     `sha256sum -c SHA256SUMS`, and checks that its image and tar are the PC's byte for byte and that
+     the signature verifies with `install/keys/release.pub`; it refuses a build that is not of the
+     tagged commit or a release that is not a draft. A difference means the build environment is not
+     the same on both: never publish, find out why. A drop-in release: test the update from the
+     draft's `.tar` + `.tar.sig` on the mixer before publishing (the PC's tar is unsigned, cards
+     refuse it). Last, on GitHub: replace
      the notes' first line with how to get it ("Update from vX.Y.Z: copy the update files" or "Full
      install with the installer image (copy your recordings off the card first)"; v0.2.0's notes as
      the example), edit the highlights under it for owners (drafted from the DLZ features, DLZ bugs and
@@ -465,11 +482,14 @@ issue's technical notes point to the note section instead of copying it.
      refuses notes that still say "Before publishing, replace this line" or have no highlights (fix
      them, then re-run the failed job; a re-run of a job that posted posts again), skips
      test releases and tags that are not on `main`, and posts nothing without the `DISCORD_WEBHOOK` secret (set once by the maintainer:
-     `gh secret set DISCORD_WEBHOOK`; the webhook URL is never in the repo). The signing key stays on the
-     PC for now: the workflow builds and signs nothing; signing moves to GitHub only once a leaked
-     key can be withdrawn from cards (#63), on a reproducible build ([notes/updates.md](../notes/updates.md),
-     "Built where"). A try: a tag `vX.Y.Z-testN` on any branch makes
-     a draft "vX.Y.Z-testN (test)"; delete the draft and the tag afterwards
+     `gh secret set DISCORD_WEBHOOK`; the webhook URL is never in the repo). The release key is in
+     the environment `release` (secrets `DLZMOD_RELEASE_KEY`, the key file, and `DLZMOD_SIGNING_PASS`,
+     set once by the maintainer, `gh secret set <name> --env release`; it only runs for `v*` tags and
+     only after approval); the spare key `release2` never goes to GitHub: a withdrawal release (#63)
+     is signed on the PC (`RELEASE_KEY=release2`, [notes/updates.md](../notes/updates.md), "Signing
+     keys"). A try: a tag `vX.Y.Z-testN` on any branch makes a draft "vX.Y.Z-testN (test)" with the
+     same files unsigned (job `build-test`: no key, no approval; `release.sh compare` works on it
+     too); delete the draft and the tag afterwards
      (`gh release delete vX.Y.Z-testN --cleanup-tag`).
 - **Version bump**: right after a release, `VERSION` goes to the next version in `develop` as its own
   PR (`docs/vX.Y.Z-bump`), before any other change of the new cycle, so every branch builds the same

@@ -1,6 +1,7 @@
 #!/bin/bash
-# Build the flashable installer image around a package from mkpackage.sh (run as root in WSL:
-# loop device + mount for filling the FAT partition).
+# Build the flashable installer image around a package from mkpackage.sh, in the build environment
+# (install/release/buildenv/). No root: the FAT partition is made and filled inside the image file
+# (dosfstools, mtools), no loop device or mount, so the host's kernel is not in the bytes.
 #
 # Card: Debian U-Boot at 8 KiB (built-in defaults made safe: SD card only, no USB, no GMAC; uboot-safe.py), MBR, one FAT32 partition already formatted and filled, so the
 # user flashes it with Etcher/Rufus and nothing else (no format or copy step to forget):
@@ -66,11 +67,8 @@ vendor_prepare "$REPO/vendor"
 UBOOT=$REPO/vendor/u-boot-safe.bin   # Debian U-Boot with safe built-in defaults (uboot-safe.py)
 
 work=$(mktemp -d)
-loop=""
 img=""
 cleanup() {
-  mountpoint -q "$work/fat" 2>/dev/null && umount "$work/fat"
-  [ -z "$loop" ] || losetup -d "$loop"
   rm -rf "$work"
   [ -z "$img" ] || rm -f "$img.part"
 }
@@ -89,20 +87,27 @@ cp "$PKG/initrd.cpio.gz" "$PKG/package.env" "$PKG/manifest" "$work/files/dlzmod/
 mkdir -p "$OUT"
 img=$OUT/$NAME.img
 python3 "$REPO/install/dumper/mksdimg.py" "$UBOOT" "$img.part" --part-mib "$PART_MIB"
-loop=$(losetup -f --show -o $PART_OFF --sizelimit $((PART_MIB * 1024 * 1024)) "$img.part")
-mkfs.vfat -F 32 -s 1 -n DLZINSTALL -i "$(printf '%08X' $(( SOURCE_DATE_EPOCH & 0xFFFFFFFF )))" "$loop" >/dev/null
-mkdir -p "$work/fat"
-mount -t vfat "$loop" "$work/fat"
-# one by one in a fixed order (not the build host's directory order): the same clusters and entries
-cp "$work/files/boot.scr" "$work/files/uboot.env" "$work/fat/"
-mkdir "$work/fat/dlzmod"
-for f in initrd.cpio.gz package.env manifest; do cp "$work/files/dlzmod/$f" "$work/fat/dlzmod/"; done
-sync
-(cd "$work/fat/dlzmod" && sha256sum -c --quiet manifest) || { echo "copy on the FAT does not match the manifest" >&2; exit 1; }
-find "$work/fat" -type f -printf '  %P (%s bytes)\n' | sort
-umount "$work/fat"
-losetup -d "$loop"
-loop=""
+# the partition's sectors only (--offset, size in KiB), 0 hidden sectors as on a loop device
+mkfs.vfat --offset $((PART_OFF / 512)) -h 0 -F 32 -s 1 -n DLZINSTALL \
+  -i "$(printf '%08X' $(( SOURCE_DATE_EPOCH & 0xFFFFFFFF )))" "$img.part" $((PART_MIB * 1024)) >/dev/null
+# mtools on the partition inside the image (@@: byte offset), without the build host's mtools config
+export MTOOLSRC=/dev/null MTOOLS_SKIP_CHECK=1
+fat=$img.part@@$PART_OFF
+# one by one in a fixed order: the same clusters and entries
+mcopy -i "$fat" "$work/files/boot.scr" "$work/files/uboot.env" ::/
+mmd -i "$fat" ::/dlzmod
+for f in initrd.cpio.gz package.env manifest; do mcopy -i "$fat" "$work/files/dlzmod/$f" ::/dlzmod/; done
+# read back from the FAT: what the installer will find there
+mkdir "$work/back"
+for f in boot.scr uboot.env; do
+  mcopy -i "$fat" "::/$f" "$work/back/"
+  cmp -s "$work/files/$f" "$work/back/$f" || { echo "$f on the FAT does not match" >&2; exit 1; }
+done
+for f in initrd.cpio.gz package.env manifest; do mcopy -i "$fat" "::/dlzmod/$f" "$work/back/"; done
+(cd "$work/back" && sha256sum -c --quiet manifest) || { echo "copy on the FAT does not match the manifest" >&2; exit 1; }
+for f in boot.scr dlzmod/initrd.cpio.gz dlzmod/manifest dlzmod/package.env uboot.env; do
+  echo "  $f ($(stat -c %s "$work/back/${f#dlzmod/}") bytes)"
+done
 # the files' times on the FAT: SOURCE_DATE_EPOCH instead of the build's clock (same package, same image)
 python3 "$REPO/install/release/fat-fixtimes.py" "$img.part" $PART_OFF "$SOURCE_DATE_EPOCH"
 mv "$img.part" "$img"

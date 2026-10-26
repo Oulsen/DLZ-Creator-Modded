@@ -1,5 +1,6 @@
 #!/bin/bash
-# Build the release package (run as root in WSL: the initramfs needs a /dev/console node).
+# Build the release package (as root, in the build environment install/release/buildenv/ or in WSL:
+# the initramfs needs a /dev/console node).
 #
 # The package is one initramfs that carries everything the installer needs, so U-Boot loads a
 # single file and it is all in RAM before the card is touched (notes/installer.md):
@@ -23,13 +24,16 @@
 # the release keys; for the dev key DLZMOD_SIGNING_KEYS/dev.pub when it is there (your own,
 # mkkeys.sh), else install/keys/dev.pub. A release package always carries install/keys/dev.pub
 # (rebuildable from its commit; release cards do not install the dev key anyway).
-# SOURCE_DATE_EPOCH (default: last commit time) makes the output reproducible.
+# SOURCE_DATE_EPOCH (default: last commit time) makes the output reproducible. UNSIGNED=1 builds a
+# clean tree without signing (no key needed): the same tar as the signed build, for comparing a build
+# with GitHub's (#158; ed25519 is deterministic, so the same tar has the same signature).
 #
 # package.env is read by name, also by updaters already on cards: add keys, never rename or drop one.
 # Values without spaces or quotes (read with sed, never sourced). MODEL=XS is for updaters from before
 # the full-size support (they compare it with the card's model); newer ones read MODELS (comma list).
 #
 # Usage: DLZMOD_SIGNING_KEYS=<folder> [RELEASE=1 [RELEASE_KEY=release2]] [DLZMOD_SIGNING_PASS=...]
+#        [UNSIGNED=1]
 #        mkpackage.sh [out dir, default build/release]
 # Needs: python3 with Pillow, fonts-dejavu-core, cpio, gzip, dpkg-deb, curl, qemu-arm, openssl
 set -euo pipefail
@@ -73,6 +77,7 @@ SIGNPASS=${DLZMOD_SIGNING_PASS:-}
 unset DLZMOD_SIGNING_PASS
 SIGN=yes
 case $COMMIT in *+dirty) SIGN=no ;; esac
+[ "${UNSIGNED:-}" != 1 ] || SIGN=no
 KEYNAME=$CHANNEL
 if [ "$CHANNEL" = release ]; then
   KEYNAME=${RELEASE_KEY:-release}
@@ -237,7 +242,10 @@ tar -C "$work" --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --n
 echo "package: $OUT/$NAME.tar ($(stat -c %s "$OUT/$NAME.tar") bytes, $(wc -l < "$pkg/manifest") files," \
   "initrd $(stat -c %s "$rel/initrd.cpio.gz") bytes, commit $COMMIT, placeholder $placeholder)"
 if [ "$SIGN" = no ]; then
-  echo "NOT SIGNED: uncommitted changes (cards refuse it as an update; commit, then build)"
+  case $COMMIT in
+    *+dirty) echo "NOT SIGNED: uncommitted changes (cards refuse it as an update; commit, then build)" ;;
+    *) echo "NOT SIGNED: UNSIGNED=1 (cards refuse it as an update; for comparing builds)" ;;
+  esac
   exit 0
 fi
 # ed25519 signatures are deterministic: the same tar and key give the same .sig

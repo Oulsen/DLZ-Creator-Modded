@@ -3,7 +3,8 @@
 Default (dumper): a 16 GiB partition entry, left unformatted; format it as FAT32 in Windows after
 flashing (needs a card of 32 GB or more). Flashing only writes the first few MiB, the partition
 entry points past them. With --part-mib the image covers the whole partition, so a caller can
-format and fill it (mkfs.vfat on a loop device) and the card needs no manual format or copy step.
+format and fill it (mkinstaller.sh: mkfs.vfat --offset and mtools) and the card needs no manual
+format or copy step.
 """
 import argparse
 import struct
