@@ -58,6 +58,10 @@ $W forget                                  # at the end of the session (--all: t
 - **Key first**: a dev card trusts the key `dev/push.sh` uses (`SSH_KEY` in `dev/push.env`, a
   private key without a passphrase). `key` copies it into the session's private folder (mode 600;
   WSL's ssh refuses a key on a Windows drive) and logs in with only that key, before any password.
+  A dev card freshly installed from an installer image has no key (only `build-sd.sh` cards get one)
+  and new host keys: a refused key there is that, not a broken card. Ask the user to run
+  `bash dev/cardkey.sh` in Git Bash (it asks for the card's SSH password itself, so the password
+  stays out of the conversation), then `forget` and `key` again.
   In a worktree (no `dev/push.env`) give the path: `$W key '~/.ssh/<file>'` (`~` = the Windows user
   folder) or `C:/...`. No key file, a key with a passphrase (`key` refuses it; the dev card's own key
   is made without one, `docs/DEVELOPMENT.md` "Dev card"), or a mixer that does not take it: ask for

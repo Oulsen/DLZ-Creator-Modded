@@ -185,6 +185,7 @@ The repo is public, so what goes into it is limited by what the project may publ
 |---|---|---|
 | `ui-sandbox.sh` | Git Bash + Node | Run the mixer UI on this PC at http://127.0.0.1/ in the on-device layout (copy of `/srv` in `dumps/sandbox`, shell commands blocked, localhost only); `DLZ_FULLSIZE=1` shows the full-size DLZ Creator's UI from its own copy (`dumps/sandbox-full`); `DLZ_SANDBOX_REMOTE=1` makes http://localhost/ another device on the network; `DLZ_FAKE_MEDIA=sd` (`usb`, `sd,usb`) a pretend SD card / USB stick with a few recordings |
 | `push.sh` | Git Bash + WSL | Build HEAD, push it over Wi-Fi to a dev card as a drop-in update, wait for the mixer to be switched off and on (`--restart`: from software, #81) and show the update's report ("Dev card" below); settings in `dev/push.env` (git-ignored, from `push.env.example`) |
+| `cardkey.sh` | Git Bash | After a new install of the dev card: forget its old host key, add your SSH key with the card's SSH password, check a key login ("Dev card" below) |
 | `netlog.sh` / `netlog.ps1` | Git Bash / PowerShell | A dev card's network log ("Dev card" below): `netlog.sh on` (`off`, `status`) makes the card send each start's log to this PC, `netlog.ps1` receives it into `build/device-logs/netlog-*.txt` |
 | `ui-sandbox/shot.js` | Node + Chrome | Headless screenshot of the sandbox UI, optionally after taps; also as a paired other device (`DLZ_SHOT_COOKIE`) and keeping its downloads (`DLZ_SHOT_DOWNLOADS`) |
 | `ui-sandbox/pair.js` | Node | Pair the sandbox's other device with the PIN, as a real one pairs; prints the token for `shot.js` |
@@ -285,17 +286,21 @@ release image trusts only the release keys: use a second microSD for development
    SSH key in `sd.env` (above).
 2. On the mixer's screen (Settings, DLZ Creator Modded, Network): connect Wi-Fi, turn SSH on with
    "Keep on after a restart".
-3. Make a key only for the dev card, without a passphrase, and add it once (Git Bash):
-   `ssh-keygen -t ed25519 -N '' -C dlz-dev-card -f ~/.ssh/dlz-dev`, then `ssh-copy-id -o
-   IdentitiesOnly=yes -i ~/.ssh/dlz-dev.pub root@<mixer>` with the SSH password from step 2
-   (`IdentitiesOnly`: the mixer allows 3 tries, and an SSH agent with several keys uses them up
-   before the password). Without a passphrase `push.sh` and the `mixer-ssh` skill (`dlz-ssh.sh key`)
-   log in unattended, also from Claude Code; the file gives root on the dev card, so it stays on
-   your PC and the card is a development card only. Not needed for a `build-sd.sh` card with an SSH
-   key.
+3. Make a key only for the dev card, without a passphrase (Git Bash, once):
+   `ssh-keygen -t ed25519 -N '' -C dlz-dev-card -f ~/.ssh/dlz-dev`. Without a passphrase `push.sh`
+   and the `mixer-ssh` skill (`dlz-ssh.sh key`) log in unattended, also from Claude Code; the file
+   gives root on the dev card, so it stays on your PC and the card is a development card only.
 4. `cp dev/push.env.example dev/push.env` and fill in the mixer's address and your key. The script
    never asks for anything: a key with a passphrase goes into `ssh-agent` first, and the dev key is
    used as `mkkeys.sh` makes it (without a passphrase).
+5. Put the key on the card: `bash dev/cardkey.sh`, in your own Git Bash window (it asks for a
+   password, so not through Claude Code). It forgets the old card's host key
+   (`~/.ssh/known_hosts` and `push.sh`'s own list), shows the new one, asks once for the SSH password
+   from step 2 and adds the key (logging in with the password only: the mixer allows 3 tries, and an
+   SSH agent with several keys uses them up before it), then checks a key login. **After every new
+   install from an installer image, again steps 2 and 5**: the image carries no SSH key and each
+   install makes new host keys, so `push.sh` stops with a changed host key until then. Not needed
+   for a `build-sd.sh` card with an SSH key.
 
 **The loop** (Git Bash, repo root):
 
