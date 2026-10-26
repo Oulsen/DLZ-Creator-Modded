@@ -36,8 +36,23 @@ Owned by package `faderlink` 521 (binary, flash scripts, firmware, bitstreams). 
 ### Bluetooth module (ttyS1)
 
 - Not HCI: faderlink speaks the module's own message protocol (Linux has no BlueZ, only
-  `libbluetooth3`) [static]. Profiles/chip unknown; the graph treats it as a phone-call style link
-  (mono out +10 dB, mix-minus), so likely a sink/hands-free module, not a source for headphones [guess].
+  `libbluetooth3`) [static]. Framed binary messages (logged as `%02X` hex, "Partial or malformed
+  message from BT UART"); no AT commands, no scan/inquiry/connect-to strings [static].
+- Chip: **Actions ATS2853** (QFN48, Actions logo) on a small module soldered to the CPU board, next
+  to a header labelled `BT USB` (probably the module's own firmware port) [static: FCC internal
+  photos of the XS, FCC ID `2AD4XDLZXS`, page 17; fccid.io blocks scripted fetches, save the PDF from
+  a browser]. The ATS2853 is a Bluetooth speaker SoC (MIPS, own flash, own DAC/ADC): A2DP 1.3 sink
+  (SBC/AAC), AVRCP 1.6, HFP 1.7 hands-free with mSBC, and Actions' own TWS speaker-to-speaker link;
+  no plain A2DP source to third-party headphones listed (third-party spec sheets, dasenic.com,
+  fcc.report `YMX-ATS2853`) [guess on the exact feature set of Mackie's firmware]. Its firmware is
+  Mackie's own build on the module (the UART protocol above); no copy or updater in the dump [static].
+  Public specs: Bluetooth 5.0, role "audio receiving" (Mackie spec sheet, retailers).
+- Audio: the module sits on its own stereo codec (`cin[0..1]` in, `cout[2..3]` out in the graph);
+  the return feed is downmixed to mono +10 dB with mix-minus, a phone-call (HFP) style link [static].
+  The UI only offers "make the mixer discoverable, pair from your phone" [static]. So the mixer is a
+  sink/hands-free device that phones connect to; nothing in faderlink makes it connect out to a
+  speaker or headset. Whether the chip could act as a source with other module firmware is unknown,
+  and reflashing it is outside the mod's ground rules [guess].
 - Device name: the constant `#DLZ | Creator XS` (full-size: `#DLZ | Creator`), sent once and then
   marker `/root/.bt-name-set-v2` is written [static]. Renaming = a different string plus removing
   the marker; the name lives in the faderlink binary.

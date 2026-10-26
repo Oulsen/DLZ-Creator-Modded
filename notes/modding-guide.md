@@ -153,9 +153,10 @@ Looked into and not doable on this hardware or within the ground rules:
   the computer, and both are already selectable on the virtual strips; per-app routing is done on
   the computer (Q22 would show whether there are more playback channels).
 - **Bluetooth headphones or speakers as a monitor, a Bluetooth headset as input/output**: the
-  Bluetooth module is a phone-side sink with its own protocol, not a Linux Bluetooth stack; a USB
-  dongle with BlueZ would have no audio path (no ALSA), and Bluetooth latency is too high for live
-  monitoring (Q25).
+  Bluetooth module (an Actions ATS2853 speaker chip with Mackie's own firmware) is a phone-side
+  sink with its own protocol and no connect-out command in faderlink, not a Linux Bluetooth stack;
+  a USB dongle with BlueZ would have no audio path (no ALSA), and Bluetooth latency is too high for
+  live monitoring (Q25).
 - **The card as a USB drive on the computer**: the USB port to the computer is not Linux's (no OTG in
   the device tree, [hardware.md](hardware.md)); file access has to go over the network.
 - **A faster SD slot** (UHS): needs a switchable 1.8 V supply, which means changing the PMIC setup.

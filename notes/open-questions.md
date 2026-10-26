@@ -53,7 +53,9 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
     back? (Capture on port 89 while moving each fader.)
 24. Do `settings.brightness.screen/k/pad/button = 0` make the screen and LEDs fully dark? (For a
     sleep mode.)
-25. Bluetooth module: chip, profiles (A2DP sink only? HFP?), and can it act as a source?
+25. Bluetooth module (Actions ATS2853, `components/faderlink.md`): which profiles does Mackie's
+    module firmware offer? On a phone, the mixer's Bluetooth settings show it (media audio / calls).
+    Software and chip both say sink only, no connect-out to speakers or headsets.
 26. How does dspserver name the parts of a recording split at 2 GB?
 29. Does a knob drive an own key? Set `K.0.key` to `dlzmod.test` over port 89, turn knob 1, and
     watch for value broadcasts or faderlink's "keyDataTransform not found". Decides whether mod pages
