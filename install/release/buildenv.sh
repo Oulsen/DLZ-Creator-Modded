@@ -11,7 +11,7 @@ set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 DIR=$REPO/install/release/buildenv
-[ $# -gt 0 ] || { sed -n '7,9p' "$0"; exit 1; }
+[ $# -gt 0 ] || { sed -n '/^# Usage:/,/^set /{/^set /d;s/^# \{0,1\}//;p}' "$0"; exit 1; }
 command -v docker >/dev/null || { echo "no docker: start Docker Desktop (WSL integration for this distro)" >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo "docker does not answer: start Docker Desktop and wait until it runs" >&2; exit 1; }
 

@@ -69,21 +69,33 @@ compare)
   want=$( (sed 's/^[0-9a-f]*  //' "$t/SHA256SUMS"; echo SHA256SUMS) | sort); have=$(ls "$t" | sort)
   [ "$want" = "$have" ] || { echo "the draft holds other files than SHA256SUMS names:"; echo "$have"; exit 1; }
   grep -q "  dlz-installer-$VER.img\$" "$t/SHA256SUMS" || { echo "the draft has no installer image"; exit 1; }
+  # the update file as ci-build.sh decides it, from this PC's package: a drop-in unless it reinstalls
+  # below this very version; signed on a release tag, unsigned on a test tag
+  below=$(sed -n 's/^REINSTALL_BELOW=//p' "$env" | tr -d '\r')
   ok=1
-  for f in "dlz-installer-$VER.img" "dlzmod-$VER.tar"; do
+  files=("dlz-installer-$VER.img")
+  if [ "$below" != "$VER" ]; then
+    files+=("dlzmod-$VER.tar")
+    [ -f "$t/dlzmod-$VER.tar" ] || { echo "MISSING: dlzmod-$VER.tar (this package is a drop-in)"; ok=0; }
+    case $TAG in
+      *-test*) [ ! -f "$t/dlzmod-$VER.tar.sig" ] || { echo "a test draft with a .sig"; ok=0; } ;;
+      *) [ -f "$t/dlzmod-$VER.tar.sig" ] || { echo "MISSING: dlzmod-$VER.tar.sig"; ok=0; } ;;
+    esac
+  else
+    [ ! -f "$t/dlzmod-$VER.tar" ] && [ ! -f "$t/dlzmod-$VER.tar.sig" ] \
+      || { echo "the draft has the update file, but this package needs a new install"; ok=0; }
+  fi
+  for f in "${files[@]}"; do
     [ -f "$t/$f" ] || continue
-    cmp -s "$REL/$f" "$t/$f" && echo "same bytes: $f" || { echo "DIFFERENT: $f (GitHub's build is not this PC's)"; ok=0; }
+    if cmp -s "$REL/$f" "$t/$f"; then echo "same bytes: $f"; else echo "DIFFERENT: $f (GitHub's build is not this PC's)"; ok=0; fi
   done
   if [ -f "$t/dlzmod-$VER.tar.sig" ]; then
     tr -d '\r' < install/keys/release.pub > "$t/pub.pem"
-    openssl pkeyutl -verify -pubin -inkey "$t/pub.pem" -rawin -in "$REL/dlzmod-$VER.tar" -sigfile "$t/dlzmod-$VER.tar.sig" >/dev/null \
-      && echo "signature: verifies with install/keys/release.pub over this PC's tar" \
-      || { echo "SIGNATURE DOES NOT VERIFY with install/keys/release.pub"; ok=0; }
-  else
-    case $TAG in
-      *-test*) ;;
-      *) grep -q "dlzmod-$VER.tar" "$t/SHA256SUMS" && { echo "the draft has the update file but no .sig"; ok=0; } ;;
-    esac
+    if openssl pkeyutl -verify -pubin -inkey "$t/pub.pem" -rawin -in "$REL/dlzmod-$VER.tar" -sigfile "$t/dlzmod-$VER.tar.sig" >/dev/null; then
+      echo "signature: verifies with install/keys/release.pub over this PC's tar"
+    else
+      echo "SIGNATURE DOES NOT VERIFY with install/keys/release.pub"; ok=0
+    fi
   fi
   [ $ok = 1 ] || { echo "do not publish"; exit 1; }
   case $TAG in *-test*) echo "OK: draft $TAG is this PC's build of ${tagged:0:7}; a test: never publish, delete it (gh release delete $TAG --cleanup-tag)"; exit 0 ;; esac

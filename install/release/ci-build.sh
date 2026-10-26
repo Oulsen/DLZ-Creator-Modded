@@ -1,10 +1,11 @@
 #!/bin/bash
 # The tag's release build on GitHub (.github/workflows/release.yml, #158): RELEASE=1 package and the
 # installer image around it, in the build environment (buildenv.sh), plus a SHA256SUMS; the files
-# land in build/release, attach.txt names the ones the draft gets. A release tag signs with the release key: DLZMOD_RELEASE_KEY holds the key
-# file's text and DLZMOD_SIGNING_PASS its passphrase (the protected environment "release"); the key
-# is written to a temporary folder only for the build and removed after it. A test tag (vX.Y.Z-testN)
-# builds the same files unsigned (UNSIGNED=1): a package no card takes, from whatever branch.
+# land in build/release, attach.txt names the ones the draft gets. A release tag signs with the
+# release key: DLZMOD_RELEASE_KEY holds the key file's text and DLZMOD_SIGNING_PASS its passphrase
+# (the protected environment "release"); the key is written to a temporary folder only for the
+# build and removed after it. A test tag (vX.Y.Z-testN) builds the same files unsigned
+# (UNSIGNED=1): a package no card takes, from whatever branch.
 # The spare key (release2) is never on GitHub: a withdrawal release is signed on the PC.
 #
 # Usage: ci-build.sh <tag>
