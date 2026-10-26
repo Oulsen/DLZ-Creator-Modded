@@ -15,7 +15,7 @@ for /f "usebackq delims=" %%p in (`wsl -d Ubuntu -e wslpath -a "%REPO%"`) do set
 for /f "usebackq delims=" %%p in (`wsl -d Ubuntu -e wslpath -a "%DLZMOD_KEYS_WIN%"`) do set "KEYS_WSL=%%p"
 if not defined REPO_WSL (echo WSL distro Ubuntu not found & goto end)
 for /f "usebackq delims=" %%v in ("%REPO%\VERSION") do set "VER=%%v"
-echo Release build %VER% from %REPO_WSL% (unsigned, to compare with GitHub's)
+echo Release build %VER% from %REPO% (unsigned, to compare with GitHub's)
 echo.
 wsl -d Ubuntu -u root --cd "%REPO_WSL%" -e env RELEASE=1 UNSIGNED=1 bash install/release/buildenv.sh bash -c "rm -rf build/release && bash install/release/mkpackage.sh && bash install/release/mkinstaller.sh build/release/dlzmod-%VER%"
 if errorlevel 1 (echo. & echo RELEASE BUILD FAILED, see above & goto end)

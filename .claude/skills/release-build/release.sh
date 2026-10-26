@@ -1,6 +1,6 @@
 #!/bin/bash
 # Release build helper (Git Bash on Windows, from the repo root). See SKILL.md.
-#   release.sh open    check the tree is committed, then open build-release.cmd in a new pwsh window
+#   release.sh open    check the tree is committed, then open build-release.cmd in a new PowerShell window
 #   release.sh check   is build/release's package + installer image from HEAD, clean and fresh?
 #                      and build/devcard's dev image of the same commit?
 #   release.sh compare <tag>
@@ -22,7 +22,8 @@ open)
     exit 1
   fi
   win=$(cygpath -w "$REPO/install/release/build-release.cmd")
-  cmd.exe //c start "DLZ release build" pwsh -NoExit -Command "& '$win'"
+  ps=pwsh; command -v pwsh > /dev/null || ps=powershell   # PowerShell 7 if installed, else Windows PowerShell
+  cmd.exe //c start "DLZ release build" $ps -NoExit -Command "& '$win'" || exit 1
   echo "opened: release build $VER from $HEAD in a new PowerShell window (unsigned: GitHub signs at the tag)"
   ;;
 check)
@@ -85,6 +86,7 @@ compare)
     esac
   fi
   [ $ok = 1 ] || { echo "do not publish"; exit 1; }
+  case $TAG in *-test*) echo "OK: draft $TAG is this PC's build of ${tagged:0:7}; a test: never publish, delete it (gh release delete $TAG --cleanup-tag)"; exit 0 ;; esac
   echo "OK: draft $TAG is this PC's build of ${tagged:0:7}; replace the notes' first line, edit the highlights (they go to Discord), then publish"
   ;;
 *)

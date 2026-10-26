@@ -41,8 +41,10 @@ GitHub builds and signs the release files from the tag (`.github/workflows/relea
 `install/release/ci-build.sh`), in the pinned build environment `install/release/buildenv/`; the
 PC builds the same commit in the same image, unsigned (`build-release.cmd`, `UNSIGNED=1`), tests
 that build on the mixer, and checks with `release.sh compare` that the draft's files are its bytes
-and that the signature fits them (`docs/DEVELOPMENT.md`, "Releases") [static: not yet seen on a
-release tag].
+and that the signature fits them (`docs/DEVELOPMENT.md`, "Releases"). Seen on the test tag
+`v0.3.0-test1` (commit 7110028): GitHub's installer image was the PC's byte for byte [device:
+GitHub vs PC, 2026-10-26]; not yet seen: a signed release tag, and a draft with the update tar
+(that test's package said a fresh install, so only the image was attached).
 
 - **The build environment**: a Docker image (`buildenv/Dockerfile`) of Debian trixie-slim pinned by
   digest, with every package from `snapshot.debian.org` at one moment (`SNAPSHOT`), so the tool
