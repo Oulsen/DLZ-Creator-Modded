@@ -332,6 +332,13 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   `boot.scr`; no package changes it). Later boot logic (a boot flag, a boot counter) needs a full
   install, or first an update that brings an updater whose own list allows it. The snapshot still
   covers `boot/boot.scr`, so a try that an older updater cut off is put back whole.
+- **No full install before v1.0** (decided at v0.3.0, the last full install so far): the boot logic
+  of #56 and #19 takes the second way, two drop-ins (an updater that allows `boot/boot.scr`, then the
+  `boot.scr`), each at the highest device-review tier; a bad card `boot.scr` costs a reflash of the
+  card, never the mixer, which starts stock without it. DLZDATA stays FAT32: exFAT (#22) would change
+  the card layout. The rest of the roadmap fits drop-ins (allowlist gaps in two steps; exFAT,
+  watchdog, CPU governors and the USB mass-storage gadget are modules or built into the stock
+  kernel, no `/boot` change) [static, kernel config of the dump; #56 "Technical notes"].
 - **Rehearsal settings** (`DLZMOD_ROOT`, `DLZMOD_DATA`, `DLZMOD_CHECK_ONLY`) skip the eMMC-lock
   check: the updater refuses them first thing when `/` is on an SD card (the mixer's own system),
   exit 2, nothing done [device: all three set by hand over SSH]. Where the root disk cannot be determined (a rehearsal chroot without `/sys`, a PC) it
