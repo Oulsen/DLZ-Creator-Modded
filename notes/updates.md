@@ -9,13 +9,13 @@ Code: `install/sd-system/dlzmod-update` (the updater on the card), `install/appl
 ## Release files
 
 A release has up to two downloads, built in one step from the same **package**
-(`install/release/build-release.cmd` → `mkinstaller.sh` + `mkpackage.sh`), and a `SHA256SUMS` for them:
+(`mkpackage.sh` + `mkinstaller.sh`, by the tag's workflow: "Built where"), and a `SHA256SUMS` for them:
 
 | File | Contents | For |
 |---|---|---|
 | `dlz-installer-vX.Y.Z.img` | Debian U-Boot + `uboot.env` + `boot.scr` + the package | A new install: write to a card, boot, install |
 | `dlzmod-vX.Y.Z.tar` + `.tar.sig` | The package: installer initramfs + all mod files (patches, services, layers), and its signature | An update of an existing mod card |
-| `SHA256SUMS` | The sha256 of every file above that the release publishes, made at the release from the tested files (`sha256sum` in `build/release`, two spaces before the name) | Checking a download |
+| `SHA256SUMS` | The sha256 of every file above that the release publishes, made by the tag's build (`sha256sum` in `build/release`, two spaces before the name) | Checking a download |
 
 What installs and what updates is always the same code. Neither is ever named like a Mackie `.upd`.
 
@@ -23,7 +23,8 @@ The update file is published only when the release installs as a drop-in on a ca
 previous release (judged by that release's updater, see "Versions and channels"). A release that
 needs a full install (it changes a guard, a file outside the updater's allowlist, or the updater's
 own checks; `REINSTALL=yes`) publishes only the image, so nobody tries an update that the card
-would refuse; its notes say so. v0.1.0, the first release, is image only. Until the full update
+would refuse; its notes say so. The tag's build decides this from the package: no update file when
+`REINSTALL_BELOW` (`install/release/reinstall-below`) is the version itself (`ci-build.sh`). v0.1.0, the first release, is image only. Until the full update
 (#56) exists, a full install means copying the recordings off the card first.
 
 **A finished card image is never published**: it contains Mackie's system copied from the eMMC.
@@ -34,10 +35,42 @@ An update cannot come through the installer image: writing the image erases the 
 included) before the installer runs, and the mixer has one card slot. Keeping recordings across an
 update goes through the card itself: the drop-in update below.
 
-### Built where (#68)
+### Built where (#68, #158)
 
-Today the PC builds and signs, the files are tested on the mixer and uploaded to the tag's draft.
-What a build on GitHub would need [static, rebuilds of v0.2.0 in WSL]:
+GitHub builds and signs the release files from the tag (`.github/workflows/release.yml` →
+`install/release/ci-build.sh`), in the pinned build environment `install/release/buildenv/`; the
+PC builds the same commit in the same image, unsigned (`build-release.cmd`, `UNSIGNED=1`), tests
+that build on the mixer, and checks with `release.sh compare` that the draft's files are its bytes
+and that the signature fits them (`docs/DEVELOPMENT.md`, "Releases"). Seen on the test tag
+`v0.3.0-test1` (commit 7110028): GitHub's installer image was the PC's byte for byte [device:
+GitHub vs PC, 2026-10-26]; not yet seen: a signed release tag, and a draft with the update tar
+(that test's package said a fresh install, so only the image was attached).
+
+- **The build environment**: a Docker image (`buildenv/Dockerfile`) of Debian trixie-slim pinned by
+  digest, with every package from `snapshot.debian.org` at one moment (`SNAPSHOT`), so the tool
+  versions that shape the bytes are the same on both sides; `buildenv.sh` builds it once per
+  Dockerfile (tagged with its hash) and runs a command in it with the repo at `/src`, as root (the
+  `/dev/console` node). On the PC through Docker Desktop with WSL integration (need not start with
+  Windows); on GitHub on the runner's Docker. A new `SNAPSHOT` or digest is a new environment:
+  rebuild the last release in it and compare before trusting it.
+- **No kernel in the bytes**: the installer image's FAT was filled through a loop device and a
+  kernel mount, so the host's kernel (WSL's, the runner's) wrote its directory entries and the
+  container would have needed `--privileged`. `mkinstaller.sh` now makes and fills it inside the
+  image file (`mkfs.vfat --offset -h 0`, `mcopy`/`mmd` at the partition's byte offset) [static,
+  compared on the PC]: the same boot sector, FAT tables, clusters and file data as the loop-device
+  image of the same package; only the directory entries of the 8.3 names differ (mtools stores
+  `boot.scr` as `BOOT.SCR` with the lowercase flags, the kernel added a long-name entry). Both
+  readers find them either way: U-Boot looks names up without case, `/init` mounts the FAT as
+  `vfat` [device: the dev image of 7110028 installed, screens as before, 2026-10-26]. The
+  container's newer Pillow/FreeType draws the text in `logo.bin` and the boot visuals with
+  slightly different anti-aliased edges than WSL's (same content).
+- **The signing key**: `release.pem` and its passphrase are secrets of the environment `release`,
+  which only `v*` tags may use and which waits for the maintainer's approval; `ci-build.sh` writes
+  the key to a temporary folder for the build only. Test tags build in a job without it (unsigned).
+  The checkout keeps no token in `.git/config` (the repo is mounted into the build). The spare
+  `release2` stays offline: a withdrawal release is signed on the PC.
+
+What a build on GitHub needed, found before #158 [static, rebuilds of v0.2.0 in WSL]:
 
 - **No Mackie file**: the package and the image come from the repo and the two pinned Debian
   packages (`vendor.sh`, sha256-checked); no dump. Debian drops a version from `deb.debian.org`
@@ -47,18 +80,13 @@ What a build on GitHub would need [static, rebuilds of v0.2.0 in WSL]:
   a Linux clone or the tree on `/mnt/d`, minutes apart. v0.2.0 rebuilt from its tag had the same
   files as the release; its tar and image differed only in what is now fixed (the copied
   `sd-system/` files' modes followed the source tree; the FAT's file times were the build's clock).
-- **Same tools needed**: gzip, cpio, Pillow with FreeType, the DejaVu fonts and dosfstools shape the
-  bytes. The PC builds in WSL Ubuntu 26.04, GitHub's `ubuntu-latest` runners are older [guess]: a
-  byte-for-byte match needs both sides in one pinned build environment (a container image from a
-  fixed snapshot). Same-host builds are what was tested; files are copied onto the FAT in a fixed
-  order and every FAT time (the label's too) is set in UTC, so the host's directory order and time
-  zone do not count.
-- **Decision: GitHub signs, after #63.** Signing moves to a GitHub workflow (release key as a
-  secret in a protected environment that needs the maintainer's approval) because a leaked key can
-  now be withdrawn from cards installed with v0.3.0 or later (#63, "Signing keys"); before that, a
-  key stolen from GitHub would have been trusted by every card for life (cards from v0.2.0 and older
-  still trust theirs). Until #158 the PC signs. Then the files GitHub builds and signs are the ones tested on
-  the mixer (from the draft) and published; the PC's build of the same commit must match them.
+- **Same tools needed**: gzip, cpio, Pillow with FreeType, the DejaVu fonts, dosfstools and mtools
+  shape the bytes, hence the one build environment (the PC's WSL is Ubuntu 22.04, not the 26.04
+  noted here before). Files are copied onto the FAT in a fixed order and every FAT time (the
+  label's too) is set in UTC, so the host's directory order and time zone do not count.
+- **Why GitHub may sign, after #63**: a leaked key can now be withdrawn from cards installed with
+  v0.3.0 or later (#63, "Signing keys"); before that, a key stolen from GitHub would have been
+  trusted by every card for life (cards from v0.2.0 and older still trust theirs).
 
 ## Drop-in update
 
@@ -407,10 +435,14 @@ internal storage.
   `DLZMOD_SIGNING_PASS`, passed only to the two openssl calls), and checks the private key against
   the public key the package's cards will trust first. **A tree with uncommitted changes or new
   files in `install/` or `VERSION` is never signed** (`+dirty`: tar only, for PC rehearsals);
-  `RELEASE=1` refuses untracked files too.
-- **On GitHub, after #63** ("Built where"): a workflow would write the key from a GitHub secret into
-  a temporary folder for `DLZMOD_SIGNING_KEYS` and pass the passphrase as a second secret. An
-  Actions secret cannot be read back, so it is not a backup.
+  `RELEASE=1` refuses untracked files too. `UNSIGNED=1` builds a clean tree without a key: the
+  same tar as the signed build (ed25519 is deterministic: the same tar and key give the same
+  signature), which is how the PC checks GitHub's build.
+- **On GitHub (#158**, "Built where"): the tag's workflow writes the key from the secret
+  `DLZMOD_RELEASE_KEY` of the environment `release` into a temporary folder for
+  `DLZMOD_SIGNING_KEYS` and passes the passphrase as the second secret, `DLZMOD_SIGNING_PASS`. An
+  Actions secret cannot be read back, so it is not a backup: the offline copies of `release.pem`
+  stay the backup.
 
 Accepted: an older signed build of the same version installs again (equal stays allowed); a large
 refused file is copied and hashed at every start until it is removed (a few seconds).

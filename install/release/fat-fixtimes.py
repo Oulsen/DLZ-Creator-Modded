@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Set the times of every entry on a FAT32 partition to one time (UTC), the volume label included.
 
-The kernel stamps each file copied onto a mounted FAT with the build's clock (created and modified),
-and touch cannot set the created time: with this, the same package gives the same installer image
-byte for byte (mkinstaller.sh, after unmounting), whatever the build's clock and time zone. Writes
-only the time fields of directory entries.
+mtools stamps each file copied onto the FAT with the build's clock (created and modified), and
+neither it nor touch can set the created time: with this, the same package gives the same
+installer image byte for byte (mkinstaller.sh, after filling it), whatever the build's clock and
+time zone. Writes only the time fields of directory entries.
 Usage: fat-fixtimes.py <image> <partition offset in bytes> <seconds since 1970>
 """
 import struct
