@@ -23,6 +23,8 @@ printf '%s' "$HOST" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9.:-]*$' || die "MIXER_HOST
 KEY=$(conf SSH_KEY); KEY=${KEY/#\~/$HOME}
 [ -n "$KEY" ] || die "SSH_KEY in dev/push.env is empty: make a key for the dev card first (docs/DEVELOPMENT.md, \"Dev card\")"
 [ -f "$KEY" ] && [ -f "$KEY.pub" ] || die "SSH_KEY $KEY or its $KEY.pub not found"
+# push.sh and the mixer-ssh skill log in unattended: a key with a passphrase would only fail there
+ssh-keygen -y -P '' -f "$KEY" > /dev/null 2>&1 || die "$KEY has a passphrase (or cannot be read): the dev card's key is made without one (docs/DEVELOPMENT.md, \"Dev card\")"
 PUB=$(tr -d '\r' < "$KEY.pub")
 [ "$(printf '%s\n' "$PUB" | grep -c .)" = 1 ] && printf '%s' "$PUB" | grep -Eq '^(ssh-(ed25519|rsa)|ecdsa-sha2-nistp[0-9]+) [A-Za-z0-9+/=]+( .*)?$' \
   || die "$KEY.pub is not one public key"
@@ -30,13 +32,14 @@ PUB=$(tr -d '\r' < "$KEY.pub")
 # the old card's host key, from both lists
 for k in "$HOME/.ssh/known_hosts" "$KNOWN"; do
   [ ! -f "$k" ] || ssh-keygen -R "$HOST" -f "$k" > /dev/null 2>&1 || true
+  [ ! -f "$k" ] || [ -z "$(ssh-keygen -F "$HOST" -f "$k" 2> /dev/null)" ] || die "could not remove the old host key of $HOST from $k"
 done
 mkdir -p "$(dirname "$KNOWN")"
 SSHOPTS=(-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$KNOWN")
 keylogin() { ssh "${SSHOPTS[@]}" -o BatchMode=yes -o IdentitiesOnly=yes -i "$KEY" "root@$HOST" true 2> /dev/null; }
 
 fp=$(ssh-keyscan -T 10 -t ed25519 "$HOST" 2> /dev/null | ssh-keygen -lf - 2> /dev/null | awk '{print $2}' || true)
-[ -n "$fp" ] || die "no answer from $HOST on port 22: Wi-Fi and SSH on (Mod page, Network)? Right address in dev/push.env?"
+[ -n "$fp" ] || die "no ed25519 host key from $HOST on port 22: Wi-Fi and SSH on (Mod page, Network)? Right address in dev/push.env?"
 echo "card at $HOST, host key $fp"
 if keylogin; then
   echo "cardkey: the card already takes $KEY; nothing to add"
@@ -44,9 +47,11 @@ if keylogin; then
 fi
 
 echo "the SSH password from the mixer's screen (Settings, DLZ Creator Modded, Network):"
-# the key on stdin, the password only at ssh's own prompt; the line is added only when it is not there
-printf '%s\n' "$PUB" | ssh "${SSHOPTS[@]}" -o PubkeyAuthentication=no "root@$HOST" \
-  'umask 077; mkdir -p ~/.ssh; read -r k; touch ~/.ssh/authorized_keys; grep -qxF "$k" ~/.ssh/authorized_keys || printf "%s\n" "$k" >> ~/.ssh/authorized_keys' \
-  || die "could not add the key (wrong password, or SSH off?)"
+# the key on stdin, the password only at ssh's own prompt (asked once); the line is added only when it
+# is not there, after a newline when the file's last line has none
+printf '%s\n' "$PUB" | ssh "${SSHOPTS[@]}" -o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive \
+  -o NumberOfPasswordPrompts=1 "root@$HOST" \
+  'umask 077; mkdir -p ~/.ssh; read -r k; f=~/.ssh/authorized_keys; touch "$f"; grep -qxF "$k" "$f" || { [ ! -s "$f" ] || [ -z "$(tail -c 1 "$f")" ] || echo >> "$f"; printf "%s\n" "$k" >> "$f"; }' \
+  || die "could not add the key: see ssh's message above (a wrong password, or SSH off on the mixer's screen)"
 keylogin || die "the key was added, but a login with $KEY still fails"
 echo "cardkey: done, $KEY logs in; push.sh, netlog.sh and the mixer-ssh skill (dlz-ssh.sh forget, then key) work again"

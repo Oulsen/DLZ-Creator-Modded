@@ -293,7 +293,8 @@ release image trusts only the release keys: use a second microSD for development
 4. `cp dev/push.env.example dev/push.env` and fill in the mixer's address and your key. The script
    never asks for anything: a key with a passphrase goes into `ssh-agent` first, and the dev key is
    used as `mkkeys.sh` makes it (without a passphrase).
-5. Put the key on the card: `bash dev/cardkey.sh` (Git Bash). It forgets the old card's host key
+5. Put the key on the card: `bash dev/cardkey.sh`, in your own Git Bash window (it asks for a
+   password, so not through Claude Code). It forgets the old card's host key
    (`~/.ssh/known_hosts` and `push.sh`'s own list), shows the new one, asks once for the SSH password
    from step 2 and adds the key (logging in with the password only: the mixer allows 3 tries, and an
    SSH agent with several keys uses them up before it), then checks a key login. **After every new
