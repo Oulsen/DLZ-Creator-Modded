@@ -53,6 +53,15 @@ Owned by package `faderlink` 521 (binary, flash scripts, firmware, bitstreams). 
   sink/hands-free device that phones connect to; nothing in faderlink makes it connect out to a
   speaker or headset. Whether the chip could act as a source with other module firmware is unknown,
   and reflashing it is outside the mod's ground rules [guess].
+- Profiles have two roles, and the module plays the speaker/headset side of both: A2DP **sink** (not
+  source) and HFP **hands-free** (not audio gateway). A headset or speaker plays that same side, so
+  it can't connect to the mixer at all, whatever the quality. The role is compiled into the module
+  firmware by Actions' SDK, not picked over the UART, unless Mackie's build has a command for it
+  [guess].
+- Command set unknown. Ways to list it: disassemble faderlink's BT message builder on the PC
+  (read-only, no mixer needed); or trace the UART on the mixer, which has no `strace`, `gdb` or
+  `socat`, so a tool would have to be added to the dev card (device review first) or a logic
+  analyser put on the UART3 lines.
 - Device name: the constant `#DLZ | Creator XS` (full-size: `#DLZ | Creator`), sent once and then
   marker `/root/.bt-name-set-v2` is written [static]. Renaming = a different string plus removing
   the marker; the name lives in the faderlink binary.
