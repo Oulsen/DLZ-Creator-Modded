@@ -61,7 +61,9 @@ GitHub vs PC, 2026-10-26]; not yet seen: a signed release tag, and a draft with 
   image of the same package; only the directory entries of the 8.3 names differ (mtools stores
   `boot.scr` as `BOOT.SCR` with the lowercase flags, the kernel added a long-name entry). Both
   readers find them either way: U-Boot looks names up without case, `/init` mounts the FAT as
-  `vfat`.
+  `vfat` [device: the dev image of 7110028 installed, screens as before, 2026-10-26]. The
+  container's newer Pillow/FreeType draws the text in `logo.bin` and the boot visuals with
+  slightly different anti-aliased edges than WSL's (same content).
 - **The signing key**: `release.pem` and its passphrase are secrets of the environment `release`,
   which only `v*` tags may use and which waits for the maintainer's approval; `ci-build.sh` writes
   the key to a temporary folder for the build only. Test tags build in a job without it (unsigned).

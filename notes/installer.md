@@ -192,7 +192,8 @@ and the package directory. Pinned downloads (`vendor.sh`, sha256 as in Debian's 
 `busybox-static` 1.37.0-6+b9. Reproducible with `SOURCE_DATE_EPOCH` (default: the last commit time):
 the package `.tar` and the image are byte-identical across builds of the same commit, from a Linux
 clone or from the tree on `/mnt/d` (`mkpackage.sh` sets the copied files' modes, `mkinstaller.sh`
-makes and fills the FAT inside the image file with mtools, no mount, in a fixed order,
+makes and fills the FAT inside the image file with mtools, no mount, in a fixed order (U-Boot and
+`/init` read its 8.3 entries with lowercase flags: [device, dev image of 7110028, 2026-10-26]),
 `fat-fixtimes.py` sets the FAT's times), with the same tool versions: the pinned build environment
 (updates.md "Built where"). `RELEASE=1` refuses a tree with changes; the image takes
 its boot route (`boot.txt`, `mkscr`/`mkenv`/`mksdimg`, the safe U-Boot) from the tree at image time,
