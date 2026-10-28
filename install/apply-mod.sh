@@ -67,10 +67,10 @@ install_sd_system() {
     echo "early-start drop-ins: this card's updater does not know them yet, its new copy places them at the next start"
   fi
   # dspserver waits for server.js before starting (dlzmod-wait-hub, its drop-in above)
-  for f in dlzmod-grow-data dlzmod-bootlog dlzmod-bootreport dlzmod-wait-hub dlzmod-netlog; do
+  for f in dlzmod-grow-data dlzmod-bootlog dlzmod-bootreport dlzmod-clock dlzmod-wait-hub dlzmod-netlog; do
     put_file 755 "$s/$f" "$MNT/usr/local/sbin/$f"
   done
-  for f in dlzmod-grow-data dlzmod-bootreport dlzmod-netlog; do
+  for f in dlzmod-grow-data dlzmod-bootreport dlzmod-netlog dlzmod-clock; do
     put_file 644 "$s/$f.service" "$MNT/etc/systemd/system/$f.service"
     put_link "/etc/systemd/system/$f.service" "$MNT/etc/systemd/system/multi-user.target.wants/$f.service"
   done
@@ -92,7 +92,7 @@ install_sd_system() {
   sync
   # here and not as a step of its own: an older updater on the card only calls the steps it knew
   remove_factory_access
-  echo "guards: eMMC read-only unit, GD32 flash and Mackie updater disabled, FPGA load only in this card's mixer; DLZDATA grower, boot log, update and dspserver start guard enabled"
+  echo "guards: eMMC read-only unit, GD32 flash and Mackie updater disabled, FPGA load only in this card's mixer; DLZDATA grower, boot log, clock saver, update and dspserver start guard enabled"
 }
 
 # Mackie's factory network access, removed from the card once (a new card, or the first update that

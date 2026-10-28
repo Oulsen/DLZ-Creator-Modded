@@ -84,7 +84,12 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   The only RTC in the Mackie DTB is the SoC's own `rtc@1c20400` (`allwinner,sun8i-r40-rtc`, external
   32.768 kHz crystal); no external RTC chip on i2c0 (PMIC) or i2c1 (GT911 only). Kernel has
   `RTC_HCTOSYS=y` and `RTC_SYSTOHC=y` (rtc0 is only written back after an NTP sync); fake-hwclock
-  runs without `FORCE`, so it only moves the clock forward [static].
+  runs without `FORCE`, so it only moves the clock forward [static]. Its only trigger is
+  `fake-hwclock.service` (sysinit: `load`, stop: `save`); no cron or timer job (`/etc/cron.hourly`
+  and `/etc/cron.d` hold only placeholders), `/etc/default/fake-hwclock` only comments. `save`
+  writes `/etc/fake-hwclock.data` in place (`date > $FILE`, no temp file, no sync), so a power cut
+  during a save can leave it empty or cut off; `load` then finds no usable later time and the clock
+  stays where systemd put it (its build time) [static].
   **The RTC keeps time over a software restart and loses it without power** [device]: in every
   kept boot log, after a restart fake-hwclock logs "saved clock information is in the past" (rtc0
   is ahead and wins); after the switch on the back systemd logs "System time before build time,

@@ -2,6 +2,8 @@
 
 ## v0.4.0
 
+- (DLZ BUG) Clock jumps back to November 2023 after every power-off
+
 ## v0.3.0
 
 - (DLZ FEATURE) Themes: high contrast and your own colors

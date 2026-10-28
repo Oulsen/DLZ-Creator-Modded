@@ -98,7 +98,8 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    the recordings cannot trigger anything), or sends both from a paired computer's browser (Upload
    Update... on the Mod page, #114: [mod.md](mod.md), "An update from a computer"), which puts the
    same two files there and nothing else.
-2. **Find** (`dlzmod-update`, before evolve-node, evolve-app and dspserver): exactly one
+2. **Find** (`dlzmod-update`, before evolve-node, evolve-app and dspserver; with DLZDATA mounted
+   read-only it first runs the clock floor, `dlzmod-clock floor`, since #1: [mod.md](mod.md)): exactly one
    `dlzmod-v*.tar` with its `.sig` next to it. Without a `.sig`: reported once, not marked failed, so
    adding the `.sig` later works. More than one tar: nothing is installed.
 3. **Check, on a copy in `/tmp`** (tmpfs, ~500 MiB [static: fstab]), before anything in it is read:

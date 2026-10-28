@@ -40,6 +40,9 @@ jobs:
       - name: Key guards of the build tools
         run: bash tests/guards.sh
 
+      - name: Clock saver
+        run: bash tests/clock.sh
+
       - name: Report of each start
         run: bash tests/bootreport.sh
 

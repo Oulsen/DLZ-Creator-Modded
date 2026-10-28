@@ -1,0 +1,14 @@
+[Unit]
+Description=dlzmod: save the clock every minute (it goes on from there after a power-off)
+# after the update, which moves the clock past DLZDATA's newest file first (dlzmod-clock floor)
+After=local-fs.target fake-hwclock.service dlzmod-update.service
+
+[Service]
+Type=simple
+# its stop is a TERM: the script saves once more and ends
+ExecStart=/usr/local/sbin/dlzmod-clock run
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

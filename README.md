@@ -52,6 +52,8 @@ below. They all start as stock: turn on what you want.
 - The SD card or USB stick no longer stays writable once it holds recordings (switching off could
   damage it)
 - The mixer no longer gets stuck while starting, held up by its screen and control software
+- The clock no longer jumps back to November 2023 after every power-off: it goes on from where it
+  was, so new recordings sort after older ones
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md). What is coming: [Roadmap](#roadmap).
 

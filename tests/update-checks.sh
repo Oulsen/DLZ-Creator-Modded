@@ -31,6 +31,46 @@ for t in $tags; do
   out=$(gate "$old" "$NEW") && ok "the $t updater accepts this one (the tags here: $(echo $tags); newer ones: git fetch --tags)" \
     || bad "the $t updater refuses this one: $out"
 done
+# Every file and link this version's sd-system step installs is one each released updater may place
+# (its allowlist, `allowed`): a card on that version takes it as a new file. (#1: a new drop-in folder
+# would have made every card refuse the update; the card rehearsals start from a card that already
+# has every file.) Installed with the factory-access step done before, as on any card the mod runs
+# on, into a tree that holds that version's updater: apply-mod.sh leaves out what it does not know
+# (the #140/#141 drop-ins, which the new updater places at the next start). `current`: an empty
+# tree, a fresh install.
+for t in $tags current; do
+  if [ $t = current ]; then old=$(cat "$NEW"); else old=$(git -c safe.directory="$PWD" show "$t:$NEW" 2>/dev/null) || continue; fi
+  fn=$(sed -n '/^allowed() {$/,/^}$/p' <<< "$old")
+  [ -n "$fn" ] || { bad "the $t updater: its allowlist was not found"; continue; }
+  tree=$TMP/tree-$t
+  mkdir -p "$tree/var/lib/dlzmod-update" && : > "$tree/var/lib/dlzmod-update/factory-access-removed"
+  [ $t = current ] || { mkdir -p "$tree/usr/local/sbin" && printf '%s\n' "$old" > "$tree/usr/local/sbin/dlzmod-update"; }
+  if ! MNT=$tree TOOLS=install bash -c 'set -e; . install/apply-mod.sh; install_sd_system' > "$TMP/sd-$t.out" 2>&1; then
+    bad "install_sd_system over the $t updater failed: $(tail -3 "$TMP/sd-$t.out")"; continue
+  fi
+  paths=$(cd "$tree" && find . \( -type f -o -type l \) ! -path ./var/lib/dlzmod-update/factory-access-removed \
+    | sed 's#^\./##' | LC_ALL=C sort)
+  no=$(bash -c "$fn"'
+    while IFS= read -r p; do allowed "$p" || echo "$p"; done' <<< "$paths")
+  [ -z "$no" ] && ok "the $t updater may place every sd-system file ($(wc -l <<< "$paths") paths)" \
+    || bad "the $t updater refuses: $(echo $no)"
+  # and their shape (modes, link targets, no early start but its own drop-ins): `shape_ok`, with the
+  # drop-in text it compares against
+  fn=$(sed -n -e '/^EARLY_CONF=\$(cat/,/^)$/p' -e '/^shape_ok() {$/,/^}$/p' <<< "$old")
+  no=$(S=$tree bash -c "$fn"'
+    while IFS= read -r p; do shape_ok "$p" || echo "$p"; done' <<< "$paths")
+  [ -z "$no" ] && ok "the $t updater takes their shape" || bad "the $t updater refuses the shape of: $(echo $no)"
+done
+# the check can fail: a drop-in for a unit no updater knows
+no=$(bash -c "$(sed -n '/^allowed() {$/,/^}$/p' "$NEW")"'; allowed etc/systemd/system/cron.service.d/dlzmod.conf || echo refused')
+[ "$no" = refused ] && ok "and refuses a drop-in for another unit" || bad "the allowlist takes a drop-in for another unit"
+# and the shape check too: a unit of its own that starts early (why #1's clock floor runs inside the
+# updater, not as a unit)
+mkdir -p "$TMP/tree-early/etc/systemd/system"
+printf '[Unit]\nDefaultDependencies=no\n' > "$TMP/tree-early/etc/systemd/system/dlzmod-early.service"
+no=$(S=$TMP/tree-early bash -c "$(sed -n -e '/^EARLY_CONF=\$(cat/,/^)$/p' -e '/^shape_ok() {$/,/^}$/p' "$NEW")"'
+  shape_ok etc/systemd/system/dlzmod-early.service || echo refused')
+[ "$no" = refused ] && ok "and refuses a unit that starts early" || bad "the shape check takes a unit that starts early"
 # the check itself must be able to fail: this copy's own gate against copies that drop a gate string
 # or change the guard list
 # (a refusal is exit 1; 2 = this copy's own gate was not found, which must not count as a refusal)

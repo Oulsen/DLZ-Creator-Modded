@@ -215,6 +215,13 @@ finish() {   # the report next to the other logs, then DLZDATA released
   fi
 }
 trap finish EXIT
+# #1: the clock just past DLZDATA's newest file (a power-off after the clock saver's last save),
+# while it is mounted read-only and before the mixer software starts; here and not as a unit of its
+# own, which would wait for basic.target and hold the mixer software back (#141). Never on a PC
+# rehearsal; a failure leaves the clock as fake-hwclock loaded it
+if [ -z "$ROOT" ] && [ -z "${DLZMOD_DATA:-}" ] && [ -z "$CHECK_ONLY" ] && [ -x /usr/local/sbin/dlzmod-clock ]; then
+  /usr/local/sbin/dlzmod-clock floor "$DATA" || echo "dlzmod-update: the clock floor failed"
+fi
 clean_new() {   # half-written files from a write cut off before its rename (put_file/put_link/restore)
   (cd "$ROOT/" && shopt -s nullglob && rm -f etc/systemd/system/*.dlzmod-new etc/systemd/system/*.service.d/*.dlzmod-new \
     etc/systemd/system/*.wants/*.dlzmod-new usr/local/sbin/*.dlzmod-new etc/udev/rules.d/*.dlzmod-new srv/*.dlzmod-new \
@@ -601,6 +608,7 @@ fi
 for f in apply-mod.sh check-rootfs.sh patch.py modversion.py app-mod/dlzmod.js server-mod/dlzmod-server.js \
     sd-system/dlzmod-grow-data sd-system/dlzmod-grow-data.service sd-system/dlzmod-bootlog \
     sd-system/dlzmod-bootlog.service sd-system/dlzmod-bootreport sd-system/dlzmod-bootreport.service \
+    sd-system/dlzmod-clock sd-system/dlzmod-clock.service \
     sd-system/dlzmod-wait-hub sd-system/dlzmod-update \
     sd-system/dlzmod-update.service sd-system/90-dlzmod-usb-wifi.rules sd-system/dspserver.service.d/dlzmod.conf \
     sd-system/dlzmod-zerocd-eject sd-system/70-dlzmod-wifi-zerocd.rules \
