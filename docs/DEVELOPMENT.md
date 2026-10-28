@@ -26,13 +26,20 @@ backup the installer makes.
   16 GB or more and a card reader
 - Windows with Git Bash, Node.js 18 or later (the UI sandbox and the app and server mods' unit tests) and
   Chrome (sandbox screenshots; another Chromium with `CHROME=<path>`)
-- WSL 2 with the distro **Ubuntu** (Docker Desktop's `docker-desktop` distro can be the default:
-  always pass `-d Ubuntu`), with:
+- WSL 2 with the distro **Ubuntu** 24.04 or later (Docker Desktop's `docker-desktop` distro can be
+  the default: always pass `-d Ubuntu`), with:
 
   ```bash
-  apt install python3 python3-pil fonts-dejavu-core qemu-user qemu-user-static binfmt-support \
+  apt install python3 python3-pil fonts-dejavu-core qemu-user qemu-user-binfmt \
     cpio zstd dosfstools mtools e2fsprogs fdisk openssl curl ffmpeg
   ```
+
+  The card rehearsals need qemu 8 or later (#190): the mixer's busybox starts itself again through
+  `/proc/self/exe` in a pipe, which 22.04's qemu 6.2 hands to qemu itself (`qemu: unknown option
+  'c'`). An older Ubuntu: `do-release-upgrade` (in a terminal of its own, it asks questions), once
+  per LTS step; the dump in `/root` stays. `qemu-user-binfmt` registers the ARM programs with the
+  kernel (`/proc/sys/fs/binfmt_misc/qemu-arm`); 24.04's `qemu-user-static` does too, 26.04 no longer
+  has it
 
 - For the release build only: Docker Desktop (`winget install Docker.DockerDesktop`) with WSL
   integration for **Ubuntu** (Settings → Resources → WSL integration). It need not start with

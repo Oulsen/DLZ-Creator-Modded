@@ -6,8 +6,9 @@ logs go to `build/` (git-ignored); card images go to `/root` in WSL and are dele
 
 ## What they need
 
-- WSL distro **Ubuntu**, as root, from the repo root, with `qemu-user-static` (binfmt), e2fsprogs,
-  dosfstools, cpio, zstd, openssl, python3
+- WSL distro **Ubuntu** 24.04 or later, as root, from the repo root, with qemu 8 or later and its
+  binfmt registration (`qemu-user` + `qemu-user-binfmt`; 22.04's qemu 6.2 cannot run the mixer's
+  busybox in a pipe, `rig.sh` stops on it, #190), e2fsprogs, dosfstools, cpio, zstd, openssl, python3
 - The dump: `/root/dlz/orig.img`, mounted read-only at `/mnt/dlz` by `install/mount-ro.sh` (the dump
   is only ever read; the full-size tests work on a copy). Keep WSL alive while they run
   (`wsl -d Ubuntu -u root -e sleep 7000` in the background): an idle WSL drops the mount
