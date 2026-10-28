@@ -262,13 +262,21 @@ that choice and the whole screen shows it at once: the screen is the preview, no
   have lasted as long as the jump, and the wrong-PIN pause too [static; unit test, device review].
   The screen too: app.js makes its own frame timer under node (no `requestAnimationFrame` there;
   search `lastRafTimer`), which waits 17 ms minus the time since the last frame by `Date.now()`, so a
-  step back stopped every frame for the length of the step. On the dev card [device, 2026-10-28,
-  dev-7c89412]: started offline with a time set ahead by hand, the Wi-Fi stick plugged in at 46 s,
-  chrony stepped the clock back 91.6 s at 62 s and the screen stood still (restarted by hand a minute
-  later). patch.py gives that timer `DLZMOD_frameNow` (`performance.timeOrigin + now()`; app.js runs
-  as `node app.js` and leaves node's own `performance` in place). The other `Date.now()` uses in
-  app.js (a double tap, a swipe's speed) misread at most once. Stock rarely steps back much: its
-  saved time is always behind; with a time set by hand, a phone's time or the #1 floor it can.
+  step back stopped every frame for the length of the step [static]. patch.py gives that timer
+  `DLZMOD_frameNow` (`performance.timeOrigin + now()`; app.js runs as `node app.js` (jsdom without
+  its own `requestAnimationFrame`) and leaves node's own `performance` in place). The other
+  `Date.now()` uses in app.js (a double tap, a swipe's speed) misread at most once. Stock rarely
+  steps back much: its saved time is always behind; with a time set by hand, a phone's time or the
+  #1 floor it can.
+- **Touch after a step back** (#188): Mackie's `glesgui` polls the touch panel at most every 20 ms
+  by the wall clock (`system_clock::now()`, its touch poller at `0x22264`), so after a step back no
+  touch reaches the app for the length of the step, while the screen keeps drawing [static,
+  disassembly]. On the dev card [device, 2026-10-28, dev-e621027]: offline start, clock set 5 min
+  ahead by hand at 52 s, Wi-Fi stick in, chrony stepped it back 323 s at 75 s; the screen kept
+  drawing (the brightness knob's value changed on it), touch came back after about 5 minutes, and
+  the card said "Set from the internet". The earlier run (dev-7c89412, step back 91.6 s at 62 s,
+  "the screen stood still", restarted by hand) had both waits; which one the user saw is not known.
+  A step forward does neither. Fixed in #188, not in the mod's JS.
 - **The card**: the date and time in the zone, where they came from (yellow without a source), and
   in a browser the computer's own; Set... (`DLZMOD_clockPicker`: day, month, year, hour, minute with
   arrows that repeat while held, as Mackie's unused `PageTime`) and, in a browser, Use This
