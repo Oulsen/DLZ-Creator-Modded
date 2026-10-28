@@ -200,16 +200,19 @@ that choice and the whole screen shows it at once: the screen is the preview, no
 - **Stored the system's way**: `/etc/localtime` (a link into `/usr/share/zoneinfo`, swapped in with a
   rename) and `/etc/timezone` (written durably), by the server mod (`DLZMOD_time`, one command
   `DLZMOD_TIME {op}`: `status`, `set`; answers to the sender only). A name must be
-  `Region/City` (up to three parts, no dots) and a tzdata file (`TZif`) under zoneinfo. The zone
+  `Region/City` (up to three parts, no dots) and a tzdata file (`TZif`) under zoneinfo, not in its
+  `right/` (leap seconds, 27 s off) or `posix/` trees and not `Factory`/`posixrules`; `/etc/timezone`
+  is written first, so a failure there changes nothing. The zone
   shown is the link's (what the system uses), else `/etc/timezone`'s, else `Etc/UTC` (stock). An
   update keeps both files (the card's `/etc`). Default: stock's UTC.
 - **The kernel's offset**: `hwclock --systz --utc`, which only sets `sys_tz` (no clock, no RTC):
-  by the server right after a change (failing: "Recording times follow it after a restart"), by
+  by the server right after a change (failing: the minute loop below gives it a changed offset,
+  "Recording times follow it within a minute"), by
   `dlzmod-clock floor` at every start before it compares file times with the clock, and by the
   clock saver's minute loop when `date +%z` changes (summer time). A fixed offset per change, so a
   file written in summer reads an hour off in winter on the mixer itself; a computer shows the
   time it was written in local time either way.
-- **Who**: the status and the list for everyone; a change from the mixer's own screen and from paired
+- **Who**: the status for anyone who asks (the answer to the one who asked); a change from the mixer's own screen and from paired
   devices (`dlzmodPaired`), not from an unpaired browser (pairing off) [static; unit tests].
 - **The panel**: the zone, its offset and the time there now (node's ICU, `DLZMOD_tzInfo`), every 3 s
   while shown; Change... opens a list (`DLZMOD_zonePicker`) the way Windows lists zones: 42 rows

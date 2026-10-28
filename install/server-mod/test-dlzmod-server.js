@@ -2131,6 +2131,11 @@ const tzIn = () => {
     fs.mkdirSync(path.dirname(path.join(zi, z)), { recursive: true });
     fs.writeFileSync(path.join(zi, z), "TZif2 and the rest");
   }
+  // zoneinfo's other trees and special files: real tzdata files too
+  for (const z of ["right/Europe/Amsterdam", "posix/Europe/Amsterdam", "Factory", "posixrules"]) {
+    fs.mkdirSync(path.dirname(path.join(zi, z)), { recursive: true });
+    fs.writeFileSync(path.join(zi, z), "TZif2 and the rest");
+  }
   fs.writeFileSync(path.join(zi, "notazone"), "plain text");
   fs.mkdirSync(path.join(d, "etc"));
   const links = [];
@@ -2154,7 +2159,8 @@ test("time zone: only names the mixer has, as Region/City, never outside zoneinf
   const valid = (z) => ctx.DLZMOD_tzValid(z, ctx.DLZMOD_tzPaths(t.opts));
   assert.ok(valid("Europe/Amsterdam") && valid("America/Argentina/Buenos_Aires") && valid("Etc/UTC"));
   for (const z of ["Europe/Paris", "", "Europe", "notazone", "../zoneinfo/Europe/Amsterdam", "Europe/../Europe/London",
-    "/Europe/London", "Europe/London/", "Europe\\London", "Europe/London\0", 42, null, "a/b/c/d"]) {
+    "/Europe/London", "Europe/London/", "Europe\\London", "Europe/London\0", 42, null, "a/b/c/d",
+    "right/Europe/Amsterdam", "posix/Europe/Amsterdam", "Factory", "posixrules"]) {
     assert.strictEqual(valid(z), false, JSON.stringify(z));
   }
 });
@@ -2198,7 +2204,7 @@ test("time zone: the status for everyone; a change from the screen or a paired d
     assert.deepStrictEqual(r.calls, [["/sbin/hwclock", "--systz", "--utc"]], "the kernel's offset, nothing else");
   }
 });
-test("time zone: a change says what it did; an unknown zone changes nothing; a failing hwclock: after a restart", async () => {
+test("time zone: a change says what it did; an unknown zone changes nothing; a failing hwclock: within a minute", async () => {
   const t = tzIn();
   const r = tzRun();
   const s1 = [];
@@ -2218,7 +2224,7 @@ test("time zone: a change says what it did; an unknown zone changes nothing; a f
   await ctx.DLZMOD_time({ op: "set", zone: "America/Argentina/Buenos_Aires" }, sendTo(s3),
     Object.assign({ run: bad.run }, t.opts));
   assert.deepStrictEqual(timeOf(s3, "DLZMOD_TIME_RESULT"),
-    [{ ok: true, text: "Time zone: America/Argentina/Buenos Aires\nRecording times follow it after a restart." }]);
+    [{ ok: true, text: "Time zone: America/Argentina/Buenos Aires\nRecording times follow it within a minute." }]);
   const s4 = [];
   await ctx.DLZMOD_time({ op: "reboot" }, sendTo(s4), Object.assign({ run: r.run }, t.opts));
   assert.deepStrictEqual(timeOf(s4, "DLZMOD_TIME_RESULT"), [{ ok: false, text: "Unknown time action" }]);

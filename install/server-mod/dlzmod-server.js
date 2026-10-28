@@ -1780,19 +1780,21 @@ async function DLZMOD_sshKeep(a, run, result, paths = DLZMOD_sshPaths()) {
 // on a computer. The zone is stored the system's way (/etc/localtime, a link into the mixer's
 // tzdata, and /etc/timezone), then `hwclock --systz --utc` gives the kernel its offset now
 // (sd-system/dlzmod-clock: also at every start and when summer time starts or ends). From the
-// mixer's own screen and from paired devices (a browser offers its own zone); everyone gets the
-// status. Stock: Etc/UTC.
+// mixer's own screen and from paired devices (a browser offers its own zone); anyone may ask for the
+// status (the answer goes to the one who asked). Stock: Etc/UTC.
 function DLZMOD_tzPaths(o = {}) {
   return { zoneinfo: o.zoneinfo || "/usr/share/zoneinfo", localtime: o.localtime || "/etc/localtime",
     timezone: o.timezone || "/etc/timezone" };
 }
 
 // a zone name the mixer has: Region/City (up to three parts, no dots, so it stays inside zoneinfo),
-// a tzdata file (starts with TZif)
+// a tzdata file (starts with TZif); not zoneinfo's other trees (right/: clocks with leap seconds,
+// 27 s off; posix/: copies) or its special files
 function DLZMOD_tzValid(zone, p = DLZMOD_tzPaths()) {
   if (typeof zone !== "string" || zone.length > 64 || !/^[A-Za-z0-9_+-]+(\/[A-Za-z0-9_+-]+){0,2}$/.test(zone)) {
     return false;
   }
+  if (/^(right|posix)\//.test(zone) || ["Factory", "localtime", "posixrules"].includes(zone)) return false;
   const fs = require("fs");
   try {
     const fd = fs.openSync(p.zoneinfo + "/" + zone, "r");
@@ -1854,12 +1856,15 @@ function DLZMOD_tzLink(target, file) {
 
 async function DLZMOD_tzSet(zone, run, result, p = DLZMOD_tzPaths(), link = DLZMOD_tzLink) {
   if (!DLZMOD_tzValid(zone, p)) return result(false, "Unknown time zone");
+  // /etc/timezone first: a failure there changes nothing; the link (what the system uses and the
+  // panel shows) last, flushed with its folder
+  DLZMOD_writeDurable(p.timezone, zone + "\n", 0o644);
   link(p.zoneinfo + "/" + zone, p.localtime);
-  DLZMOD_writeDurable(p.timezone, zone + "\n", 0o644);   // also flushes the folder, the link's too
+  DLZMOD_syncDir(require("path").dirname(p.localtime));
   const r = await run("/sbin/hwclock", ["--systz", "--utc"]);
   if (!r.ok) console.error("dlzmod: hwclock --systz:", r.err.trim());
-  result(true, r.ok ? "Time zone: " + zone.replace(/_/g, " ") : "Time zone: " + zone.replace(/_/g, " ") +
-    "\nRecording times follow it after a restart.");
+  // (failing: the clock script's minute loop gives the kernel a changed offset; an unchanged one it has)
+  result(true, "Time zone: " + zone.replace(/_/g, " ") + (r.ok ? "" : "\nRecording times follow it within a minute."));
 }
 
 // the command from the Time tab: status (everyone), set (the screen, paired devices)

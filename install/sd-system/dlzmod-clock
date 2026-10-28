@@ -59,7 +59,8 @@ newest() {
 zone() {
   local z
   # (also when it fails: tried again at the next change, not every minute)
-  z=$(date +%z) ZONE=$z
+  z=$(date +%z)
+  ZONE=$z
   hwclock --systz --utc 2> /dev/null || { log "cannot give the kernel the time zone"; return 1; }
   log "kernel time zone: $(date +%Z) (UTC$z)"
 }
