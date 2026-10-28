@@ -1314,10 +1314,10 @@ test("read-only: a read-write remount counts from when it is done; finalizing a 
   await block;
   await rw;
   await tick(0);
-  assert.ok(Date.now() - ctx.DLZMOD_roLater.lastRw < 1000);
+  assert.ok(ctx.DLZMOD_monoNow() - ctx.DLZMOD_roLater.lastRw < 1000);
   ctx.DLZMOD_roLater.lastRw = 0;
   await assert.rejects(ctx.DLZMOD_wavfinalize("/nonexistent/a.wav.unfinished", "/nonexistent/a.wav"));
-  assert.ok(Date.now() - ctx.DLZMOD_roLater.lastRw < 1000, "noted after wavfinalizer (here: not found)");
+  assert.ok(ctx.DLZMOD_monoNow() - ctx.DLZMOD_roLater.lastRw < 1000, "noted after wavfinalizer (here: not found)");
 });
 test("read-only: every writable medium remounted; nothing left: done", async () => {
   const r = roRig({ recState: 0 });
@@ -1332,12 +1332,27 @@ test("read-only: waits while recording and for 10 s after a read-write remount",
   const r = roRig({ recState: 1 });
   assert.strictEqual(await ctx.DLZMOD_roNow(r.file), false);
   r.keys.recState = 0;
-  ctx.DLZMOD_roLater.lastRw = Date.now() - 5000;
+  ctx.DLZMOD_roLater.lastRw = ctx.DLZMOD_monoNow() - 5000;
   assert.strictEqual(await ctx.DLZMOD_roNow(r.file), false, "a recording starts with the remount, before it shows as recording");
   assert.deepStrictEqual(r.calls, []);
-  ctx.DLZMOD_roLater.lastRw = Date.now() - 11000;
+  ctx.DLZMOD_roLater.lastRw = ctx.DLZMOD_monoNow() - 11000;
   assert.strictEqual(await ctx.DLZMOD_roNow(r.file), true);
   assert.strictEqual(r.calls.length, 2);
+});
+test("read-only: the clock set a year back (#13) does not keep a medium writable", async () => {
+  const r = roRig({});
+  const D = vm.runInContext("Date", ctx), realNow = D.now;
+  try {
+    ctx.DLZMOD_rw(async () => {});
+    await tick(0);
+    D.now = () => realNow() - 365 * 86400000;
+    ctx.DLZMOD_roLater.lastRw -= 11000;   // 11 s on, by the clock that does not jump
+    assert.strictEqual(await ctx.DLZMOD_roNow(r.file), true);
+    assert.strictEqual(r.calls.length, 2, "read-only again");
+    assert.strictEqual(ctx.DLZMOD_pairStatus().wait, 0);
+  } finally {
+    D.now = realNow;
+  }
 });
 test("read-only: a refused remount (file open for writing) is tried again, the others still go", async () => {
   const r = roRig({}, (m) => (m === "/tmp/mnt/mmcblk0p2" ? "mount point busy" : ""));
@@ -1402,7 +1417,7 @@ test("read-only: remounts one after the other; read-write asked during read-only
   let release;
   const ro = ctx.DLZMOD_mountQueue(() => new Promise((r) => (release = r)).then(() => order.push("ro")));
   const rw = ctx.DLZMOD_rw(async () => order.push("rw"));
-  assert.ok(Date.now() - ctx.DLZMOD_roLater.lastRw < 1000, "read-write noted");
+  assert.ok(ctx.DLZMOD_monoNow() - ctx.DLZMOD_roLater.lastRw < 1000, "read-write noted");
   while (!release) await tick(1);
   await tick(10);
   assert.deepStrictEqual(order, [], "read-write waits for the running read-only");

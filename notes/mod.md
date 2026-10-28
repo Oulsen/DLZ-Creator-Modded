@@ -256,6 +256,10 @@ that choice and the whole screen shows it at once: the screen is the preview, no
   would within a minute: a failed save only says "It is saved within a minute"), so the time
   survives a power-off. Not the RTC: the kernel writes it only after an NTP sync (`rtcsync`).
   Online, chrony steps a hand-set time within its first three updates (`makestep 1 3`) [static].
+- **A clock that goes back**: waits in the server mod are measured with `DLZMOD_monoNow` (Date.now's
+  scale, a clock that never jumps), not `Date.now()`: with the wall clock set back (by hand, or by
+  chrony after a phone's time that was ahead) the 10 s before a medium goes read-only again would
+  have lasted as long as the jump, and the wrong-PIN pause too [static; unit test, device review].
 - **The card**: the date and time in the zone, where they came from (yellow without a source), and
   in a browser the computer's own; Set... (`DLZMOD_clockPicker`: day, month, year, hour, minute with
   arrows that repeat while held, as Mackie's unused `PageTime`) and, in a browser, Use This

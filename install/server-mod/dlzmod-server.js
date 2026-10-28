@@ -363,18 +363,26 @@ function DLZMOD_keyAllowed(key, value, send) {
   return true;
 }
 
+// ms on Date.now()'s scale, but a clock that never jumps: waits measured with it (a medium's 10 s
+// before read-only, the wrong-PIN pause) stay right when the clock is set back (by hand, #13, or
+// chrony after a phone's time that was ahead); with Date.now() a medium stayed writable that long
+function DLZMOD_monoNow() {
+  const p = require("perf_hooks").performance;
+  return p.timeOrigin + p.now();
+}
+
 // stock runs "wavfinalizer <unfinished> <final>" through a shell, built from file names on the card
 // or stick: a name with ";" or "$(...)" would run as root. Same program, same arguments, no shell.
 // #98: each file counts as a read-write use, so DLZMOD_roNow leaves the medium writable between files.
 // #26: counted while it runs: the final file is being written, so no downloads (DLZMOD_recNoRead)
 function DLZMOD_wavfinalize(src, dst) {
-  DLZMOD_roLater.lastRw = Date.now();
+  DLZMOD_roLater.lastRw = DLZMOD_monoNow();
   DLZMOD_wavfinalize.running = (DLZMOD_wavfinalize.running || 0) + 1;
   return new Promise((resolve, reject) => {
     // counted down exactly once, also when execFile throws at once (bad arguments): a count left
     // standing would refuse every download until the next start
     const done = (e, out) => {
-      DLZMOD_roLater.lastRw = Date.now();
+      DLZMOD_roLater.lastRw = DLZMOD_monoNow();
       DLZMOD_wavfinalize.running--;
       e ? reject(e) : resolve(out);
     };
@@ -430,9 +438,9 @@ function DLZMOD_mountQueue(fn, limit = 40000) {
 // Noted when asked and again when done: one that waited in the queue still gets its 10 s
 function DLZMOD_rw(remount) {
   const s = DLZMOD_roLater;
-  s.lastRw = Date.now();
+  s.lastRw = DLZMOD_monoNow();
   const run = DLZMOD_mountQueue(remount);
-  run.then(() => (s.lastRw = Date.now()), () => (s.lastRw = Date.now()));
+  run.then(() => (s.lastRw = DLZMOD_monoNow()), () => (s.lastRw = DLZMOD_monoNow()));
   return run;
 }
 
@@ -445,7 +453,7 @@ function DLZMOD_rw(remount) {
 async function DLZMOD_roNow(mounts = "/proc/mounts", limit = 35000) {
   const s = DLZMOD_roLater;
   const get = (k) => globalThis.getDataKey(k);
-  if (Date.now() - (s.lastRw || 0) < 10000 || DLZMOD_recBusy(get)) return false;
+  if (DLZMOD_monoNow() - (s.lastRw || 0) < 10000 || DLZMOD_recBusy(get)) return false;
   let rw;
   try {
     rw = DLZMOD_rwMedia(require("fs").readFileSync(mounts, "utf8"));
@@ -641,7 +649,7 @@ function DLZMOD_originOk(headers) {
 }
 
 // a PIN tried by another device: {ok, token} or {ok: false, wait (seconds), off}
-function DLZMOD_pairTry(pin, now = Date.now()) {
+function DLZMOD_pairTry(pin, now = DLZMOD_monoNow()) {
   const p = DLZMOD_pair();
   if (!p.on) return { ok: false, off: true, wait: 0 };
   if (now < p.until) return { ok: false, wait: Math.ceil((p.until - now) / 1000) };
@@ -718,7 +726,7 @@ function DLZMOD_pairSetPin(pin) {
 }
 
 // for the screen only (DLZMOD_net's status): never sent to another device
-function DLZMOD_pairStatus(now = Date.now()) {
+function DLZMOD_pairStatus(now = DLZMOD_monoNow()) {
   const p = DLZMOD_pair();
   const ips = [];
   try {
@@ -1209,7 +1217,7 @@ async function DLZMOD_uploadRun(req, dir, name, len, mounts) {
     // file is written (DLZMOD_roNow)
     let recording = false;
     watch = setInterval(() => {
-      DLZMOD_roLater.lastRw = Date.now();
+      DLZMOD_roLater.lastRw = DLZMOD_monoNow();
       if (DLZMOD_recNoRead()) recording = true;
     }, 1000);
     fh = await fsp.open(tar, "w");
