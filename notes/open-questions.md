@@ -44,8 +44,9 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
 11. Which `/dev/mem` regions does faderlink map? (dspserver: `0x01C00000`, 8 MB, incl. port I for its
     chip buses: `components/dspserver.md`.)
 19. How much CPU headroom does the DSP thread have? Decides whether extra graph blocks (limiter,
-    full Compressor/Deesser) fit. Not with `top -H`: `dspLoopThreadC3` keeps core 3 at ~99% with or
-    without work (`system.md`, "Load average"); needs a measure from inside the audio loop.
+    full Compressor/Deesser) fit. Not with `top -H`: `dspLoopThreadC3` keeps core 3 at ~99% and its
+    work cannot be told from its waiting (`system.md`, "Load average"); needs a measure from inside
+    the audio loop.
 20. Intercom: confirm on the device what `ctrl.intercom.X.X.enable` does from the UI (see
     components/mixergraph.md).
 22. How many playback channels does the PC see on the XS USB interface (Windows sound settings /

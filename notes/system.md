@@ -155,8 +155,9 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   (AsyncReverb, NDIStereoSender, dspLoopThreadC2, glesgui) wake together ~590/s on the audio block
   period, so the 5-second load sample keeps catching them runnable at once. For real load use
   per-core `/proc/stat`, not `uptime`/`top`'s load average. `dspLoopThreadC3` (SCHED_FIFO 99)
-  shows 99.3% in `ps`/`top -H` and core 3 is busy ~99.6% at any moment, so `top -H` cannot show the
-  DSP's headroom: the thread keeps its core whether it has work or not. dspLoopThreadC2 (core 2)
+  shows 99.3% in `ps`/`top -H` and core 3 is busy ~99.6% in normal use; it never gives the core up,
+  so `top -H` cannot tell its audio work from its waiting and cannot show the DSP's headroom [device;
+  that it waits by spinning is a guess]. dspLoopThreadC2 (core 2)
   1.2%, each AsyncReverb thread 0.7%; cores 0-2 7-13% busy over a few seconds of normal use
   [device].
 - USB host: both EHCI/OHCI pairs (`usb@1c19000/400`, `usb@1c1c000/400`) exist; which one is the
