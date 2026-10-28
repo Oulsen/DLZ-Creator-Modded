@@ -218,6 +218,13 @@ that choice and the whole screen shows it at once: the screen is the preview, no
   (tier 4, b86337b, both SAFE TO RUN): `*.dlzmod-new` temp files a power cut can leave in `/etc`
   (the next change removes them, nothing at start reads them); up to a minute of times off by an hour
   at a summer time change; a failed `zone` at start is tried again only when the saver starts.
+- **On the dev card** [device, 2026-10-28, dev-eea8374]: Europe/Amsterdam picked on the screen wrote
+  the link and `/etc/timezone`; `date` CET, `date -u` an hour earlier; the saver's loop logged
+  `kernel time zone: CET (UTC+0100)` within the minute. The next start set CET at 11.2 s, before the
+  floor, which then moved the clock 3 s past a recording made in local time (without the zone that
+  file would have looked an hour ahead and been left out); chrony stepped the rest at 34 s. The new
+  recording's FAT time is the local time it was made: 15:35 in Windows (11, W. Europe Standard Time,
+  the card in a card reader); the older ones, written before, stay an hour early.
 - **Who**: the status for anyone who asks (the answer to the one who asked); a change from the mixer's own screen and from paired
   devices (`dlzmodPaired`), not from an unpaired browser (pairing off) [static; unit tests].
 - **The panel**: the zone, its offset and the time there now (node's ICU, `DLZMOD_tzInfo`), every 3 s
