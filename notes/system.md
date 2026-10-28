@@ -98,7 +98,17 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   no coin cell on the digital board's top side either]. Online, chrony (`makestep 1 3`) then steps
   the clock some 20-40 s into the boot: by the time since the last clean shutdown after a cold
   start, by about a second after a warm one [device]. Timezone is `Etc/UTC`
-  (`/etc/localtime`, `/etc/timezone`), so recording file times are UTC [static]
+  (`/etc/localtime`, `/etc/timezone`), so recording file times are UTC [static]: server.js mounts
+  FAT media without `tz=`/`time_offset=`, so the kernel (5.10, `fat_tz_offset`) converts file times
+  with its own offset `sys_tz` at every conversion, and systemd leaves that at 0 (its first
+  `settimeofday` seals the time warp with 0, RTC in UTC); a computer reads FAT times as its local
+  time, so they showed 1-2 h early in the Netherlands [static]. tzdata is installed (418 zones in
+  `zone.tab`); `hwclock --systz --utc` (util-linux 2.37.2) makes exactly two calls,
+  `settimeofday(NULL, {0,0})` and `settimeofday(NULL, {<minutes west>,0})`, and reads neither the RTC nor
+  `/etc/adjtime` [static, qemu `-strace` as a user without rights]. Node 18.18.2 has full ICU (73.2),
+  so `Intl` gives any zone's offset. Mackie's app and server show no local times; app.js has an
+  unused date/time page (`PageTime`, built in `startGUI`, never shown) [static]. The mod's time zone
+  setting: [mod.md](mod.md) (#9)
 - **Filesystems**: vfat built in; `exfat.ko` and `ntfs.ko` (rw) available as modules; CIFS and NFSD
   as modules [static]. Userland has `mkfs.vfat`/`mkfs.ext*` but no `mkfs.exfat`, no Samba, no NFS
   server, no BlueZ [static].

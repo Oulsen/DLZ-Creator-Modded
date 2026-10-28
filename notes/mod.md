@@ -21,7 +21,7 @@ hold the mod's own code that the patches call, `install/sd-system/` the units an
 | `flash-gd32`, `upgradedaemon`, `upgraderun` drop-ins | Mackie's GD32 flasher and both updaters never run from the card. Guards |
 | `dlzmod-grow-data` + `.service` | First boot: grows `DLZDATA` to fill the card; later boots stop at once (`/var/lib/dlzmod/dlzdata-ready`) |
 | `dlzmod-update` + `.service` | The drop-in update ([updates.md](updates.md)) |
-| `dlzmod-clock` + `dlzmod-clock.service` | Keeps the clock going forward over a power-off (#1): `dlzmod-clock.service` saves the time to `/etc/fake-hwclock.data` every minute and once more at its stop (a TERM, in the same process, so two saves never race; written next to it, then renamed). The floor, once per start: `dlzmod-update` calls `dlzmod-clock floor` on DLZDATA while it has it mounted read-only (its own mount, unmounted by its exit trap), before the mixer software; it moves the clock just past the newest file there when that is at most 2 min ahead (written after the last save, which is at most a minute old; further ahead = written elsewhere, a computer in another time zone or with a fast clock, ignored); a search over 10 s gives no answer. Not a unit of its own: one with the default dependencies waits for `basic.target` (~16 s) and, ordered before Mackie's units (`DefaultDependencies=no`, ~9.5 s), would hold them back as long (#141), and the updaters on the cards refuse a unit without them (`shape_ok`). Cards updated from v0.3.0 or older get the floor from the first start of the new updater on. fake-hwclock stays stock: its load at sysinit, and its in-place save at a clean shutdown after ours (a power cut in that moment leaves an empty file: the clock then stays at systemd's build time, as stock; no drop-in for it, because the updaters on the cards only accept drop-ins for the units in their allowlist, `allowed` in `dlzmod-update`). A forward-only clock, not the right time ([system.md](system.md), "Clock") [static; `tests/clock.sh`]. On the dev card [device, 2026-10-28]: after each of 3 power-offs within seconds of a recording, fake-hwclock loaded the last save and the floor moved the clock 7, 34 and 55 s past the new recording, which sorted after the older ones; the floor took 0.5-0.8 s, the updater was done at ~11.6 s and Mackie's node processes started at ~11.7 s, before `basic.target` (~14.8 s), as without the floor; the saver ran from ~15 s and saved every minute; online, chrony then stepped the remaining 17-43 s |
+| `dlzmod-clock` + `dlzmod-clock.service` | Gives the kernel the time zone's offset (#9, `zone`: `hwclock --systz --utc`) before the floor and again when the offset changes (summer time; see "Time zone"). Keeps the clock going forward over a power-off (#1): `dlzmod-clock.service` saves the time to `/etc/fake-hwclock.data` every minute and once more at its stop (a TERM, in the same process, so two saves never race; written next to it, then renamed). The floor, once per start: `dlzmod-update` calls `dlzmod-clock floor` on DLZDATA while it has it mounted read-only (its own mount, unmounted by its exit trap), before the mixer software; it moves the clock just past the newest file there when that is at most 2 min ahead (written after the last save, which is at most a minute old; further ahead = written elsewhere, a computer in another time zone or with a fast clock, ignored); a search over 10 s gives no answer. Not a unit of its own: one with the default dependencies waits for `basic.target` (~16 s) and, ordered before Mackie's units (`DefaultDependencies=no`, ~9.5 s), would hold them back as long (#141), and the updaters on the cards refuse a unit without them (`shape_ok`). Cards updated from v0.3.0 or older get the floor from the first start of the new updater on. fake-hwclock stays stock: its load at sysinit, and its in-place save at a clean shutdown after ours (a power cut in that moment leaves an empty file: the clock then stays at systemd's build time, as stock; no drop-in for it, because the updaters on the cards only accept drop-ins for the units in their allowlist, `allowed` in `dlzmod-update`). A forward-only clock, not the right time ([system.md](system.md), "Clock") [static; `tests/clock.sh`]. On the dev card [device, 2026-10-28]: after each of 3 power-offs within seconds of a recording, fake-hwclock loaded the last save and the floor moved the clock 7, 34 and 55 s past the new recording, which sorted after the older ones; the floor took 0.5-0.8 s, the updater was done at ~11.6 s and Mackie's node processes started at ~11.7 s, before `basic.target` (~14.8 s), as without the floor; the saver ran from ~15 s and saved every minute; online, chrony then stepped the remaining 17-43 s |
 | `dlzmod-bootlog` + `.service` | The syslog of the last 4 SD-system starts (this one included, with its report), for `DLZDATA/dlzmod-logs/`, readable in any card reader ([modding-guide.md](modding-guide.md), "Dev loop"). Not a step of the start since #136: `dlzmod-bootreport` starts it at its end; it writes only to `/run/dlzmod-bootlog/`, and server.js copies the file to the card (`DLZMOD_bootlogCopy`, like the update upload: through the queue of remounts, not while recording, temp file, fsync, renames, read-only again after it). Before, it mounted DLZDATA itself at ~10 s, where starts hang (#81): a start that froze during the copy left a broken FAT chain in its own file, and the next start's rename hit `fat_free_clusters: deleting FAT entry beyond EOF`, the kernel set DLZDATA read-only, and the script still logged "wrote" [device] |
 | `dlzmod-netlog` + `.service` | For development cards (#136; installed on every card, idle without its setting file): the journal of the start (RAM, kernel lines included) sent line by line over UDP to a PC, so a start that hangs before its log reaches the card leaves one on the PC. Off without `/var/lib/dlzmod/netlog` (`<IPv4> <port>`, written by `dev/netlog.sh`); waits for a route (Wi-Fi at ~15-25 s), then sends everything since the start and follows. The kernel has no netconsole (`CONFIG_NETCONSOLE` not set) [static] |
 | `dlzmod-bootreport` + `.service` | One report per start in the syslog (so in the next boot log copy), written once the start is done (the script waits at least 90 s, at most 5 min from its own start a few seconds after `basic.target`; not ordered after `multi-user.target`, so a start that hangs before it still gets a report naming the waiting jobs) at the lowest priority, `Type=exec` so nothing waits for it: `systemd-analyze` times, the critical chain of `multi-user.target`/`dspserver`/`glesgui`, the 15 slowest units, each mixer and dlzmod service's start, restarts and state, failed units, the audio chips' start from dspserver's own lines (they are priority info, so a chip that does not answer is not among the warnings; lines that differ only in their numbers, like the retries, collapse into one and a count; the first 30 lines, then the failure lines whatever comes before them), the start's warnings and errors (first 100, without the bodies of kernel stack dumps: their `CPU: ... Tainted` line stays). Its lines start with `dlzmod-bootreport` (#136). On the device [device]: the report comes ~2.5 min after power-on, because the start counts as done only when the stock `systemd-networkd-wait-online` gives up (2 min; the mixer itself is up at ~24 s); ~180 lines, all in the syslog (no rate limit hit); the stack dump filter took one start's warnings from 142 lines to 48 |
@@ -109,7 +109,7 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
 
 ## Mod settings (Settings → DLZ Creator Modded)
 
-Sub-tabs Display / Colors / Network / Remote / Mod; layout and how to add a setting:
+Sub-tabs Display / Colors / Time / Network / Remote / Mod (a browser: Display / Colors / Time / Mod); layout and how to add a setting:
 [modding-guide.md](modding-guide.md), "Mod settings". Every default on these tabs equals stock.
 
 - **Hide header** (#31): more room; also hides the red pad indicators and "DEMO MODE". Mackie's
@@ -133,6 +133,7 @@ Sub-tabs Display / Colors / Network / Remote / Mod; layout and how to add a sett
   wrapping the LR fader's `paint`); off = Mackie's plain meters. The scale is dB-linear over 80 dB with
   0 dBFS at the top [device: test tones at -6 and -30 dBFS].
 - **Colors** (#21): see "Themes and colours" below.
+- **Time** (#9): the time zone, below.
 - **Network** (#12, #44): Wi-Fi and SSH, below.
 - **Remote Control** (#45, #48): control from a computer's web browser, off by default; below (phones
   and tablets: Mackie's web UI does not fit them and misses touches, #52).
@@ -191,6 +192,32 @@ that choice and the whole screen shows it at once: the screen is the preview, no
   and Mackie's other colour lists (channels, auxes, samples) are never themed.
 - **Only from the mixer's screen**: the server refuses the three keys from other devices (the
   mixer's own look); a browser shows the tab, cannot pick, and follows a change at once.
+
+## Time zone (#9)
+
+- **Why**: FAT keeps local times, and the kernel converts file times with its own offset, which
+  stock leaves at 0: recordings showed 1-2 h early on a computer ([system.md](system.md), "Clock").
+- **Stored the system's way**: `/etc/localtime` (a link into `/usr/share/zoneinfo`, swapped in with a
+  rename) and `/etc/timezone` (written durably), by the server mod (`DLZMOD_time`, one command
+  `DLZMOD_TIME {op}`: `status`, `set`; answers to the sender only). A name must be
+  `Region/City` (up to three parts, no dots) and a tzdata file (`TZif`) under zoneinfo. The zone
+  shown is the link's (what the system uses), else `/etc/timezone`'s, else `Etc/UTC` (stock). An
+  update keeps both files (the card's `/etc`). Default: stock's UTC.
+- **The kernel's offset**: `hwclock --systz --utc`, which only sets `sys_tz` (no clock, no RTC):
+  by the server right after a change (failing: "Recording times follow it after a restart"), by
+  `dlzmod-clock floor` at every start before it compares file times with the clock, and by the
+  clock saver's minute loop when `date +%z` changes (summer time). A fixed offset per change, so a
+  file written in summer reads an hour off in winter on the mixer itself; a computer shows the
+  time it was written in local time either way.
+- **Who**: the status and the list for everyone; a change from the mixer's own screen and from paired
+  devices (`dlzmodPaired`), not from an unpaired browser (pairing off) [static; unit tests].
+- **The panel**: the zone, its offset and the time there now (node's ICU, `DLZMOD_tzInfo`), every 3 s
+  while shown; Change... opens a list (`DLZMOD_zonePicker`) the way Windows lists zones: 42 rows
+  (`DLZMOD_zoneList`), one per set of clock rules, sorted by winter offset ("UTC+01:00 Amsterdam,
+  Berlin, Paris, Rome, Madrid"), 14 per page reading down two columns, opened on the zone set; a row
+  sets it at once. Not a bare offset ("GMT+1"): that would not follow summer time. A browser shows
+  its own zone (`Intl...timeZone`) with Use This One, which takes any zone the mixer has [sandbox].
+  `tests/patches.sh` checks every row against the dump's tzdata and the zone's real winter offset.
 
 ## Network panel: Wi-Fi and SSH
 

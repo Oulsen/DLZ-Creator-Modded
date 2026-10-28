@@ -54,6 +54,8 @@ below. They all start as stock: turn on what you want.
 - The mixer no longer gets stuck while starting, held up by its screen and control software
 - The clock no longer jumps back to November 2023 after every power-off: it goes on from where it
   was, so new recordings sort after older ones
+- Recording times are local time, not world time (UTC): pick your time zone under Settings, Time
+  (in a browser: the computer's own zone in one tap); summer and winter time follow by themselves
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md). What is coming: [Roadmap](#roadmap).
 

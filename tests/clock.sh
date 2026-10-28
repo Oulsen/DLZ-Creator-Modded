@@ -7,8 +7,12 @@
 # - newest: a file written after the last save moves the clock just past it (+ 2 s: FAT's steps);
 #   older files, files too far ahead (a computer in another time zone or with a fast clock), a search
 #   over its limit or none leave it
-# - floor <dir>: sets the clock through a stand-in `date` (only `date -s` is caught) and says so
-# - run: saves at once, and a TERM ends it at once with one more save
+# - floor <dir>: gives the kernel the time zone first, then sets the clock through a stand-in `date`
+#   (only `date -s` is caught) and says so
+# - zone: runs `hwclock --systz --utc` (a stand-in: the real one would set this computer's time
+#   zone) and says so, also when it fails
+# - run: saves at once, and a TERM ends it at once with one more save; gives the kernel the time zone
+#   at the start and again when the offset changes (summer time; a stand-in `date +%z`)
 # Needs: Linux or WSL, bash, the sh the mixer has (dash), GNU find, touch and date.
 # Usage: bash tests/clock.sh (from anywhere)
 set -uo pipefail
@@ -73,24 +77,47 @@ is "no such folder: nothing" "" "$(sh "$CLOCK" newest "$T/none" $now)"
 mkdir -p "$T/slow" && printf '#!/bin/sh\necho %s.0\nexit 124\n' $((now + 40)) > "$T/slow/timeout" && chmod +x "$T/slow/timeout"
 is "a search over its limit: nothing" "" "$(PATH=$T/slow:$PATH sh "$CLOCK" newest "$d" $now)"
 
-echo "== floor"
-# a stand-in date: `date -s` is written down, never run; everything else is the real date
+# stand-ins: `date -s` is written down, never run, and `date +%z` gives $T/offset when there is one;
+# everything else is the real date. hwclock writes down its arguments (fails when $T/hwclock-fails
+# exists), never the real one.
 mkdir -p "$T/bin"
 cat > "$T/bin/date" << EOF
 #!/bin/sh
 case "\$*" in *-s*) echo "\$*" >> "$T/date-set"; exit 0 ;; esac
+[ "\$*" = +%z ] && [ -f "$T/offset" ] && exec cat "$T/offset"
 exec $(command -v date) "\$@"
 EOF
-chmod +x "$T/bin/date"
+cat > "$T/bin/hwclock" << EOF
+#!/bin/sh
+echo "\$*" >> "$T/hwclock-calls"
+[ ! -e "$T/hwclock-fails" ]
+EOF
+chmod +x "$T/bin/date" "$T/bin/hwclock"
+export PATH=$T/bin:$PATH
+calls() { cat "$T/hwclock-calls" 2>/dev/null; rm -f "$T/hwclock-calls"; }
+
+echo "== zone"
+out=$(sh "$CLOCK" zone); rc=$?
+is "zone: exit 0" 0 $rc
+is "zone: only hwclock --systz --utc" "--systz --utc" "$(calls)"
+grep -qF "kernel time zone:" <<< "$out" && ok "and it says so" || bad "no message: $out"
+touch "$T/hwclock-fails"
+out=$(sh "$CLOCK" zone); rc=$?
+is "a failing hwclock: exit 1" 1 $rc
+grep -qF "cannot give the kernel the time zone" <<< "$out" && ok "and it says so" || bad "no message: $out"
+rm -f "$T/hwclock-fails"; calls > /dev/null
+
+echo "== floor"
 fl=$T/floor
 mkdir -p "$fl/Recordings"
 real=$(date +%s)
 at $((real - 3600)) "$fl/Recordings/REC_0001_otter.wav"
-out=$(PATH=$T/bin:$PATH sh "$CLOCK" floor "$fl")
+out=$(sh "$CLOCK" floor "$fl")
 is "only older files: the clock is not set" "" "$(cat "$T/date-set" 2>/dev/null)"
+is "the kernel's time zone given first" "--systz --utc" "$(calls)"
 grep -qF "no newer file on DLZDATA" <<< "$out" && ok "and it says so" || bad "no message: $out"
 at $((real + 40)) "$fl/Recordings/REC_0002_heron.wav"
-out=$(PATH=$T/bin:$PATH sh "$CLOCK" floor "$fl")
+out=$(sh "$CLOCK" floor "$fl")
 set_to=$(sed -n 's/.*-s @\([0-9]*\).*/\1/p' "$T/date-set" 2>/dev/null)
 is "a file 40 s ahead: the clock set just past it" $((real + 42)) "$set_to"
 grep -qF "clock moved forward" <<< "$out" && ok "and it says so" || bad "no message: $out"
@@ -99,9 +126,16 @@ sh "$CLOCK" floor > /dev/null 2>&1; is "floor without a folder: usage, exit 2" 2
 echo "== run"
 f=$T/etc/run.data
 echo "2000-01-01 00:00:00" > "$f"
-DLZMOD_CLOCK_FILE=$f sh "$CLOCK" run & pid=$!
+calls > /dev/null
+echo +0100 > "$T/offset"
+DLZMOD_CLOCK_FILE=$f DLZMOD_CLOCK_INTERVAL=1 sh "$CLOCK" run & pid=$!
 for i in $(seq 50); do [ "$(cat "$f")" != "2000-01-01 00:00:00" ] && break; sleep 0.1; done
 [ "$(cat "$f")" != "2000-01-01 00:00:00" ] && ok "saves at once" || bad "no save at the start"
+sleep 2.5
+is "the kernel's time zone given once, not every minute" "--systz --utc" "$(calls)"
+echo +0200 > "$T/offset"
+sleep 2
+is "and again when summer time starts" "--systz --utc" "$(calls)"
 echo "2000-01-01 00:00:00" > "$f"
 t0=$(date +%s); kill -TERM $pid; wait $pid; rc=$?
 is "a TERM ends it with exit 0" 0 $rc

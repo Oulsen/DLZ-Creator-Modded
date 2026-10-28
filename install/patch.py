@@ -199,7 +199,10 @@ APP_PATCHES = [
         # Network panel on the Mod page: status, Wi-Fi scan list, outcome of a change
         '$NET.addCallback("DLZMOD_NET_STATE",(t=>DLZMOD_setNetState(t))),'
         '$NET.addCallback("DLZMOD_WIFI_LIST",(t=>DLZMOD_setWifiList(t))),'
-        '$NET.addCallback("DLZMOD_NET_RESULT",(t=>DLZMOD_netResult(t))),',
+        '$NET.addCallback("DLZMOD_NET_RESULT",(t=>DLZMOD_netResult(t))),'
+        # Time tab (#9): the zone set, the outcome of a change
+        '$NET.addCallback("DLZMOD_TIME_STATE",(t=>DLZMOD_setTimeState(t))),'
+        '$NET.addCallback("DLZMOD_TIME_RESULT",(t=>DLZMOD_timeResult(t))),',
     ),
 ]
 
@@ -379,6 +382,9 @@ SERVER_PATCHES = [
         # Network panel (Wi-Fi, SSH): answers go to this screen only (i = its send); not awaited,
         # so a 45 s Wi-Fi connect does not hold up the screen's other commands
         "DLZMOD_NET(e,t,a,i){DLZMOD_net(e,i)},"
+        # Time tab (#9): the time zone; answers to the sender only (i), changes from the screen and
+        # paired devices (DLZMOD_time)
+        "DLZMOD_TIME(e,t,a,i){DLZMOD_time(e,i)},"
         "async FIRMWARE_UPDATE_SUCCESS_OK(){",
     ),
 ]

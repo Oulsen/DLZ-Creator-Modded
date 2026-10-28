@@ -2123,6 +2123,117 @@ test("boot log: a write that fails (a full card) leaves no temp file and keeps t
   assert.ok(!ctx.DLZMOD_bootlogCopy.running);
 });
 
+// Time zone (#9): a zoneinfo folder of its own, never this PC's /etc
+const tzIn = () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "dlztz-"));
+  const zi = path.join(d, "zoneinfo");
+  for (const z of ["Europe/Amsterdam", "Europe/London", "America/Argentina/Buenos_Aires", "Etc/UTC"]) {
+    fs.mkdirSync(path.dirname(path.join(zi, z)), { recursive: true });
+    fs.writeFileSync(path.join(zi, z), "TZif2 and the rest");
+  }
+  fs.writeFileSync(path.join(zi, "notazone"), "plain text");
+  fs.mkdirSync(path.join(d, "etc"));
+  const links = [];
+  // the link as a file with its target (symlinks need rights on Windows); readlink reads it back
+  const opts = { zoneinfo: zi, localtime: path.join(d, "etc", "localtime"), timezone: path.join(d, "etc", "timezone"),
+    link: (target, file) => links.push([target, file]) };
+  return { d, zi, opts, links };
+};
+const tzRun = (ok = true) => {
+  const calls = [];
+  const run = async (file, args) => {
+    calls.push([file].concat(args));
+    return { ok: ok, out: "", err: ok ? "" : "settimeofday() failed" };
+  };
+  return { run, calls };
+};
+const timeOf = (sent, cmd) => sent.filter((m) => m.cmd === cmd).map((m) => m.data);
+
+test("time zone: only names the mixer has, as Region/City, never outside zoneinfo", () => {
+  const t = tzIn();
+  const valid = (z) => ctx.DLZMOD_tzValid(z, ctx.DLZMOD_tzPaths(t.opts));
+  assert.ok(valid("Europe/Amsterdam") && valid("America/Argentina/Buenos_Aires") && valid("Etc/UTC"));
+  for (const z of ["Europe/Paris", "", "Europe", "notazone", "../zoneinfo/Europe/Amsterdam", "Europe/../Europe/London",
+    "/Europe/London", "Europe/London/", "Europe\\London", "Europe/London\0", 42, null, "a/b/c/d"]) {
+    assert.strictEqual(valid(z), false, JSON.stringify(z));
+  }
+});
+test("time zone: the one set is the link's, else /etc/timezone's, else UTC (stock)", () => {
+  const t = tzIn();
+  const cur = () => ctx.DLZMOD_tzCurrent(ctx.DLZMOD_tzPaths(t.opts));
+  assert.strictEqual(cur(), "Etc/UTC", "neither");
+  fs.writeFileSync(t.opts.timezone, "Europe/London\n");
+  assert.strictEqual(cur(), "Europe/London");
+  fs.writeFileSync(t.opts.timezone, "Mars/Olympus\n");
+  assert.strictEqual(cur(), "Etc/UTC", "a name the mixer does not have");
+  if (process.platform !== "win32") {
+    fs.symlinkSync(t.zi + "/Europe/Amsterdam", t.opts.localtime);
+    assert.strictEqual(cur(), "Europe/Amsterdam", "the link wins");
+  }
+});
+test("time zone: the offset and the time there", () => {
+  const winter = new Date("2026-01-15T12:00:00Z"), summer = new Date("2026-07-15T12:00:00Z");
+  assert.deepStrictEqual(plain(ctx.DLZMOD_tzInfo("Europe/Amsterdam", winter)), { offset: "UTC+01:00", time: "13:00" });
+  assert.deepStrictEqual(plain(ctx.DLZMOD_tzInfo("Europe/Amsterdam", summer)), { offset: "UTC+02:00", time: "14:00" });
+  assert.deepStrictEqual(plain(ctx.DLZMOD_tzInfo("Etc/UTC", winter)), { offset: "UTC", time: "12:00" });
+  assert.deepStrictEqual(plain(ctx.DLZMOD_tzInfo("America/Argentina/Buenos_Aires", winter)),
+    { offset: "UTC-03:00", time: "09:00" });
+  assert.deepStrictEqual(plain(ctx.DLZMOD_tzInfo("Mars/Olympus", winter)), { offset: "", time: "" });
+});
+test("time zone: the status for everyone; a change from the screen or a paired device only", async () => {
+  const t = tzIn();
+  const r = tzRun();
+  const s1 = [];
+  await ctx.DLZMOD_time({ op: "status" }, remoteTo(s1), Object.assign({ run: r.run }, t.opts));
+  assert.strictEqual(timeOf(s1, "DLZMOD_TIME_STATE")[0].zone, "Etc/UTC");
+  await ctx.DLZMOD_time({ op: "set", zone: "Europe/Amsterdam" }, remoteTo(s1), Object.assign({ run: r.run }, t.opts));
+  assert.strictEqual(timeOf(s1, "DLZMOD_TIME_RESULT")[0].ok, false, "an unpaired device");
+  assert.deepStrictEqual([t.links, r.calls, fs.existsSync(t.opts.timezone)], [[], [], false], "nothing changed");
+  for (const send of [sendTo([]), Object.assign(() => {}, { dlzmodPaired: true })]) {
+    t.links.length = 0;
+    r.calls.length = 0;
+    await ctx.DLZMOD_time({ op: "set", zone: "Europe/Amsterdam" }, send, Object.assign({ run: r.run }, t.opts));
+    assert.deepStrictEqual(plain(t.links), [[t.zi + "/Europe/Amsterdam", t.opts.localtime]]);
+    assert.strictEqual(fs.readFileSync(t.opts.timezone, "utf8"), "Europe/Amsterdam\n");
+    assert.deepStrictEqual(r.calls, [["/sbin/hwclock", "--systz", "--utc"]], "the kernel's offset, nothing else");
+  }
+});
+test("time zone: a change says what it did; an unknown zone changes nothing; a failing hwclock: after a restart", async () => {
+  const t = tzIn();
+  const r = tzRun();
+  const s1 = [];
+  await ctx.DLZMOD_time({ op: "set", zone: "Europe/London" }, sendTo(s1), Object.assign({ run: r.run }, t.opts));
+  assert.deepStrictEqual(timeOf(s1, "DLZMOD_TIME_RESULT"), [{ ok: true, text: "Time zone: Europe/London" }]);
+  assert.strictEqual(timeOf(s1, "DLZMOD_TIME_STATE")[0].zone, "Europe/London", "the new status after it");
+  const s2 = [];
+  t.links.length = 0;
+  for (const zone of ["Mars/Olympus", "../../etc/passwd", "notazone", undefined]) {
+    await ctx.DLZMOD_time({ op: "set", zone: zone }, sendTo(s2), Object.assign({ run: r.run }, t.opts));
+  }
+  assert.ok(timeOf(s2, "DLZMOD_TIME_RESULT").every((x) => !x.ok && x.text === "Unknown time zone"));
+  assert.deepStrictEqual(t.links, []);
+  assert.strictEqual(fs.readFileSync(t.opts.timezone, "utf8"), "Europe/London\n");
+  const s3 = [];
+  const bad = tzRun(false);
+  await ctx.DLZMOD_time({ op: "set", zone: "America/Argentina/Buenos_Aires" }, sendTo(s3),
+    Object.assign({ run: bad.run }, t.opts));
+  assert.deepStrictEqual(timeOf(s3, "DLZMOD_TIME_RESULT"),
+    [{ ok: true, text: "Time zone: America/Argentina/Buenos Aires\nRecording times follow it after a restart." }]);
+  const s4 = [];
+  await ctx.DLZMOD_time({ op: "reboot" }, sendTo(s4), Object.assign({ run: r.run }, t.opts));
+  assert.deepStrictEqual(timeOf(s4, "DLZMOD_TIME_RESULT"), [{ ok: false, text: "Unknown time action" }]);
+});
+if (process.platform !== "win32") {
+  test("time zone: /etc/localtime becomes a link into zoneinfo, swapped in whole", () => {
+    const t = tzIn();
+    fs.writeFileSync(t.opts.localtime + ".dlzmod-new", "left from a power cut");
+    fs.writeFileSync(t.opts.localtime, "stock's file");
+    ctx.DLZMOD_tzLink(t.zi + "/Europe/Amsterdam", t.opts.localtime);
+    assert.strictEqual(fs.readlinkSync(t.opts.localtime), t.zi + "/Europe/Amsterdam");
+    assert.ok(!fs.existsSync(t.opts.localtime + ".dlzmod-new"));
+  });
+}
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {
