@@ -2,6 +2,7 @@
 
 ## v0.4.0
 
+- (DLZ FEATURE) Set the clock by hand or from your phone/computer
 - (DLZ BUG) Recording times are 1-2 hours off (the mixer runs on world time, not local time)
 - (DLZ BUG) Clock jumps back to November 2023 after every power-off
 

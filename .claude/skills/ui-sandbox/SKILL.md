@@ -46,8 +46,9 @@ All from the repo root in Git Bash; `S=.claude/skills/ui-sandbox/sandbox.sh`.
   Header hidden: `905,30` and `860,86` [PC: `905,60` with the header hidden lands on
   the Overview]
 - On the Mod tab, the sub-tabs (header hidden; shown: y `185`): `91,155` Display, `244,155`
-  Colors, `397,155` Time, `550,155` Network, `703,155` Remote, `856,155` Mod; on Time: `797,298`
-  Change... (header shown: `797,328`); on Remote: `859,281` the switch, `583,523` Random PIN,
+  Colors, `397,155` Time, `550,155` Network, `703,155` Remote, `856,155` Mod; on Time (header shown):
+  `250,508` Change..., `737,508` Set... (the clock picker: day up `202,155`, Set `228,503`); on
+  Remote: `859,281` the switch, `583,523` Random PIN,
   `795,523` Own PIN... (its pad: keys at x `436/512/588`, y `240/312/384/456`, ✓ at `588,456`)
 - `DLZ_SHOT_EVAL='<js>'` runs JS in the page before the taps, for states the PC cannot produce,
   e.g. `Data.set("sd",1)` (SD card inserted); `DLZ_SHOT_WAIT=<ms>` after it, `DLZ_SHOT_AFTER=<ms>`

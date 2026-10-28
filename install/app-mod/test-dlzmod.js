@@ -160,6 +160,7 @@ const reset = () => {
   ctx.DLZMOD_netIdle();
   ctx.DLZMOD_wifiList.popup = null;
   ctx.DLZMOD_zonePicker.popup = null;
+  ctx.DLZMOD_clockPicker.popup = null;
   ctx.DLZMOD_timeState.s = undefined;
   ctx.DLZMOD_setNetState(undefined);
   ctx.DLZMOD_setUpdateStatus(null);
@@ -1484,28 +1485,28 @@ test("Time panel: the zone, its offset and the time there; a browser offers its 
   ctx.app = { pageSettings: { dlzmod: pg } };
   try {
     pg.tabs[2].onToggleON();
-    assert.strictEqual(pg.time.own.visible, false, "on the mixer: no own zone");
+    assert.strictEqual(pg.time.zone.own.visible, false, "on the mixer: no own zone");
     ctx.DLZMOD_setTimeState({ zone: "Europe/Amsterdam", offset: "UTC+01:00", time: "14:05" });
     assert.ok(pg.time.updates > 0, "a new status repaints the panel");
     assert.strictEqual(ctx.DLZMOD_zoneName("America/Argentina/Buenos_Aires"), "America / Argentina / Buenos Aires");
     const n = ui.windows.length;
-    pg.time.change.onPress();
+    pg.time.zone.change.onPress();
     assert.strictEqual(ui.windows.length, n + 1, "Change... opens the list");
     ui.windows.at(-1).close();
     ctx.EXTERNAL = true;
     const web = settingsPage();
     web.tabs[2].onToggleON();
     browserZone("Europe/London");
-    assert.strictEqual(enabled(web.time.own), true);
+    assert.strictEqual(enabled(web.time.zone.own), true);
     ui.cmds.length = 0;
-    web.time.own.onPress();
+    web.time.zone.own.onPress();
     assert.deepStrictEqual(ui.cmds, [["DLZMOD_TIME", { op: "set", zone: "Europe/London" }]]);
     browserZone("Europe/Amsterdam");
-    assert.strictEqual(enabled(web.time.own), false, "already that zone");
+    assert.strictEqual(enabled(web.time.zone.own), false, "already that zone");
     browserZone(undefined);
-    assert.strictEqual(enabled(web.time.own), false, "a browser that does not say");
+    assert.strictEqual(enabled(web.time.zone.own), false, "a browser that does not say");
     ui.cmds.length = 0;
-    web.time.own.onPress();
+    web.time.zone.own.onPress();
     assert.deepStrictEqual(ui.cmds, [], "nothing sent without a zone");
   } finally {
     ctx.app = undefined;
@@ -1519,6 +1520,132 @@ test("Time panel: the outcome of a change in a Time popup", () => {
   ctx.DLZMOD_timeResult({ ok: false, text: "Unknown time zone" });
   assert.deepStrictEqual(ui.popups.map((p) => [p.text, p.opts.title, p.opts.textColor]),
     [["Time zone: Europe/Amsterdam", "Time", "green"], ["Unknown time zone", "Time", "red2"]]);
+});
+// Clock (#13): the date and time and where they came from, set by hand or from a browser
+const CLOCK = { zone: "Europe/Amsterdam", offset: "UTC+01:00", time: "23:58",
+  local: { y: 2026, mo: 1, d: 31, h: 23, mi: 58, date: "Sat 31 Jan 2026" }, clock: "" };
+test("Clock card: where the time came from; Set... and the computer's time only without internet", () => {
+  reset();
+  settings();
+  const pg = settingsPage();
+  ctx.app = { pageSettings: { dlzmod: pg } };
+  try {
+    pg.tabs[2].onToggleON();
+    const c = pg.time.clock;
+    assert.strictEqual(c.own.visible, false, "on the mixer: not the computer's time");
+    assert.strictEqual(enabled(c.set), false, "no status yet");
+    assert.deepStrictEqual(plain(ctx.DLZMOD_clockSourceText({})), ["", ""]);
+    const text = (clock) => {
+      ctx.DLZMOD_setTimeState(Object.assign({}, CLOCK, { clock: clock }));
+      return [plain(ctx.DLZMOD_clockSourceText(ctx.DLZMOD_timeState())), enabled(c.set)];
+    };
+    assert.deepStrictEqual(text(""), [["Not checked since the start (no internet)", YELLOW], true]);
+    assert.deepStrictEqual(text("hand"), [["Set by hand", GREY], true]);
+    assert.deepStrictEqual(text("device"), [["From a phone or computer", GREY], true]);
+    assert.deepStrictEqual(text("internet"), [["Set from the internet", "green"], false]);
+    ctx.EXTERNAL = true;
+    const web = settingsPage();
+    web.tabs[2].onToggleON();
+    ctx.DLZMOD_setTimeState(CLOCK);
+    assert.strictEqual(enabled(web.time.clock.own), true);
+    ui.cmds.length = 0;
+    const before = Date.now();
+    web.time.clock.own.onPress();
+    assert.strictEqual(ui.cmds.length, 1);
+    assert.strictEqual(ui.cmds[0][1].op, "clock");
+    assert.ok(ui.cmds[0][1].now >= before && ui.cmds[0][1].now <= Date.now(), "the browser's time now");
+    ctx.DLZMOD_setTimeState(Object.assign({}, CLOCK, { clock: "internet" }));
+    assert.strictEqual(enabled(web.time.clock.own), false);
+    assert.match(ctx.DLZMOD_ownTime(new Date(2026, 9, 28, 9, 5)), /^Wed 28 Oct 2026  09:05$/);
+  } finally {
+    ctx.app = undefined;
+    ctx.EXTERNAL = false;
+  }
+});
+test("Clock picker: steps go round, the year stops at the server's limits, a day past the month's end is its last", () => {
+  const f = { y: 2026, mo: 1, d: 31, h: 23, mi: 59 };
+  const step = (k, d, from = f) => plain(ctx.DLZMOD_clockStep(from, k, d));
+  assert.deepStrictEqual(step("mi", 1), Object.assign({}, f, { mi: 0 }), "no carry into the hour");
+  assert.deepStrictEqual(step("h", 1), Object.assign({}, f, { h: 0 }));
+  assert.deepStrictEqual(step("d", 1), Object.assign({}, f, { d: 1 }));
+  assert.deepStrictEqual(step("mo", -1), Object.assign({}, f, { mo: 12 }));
+  assert.deepStrictEqual(step("mo", 1), Object.assign({}, f, { mo: 2, d: 28 }), "31 Jan → Feb: the 28th");
+  assert.deepStrictEqual(step("y", -1, { y: 2028, mo: 2, d: 29, h: 0, mi: 0 }), { y: 2027, mo: 2, d: 28, h: 0, mi: 0 });
+  assert.deepStrictEqual(step("d", -1, { y: 2028, mo: 2, d: 1, h: 0, mi: 0 }).d, 29, "a leap year");
+  assert.strictEqual(step("y", -1, Object.assign({}, f, { y: 2025 })).y, 2025);
+  assert.strictEqual(step("y", 1, Object.assign({}, f, { y: 2099 })).y, 2099);
+  assert.strictEqual(ctx.DLZMOD_dateText(2026, 10, 28), "Wed 28 Oct 2026");
+});
+test("Clock picker: opens at the mixer's time, arrows change it, Set sends it; every way out lets it open again", () => {
+  reset();
+  ctx.DLZMOD_clockPicker();
+  assert.strictEqual(ui.windows.length, 0, "no status yet: nothing to start from");
+  ctx.DLZMOD_setTimeState(Object.assign({}, CLOCK, { local: Object.assign({}, CLOCK.local, { y: 2023 }) }));
+  ctx.DLZMOD_clockPicker();
+  const w = ui.windows[0];
+  ctx.DLZMOD_clockPicker();
+  assert.strictEqual(ui.windows.length, 1, "already open: not twice");
+  assert.deepStrictEqual(plain(w.f), { y: 2025, mo: 1, d: 31, h: 23, mi: 58 }, "a saved time before 2025: from 2025");
+  const arrows = ui.widgets.filter((x) => x.parent === w && x.onhold);
+  assert.strictEqual(arrows.length, 10, "up and down for day, month, year, hour, minute");
+  arrows[0].onPress();   // day up
+  arrows[3].onPress();   // month down
+  arrows[9].onPress();   // minute down
+  assert.deepStrictEqual(plain(w.f), { y: 2025, mo: 12, d: 1, h: 23, mi: 57 });
+  ui.cmds.length = 0;
+  ui.buttons.find((b) => b.parent === w && b.text === "Set").onPress();
+  assert.strictEqual(w.closed, true);
+  assert.deepStrictEqual(ui.cmds, [["DLZMOD_TIME", { op: "clock", time: { y: 2025, mo: 12, d: 1, h: 23, mi: 57 } }]]);
+  ctx.DLZMOD_clockPicker();
+  ui.cmds.length = 0;
+  ui.buttons.find((b) => b.parent === ui.windows.at(-1) && b.text === "Cancel").onPress();
+  assert.deepStrictEqual(ui.cmds, [], "Cancel sends nothing");
+  ctx.DLZMOD_clockPicker();
+  ui.windows.at(-1).onDestroy();   // a tap outside the popup
+  ctx.DLZMOD_clockPicker();
+  assert.strictEqual(ui.windows.length, 4, "a tap outside: opens again");
+  ui.windows.at(-1).close();
+  reset();
+  ctx.DLZMOD_setTimeState(Object.assign({}, CLOCK, { local: Object.assign({}, CLOCK.local, { y: 2024, mo: 2, d: 29 }) }));
+  ctx.DLZMOD_clockPicker();
+  assert.deepStrictEqual(plain(ui.windows[0].f), { y: 2025, mo: 2, d: 28, h: 23, mi: 58 },
+    "29 Feb of a saved 2024: 28 Feb 2025, a date the server takes");
+  ui.windows[0].close();
+});
+test("Clock: the screen's frame timer does not stop when the clock is set back (patch.py)", () => {
+  // Mackie's timer (app.js, node only): wait 17 ms minus the time since the last frame
+  const wait = (now, last) => Math.max(0, 17 - (now - last));
+  const D = vm.runInContext("Date", ctx), realNow = D.now;
+  let mono = 5000;
+  ctx.performance = { timeOrigin: 1e12, now: () => mono };
+  try {
+    const last = ctx.DLZMOD_frameNow();
+    assert.strictEqual(last, 1e12 + 5000);
+    D.now = () => realNow() - 91000;   // chrony steps the clock back 91 s
+    mono += 10;
+    assert.strictEqual(wait(ctx.DLZMOD_frameNow(), last), 7, "the next frame as planned");
+    assert.ok(wait(D.now(), realNow()) > 90000, "by the wall clock it waited 91 s [device]");
+  } finally {
+    D.now = realNow;
+    delete ctx.performance;
+  }
+  const before = Date.now();
+  assert.ok(ctx.DLZMOD_frameNow() >= before, "no performance clock: Date.now()");
+});
+test("Clock: a browser gives its time at every connect, the mixer's own screen does not", () => {
+  reset();
+  ctx.DLZMOD_connected();
+  assert.deepStrictEqual(ui.cmds, []);
+  ctx.EXTERNAL = true;
+  try {
+    const before = Date.now();
+    ctx.DLZMOD_connected();
+    assert.strictEqual(ui.cmds.length, 1);
+    assert.strictEqual(ui.cmds[0][1].op, "sync");
+    assert.ok(ui.cmds[0][1].now >= before && ui.cmds[0][1].now <= Date.now());
+  } finally {
+    ctx.EXTERNAL = false;
+  }
 });
 test("Zone list: sorted by offset, every zone once, UTC on its own; plain cities, no region names", () => {
   const zones = plain(ctx.DLZMOD_zoneList());

@@ -183,6 +183,21 @@ APP_PATCHES = [
         "this.bDownload=DLZMOD_mediaDownloadButton(this,e),this.bSort=new E1ToggleButton(this,{anchors:[316,-214,",
     ),
     (
+        # #13: at every (re)connect, after the hub's INIT: a browser gives the mixer its time
+        # (DLZMOD_connected; the server takes it forward only, without internet)
+        "time: a browser's clock when it connects",
+        'onConnect:function(){this.cmd("INIT")},',
+        'onConnect:function(){this.cmd("INIT"),DLZMOD_connected()},',
+    ),
+    (
+        # the screen's frame timer (node has no requestAnimationFrame) waits 17 ms minus the time
+        # since the last frame by the wall clock: a clock set back (chrony after a time set ahead,
+        # #13) stopped every frame for as long as the jump [device: 91 s]. DLZMOD_frameNow never jumps
+        "time: the screen's frames on a clock that never jumps",
+        "let i=Date.now(),s=Math.max(0,17-(i-lastTime))",
+        "let i=DLZMOD_frameNow(),s=Math.max(0,17-(i-lastTime))",
+    ),
+    (
         # next to Mackie's firmware popups: the drop-in update's result (DLZMOD_UPDATE_NOTE, once,
         # until its OK) and the installed build, last refusal and waiting update for the Mod page
         # (DLZMOD_UPDATE_STATUS), sent by the server mod when the screen has loaded

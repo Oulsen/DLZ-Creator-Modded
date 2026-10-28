@@ -107,8 +107,10 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   `settimeofday(NULL, {0,0})` and `settimeofday(NULL, {<minutes west>,0})`, and reads neither the RTC nor
   `/etc/adjtime` [static, qemu `-strace` as a user without rights]. Node 18.18.2 has full ICU (73.2),
   so `Intl` gives any zone's offset. Mackie's app and server show no local times; app.js has an
-  unused date/time page (`PageTime`, built in `startGUI`, never shown) [static]. The mod's time zone
-  setting: [mod.md](mod.md) (#9)
+  unused date/time page (`PageTime`, built in `startGUI`, never shown; nothing in server.js takes its
+  `SET_TIME`) [static]. chrony has `rtcsync` and `makestep 1 3`; `chronyc -c tracking` ends with the
+  leap status, `Not synchronised` before the first sync [static]. The mod's time zone and clock
+  settings: [mod.md](mod.md) (#9, #13)
 - **Filesystems**: vfat built in; `exfat.ko` and `ntfs.ko` (rw) available as modules; CIFS and NFSD
   as modules [static]. Userland has `mkfs.vfat`/`mkfs.ext*` but no `mkfs.exfat`, no Samba, no NFS
   server, no BlueZ [static].
