@@ -1,5 +1,8 @@
 # The checks that need no mixer, no dump and no Mackie files: the server mod's unit tests, the build
-# tools' key guards (tests/guards.sh), the updater checks (tests/update-checks.sh), the mixer-ssh
+# tools' key guards (tests/guards.sh), the report of each start (tests/bootreport.sh), a dev card's
+# network log (tests/netlog.sh), the release notes (tests/release-notes.sh), the Discord message of a
+# release (tests/announce.sh), the updater
+# checks (tests/update-checks.sh), the mixer-ssh
 # skill's read-only guard (offline), and a syntax check of every shell script, JavaScript and Python
 # file. The
 # rehearsals on card images run on a PC with the dump (tests/README.md).
@@ -39,6 +42,21 @@ jobs:
 
       - name: Clock saver
         run: bash tests/clock.sh
+
+      - name: Report of each start
+        run: bash tests/bootreport.sh
+
+      - name: Network log of a dev card
+        run: bash tests/netlog.sh
+
+      - name: Install time left, replayed on a real install
+        run: bash tests/estimates.sh
+
+      - name: Release notes from the changelog
+        run: bash tests/release-notes.sh
+
+      - name: Discord message of a release
+        run: bash tests/announce.sh
 
       # every released updater must accept the new one (the checkout is shallow and has no tags), and
       # this one's checks in checks-only mode on a fixture tree (as the runner's normal user)

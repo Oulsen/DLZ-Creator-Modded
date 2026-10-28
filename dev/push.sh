@@ -18,7 +18,8 @@
 # dev/push.env.example), read by name, never sourced. Only a committed tree is signed (mkpackage.sh):
 # commit first, WIP commits on the feature branch are fine (squashed in the PR).
 # Before the next start the package is checked here as the card will: the signature against the card's
-# own dev.pub, CHANNEL=dev, REINSTALL=no, not older than the card's version.
+# own dev.pub, CHANNEL=dev, REINSTALL=no (or REINSTALL_BELOW and the card from then on), not older
+# than the card's version.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -64,8 +65,11 @@ else
     || die "uncommitted changes in install/ or VERSION: commit first (an unsigned build is refused by the card)"
   echo "== build $(git -C "$REPO" rev-parse --short HEAD) in WSL"
   LOG=$OUT/build.log
+  # GIT_DIR/GIT_WORK_TREE as WSL paths: a worktree's .git file names its git folder by a Windows
+  # path, which WSL's git cannot follow
   MSYS_NO_PATHCONV=1 wsl -d Ubuntu -u root --cd "$(wslpath_of "$REPO")" -e \
-    env "DLZMOD_SIGNING_KEYS=$(wslpath_of "$KEYS")" bash install/release/mkpackage.sh build/push > "$LOG" 2>&1 \
+    env "DLZMOD_SIGNING_KEYS=$(wslpath_of "$KEYS")" "GIT_DIR=$(wslpath_of "$(git -C "$REPO" rev-parse --absolute-git-dir)")" \
+    "GIT_WORK_TREE=$(wslpath_of "$REPO")" bash install/release/mkpackage.sh build/push > "$LOG" 2>&1 \
     || { tail -n 20 "$LOG" >&2; die "build failed (full log: build/push/build.log)"; }
   NAME=$(sed -n 's#^package: .*/\(dlzmod-[^/ ]*\)\.tar .*#\1#p' "$LOG" | tail -n 1)
   [ -n "$NAME" ] || die "no package name in build/push/build.log"
@@ -80,7 +84,9 @@ ENV=$(tar -xOf "$TAR" "$NAME/package.env" | tr -d '\r') || die "no $NAME/package
 penv() { sed -n "s/^$1=//p" <<< "$ENV" | tail -n 1; }
 PVER=$(penv DLZMOD_VERSION)
 [ "$(penv CHANNEL)" = dev ] || die "$NAME is not a dev build (CHANNEL=$(penv CHANNEL))"
-[ "$(penv REINSTALL)" = no ] || die "$NAME needs a full install (REINSTALL=$(penv REINSTALL)): the drop-in refuses it"
+BELOW=$(penv REINSTALL_BELOW)
+# (REINSTALL_BELOW: checked against the card below; without it, REINSTALL=yes is refused everywhere)
+[ -n "$BELOW" ] || [ "$(penv REINSTALL)" = no ] || die "$NAME needs a full install (REINSTALL=$(penv REINSTALL)): the drop-in refuses it"
 echo "== package $NAME ($(stat -c %s "$TAR") bytes)"
 
 # 2. the card: reachable, a dev card whose key signed this package, DLZDATA mounted, not newer
@@ -89,6 +95,7 @@ STATE=$(mixer 'echo "data=$(findmnt -rno TARGET -S LABEL=DLZDATA | head -n 1)"
   echo "version=$(cat /var/lib/dlzmod-update/version 2>/dev/null)"
   echo "report=$(cat /var/lib/dlzmod-update/last-report 2>/dev/null) $(stat -c %i /var/lib/dlzmod-update/last-report 2>/dev/null)"
   echo "failed=$(cat /var/lib/dlzmod-update/failed 2>/dev/null)"
+  echo "below=$(grep -c REINSTALL_BELOW /usr/local/sbin/dlzmod-update 2>/dev/null)"
   echo "boot=$(cat /proc/sys/kernel/random/boot_id)"' | tr -d '\r') \
   || die "no SSH login on $HOST (address, Wi-Fi, SSH kept on, your key in authorized_keys, a key with a passphrase in ssh-agent? A new install has new host keys: delete $KNOWN)"
 st() { sed -n "s/^$1=//p" <<< "$STATE"; }
@@ -104,6 +111,12 @@ echo "   card version ${CVER:-unknown}, DLZDATA at $DATA"
 if [ -n "$CVER" ] && [ "$(printf '%s\n%s\n' "$CVER" "$PVER" | sort -V | head -n 1)" != "$CVER" ]; then
   die "$PVER is older than the card's $CVER: the card refuses it"
 fi
+if [ -n "$BELOW" ]; then
+  [ "$(st below)" -gt 0 ] 2>/dev/null \
+    || die "$NAME needs a full install on this card: its updater is from before REINSTALL_BELOW (#63), install it with a $PVER dev installer image"
+  [ -n "$CVER" ] && [ "$(printf '%s\n%s\n' "$CVER" "$BELOW" | sort -V | head -n 1)" = "$BELOW" ] \
+    || die "$NAME needs a full install on a card from before $BELOW (this one: ${CVER:-unknown})"
+fi
 mixer 'cat /usr/local/share/dlzmod-keys/dev.pub' > "$OUT/card-dev.pub" 2>/dev/null \
   || die "the card has no dev key: not a dev card (a card from the release image trusts only the release keys)"
 MSYS_NO_PATHCONV=1 wsl -d Ubuntu -e openssl pkeyutl -verify -pubin -inkey "$(wslpath_of "$OUT/card-dev.pub")" \
@@ -115,7 +128,7 @@ echo "   signature matches the card's dev key"
 # installed), under a temporary name first and renamed only when complete (a cut connection ends
 # the remote cat normally), the .sig last (without it the card does not try the tar), checked, flushed.
 # server.js keeps DLZDATA mounted read-only and makes it read-write only while it writes itself, a
-# recording (notes/open-questions.md, Q28): read-write now means it is busy, so stop (checked and
+# recording (notes/mod.md, "Media back to read-only"): read-write now means it is busy, so stop (checked and
 # remounted in one command, no recording can start in between); otherwise read-write for the copy
 # and read-only again after it, however the script ends (the trap: an error, Ctrl-C, a closed window)
 echo "== copy to $U/"
@@ -172,10 +185,45 @@ else
   echo "== switch the mixer off and on now (the switch on the back); waiting for its next start"
 fi
 START=$(date +%s)
-sleep 15
+# no login while the new start settles: logins then coincided with hangs (#81, #143). With a dev card's
+# network log (dev/netlog.ps1, written within the last 10 minutes) until the new start's screen is up
+# (glesgui's "Context renderer string", or its "Client connected." when that line was lost) plus
+# 30 s, or 300 s into a new start whose screen does not come; read by .claude/skills/mixer-ssh/netlog-start.awk (as the mixer-ssh guard does), from the
+# lines after this point only (a listener started again meanwhile: its new file from the start).
+# Without one: 90 s after the mixer has gone away (GONE), counted from its first failed login: between
+# switching off and SSH in the new start (Wi-Fi first) the polls every 5 s cannot all get through.
+NETLOG_DIR=${DLZ_NETLOG_DIR:-$REPO/build/device-logs}
+NL=$(ls -t "$NETLOG_DIR"/netlog-*.txt 2>/dev/null | head -n 1 || true)
+GONE=""
+if [ -n "$NL" ] && [ $(( START - $(stat -c %Y "$NL") )) -le 600 ]; then
+  N0=$(wc -l < "$NL")
+  echo "   no login until the new start's screen is up plus 30 s (network log $NL)"
+  while :; do
+    [ $(( $(date +%s) - START )) -lt 600 ] || die "no new start with its screen in the network log after 10 minutes (dev/netlog.ps1 running?); the package stays on the card and goes in at its next start: no need to push it again"
+    NEWEST=$(ls -t "$NETLOG_DIR"/netlog-*.txt 2>/dev/null | head -n 1 || true)
+    [ -z "$NEWEST" ] || [ "$NEWEST" = "$NL" ] || { NL=$NEWEST; N0=0; echo "   network log now $NL"; }
+    UP="" SCR=""
+    # with the journal line before the prompt, so a start without its first lines shows by its uptime
+    read -r UP SCR < <({ [ "$N0" -eq 0 ] || sed -n "${N0}p" "$NL" | grep '^\[' || true; tail -n +$((N0 + 1)) "$NL"; } | awk -v need=1 -f "$REPO/.claude/skills/mixer-ssh/netlog-start.awk") || true
+    if [ -n "$UP" ]; then
+      UP=$(( UP + $(date +%s) - $(stat -c %Y "$NL") ))
+      if [ -n "$SCR" ]; then
+        [ "$UP" -lt $((SCR + 30)) ] || { echo "   screen up at $SCR s of the new start, $UP s in"; break; }
+      elif [ "$UP" -ge 300 ]; then
+        echo "   no screen 300 s into the new start (a stall? the network log shows it); logging in"; break
+      fi
+    fi
+    sleep 5
+  done
+  GONE=yes
+else
+  echo "   no recent network log: logging in 90 s after the mixer has gone away"
+  sleep 15
+fi
 NOW=""
 until NOW=$(mixer 'cat /proc/sys/kernel/random/boot_id' 2>/dev/null | tr -d '\r') && [ -n "$NOW" ] && [ "$NOW" != "$BOOT" ]; do
   [ $(( $(date +%s) - START )) -lt 600 ] || die "the mixer is not back on SSH after 10 minutes (the package stays on the card and goes in at its next start: no need to push it again)"
+  if [ -z "$NOW" ] && [ -z "$GONE" ]; then GONE=yes; sleep 90; continue; fi
   sleep 5
 done
 echo "   back on SSH after $(( $(date +%s) - START )) s"

@@ -41,7 +41,8 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
 9. Stock's media scan filters out `/` by lsblk's `mountpoint` column: is that column still in
    `lsblk -O` on the mod card? (Which `mmcblk` is which is answered: hardware.md, Storage.)
 10. GD32 UART protocol and baud rate on ttyS2.
-11. Which `/dev/mem` regions do dspserver/faderlink map?
+11. Which `/dev/mem` regions does faderlink map? (dspserver: `0x01C00000`, 8 MB, incl. port I for its
+    chip buses: `components/dspserver.md`.)
 19. How much CPU headroom does the DSP thread have (`top -H`, idle vs. all FX on)? Decides whether
     extra graph blocks (limiter, full Compressor/Deesser) fit.
 20. Intercom: confirm on the device what `ctrl.intercom.X.X.enable` does from the UI (see
@@ -52,40 +53,14 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
     back? (Capture on port 89 while moving each fader.)
 24. Do `settings.brightness.screen/k/pad/button = 0` make the screen and LEDs fully dark? (For a
     sleep mode.)
-25. Bluetooth module: chip, profiles (A2DP sink only? HFP?), and can it act as a source?
+25. Bluetooth module (Actions ATS2853, `components/faderlink.md`): which profiles does Mackie's
+    module firmware offer? On a phone, the mixer's Bluetooth settings show it (media audio / calls).
+    Software and chip both say sink only, no connect-out to speakers or headsets. If it ever
+    matters: list the module's commands by disassembling faderlink's BT message builder.
 26. How does dspserver name the parts of a recording split at 2 GB?
 29. Does a knob drive an own key? Set `K.0.key` to `dlzmod.test` over port 89, turn knob 1, and
     watch for value broadcasts or faderlink's "keyDataTransform not found". Decides whether mod pages
     (e.g. Philips Hue, #53) can use the hardware knobs.
-
-## Storage: SD vs eMMC
-
-28. Does running from the microSD cost anything that matters?
-    - Measured in use [device, an installed card, SanDisk Ultra 128 GB, idle UI some 18 min after
-      boot]: **the card is not a bottleneck**. Card busy (`io_ticks`) 32.7 s of ~1080 s since boot
-      (3 %, nearly all during boot), 0.6 % over 5 s while running; boot read 326 MiB in 7771
-      requests (~8.5 ms each), 4.9 MiB written since boot; `vmstat` wa 0, b 0; cores 0-2 4-5 % busy
-      each, core 3 99 % (dspserver, by design); 104 MB available, no swap.
-    - Boot (`systemd-analyze`) [device]: evolve-node starts at 14.1 s, dspserver ~6 s after; the
-      "2min 20s userspace" is `systemd-networkd-wait-online` (2 min, nothing waits for it; stock has
-      it too). The mod's own units on the critical path took ~4.9 s: grow-data 1.48 s (mount, look,
-      unmount to find "already set up"), update 1.09 s (no package), bootlog 2.17 s (of which the
-      unmount 1.25 s). Since then grow-data stops at once once `/var/lib/dlzmod/dlzdata-ready` is
-      set (written when DLZDATA is set up): ~1.4 s. The boot log stays as it was (copied before
-      the mixer software at every boot, ~2.2 s). Moving its copy after the start, into the
-      server's mount, does not work: server.js mounts DLZDATA read-only (`ro,noatime`) and
-      remounts it `rw` to write, and remounting it under the server could break a recording
-      [static, server.js]. Stock never goes back to `ro` once a recordings folder exists (`rw` from
-      the start on [device]); the mod does that, about 10 s after the last write (#98,
-      [mod.md](mod.md), "Media back to read-only"). Expected: ~1.4 s off a normal boot [device: the next install]
-    - Open: (B) a stopwatch from power-on to the UI and to sound, card in vs card out (stock from
-      the eMMC, nothing touched); (C) only if B shows a gap: 10 s of 4 KiB random reads, O_DIRECT,
-      read-only, on the card and on the eMMC (`python3` with an mmap-aligned buffer; mixer idle).
-    - Background: the eMMC is 1.9x faster sequentially (43.6 vs 23.0 MB/s), but the slot's High
-      Speed bus caps any card at ~23 MB/s, so an A1/A2 card is the cheap fix for random I/O. Running
-      the mod from the eMMC would go against the first hard rule; its prerequisites would be a
-      tested restore script, FEL confirmed, a UUID of its own for the eMMC copy and Mackie-updater
-      guards on the main system
 
 ## Misc
 

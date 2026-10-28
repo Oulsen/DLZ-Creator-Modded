@@ -6,9 +6,10 @@ description: Start, check, re-patch, screenshot and stop the UI sandbox ("the de
 # ui-sandbox
 
 Mackie's `server.js` and `app.js` (the mod's patches applied) run with Windows Node on a private
-copy of the mixer's `/srv` (`dumps/sandbox/`, git-ignored), mapped to its own drive letter so the
-absolute paths in `server.js` resolve inside it. Shell commands are blocked and it listens on
-127.0.0.1 only (`dev/ui-sandbox/shim.js`). No DSP, no faders: the UI and its state/preset logic work,
+copy of the mixer's `/srv` (`dumps/sandbox/`, git-ignored); the shim takes the absolute paths in
+`server.js` (`/srv`, `/tmp`, `/root` ...) into that folder, no drive letter. Shell commands are
+blocked and it listens on 127.0.0.1 only (`dev/ui-sandbox/shim.js`). No DSP, no faders: the UI and
+its state/preset logic work,
 real meters and audio do not (moving fake meters do). Details and limits: `notes/modding-guide.md`,
 "PC sandbox".
 
@@ -16,11 +17,10 @@ All from the repo root in Git Bash; `S=.claude/skills/ui-sandbox/sandbox.sh`.
 
 ## Start
 
-1. `bash $S status`: already running? Then do not start a second one (port 80 and the drive are
-   taken; the script would refuse the drive anyway).
+1. `bash $S status`: already running? Then do not start a second one (ports 80 and 89 are taken).
 2. Start as a **background task**: `bash dev/ui-sandbox.sh` (XS layout), or
-   `DLZ_FULLSIZE=1 bash dev/ui-sandbox.sh` (full-size, its own copy `dumps/sandbox-full`). Optional
-   argument: another drive letter (default `S`). `DLZ_SANDBOX_REMOTE=1` in front: http://localhost/
+   `DLZ_FULLSIZE=1 bash dev/ui-sandbox.sh` (full-size, its own copy `dumps/sandbox-full`).
+   `DLZ_SANDBOX_REMOTE=1` in front: http://localhost/
    plays another device on the network, a computer's browser (pairing, #45), http://127.0.0.1/
    stays the mixer's screen. `DLZ_FAKE_MEDIA=sd` (or `usb`, `sd,usb`) in front: a pretend SD card /
    USB stick with a few recordings (`notes/modding-guide.md`, "PC sandbox").
@@ -58,9 +58,10 @@ All from the repo root in Git Bash; `S=.claude/skills/ui-sandbox/sandbox.sh`.
 
 ## Stop
 
-`bash $S stop`, always: ending the background task alone leaves `node.exe` listening on 80/89 and the
-drive mapped, and the next start fails on the drive. `stop` ends only a `node.exe` on 80/89 (another
-program there is reported and left alone), unmaps the sandbox drive(s) and checks that both are gone.
+`bash $S stop`, always: ending the background task alone leaves `node.exe` listening on 80/89, and the
+next start fails on the ports. `stop` ends only a `node.exe` on 80/89 (another program there is
+reported and left alone), unmaps a drive an older sandbox start left (it used `subst`) and checks
+that both are gone.
 Then stop the background task too if it is still listed. Stop it when the user is done looking, not
 in the middle of their session.
 

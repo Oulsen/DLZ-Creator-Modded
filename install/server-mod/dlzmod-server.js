@@ -348,12 +348,14 @@ function DLZMOD_cmdAllowed(handlers, cmd, args, send, roots) {
 // plain key/value messages (stock stores and relays every key): no prototype keys; keys with a file
 // path dspserver opens or records to only from the screen; the System Lock PIN (`lock`: setting,
 // changing or removing it) only from the screen (#45: other devices still receive it, Mackie's web
-// UI needs it for its own lock screen); track names (multitrack file names) from other devices plain
+// UI needs it for its own lock screen); the theme and its colours (#21) only from the screen (the
+// mixer's own look; a browser shows it and follows a change); track names (multitrack file names)
+// from other devices plain
 function DLZMOD_keyAllowed(key, value, send) {
   if (key === "__proto__" || key === "constructor" || key === "prototype") return false;
   const local = !!(send && send.dlzmodLocal === true);
   if (!local && /(^|\.)(file|recFile|currentFileName)$/i.test(key)) return false;
-  if (!local && key === "lock") return false;
+  if (!local && (key === "lock" || /^dlzmod\.(theme|bgColor|faderColor)$/.test(key))) return false;
   // from other devices only: the screen keeps stock's names ("Mic 1/2" typed on the mixer stays as is)
   if (!local && /^[ip]\.[^.]+\.name$/.test(key) && typeof value === "string" && value !== "" && !DLZMOD_plainName(value)) {
     return false;
@@ -1278,6 +1280,103 @@ async function DLZMOD_uploadRun(req, dir, name, len, mounts) {
   } finally {
     if (watch) clearInterval(watch);
   }
+}
+
+// #136: the last starts' syslog (dlzmod-bootlog puts it in /run once the report of this start is in
+// the log, ~2.5 min after power-on) copied to the SD card's dlzmod-logs/, written like the update
+// upload: through the queue of remounts (no second mount of DLZDATA), not while the mixer records or
+// an upload runs, temp file and fsync before the renames, read-only again after it (DLZMOD_roLater).
+// dlzmod-bootlog used to mount DLZDATA itself ~10 s into the start, where starts hang (#81): a start
+// that froze then left a broken FAT chain. Looked for every `every` ms; each new file once, at most 3
+// tries (a card the kernel set read-only for its errors refuses every one). Never in the first 90 s
+// after power-on (the report waits that long anyway): the start that installs this as an update still
+// runs the old early dlzmod-bootlog job (the updater does not reload systemd), which now only writes
+// to /run. root: () => the SD card's mount point ("-" when empty), server.js's ce("sd")
+function DLZMOD_bootlogCopy(root, src = "/run/dlzmod-bootlog/syslog-last-boots.txt", mounts = "/proc/mounts", every = 15000,
+  uptime = "/proc/uptime") {
+  const s = DLZMOD_bootlogCopy;
+  clearInterval(s.timer);
+  s.timer = setInterval(() => s.tick(), every);
+  s.tick = async () => {
+    if (s.running) return;
+    s.running = true;
+    try {
+      const fs = require("fs");
+      let mtime;
+      try {
+        if (!(parseFloat(fs.readFileSync(uptime, "utf8")) >= 90)) return;
+        mtime = fs.statSync(src).mtimeMs;
+      } catch (e) {
+        return;   // not there yet
+      }
+      if (mtime !== s.file) {
+        s.file = mtime;
+        s.tries = 0;
+      }
+      if (s.tries >= 3) return;
+      const r = root();
+      if (!r || r === "-" || DLZMOD_recNoRead() || DLZMOD_updateUpload.running) return;
+      s.tries++;
+      try {
+        await DLZMOD_bootlogWrite(src, r + "/dlzmod-logs", r, mounts);
+        s.tries = 3;
+        console.log("dlzmod: boot log copied to " + r + "/dlzmod-logs");
+      } catch (e) {
+        console.error("dlzmod: boot log copy:", e.message);
+      } finally {
+        DLZMOD_roLater();
+      }
+    } catch (e) {
+      // node 18 ends the whole server on an unhandled rejection
+      console.error("dlzmod: boot log copy:", e.message);
+    } finally {
+      s.running = false;
+    }
+  };
+}
+
+// the remount and the writing in one turn of the queue, so no read-only remount comes in between (a
+// recording that starts meanwhile gets its read-write remount after it: ~1 s). A power cut leaves the
+// old pair, or the .prev with the temp file next to it (removed by the next copy)
+async function DLZMOD_bootlogWrite(src, dir, root, mounts) {
+  const fsp = require("fs").promises;
+  const name = dir + "/syslog-last-boots";
+  const part = dir + "/.syslog-last-boots.txt.part";
+  const data = await fsp.readFile(src);
+  await DLZMOD_rw(async () => {
+    const x = await DLZMOD_run("/usr/bin/mount", ["-o", "remount,rw", root]);
+    if (!x.ok) throw new Error("remount: " + x.err.trim());
+    if (!DLZMOD_uploadMounted(await fsp.readFile(mounts, "utf8"), root)) {
+      throw new Error(root + " is not a writable FAT medium");
+    }
+    await fsp.mkdir(dir, { recursive: true });
+    if (!(await DLZMOD_recReal(dir))) throw new Error(dir + " is not a folder");
+    await fsp.rm(part, { force: true });
+    const fh = await fsp.open(part, "w");
+    try {
+      await DLZMOD_writeAll(fh, data);
+      await fh.sync();
+    } catch (e) {
+      // a full card: no orphan of the log's size left behind
+      await fh.close().catch(() => {});
+      await fsp.rm(part, { force: true }).catch(() => {});
+      throw e;
+    } finally {
+      await fh.close().catch(() => {});
+    }
+    // each file synced under its new name: over an existing .prev, FAT's rename frees the old file's
+    // clusters but writes the reused folder entry only with the renamed file's own inode, which a
+    // sync of the folder does not write; a power cut before that left .prev pointing at free
+    // clusters [PC test: tests/bootlog-copy.sh]
+    const prev = await fsp.rename(name + ".txt", name + ".prev.txt").then(() => true, (e) => {
+      if (e.code !== "ENOENT") throw e;
+      return false;
+    });
+    if (prev) await DLZMOD_syncFile(name + ".prev.txt");
+    await fsp.rename(part, name + ".txt");
+    await DLZMOD_syncFile(name + ".txt");
+    DLZMOD_syncDir(dir);
+  });
 }
 
 // port 89 (the screen's connection) on loopback only, IPv4 and IPv6: app.js connects to

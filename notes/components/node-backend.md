@@ -175,17 +175,29 @@ Whether the `HAVE_*` flags unlock anything without native support is unknown [gu
 
 ### Look and meters
 
-- One palette object `Color={black, white, red, green, blue, yellow, ..., white15 ... black60}`
-  plus ~80 `Color.*` names in use (`Color.knobs`, `Color.vuGrad`, `Color.vuBg`, `Color.gray69` ...).
-  Some hex values are also hardcoded outside it (`#ffffff`, `#666666` ...). A theme can override
-  `Color` at startup; the hardcoded rest needs extra patches [static].
+- One palette object `var Color={transparent, black, ..., vuGrad, eqBands, padFx}` (100 names; an
+  older, smaller `Color={...}` earlier in the file is overwritten by it), right after it
+  `Color.samples` and `Color.knobs` built from its colours; 88 names in use, 1223 uses. ~460 colour
+  values are written into the code outside it (226 distinct: `#666666` borders, `#303030`/`#393939`
+  tracks, `#1a1a1a` strip panels, `#888888` text ...) [static]. Widgets copy their colours when they
+  are made (86 `this.x=Color.y`, plus option objects), so changing `Color` after the pages are built
+  changes nothing on screen; Mackie's own language choice restarts the screen for the same reason
+  [static + sandbox]. Every drawn colour passes `fillStyle`/`strokeStyle`, so a colour swapped there
+  changes the screen at the next repaint (`app.update()`) [sandbox]. The mod's themes: [../mod.md](../mod.md), "Themes and colours".
+- On the mixer every drawing call goes to glesgui through `wrapObject` (`$CFG.ctxPipeline`): methods
+  are recorded, property sets (`fillStyle` ...) pass a setter that records them [static].
+- The knob rings' colours (`K.N.color`) are `Color` values from each knob's `control.color`
+  (`Color.reverb`, `Color.main` ..., `getAuxColor`), set in `RightPanel.setData`/`setUser`/
+  `recallUser` [static].
 - `VU_GRADIENT` is off when app.js runs under Node (`$ENV.isNode`): the meter gradient (`Color.vuGrad`, green → yellow → red) is drawn
   only in a browser; the device draws solid `Color.green` [static]. Probably a NanoVG performance
   choice [guess].
 - Meter data arrives as the hub's `VU` command (`parseVuData`); the graph offers pre-gain,
   post-gain, dynamics and post-fader groups per strip (see [mixergraph.md](mixergraph.md)). Per
   strip type the message carries `<type>.pre` (before the gain), `.gain` (after the gain, before
-  the fader) and `.post` (after the fader), one byte per channel, value = byte / 254 [static].
+  the fader) and `.post` (after the fader), one byte per channel, value = byte / 254 [static]. The
+  master (`m`) has no `.gain`, and its `.post` is taken before the master fader
+  ([mixergraph.md](mixergraph.md), "The master has no tap after its fader") [static + device].
   Stock draws `.post` as the bar (its clip light follows that bar, `autoClip`), keeps `.pre` as an
   undrawn second value and uses `.gain` only for the selected strip's gain meter on the Setup
   page [static].

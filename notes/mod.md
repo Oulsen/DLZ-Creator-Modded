@@ -21,9 +21,14 @@ hold the mod's own code that the patches call, `install/sd-system/` the units an
 | `flash-gd32`, `upgradedaemon`, `upgraderun` drop-ins | Mackie's GD32 flasher and both updaters never run from the card. Guards |
 | `dlzmod-grow-data` + `.service` | First boot: grows `DLZDATA` to fill the card; later boots stop at once (`/var/lib/dlzmod/dlzdata-ready`) |
 | `dlzmod-update` + `.service` | The drop-in update ([updates.md](updates.md)) |
-| `dlzmod-bootlog` + `.service` | Copies the syslog of the last 3 SD-system boots to `DLZDATA/dlzmod-logs/` before the mixer software starts (~2.2 s), readable in any card reader ([modding-guide.md](modding-guide.md), "Dev loop") |
 | `dlzmod-clock` + `dlzmod-clock.service`, `dlzmod-clock-floor.service` | Keeps the clock going forward over a power-off (#1): `dlzmod-clock.service` saves the time to `/etc/fake-hwclock.data` every minute and at its stop (written next to it, then renamed); `dlzmod-clock-floor.service` (oneshot, once per start, before the mixer software, the update and the boot log) moves the clock just past the newest file on DLZDATA when that is at most 10 min ahead (written after the last save; further ahead = written elsewhere, ignored), DLZDATA mounted read-only and always unmounted again (trap; `find` limited to 15 s). fake-hwclock stays stock: its load at sysinit, and its in-place save at a clean shutdown after ours (a power cut in that moment leaves an empty file: the clock then stays at systemd's build time, as stock; no drop-in for it, because the updaters on the cards only accept drop-ins for the units in their allowlist, `allowed` in `dlzmod-update`). A forward-only clock, not the right time ([system.md](system.md), "Clock") [static; `tests/clock.sh`] |
+| `dlzmod-bootlog` + `.service` | The syslog of the last 4 SD-system starts (this one included, with its report), for `DLZDATA/dlzmod-logs/`, readable in any card reader ([modding-guide.md](modding-guide.md), "Dev loop"). Not a step of the start since #136: `dlzmod-bootreport` starts it at its end; it writes only to `/run/dlzmod-bootlog/`, and server.js copies the file to the card (`DLZMOD_bootlogCopy`, like the update upload: through the queue of remounts, not while recording, temp file, fsync, renames, read-only again after it). Before, it mounted DLZDATA itself at ~10 s, where starts hang (#81): a start that froze during the copy left a broken FAT chain in its own file, and the next start's rename hit `fat_free_clusters: deleting FAT entry beyond EOF`, the kernel set DLZDATA read-only, and the script still logged "wrote" [device] |
+| `dlzmod-netlog` + `.service` | For development cards (#136; installed on every card, idle without its setting file): the journal of the start (RAM, kernel lines included) sent line by line over UDP to a PC, so a start that hangs before its log reaches the card leaves one on the PC. Off without `/var/lib/dlzmod/netlog` (`<IPv4> <port>`, written by `dev/netlog.sh`); waits for a route (Wi-Fi at ~15-25 s), then sends everything since the start and follows. The kernel has no netconsole (`CONFIG_NETCONSOLE` not set) [static] |
+| `dlzmod-bootreport` + `.service` | One report per start in the syslog (so in the next boot log copy), written once the start is done (the script waits at least 90 s, at most 5 min from its own start a few seconds after `basic.target`; not ordered after `multi-user.target`, so a start that hangs before it still gets a report naming the waiting jobs) at the lowest priority, `Type=exec` so nothing waits for it: `systemd-analyze` times, the critical chain of `multi-user.target`/`dspserver`/`glesgui`, the 15 slowest units, each mixer and dlzmod service's start, restarts and state, failed units, the audio chips' start from dspserver's own lines (they are priority info, so a chip that does not answer is not among the warnings; lines that differ only in their numbers, like the retries, collapse into one and a count; the first 30 lines, then the failure lines whatever comes before them), the start's warnings and errors (first 100, without the bodies of kernel stack dumps: their `CPU: ... Tainted` line stays). Its lines start with `dlzmod-bootreport` (#136). On the device [device]: the report comes ~2.5 min after power-on, because the start counts as done only when the stock `systemd-networkd-wait-online` gives up (2 min; the mixer itself is up at ~24 s); ~180 lines, all in the syslog (no rate limit hit); the stack dump filter took one start's warnings from 142 lines to 48 |
+| `dspserver` drop-in: line-buffered stdout | `LD_PRELOAD` of coreutils' `libstdbuf.so` with `_STDBUF_O=L` (what `stdbuf -oL` does; stock's `ExecStart` kept), so dspserver's own lines reach the log as they are written ([components/dspserver.md](components/dspserver.md), "Log and audio chip start") (#136). Works on the device: the chip start lines are in the log at ~27 s of every start [device] |
 | `dlzmod-wait-hub` (from the `dspserver` drop-in) | dspserver waits until server.js listens on port 80 (at most 45 s). dspserver connects once and never retries: if it is first, the mixer has no audio and ignores REC until a restart. Stock gets the order by luck of timing; a slow first boot flips it [device] |
+| `glesgui`, `evolve-node`, `evolve-app` drop-ins | Normal scheduling (`other`, priority 0, nice -20 kept) instead of stock's real-time FIFO 20, which let glesgui and node starve the rest of a start ([system.md](system.md), "Scheduling") (#140). An update checked by a v0.2.0 updater leaves them out (its allowlist); the new updater places them at the next start without an update file (also one that went missing), effective the start after ([updates.md](updates.md)) |
+| `dlzmod-update`, `dlzmod-grow-data` drop-ins | `DefaultDependencies=no` with `After=sysinit.target` and the shutdown ordering, so these two no longer wait for `basic.target` (the FPGA load) and Mackie's node processes, ordered after them, start when stock starts them: the mixer view ~7-9 s sooner [device] ([system.md](system.md), "Boot and services") (#141). Brought and placed like the scheduling drop-ins; the updater takes them only with its own text |
 | `90-dlzmod-usb-wifi.rules`, `70-dlzmod-wifi-zerocd.rules` + `dlzmod-zerocd-eject` | USB Wi-Fi stick support (below) |
 | `ssh.service.d/dlzmod.conf` | SSH only when turned on from the screen (below) |
 
@@ -104,22 +109,88 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
 
 ## Mod settings (Settings → DLZ Creator Modded)
 
-Sub-tabs Display / Network / Remote / Mod; layout and how to add a setting:
+Sub-tabs Display / Colors / Network / Remote / Mod; layout and how to add a setting:
 [modding-guide.md](modding-guide.md), "Mod settings". Every default on these tabs equals stock.
 
-- **Hide header** (#31): more room; also hides the toasts, the red pad indicators and "DEMO MODE".
+- **Hide header** (#31): more room; also hides the red pad indicators and "DEMO MODE". Mackie's
+  messages (toasts: "Saved: …", "Loaded: …", "Renamed", …) still show (#58): for their time (3 s) a
+  message-only bar in the header's look lies over the tab bar, up to the gear, on the foreground layer,
+  so nothing moves [sandbox]. It stays through a page switch (a snapshot load shows "Loaded: …" and
+  goes to the Overview at once), a tap on it goes to the tab below, and it is gone on a full-screen
+  page or when Hide header changes [sandbox] (`DLZMOD_messageBar`, wrapping `TopBar.showMessage`). No
+  setting of its own: every toast follows something the owner just did.
 - **Meters** (#38), key `dlzmod.meterMode`: 0 Mackie (default), 1 Both, 2 Before fader. In Both,
   a dim second bar shows the level after the gain, before the fader (`.gain`), using the second bar
   `VUMeter` has but stock never turns on, and the clip light follows it; `dlzmod.preColor` (green /
-  grey) and `dlzmod.preLevel` (strong / soft) set its look. `dlzmod.meterMarks`: yellow and red zones
+  grey) and `dlzmod.preLevel` (strong / soft) set its look. The main L/R meter is before the master
+  fader in stock already (no `.gain`, `.post` in front of the fader), so Mackie and Before fader leave
+  it as is; in Both its dim bar is that level and the bright bar is computed: the level moved by the
+  fader's dB (`modVuByDb(level, VtoMix(m.mix))`, as Mackie's own aux meters do), 0 when muted, as
+  Mackie until `m.mix` is known (#134). With the fader above 0 dB the bright bar is longer than the
+  dim one; the clip light still follows the level before the fader, so a clip caused by the fader
+  alone shows only as a full bright bar. `dlzmod.meterMarks`: yellow and red zones
   at the stops of `Color.vuGrad`, dB notches on every strip meter and numbers beside LR (painted by
   wrapping the LR fader's `paint`); off = Mackie's plain meters. The scale is dB-linear over 80 dB with
   0 dBFS at the top [device: test tones at -6 and -30 dBFS].
+- **Colors** (#21): see "Themes and colours" below.
 - **Network** (#12, #44): Wi-Fi and SSH, below.
 - **Remote Control** (#45, #48): control from a computer's web browser, off by default; below (phones
   and tablets: Mackie's web UI does not fit them and misses touches, #52).
 - **Mod**: version, update status (an update waiting on the card, with "Install Update..." on the
   mixer's own screen, #65), credits.
+
+## Themes and colours (#21)
+
+Settings → DLZ Creator Modded → Colors, three rows; Default in each is the contrast's own:
+- **Contrast**: Normal (Mackie's look) or High.
+- **Color**, for the faders' knobs, the meters and what is selected: White, Yellow, Orange, Red, Teal,
+  Blue, Purple. Mackie's own channel colours, so they sit with the strips' colours as one family,
+  except Red (`#e0533f`, calmer than Mackie's clip red); lighter with High contrast; no green, the
+  default is green already. Every colour colours the meters, Red too: the clip block above a meter
+  then stands out less, the owner's choice [sandbox, device]. A chosen light swatch gets a dark line
+  inside its white edge, or the edge does not show on white [device].
+- **Background**: Default or Tinted (a dark shade of the chosen colour). A plain black background
+  differs too little from Default to be a choice: Default is black with Mackie's dark grey panels
+  behind the stereo strips, LR, lists and popups [sandbox].
+
+Keys `dlzmod.theme`, `dlzmod.bgColor`, `dlzmod.faderColor`, 0 = stock; the numbers are saved, so once
+released the lists only grow at the end; a number a list does not have shows the default. A tap saves
+that choice and the whole screen shows it at once: the screen is the preview, no Apply, no restart
+[sandbox, device].
+
+- **How** [static + sandbox]: Mackie's palette is one object, `Color` (100 names, 1223 uses), but
+  widgets copy their colours when they are made, so changing `Color` later shows nothing. So, once,
+  before `startGUI` builds the pages (patch.py), every palette colour any look changes gets a value
+  of its own (`DLZMOD_tokens`: Mackie's colour moved one step in blue until it is no other palette
+  colour, no colour a theme swaps in the code and no other such value; also one for the Mod page's
+  accent and one for the Overview's background, where Mackie writes `Color.black`). Where every
+  colour is set for drawing (on the mixer in `wrapObject`'s property setters, every drawing call to
+  glesgui passes there; in a browser on the canvas) a table turns each such value into the chosen
+  look's colour, or Mackie's. A change rebuilds the table and repaints (`app.update()`): no restart
+  (one would also risk systemd's start limit, 5 restarts within 10 s: dark screen until a power
+  cycle). Mackie's look draws every value as Mackie's own colour. `Util.hex2rgba`/`brighter` of such a
+  value give a value of their own, so a colour Mackie works out when a page is built (a list's
+  selection colour from `Color.main`) follows a change too (`DLZMOD_sum`, at most 256 [static]);
+  `Color.vuGrad` is changed in place (the meters keep that list). Colours written
+  into the code outside the palette (~460 places, 226 values: greys for text, tracks, strip panels,
+  knobs) go through the same table. Checked against the dump's `app.js`: every palette name the looks
+  use exists, and no such value equals a colour written anywhere in it [static]. Found per page with a probe in the sandbox that records each colour drawn outside the
+  palette and the code that drew it. The FX pages' light panels keep theirs (already dark on light).
+- **High contrast** [sandbox]: black behind everything, white text, grey lines, buttons a step above the black
+  with an outline (Mackie's own `Button` border, patched on in `paintBody`), selection in a strong
+  yellow, meters a lighter green.
+- **One piece** [sandbox]: Tinted also moves Mackie's greys on it (buttons, panels, meter
+  tracks, tab bars; palette and written into the code) into its hue (`DLZMOD_tint`), and with an own
+  colour the panel edges and lines between areas are a soft shade of it. Default leaves
+  the greys stock. Channel icons and colours, warnings (mute, clip, +48V) and the knob panel's
+  parameter colours (they match the knob rings) stay Mackie's [static].
+- **The Mod page** follows the chosen colour everywhere: switches, choices, tabs, the mod's name,
+  the line on its panels and status texts; the mod's yellow only without an own colour.
+- **Knob LEDs stay Mackie's**: the knob rings' colours (`K.N.color`, to the fader board) are
+  `Color` values: each goes out as Mackie's colour it stands for (`DLZMOD_ledColor`). Pad colours
+  and Mackie's other colour lists (channels, auxes, samples) are never themed.
+- **Only from the mixer's screen**: the server refuses the three keys from other devices (the
+  mixer's own look); a browser shows the tab, cannot pick, and follows a change at once.
 
 ## Network panel: Wi-Fi and SSH
 
@@ -131,8 +202,8 @@ Sub-tabs Display / Network / Remote / Mod; layout and how to add a setting:
   (app.js in jsdom) connects to 127.0.0.1. Other devices get an empty status (no network name,
   address or SSH state; the Mod page there says "on the mixer's own screen") and nothing is run
   for them.
-- Children run at normal priority (`chrt -o 0 nice -n 20`): evolve-node runs SCHED_FIFO 20 and they
-  would inherit it.
+- Children run at normal priority (`chrt -o 0 nice -n 20`): evolve-node runs nice -20 (and stock's
+  SCHED_FIFO 20 on a card the #140 drop-in has not reached yet), which they would inherit.
 - **Wi-Fi** through NetworkManager (`nmcli` via `execFile`, no shell). A stick counts when nmcli has
   a `wifi` device. Connect writes a root-only keyfile
   `/etc/NetworkManager/system-connections/dlzmod-wifi-<hex of the name>.nmconnection` (atomic, with
@@ -357,7 +428,7 @@ power cuts); the mixer still to come]:
   both entries normally sit in one sector written at once (recordings carry the same FAT risk). A bad
   package left on the card is copied to `/tmp` and hashed again at every start until it is replaced
   (up to 64 MiB, before the mixer software starts; the same for one copied with a card reader). The
-  upload runs inside evolve-node at its real-time priority, so playback from the card could stutter
+  upload runs inside evolve-node at its high priority (nice -20; real-time before #140), so playback from the card could stutter
   while one writes [guess: to listen for on the mixer]. Node 18's 300 s `requestTimeout` ends a body
   that takes longer (a 64 MiB one below about 1.7 Mbit/s; a real package is about 1 MB), which also
   bounds how long a stalled client keeps the card writable. No free-space check first: a full card is

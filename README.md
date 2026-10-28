@@ -2,31 +2,60 @@
 
 An unofficial mod for the Mackie DLZ Creator and DLZ Creator XS. It runs from a microSD card in the
 mixer: the mixer's own software stays as it is, and without the card the mixer starts normally.
-Alpha, at your own risk: read [DISCLAIMER.md](DISCLAIMER.md) first.
+Alpha, at your own risk, not supported by Mackie, and it could void your mixer's warranty: read
+[Is it safe?](#is-it-safe) and [DISCLAIMER.md](DISCLAIMER.md) first.
 
 ## What the mod does
 
-- **Recordings**: saved to the SD card by default, numbered across SD card and USB with unique
-  names like `REC_0003_otter`, and downloaded to a computer over the network (after pairing,
-  from the Media page)
-- **Meters**: level before or after the fader, yellow and red zones, a dB scale
-- **Screen**: the header bar can be hidden for more room; a "DLZ Creator Modded" tab in Settings;
-  its own startup screens and a startup log for bug reports
-- **Network**: Wi-Fi from the screen (with a USB Wi-Fi stick), remote login (SSH), and control from
-  a computer's web browser after pairing with a PIN (phones and tablets not yet,
-  [#52](https://github.com/Oulsen/DLZ-Creator-Modded/issues/52)); all off by default
-- **Safety**: no firmware updates from the card, the mixer's internal storage is never changed
-- **Updates** of the mod without losing recordings or settings, copied to the card or sent from a
-  computer's web browser after pairing, installed only after you tap Install on the mixer's own
-  screen
-- **Fixes for stock bugs**: the recording crash after take 9,999; new recordings overwriting old
-  ones; anyone on the network (or a prepared SD card or USB stick) changing files on the mixer;
-  anyone on the network controlling the mixer without a PIN; the SD card or USB stick staying
-  writable once it holds recordings, so switching off could damage it; the clock jumping back to
-  November 2023 after every power-off (it now goes on from where it was, so new recordings sort
-  after older ones)
+The mod's own settings are in Settings → **DLZ Creator Modded**, on the tabs named in brackets
+below. They all start as stock: turn on what you want.
 
-What changed in each version: [CHANGELOG.md](CHANGELOG.md).
+### Recording
+
+- Recordings go to the SD card by default
+- Names that never repeat, numbered across SD card and USB: `REC_0003_otter`
+- Download recordings to your computer over the network *(Media page, from a paired computer)*
+
+### Meters and screen
+
+- Meters that show the level before the fader, after it, or both *(Display)*
+- Yellow and red zones and a dB scale on the meters *(Display)*
+- Hide the header bar for more room; messages still show for a moment *(Display)*
+- A high-contrast look, your own background and your own color for the faders, meters and what is
+  selected *(Colors)*
+- The mod's own startup screens
+
+### Network and remote control
+
+- Wi-Fi from the mixer's screen, with a USB Wi-Fi stick *(Network)*
+- Control the mixer from a computer's web browser, after pairing with a PIN *(Remote)*; phones and
+  tablets not yet ([#52](https://github.com/Oulsen/DLZ-Creator-Modded/issues/52))
+- Remote login (SSH), for support and tinkering *(Network)*
+
+### Updates and safety
+
+- Update the mod without losing recordings or settings: copy the update to the card, or send it
+  from a paired computer *(Mod)*
+- An update installs only after you tap Install on the mixer's own screen
+- Updates are signed; if a signing key ever leaks, an update withdraws it and the mixer refuses
+  anything signed with it
+- The mixer's internal storage is never changed, and no firmware updates run from the card
+- Logs of the install and the last starts on the card, for bug reports *(the `dlzmod-logs`
+  folder, readable in any card reader)*
+
+### Fixes for stock bugs
+
+- Recording no longer crashes after take 9,999
+- New recordings no longer overwrite old ones
+- Nobody on the network, and no prepared SD card or USB stick, can change files on the mixer
+- Nobody on the network can control the mixer without a PIN
+- The SD card or USB stick no longer stays writable once it holds recordings (switching off could
+  damage it)
+- The mixer no longer gets stuck while starting, held up by its screen and control software
+- The clock no longer jumps back to November 2023 after every power-off: it goes on from where it
+  was, so new recordings sort after older ones
+
+What changed in each version: [CHANGELOG.md](CHANGELOG.md). What is coming: [Roadmap](#roadmap).
 
 ## Roadmap
 
@@ -44,8 +73,8 @@ What is planned and what is being worked on, all on GitHub:
 | Mixer | Firmware (Settings → About) | Status |
 |---|---|---|
 | DLZ Creator XS | 1.2.0, build 1731 | Supported, tested |
-| DLZ Creator (full-size) | 1.2.0, build 1731 | Supported: installed and running on an owner's mixer (v0.1.0); our test mixer is an XS |
-| Either model | another build, such as 1794 | Not supported: the installer can save a backup so we can add it |
+| DLZ Creator (full-size) | 1.2.0, build 1731 | Supported: installed and running on an owner's mixer (v0.1.0); my test mixer is an XS |
+| Either model | another build, such as 1794 | Not supported: the installer can save a backup so I can add it |
 
 ## Install
 
@@ -56,17 +85,49 @@ the card, put it in the mixer and follow the screen. Step by step, with pictures
 
 ## Is it safe?
 
-- The mixer's internal storage is locked read-only during the install and while the mod runs; the
-  mod never writes to it
-- Take the card out and the mixer starts its normal Mackie software, as before
-- A card belongs to the mixer it was installed on: in another mixer it keeps the sound hardware off
-  and says so on the screen
-- The installer also saves a backup of the mixer's internal storage onto the card
-- On a network (cable or Wi-Fi), other devices can only control the mixer once you allow it
-  (Settings → DLZ Creator Modded → Remote, off by default) and pair them with the PIN shown
-  there. Open the mixer by its IP address or its `.local` name. The connection is not encrypted: only use it on networks you trust, not on an open café or
-  venue Wi-Fi
-- It is still an alpha made by one person: see [DISCLAIMER.md](DISCLAIMER.md)
+**For the mixer itself: it is built so that the mod cannot damage it, and taking the card out
+undoes it.** For your recordings and your setup: it is alpha software, so expect bugs and keep
+copies of what matters. And it is your own risk: Mackie does not support the mod, and installing it
+could void your mixer's warranty.
+
+### What protects your mixer
+
+- **The mixer's own software is never changed.** Its internal storage is locked read-only during
+  the install and while the mod runs. The mod lives only on the card.
+- **Card out, stock mixer.** Switch off, take the card out, switch on: the normal Mackie software
+  starts, as before.
+- **A power cut during the install is harmless.** The card only becomes startable in the very last
+  step; until then the mixer ignores it and starts normally. Start the install again.
+- **A card works only in the mixer it was made on.** In another mixer, or after a Mackie update of
+  the mixer itself, it keeps the sound hardware off and says so on the screen, so the mixer's sound
+  parts never run with software that does not belong to them.
+- **Only known firmware.** The installer refuses any firmware other than 1.2.0 build 1731.
+
+### What can still go wrong
+
+- **Bugs.** It is an alpha made by one person and tested on one mixer (an XS). A feature can
+  misbehave or a start can hang; switching off and on, or taking the card out, gets you back.
+- **A fresh install, rarely.** v0.3.0 was the last fresh install planned before v1.0: the versions
+  after it come as updates that keep your recordings and settings. Should a fresh install from the
+  installer image still be the only clean way to bring a change, the release says so, and you copy
+  your recordings off the card first.
+- **Recordings.** An SD card can fail, and a bug can cost a take. Copy recordings you care about to
+  a computer soon; don't use the mod as the only recorder for a show you cannot repeat.
+- **The network.** The connection to the mixer is not encrypted. Other devices (cable or Wi-Fi) can
+  only control the mixer once you allow it (Settings → DLZ Creator Modded → Remote, off by default)
+  and pair them with the PIN shown there; they open it by its IP address or its `.local` name. Only
+  do this on networks you trust, not on an open café or venue Wi-Fi.
+- **Warranty.** See above; for problems with the mixer itself, take the card out before you
+  contact Mackie.
+
+### Your part
+
+- Copy the backup the installer saves (`dlzmod-backup` on the card) to your computer and keep it
+  private: it holds your settings, including the lock PIN.
+- Install Mackie firmware updates only with the card taken out (the mod refuses them anyway).
+- When the card is in your computer, never let Windows format a drive of it.
+
+The full terms: [DISCLAIMER.md](DISCLAIMER.md).
 
 ## SD cards
 
@@ -119,7 +180,7 @@ How it works, the tools, building a card from source and the knowledge base:
 
 ## Legal
 
-Our own code, notes and artwork are licensed under the [GPL-3.0](LICENSE). Mackie's software is not
+The mod's own code, notes and artwork are licensed under the [GPL-3.0](LICENSE). Mackie's software is not
 covered: it is not in this repo and not in the downloads.
 
 The installer image carries two GPL-2.0 programs from Debian: U-Boot (`u-boot-sunxi`

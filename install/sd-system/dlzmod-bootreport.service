@@ -1,0 +1,15 @@
+[Unit]
+Description=dlzmod: write a report of this start to the log, once the start is done
+# Type=exec: the start counts as done once the script runs, and the script itself waits for the end
+# of the start, so nothing waits for it. Not After=multi-user.target: a start that hangs before that
+# target still gets its report (the script names the jobs still waiting)
+
+[Service]
+Type=exec
+ExecStart=/usr/local/sbin/dlzmod-bootreport
+Nice=19
+IOSchedulingClass=idle
+RuntimeMaxSec=600
+
+[Install]
+WantedBy=multi-user.target

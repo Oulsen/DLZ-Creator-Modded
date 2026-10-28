@@ -5,6 +5,7 @@
 # the guard stops at "no mixer address stored" and never connects.
 S=$(dirname "$(readlink -f "$0")")/dlz-ssh.sh
 export HOME=$(mktemp -d)
+export DLZ_NETLOG_DIR=$HOME/netlog   # no network log here; the early-start cases make their own
 fail=0
 t() {   # t <expected allowed|REFUSED> <command>, or t <expected> get <remote> <local>
   if [ "$2" = get ]; then out=$(bash "$S" get "$3" "$4" 2>&1); else out=$(bash "$S" run "$2" 2>&1); fi
@@ -191,6 +192,72 @@ t REFUSED get '/tmp/a b' build/device-logs/x
 t REFUSED get '-oProxyCommand=x' build/device-logs/x
 t REFUSED get /var/log/syslog 'other-host:/tmp/x'
 t REFUSED get /var/log/syslog '-r'
+# no login while a start settles, by the network log's current start: 30 s after its screen
+# (glesgui's "Context renderer string"), or 300 s while there is none; its last line (uptime) and age
+e() {   # e <expected early|allowed> <description> [env...]
+  out=$(env "${@:3}" bash "$S" run uptime 2>&1)
+  case $out in *"REFUSED (the mixer started"*) r=early ;; *"no mixer address"*) r=allowed ;; *) r="?? $out" ;; esac
+  [ "$r" = "$1" ] && m=ok || { m=WRONG; fail=1; }
+  printf '%-5s %-8s %s\n' "$m" "$r" "$2"
+}
+mkdir -p "$DLZ_NETLOG_DIR"
+e allowed "no network log"
+printf '[    0.000000] host kernel: Booting Linux\n[   95.123456] host x: a line\n' > "$DLZ_NETLOG_DIR/netlog-1.txt"
+e early   "95 s up, written just now"
+e allowed "95 s up, but the user agreed"              DLZ_SSH_EARLY=1
+touch -d '-240 seconds' "$DLZ_NETLOG_DIR/netlog-1.txt"
+e allowed "95 s up, written 4 min ago (over 300 s now)"
+touch -d '-11 minutes' "$DLZ_NETLOG_DIR/netlog-1.txt"
+e allowed "a log quiet for 11 min says nothing"
+printf '[  451.313965] host x: a line\n' > "$DLZ_NETLOG_DIR/netlog-2.txt"
+e allowed "the newest file: 451 s up"
+sleep 1; printf 'not a journal line\n' > "$DLZ_NETLOG_DIR/netlog-3.txt"
+e allowed "a file without an uptime says nothing"
+printf '[   40.100000] host x: a line\nnot a journal line\n' > "$DLZ_NETLOG_DIR/netlog-3.txt"
+e early   "a last line without an uptime: the journal line before it (40 s)"
+printf '[ 4000.100000] host x: a line\n===== new start of the mixer =====\n[    0.000000] host kernel: Booting Linux\n[   20.5] host x: a line\n' > "$DLZ_NETLOG_DIR/netlog-3.txt"
+e early   "a new start after an old one in the same file: its own uptime (20 s)"
+G='mackie glesgui[640]: Context renderer string: Mali-400'
+printf '[    0.000000] host kernel: Booting Linux\n[   28.2] host %s\n[   40.5] host x: a line\n' "$G" > "$DLZ_NETLOG_DIR/netlog-3.txt"
+e early   "screen at 28 s, 40 s up: not 30 s after it yet"
+printf '[    0.000000] host kernel: Booting Linux\n[   28.2] host %s\n[   58.9] host x: a line\n' "$G" > "$DLZ_NETLOG_DIR/netlog-3.txt"
+e allowed "screen at 28 s, 58 s up: 30 s after it (before: 300 s)"
+printf '[    0.000000] host kernel: Booting Linux\n[   28.2] host %s\n[   45.0] host x: a line\n' "$G" > "$DLZ_NETLOG_DIR/netlog-3.txt"
+touch -d '-15 seconds' "$DLZ_NETLOG_DIR/netlog-3.txt"
+e allowed "screen at 28 s, 45 s up written 15 s ago (60 s now)"
+printf '[    0.000000] host kernel: Booting Linux\n[   28.2] host %s\n[  900.0] host x: a line\n===== new start of the mixer =====\n[    0.000000] host kernel: Booting Linux\n[   95.0] host x: a line\n' "$G" > "$DLZ_NETLOG_DIR/netlog-3.txt"
+e early   "the screen of the start before does not count: 95 s up, no screen yet (a stall: 300 s)"
+printf '[    0.000000] host kernel: Booting Linux\n[  241.0] host %s\n[  250.0] host x: a line\n' "$G" > "$DLZ_NETLOG_DIR/netlog-3.txt"
+e early   "a late screen (241 s), 250 s up: still 30 s after it"
+printf '[    0.000000] host kernel: Booting Linux\r\n[   28.2] host %s\r\n[   58.9] host x: a line\r\n' "$G" > "$DLZ_NETLOG_DIR/netlog-3.txt"
+e allowed "lines ending in CR, as the listener writes them: screen at 28 s, 58 s up"
+printf '[    0.000000] host kernel: Booting Linux\n[   28.2] host %s\n[  302.6] host x: rebooting\n[   30.8] host x: a line\n[   45.0] host x: a line\n' "$G" > "$DLZ_NETLOG_DIR/netlog-3.txt"
+e early   "a start whose first lines were lost (no marker): the screen of the start before does not count"
+C='mackie glesgui[681]: Client connected.'
+printf '[    0.000000] host kernel: Booting Linux\n[   32.3] host %s\n[   62.5] host x: a line\n' "$C" > "$DLZ_NETLOG_DIR/netlog-3.txt"
+e allowed "the renderer line lost: glesgui's Client connected at 32 s, 62 s up"
+# dev/push.sh reads the same file with need=1, only the lines after its prompt: a new start required
+p() {   # p <expected output> <description> <log text>
+  out=$(printf "$3" | awk -v need=1 -f "$(dirname "$S")/netlog-start.awk")
+  [ "$out" = "$1" ] && m=ok || { m=WRONG; fail=1; }
+  printf '%-5s %-8s %s\n' "$m" "push" "$2 (got '$out')"
+}
+p ""      "the old start still writing: keep waiting" '[  905.0] host x: shutting down\n'
+p "20 "   "a new start, no screen yet" '[  905.0] host x: old\n===== new start of the mixer =====\n[    0.000000] host kernel: Booting Linux\n[   20.1] host x: a\n'
+p "31 27" "a new start with its screen" '===== new start of the mixer =====\n[    0.0] host kernel: Booting Linux\n[   27.4] host glesgui[640]: Context renderer string: Mali\n[   31.0] host x: b\n'
+p ""      "a marker without a journal line yet" '[  905.0] host x: old\n===== new start of the mixer =====\n'
+p "45 32" "a new start without its first lines (no marker), its UI up" '[  905.0] host x: old\n[   30.8] host x: a\n[   32.3] host glesgui[681]: Client connected.\n[   45.0] host x: b\n'
+p "50 34" "the renderer line wins over a Client connected before it" '===== new start of the mixer =====
+[   30.0] host glesgui[681]: Client connected.
+[   34.0] host glesgui[681]: Context renderer string: Mali
+[   50.0] host x: b
+'
+p ""      "the old start goes on, a few lines out of order" '[  905.0] host x: old\n[  902.0] host x: late\n[  906.0] host x: c\n'
+sleep 1; printf '[   12.5] host x: a line\n' > "$DLZ_NETLOG_DIR/netlog-4.txt"
+out=$(bash "$S" get /var/log/syslog build/device-logs/x 2>&1)
+case $out in *"REFUSED (the mixer started"*) m=ok ;; *) m=WRONG; fail=1 ;; esac
+printf '%-5s %-8s %s\n' "$m" early "get too"
+rm -f "$DLZ_NETLOG_DIR"/netlog-*
 # the key login, offline too: stored as a private copy, shown, refused when it is no usable key, forgotten
 k() {   # k <description> <expected text in the output> <command...>
   out=$("${@:3}" 2>&1)

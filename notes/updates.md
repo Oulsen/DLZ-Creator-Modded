@@ -9,13 +9,13 @@ Code: `install/sd-system/dlzmod-update` (the updater on the card), `install/appl
 ## Release files
 
 A release has up to two downloads, built in one step from the same **package**
-(`install/release/build-release.cmd` → `mkinstaller.sh` + `mkpackage.sh`), and a `SHA256SUMS` for them:
+(`mkpackage.sh` + `mkinstaller.sh`, by the tag's workflow: "Built where"), and a `SHA256SUMS` for them:
 
 | File | Contents | For |
 |---|---|---|
 | `dlz-installer-vX.Y.Z.img` | Debian U-Boot + `uboot.env` + `boot.scr` + the package | A new install: write to a card, boot, install |
 | `dlzmod-vX.Y.Z.tar` + `.tar.sig` | The package: installer initramfs + all mod files (patches, services, layers), and its signature | An update of an existing mod card |
-| `SHA256SUMS` | The sha256 of every file above that the release publishes, made at the release from the tested files (`sha256sum` in `build/release`, two spaces before the name) | Checking a download |
+| `SHA256SUMS` | The sha256 of every file above that the release publishes, made by the tag's build (`sha256sum` in `build/release`, two spaces before the name) | Checking a download |
 
 What installs and what updates is always the same code. Neither is ever named like a Mackie `.upd`.
 
@@ -23,7 +23,8 @@ The update file is published only when the release installs as a drop-in on a ca
 previous release (judged by that release's updater, see "Versions and channels"). A release that
 needs a full install (it changes a guard, a file outside the updater's allowlist, or the updater's
 own checks; `REINSTALL=yes`) publishes only the image, so nobody tries an update that the card
-would refuse; its notes say so. v0.1.0, the first release, is image only. Until the full update
+would refuse; its notes say so. The tag's build decides this from the package: no update file when
+`REINSTALL_BELOW` (`install/release/reinstall-below`) is the version itself (`ci-build.sh`). v0.1.0, the first release, is image only. Until the full update
 (#56) exists, a full install means copying the recordings off the card first.
 
 **A finished card image is never published**: it contains Mackie's system copied from the eMMC.
@@ -33,6 +34,59 @@ are distributed.
 An update cannot come through the installer image: writing the image erases the card (recordings
 included) before the installer runs, and the mixer has one card slot. Keeping recordings across an
 update goes through the card itself: the drop-in update below.
+
+### Built where (#68, #158)
+
+GitHub builds and signs the release files from the tag (`.github/workflows/release.yml` →
+`install/release/ci-build.sh`), in the pinned build environment `install/release/buildenv/`; the
+PC builds the same commit in the same image, unsigned (`build-release.cmd`, `UNSIGNED=1`), tests
+that build on the mixer, and checks with `release.sh compare` that the draft's files are its bytes
+and that the signature fits them (`docs/DEVELOPMENT.md`, "Releases"). Seen on the test tag
+`v0.3.0-test1` (commit 7110028): GitHub's installer image was the PC's byte for byte [device:
+GitHub vs PC, 2026-10-26]; not yet seen: a signed release tag, and a draft with the update tar
+(that test's package said a fresh install, so only the image was attached).
+
+- **The build environment**: a Docker image (`buildenv/Dockerfile`) of Debian trixie-slim pinned by
+  digest, with every package from `snapshot.debian.org` at one moment (`SNAPSHOT`), so the tool
+  versions that shape the bytes are the same on both sides; `buildenv.sh` builds it once per
+  Dockerfile (tagged with its hash) and runs a command in it with the repo at `/src`, as root (the
+  `/dev/console` node). On the PC through Docker Desktop with WSL integration (need not start with
+  Windows); on GitHub on the runner's Docker. A new `SNAPSHOT` or digest is a new environment:
+  rebuild the last release in it and compare before trusting it.
+- **No kernel in the bytes**: the installer image's FAT was filled through a loop device and a
+  kernel mount, so the host's kernel (WSL's, the runner's) wrote its directory entries and the
+  container would have needed `--privileged`. `mkinstaller.sh` now makes and fills it inside the
+  image file (`mkfs.vfat --offset -h 0`, `mcopy`/`mmd` at the partition's byte offset) [static,
+  compared on the PC]: the same boot sector, FAT tables, clusters and file data as the loop-device
+  image of the same package; only the directory entries of the 8.3 names differ (mtools stores
+  `boot.scr` as `BOOT.SCR` with the lowercase flags, the kernel added a long-name entry). Both
+  readers find them either way: U-Boot looks names up without case, `/init` mounts the FAT as
+  `vfat` [device: the dev image of 7110028 installed, screens as before, 2026-10-26]. The
+  container's newer Pillow/FreeType draws the text in `logo.bin` and the boot visuals with
+  slightly different anti-aliased edges than WSL's (same content).
+- **The signing key**: `release.pem` and its passphrase are secrets of the environment `release`,
+  which only `v*` tags may use and which waits for the maintainer's approval; `ci-build.sh` writes
+  the key to a temporary folder for the build only. Test tags build in a job without it (unsigned).
+  The checkout keeps no token in `.git/config` (the repo is mounted into the build). The spare
+  `release2` stays offline: a withdrawal release is signed on the PC.
+
+What a build on GitHub needed, found before #158 [static, rebuilds of v0.2.0 in WSL]:
+
+- **No Mackie file**: the package and the image come from the repo and the two pinned Debian
+  packages (`vendor.sh`, sha256-checked); no dump. Debian drops a version from `deb.debian.org`
+  once a newer one is out: rebuilding an old tag then needs `snapshot.debian.org` [guess: Debian's
+  usual practice, not seen for these two yet].
+- **Reproducible**: two builds of the same commit are byte-identical, the package and the image, from
+  a Linux clone or the tree on `/mnt/d`, minutes apart. v0.2.0 rebuilt from its tag had the same
+  files as the release; its tar and image differed only in what is now fixed (the copied
+  `sd-system/` files' modes followed the source tree; the FAT's file times were the build's clock).
+- **Same tools needed**: gzip, cpio, Pillow with FreeType, the DejaVu fonts, dosfstools and mtools
+  shape the bytes, hence the one build environment (the PC's WSL is Ubuntu 22.04, not the 26.04
+  noted here before). Files are copied onto the FAT in a fixed order and every FAT time (the
+  label's too) is set in UTC, so the host's directory order and time zone do not count.
+- **Why GitHub may sign, after #63**: a leaked key can now be withdrawn from cards installed with
+  v0.3.0 or later (#63, "Signing keys"); before that, a key stolen from GitHub would have been
+  trusted by every card for life (cards from v0.2.0 and older still trust theirs).
 
 ## Drop-in update
 
@@ -49,10 +103,12 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    adding the `.sig` later works. More than one tar: nothing is installed.
 3. **Check, on a copy in `/tmp`** (tmpfs, ~500 MiB [static: fstab]), before anything in it is read:
    size at most 64 MiB (a real package is ~1 MB); the ed25519 signature against the card's trusted
-   keys, and `CHANNEL` = the channel of the key that verified; only plain files and folders in the
+   keys (a withdrawn one verifies nothing: "Signing keys"), and `CHANNEL` = the channel of the key
+   that verified; then the keys the package withdraws (`WITHDRAWN`) onto the card's list; only plain files and folders in the
    tar and in the initramfs inside it (no links, no `..`; the initramfs may hold `dev/console`); both manifests, and the manifest = the file
-   list; the card's model in `MODELS`, `EVOLVE_NODE` and `REINSTALL=no`; not older than the card's version
-   (`/var/lib/dlzmod-update/version`); and the package's **guards** byte for byte
+   list; the card's model in `MODELS`, `EVOLVE_NODE`; not older than the card's version
+   (`/var/lib/dlzmod-update/version`); no full install needed (`REINSTALL_BELOW` not above the card's
+   version; without it `REINSTALL=no`); and the package's **guards** byte for byte
    as the installed updater knows them (sha256 list `GUARDS` in `dlzmod-update`, checked against the
    files by `mkpackage.sh`). A package that changes a guard needs a full install. Then the one
    piece of package code that runs as root outside the sandbox: its own `check-rootfs.sh` (does
@@ -105,10 +161,17 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    rehearsal: `tests/update.sh` cases 13, 17, 19, 34-35, 62, 64-74].
 
 Not covered by the drop-in (installer only): boot visuals, the installer itself, the card layout,
-the guards. A package can declare `REINSTALL=yes` for such changes; the drop-in refuses it.
+the guards, the updater's own gates and allowlist, the trusted keys. Such a version is a **full
+install**: `install/release/reinstall-below` holds the first version every card must have been
+installed with, and `mkpackage.sh` writes `REINSTALL_BELOW=<it>` and `REINSTALL=yes` into every
+package from then on. The updaters from before #63 know only `REINSTALL` and refuse it; this one
+refuses only a card whose version is below `REINSTALL_BELOW`, so cards installed with that version
+(the dev card too) take later builds as drop-ins again. v0.3.0 is one (#63, and #96's allowlist
+entry); the file stays until a later full install raises it.
 
 Tested: `tests/update.sh` on a card image (power cut, failure after the patches, the sandbox walls,
-placing and putting back, a card on v0.1.0's updater taking a new package) and `tests/update-checks.sh`
+placing and putting back, cards on v0.1.0's and v0.2.0's updaters refusing a full-install package,
+the #140/#141 drop-ins placed by the new updater at a start, the key withdrawal) and `tests/update-checks.sh`
 without one (every released updater's gate for the new copy; the package and card checks: links,
 wrong model, older version, a weakened guard, the signing cases), on the PC; installed and refused (one
 byte changed, original `.sig`) on the mixer, by the mixer's own OpenSSL 3.0.2 [device].
@@ -144,9 +207,10 @@ rehearsal: `tests/update.sh` case 3a]:
   fsync: the next thing the user does is cut the power) and answers "Ready to install vX.Y.Z. Switch
   the mixer off and on."; the update installs while the logo shows (about 12 s in all, of
   which 4 s checks [device]), then the popup below says how it went.
-- **Off and on, not a restart from software**: software restarts on the mod card often hang at the
-  next start (#81, `notes/components/glesgui.md`), so the screen asks for the switch, as
-  `dev/push.sh` does (#87).
+- **Off and on, not a restart from software**: before #140, software restarts on the mod card often
+  hung at the next start (#81, `notes/components/glesgui.md`; 10 of 10 went through since), so the
+  screen asks for the switch, as `dev/push.sh` does (#87); the switch also resets the parts a
+  software restart leaves powered.
 - The updater installs only when `approved` holds the record of the file it has just checked: a file
   replaced or changed after Install (another tar or another `.sig`) is asked about again. The approval
   is used up once the snapshot and progress marker are written; a fail before that removes it too,
@@ -166,8 +230,10 @@ rehearsal: `tests/update.sh` case 3a]:
 - An unseen result popup and a new question can open at the same start, one over the other
   (accepted: rare, both still work).
 - **Not shown during the install**: the screen keeps Weston's background (the logo) meanwhile.
-  Weston and glesgui start in `basic.target`, before the updater (a `multi-user` service), so the
-  kernel bootsplash and `/dev/fb0` are not on screen any more [static: the units in the dump]. A
+  Weston and glesgui start in `basic.target`; the updater (a `multi-user` service) starts right
+  after `sysinit.target` and `local-fs.target` since #141, so the kernel bootsplash is on screen at
+  its start and
+  Weston's background takes over during a longer install [static: the units; the screen: guess]. A
   message during the install: #96.
 
 Accepted: a file that someone else puts on the card still runs its package's `check-rootfs.sh` as
@@ -226,13 +292,27 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   `srv/{app.js,server.js,srv_data.json}`, `var/lib/dlzmod-update/{version,installed}`,
   `usr/local/sbin/dlzmod-*`, `etc/udev/rules.d/*dlzmod*.rules`, `etc/systemd/system/dlzmod-*.service`,
   `ssh.socket`, the `dlzmod.conf` drop-ins of flash-gd32, flash-fpga, upgradedaemon, upgraderun,
-  dspserver and ssh, `dlzmod-*.service` links in `multi-user.target.wants`, and only
+  dspserver and ssh, and since v0.3.0 those of glesgui, evolve-node and evolve-app (#140) and of
+  dlzmod-update and dlzmod-grow-data (#141), and of weston-mackie (for #96, no package brings one
+  yet), `dlzmod-*.service` links in `multi-user.target.wants`, and only
   `dlzmod-emmc-ro.service` in `sysinit.target.wants`. Not `boot/boot.scr` (below). Also refused: names
   with a space, newline, quote or glob character; special files; wrongly shaped links; units with
-  `DefaultDependencies=no` (only the eMMC lock's own unit has it); udev rules with `setrw` or
-  `force_ro=0`; setuid, setgid, sticky or other-writable modes.
+  `DefaultDependencies=no` (only the eMMC lock's own unit has it), and since v0.3.0 drop-ins with it
+  (the allowlist takes only `.service.d` ones), except #141's two early-start drop-ins with exactly the updater's own text (`EARLY_CONF`);
+  udev rules with `setrw` or `force_ro=0`; setuid, setgid, sticky or other-writable modes.
   A later version that needs a path outside this list needs a full install, or first an update that
   only brings the newer updater (its own list applies from the next update).
+  Or, for a fixed file, the way #140's and #141's drop-ins came: the package's `apply-mod.sh` reads the card's
+  updater (in the stage, before its new copy goes in) and leaves the file out when that one's list
+  lacks it; the new updater carries the file's text itself (`SCHED_CONF`, `EARLY_CONF`, checked against the shipped
+  files by `mkpackage.sh` and `update-checks.sh`) and places it at the next start without an update
+  file: only where it is missing (one that is there is left as it is, so a later version's own
+  change is not undone; one deleted on purpose comes back, so to try stock scheduling, empty the
+  file instead), written next to it and renamed, never while a cut-off try waits to be put
+  back or the eMMC is not locked. Only a start without an update file places it: while one waits on
+  the card, the placing waits too. A placing that fails says so in the journal only (the boot
+  report), not in a report on DLZDATA at every start. systemd read the units before the updater
+  ran, so they apply from the start after [static, PC rehearsal: `tests/update.sh` cases 3c, 75].
 - **The new updater copy** must keep the installed one's `GUARDS` list exactly and contain its gates
   (signature check, the sandbox's uid, capability drop, user namespaces off, read-only remount, eMMC check, the refusal
   of rehearsal settings on the card, allowlist, key check). A text check: it catches a mistake, not a
@@ -252,6 +332,13 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   `boot.scr`; no package changes it). Later boot logic (a boot flag, a boot counter) needs a full
   install, or first an update that brings an updater whose own list allows it. The snapshot still
   covers `boot/boot.scr`, so a try that an older updater cut off is put back whole.
+- **No full install before v1.0** (decided at v0.3.0, the last full install so far): the boot logic
+  of #56 and #19 takes the second way, two drop-ins (an updater that allows `boot/boot.scr`, then the
+  `boot.scr`), each at the highest device-review tier; a bad card `boot.scr` costs a reflash of the
+  card, never the mixer, which starts stock without it. DLZDATA stays FAT32: exFAT (#22) would change
+  the card layout. The rest of the roadmap fits drop-ins (allowlist gaps in two steps; exFAT,
+  watchdog, CPU governors and the USB mass-storage gadget are modules or built into the stock
+  kernel, no `/boot` change) [static, kernel config of the dump; #56 "Technical notes"].
 - **Rehearsal settings** (`DLZMOD_ROOT`, `DLZMOD_DATA`, `DLZMOD_CHECK_ONLY`) skip the eMMC-lock
   check: the updater refuses them first thing when `/` is on an SD card (the mixer's own system),
   exit 2, nothing done [device: all three set by hand over SSH]. Where the root disk cannot be determined (a rehearsal chroot without `/sys`, a PC) it
@@ -322,18 +409,47 @@ internal storage.
   The updater tries `release`, `release2`, `dev`; `release2` counts as the release channel.
 - **Private keys** live outside the repo, in the folder `DLZMOD_SIGNING_KEYS` points to. Losing every
   copy of both release keys means no installed card takes an update again (only a fresh install).
-  A leaked release key cannot be withdrawn yet: cards trust their keys for life and no update
-  changes them, so whoever has the key and its passphrase can sign updates for every card (#63).
   The passphrase is the second lock: keep it apart from the key file.
+- **Withdrawing a leaked key** (#63, cards installed with v0.3.0 or later): add its name to
+  `install/keys/withdrawn` (`release` or `dev`, one per line; never `release2`) and release with the
+  spare key (`RELEASE_KEY=release2`). Every package from then on carries `WITHDRAWN=<names>`:
+  - the updater, after the signature and contents checks and before the checks that can refuse the
+    package, adds a name to the card's list `/var/lib/dlzmod-update/withdrawn` only for a package
+    signed with `release2` (a leaked `release` key cannot withdraw the spare), without waiting for
+    Install; from another key's package the name is ignored ("not withdrawn, only the spare release
+    key can withdraw a key"), so later release and dev builds carrying the list still install. It
+    sticks even when that package is refused later on; the report names a key withdrawn before;
+  - a key on the list verifies nothing: "signed with the release key, which was withdrawn on this card";
+    a list that cannot be read counts as withdrawing every key;
+  - the list only grows: the updater never removes a line, an update's steps cannot write it (not on
+    the allowlist, and a removal in the stage is never carried over), and the snapshot never holds it,
+    so a put-back cannot bring a key back; a new updater copy must keep the check (its gate strings);
+  - the installer (`install_update_keys`) leaves the package's withdrawn keys out and writes the list;
+    `build-sd.sh` (no package) reads `install/keys/withdrawn` instead. A full install always makes a
+    new card (a fresh copy of the eMMC), so its list is the package's, whatever the card held before;
+  - withdrawing `dev` names the channel: it also stops a developer's own dev key (`mkpackage.sh`
+    refuses to sign with it, cards leave it out), so the dev card needs a new dev key and a reinstall.
+
+  Accepted: no update adds a key, so after a withdrawal `release2` is the only release key, with no
+  new spare until a full install with new keys; an installer image from before the leak still
+  trusts the leaked key; a card that does not take the withdrawal update keeps trusting it (whoever
+  holds the key can reach it first, and can then replace the updater); the withdrawal package is
+  stopped like any other by a second update file in the folder, or by a failed unpack (no room in
+  `/tmp`: refused for good, so a new file is needed); nothing checks that `install/keys/withdrawn`
+  never shrinks. Cards from v0.2.0 and older trust their keys for life.
 - `mkpackage.sh` signs dev builds with the dev key and `RELEASE=1` with the release key
   (`RELEASE_KEY=release2` for the spare), asks an encrypted key's passphrase once (or reads
   `DLZMOD_SIGNING_PASS`, passed only to the two openssl calls), and checks the private key against
   the public key the package's cards will trust first. **A tree with uncommitted changes or new
   files in `install/` or `VERSION` is never signed** (`+dirty`: tar only, for PC rehearsals);
-  `RELEASE=1` refuses untracked files too.
-- **CI later**: a workflow would write the key from a GitHub secret into a temporary folder for
-  `DLZMOD_SIGNING_KEYS` and pass the passphrase as a second secret. An Actions secret cannot be read
-  back, so it is not a backup.
+  `RELEASE=1` refuses untracked files too. `UNSIGNED=1` builds a clean tree without a key: the
+  same tar as the signed build (ed25519 is deterministic: the same tar and key give the same
+  signature), which is how the PC checks GitHub's build.
+- **On GitHub (#158**, "Built where"): the tag's workflow writes the key from the secret
+  `DLZMOD_RELEASE_KEY` of the environment `release` into a temporary folder for
+  `DLZMOD_SIGNING_KEYS` and passes the passphrase as the second secret, `DLZMOD_SIGNING_PASS`. An
+  Actions secret cannot be read back, so it is not a backup: the offline copies of `release.pem`
+  stay the backup.
 
 Accepted: an older signed build of the same version installs again (equal stays allowed); a large
 refused file is copied and hashed at every start until it is removed (a few seconds).

@@ -100,20 +100,33 @@ The pattern, as used by "Hide header" (`install/app-mod/dlzmod.js`):
 - The key is global: a browser remote sees the same setting as the device.
 - Not for state the server owns (Wi-Fi, SSH on the Network panel): those come from the server mod
   as messages (`DLZMOD_NET_STATE`), so nothing is broadcast or saved in `srv_data.json`.
-- Layout: sub-tabs Display / Network / Remote / Mod (Mackie `ToggleButton`, 200 x 44, mod
-  yellow when active), 8 px gap, then that sub-page's cards, 388 px high. Unlike Mackie's pages
+- Layout: sub-tabs Display / Colors / Network / Remote / Mod (Mackie `ToggleButton`, 178 x 44, mod
+  yellow when active, or the owner's colour: `DLZMOD_accent()`, #21), 8 px gap, then that sub-page's
+  cards, 388 px high. Unlike Mackie's pages
   (829 x 392) the page fills Settings with 12 px margins: 914 x 440, laid out for the header shown
   (464 px under the tab bar, measured in the sandbox); with it hidden,
   Mackie's centring splits the extra 30 px. Display = Screen (290) + Meters (612); Network = Wi-Fi +
   SSH cards (451 each) inside `page.network`, a paint-less container so `page.network.update()`
-  still repaints both; Remote Control = one card (switch, warning, address, PIN, Forget, #45); Mod =
+  still repaints both; Colors = one card (theme, background and colour swatches; a tap applies at once); Remote Control = one card (switch, warning, address, PIN, Forget, #45); Mod =
   one card (version, update hint or refusal in red, credits). A new
   setting goes on the sub-page it belongs to; a new topic gets a sub-tab, not a squeezed row.
 - Segmented controls (`SwitchBox`) and buttons on these pages are sized for fingers: 46-56 px high.
 - Header specifics: `app.setPage` shows the header on every page switch (patched to ask
   `DLZMOD_headerHidden()`); hidden widgets count as 0 px in anchors, so everything moves up.
-  Hiding it also hides toasts (`showToast` draws in the header), the red pad indicators and
-  "DEMO MODE". The right knob panel gets 30 px of empty space at the bottom.
+  Hiding it also hides the red pad indicators and "DEMO MODE"; toasts (`showToast` draws in the
+  header) then show in the mod's message bar (#58, below). The right knob panel gets 30 px of empty
+  space at the bottom.
+- Drawing over everything without moving it: the foreground layer, as Mackie's popups do. A widget
+  with `setOverlay(true)` draws on the overlay canvas, so pages that draw all the time (meters) do
+  not paint over it [sandbox], and joins the UI's modal list (`app.mWidgets`) [static]. Modal
+  widgets close easily: `app.setPage` and Escape run `closeModals` first, and a tap that none of them
+  takes closes every one with `autoCloseModal` (the default) [static]. `closeModals` destroys while
+  it iterates the list, so a modal widget after a destroyed one is skipped [static]. For something
+  that must outlive a page switch, `setOverlay(true, true)`: the overlay canvas, not the modal
+  list [static, sandbox]; with `ignoreEvents` it takes no taps, the widget below gets them. Closing
+  either kind leaves it drawn on the device until what is below draws again, and clears the whole
+  foreground layer there ("PC sandbox", below: a closed popup): draw both again. Used by the message
+  bar (`DLZMOD_messageBar`).
 
 ## Where to hook in (least to most invasive)
 
@@ -140,9 +153,10 @@ Looked into and not doable on this hardware or within the ground rules:
   the computer, and both are already selectable on the virtual strips; per-app routing is done on
   the computer (Q22 would show whether there are more playback channels).
 - **Bluetooth headphones or speakers as a monitor, a Bluetooth headset as input/output**: the
-  Bluetooth module is a phone-side sink with its own protocol, not a Linux Bluetooth stack; a USB
-  dongle with BlueZ would have no audio path (no ALSA), and Bluetooth latency is too high for live
-  monitoring (Q25).
+  Bluetooth module (an Actions ATS2853 speaker chip with Mackie's own firmware) is a phone-side
+  sink with its own protocol and no connect-out command in faderlink, not a Linux Bluetooth stack;
+  a USB dongle with BlueZ would have no audio path (no ALSA), and Bluetooth latency is too high for
+  live monitoring (Q25).
 - **The card as a USB drive on the computer**: the USB port to the computer is not Linux's (no OTG in
   the device tree, [hardware.md](hardware.md)); file access has to go over the network.
 - **A faster SD slot** (UHS): needs a switchable 1.8 V supply, which means changing the PMIC setup.
@@ -197,15 +211,23 @@ taking the card out: `bash dev/push.sh` builds, checks, copies, waits for the mi
 
 With SSH on, small iterations can be `scp` + `systemctl restart <unit>` instead of a package.
 
-Reading the card's logs without SSH: at every boot, before server.js mounts DLZDATA,
-`dlzmod-bootlog` (install/sd-system) copies the syslog of the last 3 SD-system boots to
-`DLZDATA/dlzmod-logs/syslog-last-boots.txt` (the previous copy as `.prev.txt`), so a failed boot is
-readable in any card reader after the next boot. It costs ~2.2 s of boot time; it cannot move after
-the start, because server.js holds DLZDATA mounted read-only and remounts it read-write only while
-it writes itself (stock leaves it writable once a recordings folder exists; the mod puts it back,
-#98; open-questions Q28). Only boots of the
-SD system are copied (sections with `dlzmod-grow-data`, which runs at every boot), not the dump's
-own history. Always on.
+Reading the card's logs without SSH: once a start has finished (~2.5 min after power-on, after its
+`dlzmod-bootreport` block), the syslog of the last 4 SD-system starts lands in
+`DLZDATA/dlzmod-logs/syslog-last-boots.txt` (the previous copy as `.prev.txt`), readable in any card
+reader: `dlzmod-bootlog` (install/sd-system) puts it in `/run`, server.js copies it through its
+queue of remounts (`DLZMOD_bootlogCopy`, #136), so nothing mounts DLZDATA a second time and nothing
+writes to the FAT while a start can still hang (#81). A start that hangs is in the copy of the next
+start that finishes. Its own log reaches the card's syslog (ext4) up to ~15 s before the hang:
+`dlzmod-bootreport` writes the syslog through every 10-15 s while it waits. Only boots of the SD
+system are copied (sections with `dlzmod-grow-data`, which runs at every boot), not the dump's own
+history. Always on. Each start that ran ~2 min or longer holds a `dlzmod-bootreport` block (times,
+what the start waited for, services, failed units, warnings and errors): search for
+`report of this start` (#136).
+
+A dev card can also send each start's log to the PC as it happens (`dlzmod-netlog`, #136): `bash
+dev/netlog.sh on` once, then `powershell -ExecutionPolicy Bypass -File dev/netlog.ps1` writes it to
+`build/device-logs/netlog-*.txt`. It covers a start that freezes before its log reaches the card, as
+long as Wi-Fi came up (~15-25 s) and the freeze leaves the network running.
 
 Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var/log/syslog`
 (`wsl --mount` does not support USB card readers, `0x8007000f`). rsyslog persists across reboots
@@ -276,7 +298,7 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
   `DLZ_SHOT_DOWNLOADS=<folder>` keeps what it downloads.
 - **A pretend SD card and/or USB stick**: `DLZ_FAKE_MEDIA=sd` (or `usb`, `sd,usb`) in front of the
   start. The shim reports a FAT partition in `lsblk`, lets server.js "mount" it at
-  `/tmp/mnt/mmcblk0p2` / `sda1` (a folder on the sandbox drive, seeded once with a few short silent
+  `/tmp/mnt/mmcblk0p2` / `sda1` (a folder in the sandbox folder, seeded once with a few short silent
   recordings, a `*.unfinished` one and a sub-folder), answers its remounts and `df`, and its look for
   a firmware file (`find ... *.upd`: unguarded in server.js, an error there ends the server).
   `/proc/mounts` lists them read-only for the mod's read-only watcher. Mackie's `wavfinalizer` stays

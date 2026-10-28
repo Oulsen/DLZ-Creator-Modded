@@ -24,10 +24,14 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
 - Every mod must be reproducible via `install/build-sd.sh` from a clean dump.
 - Nothing new or changed runs on the mixer or lands on a card (mod changes, `install/**`, U-Boot
   scripts, `uboot.env`, initramfs, installer, spikes, rebuilt images) before the `device-review`
-  skill has run, once per image that goes onto the mixer: as much review as the change's risk tier
-  asks for (no agent where the tests and the sandbox fully show the change, 1 combined reviewer for
-  other logic, up to 2 informed + 2 blind, all at once, for new write paths and boot routes; the
-  brick angle is part of every review), claims verified, findings fixed or consciously accepted.
+  skill has run: on a PR that changes what runs on the mixer, after `/cr` and its fixes and before
+  the drop-in and the merge (below); on an image, spike or card, for what no merged PR's review
+  covered (build scripts, the card, the installer, a spike): as much review as the change's risk tier
+  asks for (no agent for tests-covered changes and other mod logic, which Claude reads against the
+  skill's brick checklist; 1 blind brick reviewer for a sensitive path; 2 reviewers, all at once,
+  for new write paths and boot routes; the brick angle is part of every review), claims verified,
+  findings fixed or consciously accepted. Reviews are kept lean (Pro plan): no more agents than the
+  tier asks, `model: sonnet` unless the skill names Opus.
 - Card rehearsals (`tests/README.md`: card images, minutes each) only for what the mixer must not
   be the first to try: failure, restore and power-cut paths, new write paths, the brick angles. What
   a normal run on the mixer shows (a name, a text, a screen, an update or install that goes through)
@@ -42,12 +46,13 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   against the change. `--check docs/images/install` (WSL) says whether the screens are current.
 - The roadmap lives on GitHub: every bug and feature is an issue in `Oulsen/DLZ-Creator-Modded`
   on the board https://github.com/users/Oulsen/projects/2 (life cycle, labels and milestones:
-  `docs/DEVELOPMENT.md` "GitHub workflow"). Title `(DLZ FEATURE|DLZ BUG|MOD FEATURE|MOD BUG) ...`
+  `docs/DEVELOPMENT.md` "GitHub workflow"). Title `(DLZ FEATURE|DLZ BUG|MOD FEATURE|MOD BUG|DEV) ...`
   in plain language, no technical terms (DLZ FEATURE = something the mod lets the mixer do, MOD
-  FEATURE = the mod itself: install, updates, safety, support, development; DLZ BUG = stock Mackie
-  behaviour, MOD BUG = caused by the mod; a new feature request starts as DLZ FEATURE until triage
-  says otherwise; the type label matches the prefix: `dlz-feature`, `dlz-bug`, `mod-feature`,
-  `mod-bug`), or
+  FEATURE = the mod itself: install, updates, safety, support; DLZ BUG = stock Mackie
+  behaviour, MOD BUG = caused by the mod; DEV = our own tools: tests, reviews, the dev card, build
+  and release scripts, CI, features and bugs alike, never in the changelog; a new feature request
+  starts as DLZ FEATURE until triage says otherwise; the type label matches the prefix:
+  `dlz-feature`, `dlz-bug`, `mod-feature`, `mod-bug`, `dev`), or
   `(ANALYSIS) ...?` for an idea that first needs research (label `analysis`); lasting knowledge lives
   in the topic notes and the body points to it, work details of one issue go into its own body (a
   collapsed `<details>` block under "Technical notes"). There is no backlog file: to-dos are issues,
@@ -61,18 +66,23 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
 - Never commit to `main` or `develop` directly: every change on its own branch from `develop`, a PR
   into `develop` (`/pr`, squash-merged by the user); a release is a PR `develop` → `main`,
   fast-forwarded by the user with `git push origin <commit>:main` (never the merge button), so `main`
-  and `develop` stay one commit (`docs/DEVELOPMENT.md`, "Branches" and "Releases"). Right after `/pr`,
-  start `/cr` (or `/code-review`) on the opened PR, docs-only PRs too, so the whole diff is read,
-  including changes made after a device review; findings fixed as new commits on the PR or named in
-  the PR description, before the merge; fixes that add new logic get one more pass
-  (`docs/DEVELOPMENT.md`, "Review"). The release PR `develop` → `main` too: once the milestone's
+  and `develop` stay one commit (`docs/DEVELOPMENT.md`, "Branches" and "Releases"). Every PR: `/pr`
+  → `/cr` → fixes → the user merges. Right after `/pr`, start `/cr` on the opened PR (the
+  `code-reviewer` agent with `model: sonnet`), so the whole diff is read; a docs-only PR gets no
+  agent, Claude reads it for consistency and correctness instead; findings fixed as new commits on
+  the PR or named in the PR description, before the merge; Claude checks the fixes itself, no
+  second agent pass. Only a PR that changes the mod or anything else that runs on the mixer adds two
+  steps before the merge: the device review on the PR's final diff, then a drop-in of its branch on
+  the dev card (`dev/push.sh`) that the user looks at; a fix from either is a new commit on the PR,
+  which the device review reads again at its tier. Docs and DEV PRs skip both (`docs/DEVELOPMENT.md`,
+  "Review" and "On the mixer before the merge"). The release PR `develop` → `main` too: once the milestone's
   issues are done, one final `/cr` on it before the fast-forward ("Releases", step 2).
 - Right after a release, bump `VERSION` in `develop` as its own PR (`docs/vX.Y.Z-bump`), before any
   other change of the new cycle; a feature or fix branch never bumps (`docs/DEVELOPMENT.md`,
   "Version bump"). The bump PR opens a `## vX.Y.Z` section in `CHANGELOG.md` (newest version first);
   every PR that finishes a milestone issue adds its title there as a bullet, in the order DLZ
-  FEATURE, DLZ BUG, MOD FEATURE, MOD BUG (the release PR and the release notes use the same order,
-  as sections). The same PR updates the README's "What the mod does" (the current mod, by group)
+  FEATURE, DLZ BUG, MOD FEATURE, MOD BUG, no DEV (the release PR and the release notes use the same
+  order, as sections). The same PR updates the README's "What the mod does" (the current mod, by group)
   when it changes what the mod does.
 - `dumps/` and `build/` are private and git-ignored. Never commit Mackie binaries, dumps or `.upd`
   files; in notes, describe Mackie code and point to it (file, function, search string), never paste
@@ -85,7 +95,7 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
 - "The dev page" / "the sandbox" = Mackie's mixer UI running on this PC in the device layout, with
   the mod's patches. Start, re-patch, screenshots and stop: the `ui-sandbox` skill
   (`.claude/skills/ui-sandbox/`). Always stop it with the skill's `stop`: ending the background
-  task alone leaves node.exe on ports 80/89 and the sandbox drive mapped.
+  task alone leaves node.exe on ports 80/89.
 - Details and limits: `notes/modding-guide.md`, section "PC sandbox".
 
 ## Working with the dump (WSL)

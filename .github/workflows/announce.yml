@@ -1,0 +1,55 @@
+# A published release is announced in the project's Discord (docs/DEVELOPMENT.md, "Releases", step 5):
+# @everyone, the release's name, the highlights from the top of its notes (drafted by
+# install/release/release-notes.sh, edited by the maintainer for owners), how to get it and the link;
+# the message is made by install/release/announce.jq (tested by tests/announce.sh). Drafts never
+# trigger this; test releases (vX.Y.Z-testN) and tags that are not on main are skipped. The release is read again from GitHub, so a
+# re-run after fixing the notes posts the fixed text; a re-run of a run that posted posts again. The
+# webhook URL is the DISCORD_WEBHOOK secret (set by the maintainer with `gh secret set DISCORD_WEBHOOK`);
+# without it the job says so and posts nothing.
+name: announce
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  discord:
+    if: ${{ !contains(github.event.release.tag_name, '-test') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # as release.yml: a release is only made from main (a release published by hand from another
+      # branch is not announced)
+      - name: Check the tag is on main
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::$TAG is not on main: no message in Discord"; exit 1; }
+
+      - name: Message in Discord
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          [ -n "$DISCORD_WEBHOOK" ] || { echo "::notice::No DISCORD_WEBHOOK secret: no message in Discord"; exit 0; }
+          gh release view "$TAG" --json name,body,url > "$RUNNER_TEMP/release.json"
+          # the text goes into the JSON by jq only, never through the shell
+          if ! jq -e -f install/release/announce.jq "$RUNNER_TEMP/release.json" > "$RUNNER_TEMP/message.json" 2> "$RUNNER_TEMP/err"; then
+            echo "::error::$TAG: $(cat "$RUNNER_TEMP/err"); edit the notes on GitHub, then re-run this job"
+            exit 1
+          fi
+          jq -r .content "$RUNNER_TEMP/message.json"
+          # no retries: a message Discord took despite an error would be posted twice
+          curl -fsS -H 'Content-Type: application/json' --data-binary "@$RUNNER_TEMP/message.json" \
+            "$DISCORD_WEBHOOK" > /dev/null
+          echo "Posted in Discord: $TAG"

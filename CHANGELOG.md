@@ -1,8 +1,19 @@
 # Changelog
 
-## v0.3.0
+## v0.4.0
 
 - (DLZ BUG) Clock jumps back to November 2023 after every power-off
+
+## v0.3.0
+
+- (DLZ FEATURE) Themes: high contrast and your own colors
+- (DLZ FEATURE) Messages stay visible with the header hidden
+- (DLZ BUG) The mixer sometimes gets stuck while starting
+- (MOD FEATURE) Each start leaves a clear log: start order, timings, errors and how the audio chips started
+- (MOD FEATURE) Withdraw a leaked update key from the mixers
+- (MOD BUG) The mixer starts later than it has to
+- (MOD BUG) The main output meter ignores the "Both" meter setting
+- (MOD BUG) Install time estimate too high in the middle of the copy
 
 ## v0.2.0
 

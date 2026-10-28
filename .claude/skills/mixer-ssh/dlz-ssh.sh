@@ -158,6 +158,41 @@ guard() {
   endword; endseg
 }
 
+# No login while a start settles: logins then coincided with hangs (#81, #136). With Mackie's GUI no
+# longer real-time (#140) the screen is up at 25-33 s [device, ~35 starts], so a login is fine 30 s
+# after it; a start whose screen is not up yet is left alone for 300 s (a stall: what it shows is in
+# the network log). The mixer's state without logging in: the newest file of a dev card's network
+# log (dev/netlog.ps1), its current start read by netlog-start.awk (as dev/push.sh does): its last
+# journal line plus the time since the file was written, and the screen. A file quiet for over 10
+# minutes, or none, says nothing (the skill's rule then); so does a start whose first lines have not
+# arrived yet (before Wi-Fi, ~15-25 s), which still shows the previous start.
+# DLZ_SSH_EARLY=1 only after the user agreed to a login this early.
+SKILL_DIR=$(dirname "$(readlink -f "$0")")
+NETLOG_DIR=${DLZ_NETLOG_DIR:-$(cd "$SKILL_DIR/../../.." && pwd)/build/device-logs}
+early() {
+  [ "${DLZ_SSH_EARLY:-0}" != 1 ] || return 0
+  local f age up scr
+  f=$(ls -t "$NETLOG_DIR"/netlog-*.txt 2> /dev/null | head -n 1)
+  [ -n "$f" ] || return 0
+  age=$(( $(date +%s) - $(stat -c %Y "$f") ))
+  [ "$age" -le 600 ] || return 0
+  # "<uptime> <screen's uptime or nothing>" of the file's current start
+  up="" scr=""
+  read -r up scr < <(awk -f "$SKILL_DIR/netlog-start.awk" "$f") || true
+  [ -n "$up" ] || return 0
+  up=$((up + age))
+  if [ -n "$scr" ]; then
+    [ "$up" -ge $((scr + 30)) ] && return 0
+    echo "REFUSED (the mixer started ${up} s ago, its screen at ${scr} s, by its network log $f): no login before" >&2
+    echo "30 s after the screen is up; wait, or read the network log. Only when the user agrees: DLZ_SSH_EARLY=1" >&2
+  else
+    [ "$up" -ge 300 ] && return 0
+    echo "REFUSED (the mixer started ${up} s ago, no screen yet, by its network log $f): no login in the first" >&2
+    echo "300 s of a start whose screen is not up; wait, or read the network log. Only when the user agrees: DLZ_SSH_EARLY=1" >&2
+  fi
+  exit 4
+}
+
 gethost() {
   host=$(cat "$HOSTF" 2>/dev/null)
   [ -n "$host" ] || { echo "no mixer address stored: ask the user, then bash dlz-ssh.sh host <ip or name>" >&2; exit 2; }
@@ -248,7 +283,7 @@ case ${1:-} in
       echo "Only after the user confirms this exact command: DLZ_SSH_WRITE=1 bash dlz-ssh.sh run ..." >&2
       exit 3
     fi
-    gethost; askpass
+    early; gethost; askpass
     # a read that never ends (tail -f, journalctl -f, vmstat 1) must not hang the session; a confirmed
     # write is never cut off halfway (the mixer could stop it with a file half written)
     t=${DLZ_SSH_TIMEOUT:-120}
@@ -266,7 +301,7 @@ case ${1:-} in
     # and a local name with a : is another host
     case $remote in -*|*[!A-Za-z0-9_./+~-]*) echo "REFUSED (remote name with characters other than A-Z a-z 0-9 _ . / + ~ -): $remote" >&2; exit 3 ;; esac
     case $local in -*|*:*) echo "REFUSED (local name starting with - or holding a :): $local" >&2; exit 3 ;; esac
-    gethost; askpass
+    early; gethost; askpass
     # shellcheck disable=SC2046
     SSH_ASKPASS=$ASK SSH_ASKPASS_REQUIRE=force DISPLAY=: scp $(sshopts) "root@$host:$remote" "$local" < /dev/null ;;
   forget)

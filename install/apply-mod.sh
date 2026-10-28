@@ -26,11 +26,17 @@ put_link() {
   mv -Tf "$2.dlzmod-new" "$2"
 }
 
-# Brick guards (notes/modding-guide.md, Brick risks), the first-boot DLZDATA grower, the boot log copy
-# to DLZDATA (dlzmod-logs/, readable in a card reader) and the drop-in update. The guards go first
+# Brick guards (notes/modding-guide.md, Brick risks), the first-boot DLZDATA grower, the report of
+# each start and its boot log for DLZDATA (dlzmod-logs/, readable in a card reader), the network log
+# of a development card and the drop-in update. The guards go first
 # and are flushed before anything else changes
 install_sd_system() {
-  local s=$TOOLS/sd-system u f
+  local s=$TOOLS/sd-system u f sched=yes early=yes
+  # #140: an update checked by an updater from before the scheduling drop-ins (v0.2.0 and older) may
+  # not place them (its allowlist): left out then, the new updater places them at the next start
+  # (read here, before install_update_unit below puts the new copy in); #141's early-start ones too
+  [ ! -f "$MNT/usr/local/sbin/dlzmod-update" ] || grep -qF 'glesgui.service.d:dlzmod.conf' "$MNT/usr/local/sbin/dlzmod-update" || sched=no
+  [ ! -f "$MNT/usr/local/sbin/dlzmod-update" ] || grep -qF 'dlzmod-update.service.d:dlzmod.conf' "$MNT/usr/local/sbin/dlzmod-update" || early=no
   # the FPGA loader's gate first: its drop-in calls it (no FPGA load from a card in another mixer)
   put_file 755 "$s/dlzmod-cardcheck" "$MNT/usr/local/sbin/dlzmod-cardcheck"
   for u in flash-gd32 flash-fpga upgradedaemon upgraderun dspserver; do
@@ -42,14 +48,35 @@ install_sd_system() {
   # and the eMMC locked whenever it appears, also after that unit ran (sd-system/60-dlzmod-emmc-ro.rules)
   put_file 644 "$s/60-dlzmod-emmc-ro.rules" "$MNT/etc/udev/rules.d/60-dlzmod-emmc-ro.rules"
   sync
+  # #140: Mackie's GUI and node processes at normal scheduling instead of real-time (they could starve
+  # the rest of the start); dspserver stays real-time
+  if [ "$sched" = yes ]; then
+    for u in glesgui evolve-node evolve-app; do
+      put_file 644 "$s/$u.service.d/dlzmod.conf" "$MNT/etc/systemd/system/$u.service.d/dlzmod.conf"
+    done
+  else
+    echo "scheduling drop-ins: this card's updater does not know them yet, its new copy places them at the next start"
+  fi
+  # #141: the mod's own start steps no longer wait for basic.target (the FPGA load), so Mackie's node
+  # processes, ordered after them, start when stock starts them
+  if [ "$early" = yes ]; then
+    for u in dlzmod-update dlzmod-grow-data; do
+      put_file 644 "$s/$u.service.d/dlzmod.conf" "$MNT/etc/systemd/system/$u.service.d/dlzmod.conf"
+    done
+  else
+    echo "early-start drop-ins: this card's updater does not know them yet, its new copy places them at the next start"
+  fi
   # dspserver waits for server.js before starting (dlzmod-wait-hub, its drop-in above)
-  for f in dlzmod-grow-data dlzmod-bootlog dlzmod-clock dlzmod-wait-hub; do
+  for f in dlzmod-grow-data dlzmod-bootlog dlzmod-bootreport dlzmod-clock dlzmod-wait-hub dlzmod-netlog; do
     put_file 755 "$s/$f" "$MNT/usr/local/sbin/$f"
   done
-  for f in dlzmod-grow-data dlzmod-bootlog dlzmod-clock-floor dlzmod-clock; do
+  for f in dlzmod-grow-data dlzmod-bootreport dlzmod-netlog dlzmod-clock-floor dlzmod-clock; do
     put_file 644 "$s/$f.service" "$MNT/etc/systemd/system/$f.service"
     put_link "/etc/systemd/system/$f.service" "$MNT/etc/systemd/system/multi-user.target.wants/$f.service"
   done
+  # #136: the boot log is no longer a step of the start (dlzmod-bootreport starts it at the end)
+  put_file 644 "$s/dlzmod-bootlog.service" "$MNT/etc/systemd/system/dlzmod-bootlog.service"
+  rm -f "$MNT/etc/systemd/system/multi-user.target.wants/dlzmod-bootlog.service"
   # the update installs its own new copy itself, last, once everything else passed its checks
   [ "${DLZMOD_SELF_LAST:-}" = 1 ] || install_update_unit
   # USB Wi-Fi sticks the stock driver drives but does not list (sd-system/90-dlzmod-usb-wifi.rules)

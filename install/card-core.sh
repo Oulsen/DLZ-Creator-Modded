@@ -104,6 +104,8 @@ preflight() {
   for f in check-rootfs.sh mkvisuals.sh logobbox.py bootsplash.py patch.py modversion.py \
       cpio-replace.py apply-mod.sh app-mod/dlzmod.js server-mod/dlzmod-server.js \
       sd-system/dlzmod-emmc-ro sd-system/dlzmod-grow-data sd-system/dlzmod-bootlog \
+      sd-system/dlzmod-bootreport sd-system/dlzmod-bootreport.service \
+      sd-system/dlzmod-netlog sd-system/dlzmod-netlog.service \
       sd-system/dlzmod-wait-hub sd-system/dlzmod-update sd-system/dlzmod-update.service \
       sd-system/dlzmod-emmc-ro.service sd-system/dlzmod-grow-data.service \
       sd-system/dlzmod-bootlog.service sd-system/dlzmod-clock sd-system/dlzmod-clock.service \
@@ -112,7 +114,9 @@ preflight() {
       sd-system/upgradedaemon.service.d/dlzmod.conf sd-system/upgraderun.service.d/dlzmod.conf \
       sd-system/dspserver.service.d/dlzmod.conf sd-system/90-dlzmod-usb-wifi.rules \
       sd-system/dlzmod-zerocd-eject sd-system/70-dlzmod-wifi-zerocd.rules \
-      sd-system/ssh.service.d/dlzmod.conf sd-system/60-dlzmod-emmc-ro.rules keys/release.pub keys/release2.pub keys/dev.pub; do
+      sd-system/ssh.service.d/dlzmod.conf sd-system/60-dlzmod-emmc-ro.rules keys/release.pub keys/release2.pub keys/dev.pub \
+      sd-system/glesgui.service.d/dlzmod.conf sd-system/evolve-node.service.d/dlzmod.conf sd-system/evolve-app.service.d/dlzmod.conf \
+      sd-system/dlzmod-update.service.d/dlzmod.conf sd-system/dlzmod-grow-data.service.d/dlzmod.conf; do
     [ -f "$TOOLS/$f" ] || missing="$missing $f"
   done
   [ -n "$missing" ] && die "missing, nothing written:$missing"
@@ -446,14 +450,31 @@ set_rec_default_sd() {
 # release key and its offline spare (release2) only; a dev-channel card (an installer built from a
 # dev package, or build-sd.sh, which says so with DLZMOD_CHANNEL=dev) trusts the dev key too: the
 # package's (mkpackage.sh put your own there when DLZMOD_SIGNING_KEYS had one), or for build-sd.sh
-# DLZMOD_DEV_PUB when set.
+# DLZMOD_DEV_PUB when set. Keys withdrawn since they were made (#63: the package's WITHDRAWN, the
+# release or dev key) are left out and go on the card's withdrawal list, which its updater checks
+# and only ever adds to.
 install_update_keys() {
-  local d=$MNT/usr/local/share/dlzmod-keys channel keys k src
+  local d=$MNT/usr/local/share/dlzmod-keys channel keys k src w gone=""
   channel=$(update_channel) || die "$channel"
   keys="release release2 dev"
   [ "$channel" = dev ] || keys="release release2"
+  # the package's WITHDRAWN; without a package (build-sd.sh) the repo's keys/withdrawn, one per line
+  if [ -f "$TOOLS/../package.env" ]; then
+    gone=$(sed -n 's/^WITHDRAWN=//p' "$TOOLS/../package.env" | tr -d '\r' | tr ',' ' ')
+  elif [ -f "$TOOLS/keys/withdrawn" ]; then
+    gone=$({ grep -v '^#' "$TOOLS/keys/withdrawn" || true; } | tr -d '\r' | tr '\n' ' ')
+  fi
+  for w in $gone; do
+    case $w in release|dev) ;; *) die "WITHDRAWN names a key that cannot be withdrawn ($w)" ;; esac
+  done
   rm -rf "$d"
-  mkdir -p "$d"
+  mkdir -p "$d" "$MNT/var/lib/dlzmod-update"
+  rm -f "$MNT/var/lib/dlzmod-update/withdrawn"
+  for w in $gone; do
+    echo "$w" >> "$MNT/var/lib/dlzmod-update/withdrawn"
+    keys=$(for k in $keys; do [ "$k" = "$w" ] || printf '%s ' "$k"; done)
+  done
+  [ -z "${gone// /}" ] || echo "withdrawn keys (not installed): $gone"
   for k in $keys; do
     src=$TOOLS/keys/$k.pub
     # DLZMOD_DEV_PUB only without a package.env (build-sd.sh), as DLZMOD_CHANNEL: the installer's

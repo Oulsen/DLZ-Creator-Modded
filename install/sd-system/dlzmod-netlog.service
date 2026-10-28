@@ -1,0 +1,17 @@
+[Unit]
+Description=dlzmod: send this start's log to a PC (development cards only)
+# off without the file dev/netlog.sh writes; with it, the script waits for the network itself, so
+# nothing waits for this unit
+ConditionFileNotEmpty=/var/lib/dlzmod/netlog
+After=systemd-journald.service
+
+[Service]
+Type=exec
+ExecStart=/usr/local/sbin/dlzmod-netlog
+Nice=19
+IOSchedulingClass=idle
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

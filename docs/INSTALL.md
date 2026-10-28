@@ -8,13 +8,14 @@ modded system on the same card from your mixer's own software. The mixer's inter
 read-only the whole time and is never changed. Afterwards, **with the card in** the mixer starts DLZ
 Creator Modded; **without the card** it starts its normal Mackie software, exactly as before.
 
-> Unofficial, alpha, at your own risk: read [DISCLAIMER.md](../DISCLAIMER.md) first.
+> Unofficial, alpha, at your own risk. Not supported by Mackie, and it could void your mixer's
+> warranty. Read [Is it safe?](../README.md#is-it-safe) and [DISCLAIMER.md](../DISCLAIMER.md) first.
 
 ## What you need
 
 - **A Mackie DLZ Creator XS or DLZ Creator with firmware 1.2.0** (build 1731, shown in Settings →
   About). The full-size DLZ Creator has the same main board and firmware as the XS; an owner has
-  installed and run the mod on one, but our own test mixer is an XS (reports from full-size owners
+  installed and run the mod on one, but my own test mixer is an XS (reports from full-size owners
   are welcome). Other
   firmware versions are not supported: the installer checks this and does not install. It can save a
   backup for analysis instead, see
@@ -184,11 +185,11 @@ own software was never changed. Put the card back in to use the mod again.
 
 Mackie lists two current firmware builds, 1731 and 1794. The mod supports 1731; which mixers run
 1794, and what differs, is unknown. On a mixer with other firmware the installer can instead save a
-copy of the mixer's internal storage, so we can find out whether the mod can support it. That is the
+copy of the mixer's internal storage, so I can find out whether the mod can support it. That is the
 goal, but no promise: it depends on what the backup shows.
 
 **Not tried on such a mixer yet.** The installer only offers the backup when the mixer's own
-start-up software is exactly the one we know. As always, the mixer's internal storage is only read,
+start-up software is exactly the one I know. As always, the mixer's internal storage is only read,
 never changed. Still: you would be the first, at your own risk.
 
 1. Write the installer to a microSD card of **16 GB or more**, the same card as for an install
@@ -205,7 +206,7 @@ The backup holds your settings, presets and the lock PIN: keep it private. To he
 folder (Google Drive, OneDrive, WeTransfer or similar) and send the link **privately** via
 [Discord](https://discord.gg/Qa2fjzVbGp). Never post the link in public.
 
-If the screen says **Not supported** and no backup is offered, the mixer differs from what we know:
+If the screen says **Not supported** and no backup is offered, the mixer differs from what I know:
 the installer saved a hardware report, `dlzmod-logs/hardware-1.txt` on the card (no passwords,
 serial numbers or network addresses in it). Sending that via Discord helps too. If the screen stays
 dark or does not react to touch: switch off and take the card out; nothing was written to the mixer.

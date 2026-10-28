@@ -99,6 +99,31 @@ r=$(keys none 2>&1)
 grep -q "update keys unknown" <<< "$r" && ok "no package.env and no DLZMOD_CHANNEL: refused" || bad "no channel: $r"
 r=$(keys beta 2>&1)
 grep -q "bad CHANNEL" <<< "$r" && ok "an unknown CHANNEL is refused" || bad "bad channel: $r"
+# #63: the package's WITHDRAWN keys are left out and go on the card's withdrawal list
+wkeys() {   # wkeys <CHANNEL> <WITHDRAWN>: the card's key files, then its list
+  rm -rf "$T/core/mnt"; mkdir -p "$T/core/mnt"
+  printf 'CHANNEL=%s\nWITHDRAWN=%s\n' "$1" "$2" > "$T/core/package.env"
+  TOOLS="$T/core/tools" MNT="$T/core/mnt" bash -c "$fns"'
+    install_update_keys > /dev/null || exit 1
+    ls "$MNT/usr/local/share/dlzmod-keys" | tr "\n" " "; echo "| $(cat "$MNT/var/lib/dlzmod-update/withdrawn" 2>/dev/null | tr "\n" " ")"'
+}
+r=$(wkeys release release 2>&1); [ "$r" = "release2.pub | release " ] && ok "withdrawn release key: not installed, on the list" || bad "withdrawn release key: $r"
+r=$(wkeys dev dev,release 2>&1); [ "$r" = "release2.pub | dev release " ] && ok "dev card, dev and release withdrawn: only release2" || bad "two withdrawn: $r"
+r=$(wkeys release "" 2>&1); [ "$r" = "release.pub release2.pub | " ] && ok "nothing withdrawn: no list" || bad "nothing withdrawn: $r"
+r=$(wkeys release release2 2>&1); grep -q "cannot be withdrawn (release2)" <<< "$r" && ok "withdrawing release2 is refused" || bad "release2 withdrawn: $r"
+r=$(wkeys release '../x' 2>&1); grep -q "cannot be withdrawn" <<< "$r" && ok "an odd name in WITHDRAWN is refused" || bad "odd name: $r"
+# build-sd.sh (no package.env): the repo's keys/withdrawn instead; a package's WITHDRAWN wins over it
+bkeys() {   # bkeys <keys/withdrawn content>: as wkeys, for a dev card from build-sd.sh
+  rm -rf "$T/core/mnt" "$T/core/package.env"; mkdir -p "$T/core/mnt"
+  printf "$1" > "$T/core/tools/keys/withdrawn"
+  DLZMOD_CHANNEL=dev TOOLS="$T/core/tools" MNT="$T/core/mnt" bash -c "$fns"'
+    install_update_keys > /dev/null || exit 1
+    ls "$MNT/usr/local/share/dlzmod-keys" | tr "\n" " "; echo "| $(cat "$MNT/var/lib/dlzmod-update/withdrawn" 2>/dev/null | tr "\n" " ")"'
+}
+r=$(bkeys '# withdrawn keys\r\nrelease\r\n' 2>&1); [ "$r" = "dev.pub release2.pub | release " ] && ok "build-sd: keys/withdrawn honoured (CRLF, comment)" || bad "build-sd withdrawn: $r"
+r=$(bkeys 'release2\n' 2>&1); grep -q "cannot be withdrawn (release2)" <<< "$r" && ok "build-sd: release2 in keys/withdrawn refused" || bad "build-sd release2: $r"
+r=$(wkeys dev "" 2>&1); [ "$r" = "dev.pub release.pub release2.pub | " ] && ok "a package's empty WITHDRAWN wins over keys/withdrawn" || bad "package vs keys/withdrawn: $r"
+rm -f "$T/core/tools/keys/withdrawn"
 
 echo "== mkinstaller.sh (release package)"
 # a copy of the tool in its own small git repo; every package says PLACEHOLDER=yes, so a package that

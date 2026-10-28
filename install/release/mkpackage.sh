@@ -1,5 +1,6 @@
 #!/bin/bash
-# Build the release package (run as root in WSL: the initramfs needs a /dev/console node).
+# Build the release package (as root, in the build environment install/release/buildenv/ or in WSL:
+# the initramfs needs a /dev/console node).
 #
 # The package is one initramfs that carries everything the installer needs, so U-Boot loads a
 # single file and it is all in RAM before the card is touched (notes/installer.md):
@@ -23,16 +24,20 @@
 # the release keys; for the dev key DLZMOD_SIGNING_KEYS/dev.pub when it is there (your own,
 # mkkeys.sh), else install/keys/dev.pub. A release package always carries install/keys/dev.pub
 # (rebuildable from its commit; release cards do not install the dev key anyway).
-# SOURCE_DATE_EPOCH (default: last commit time) makes the output reproducible.
+# SOURCE_DATE_EPOCH (default: last commit time) makes the output reproducible. UNSIGNED=1 builds a
+# clean tree without signing (no key needed): the same tar as the signed build, for comparing a build
+# with GitHub's (#158; ed25519 is deterministic, so the same tar has the same signature).
 #
 # package.env is read by name, also by updaters already on cards: add keys, never rename or drop one.
 # Values without spaces or quotes (read with sed, never sourced). MODEL=XS is for updaters from before
 # the full-size support (they compare it with the card's model); newer ones read MODELS (comma list).
 #
 # Usage: DLZMOD_SIGNING_KEYS=<folder> [RELEASE=1 [RELEASE_KEY=release2]] [DLZMOD_SIGNING_PASS=...]
+#        [UNSIGNED=1]
 #        mkpackage.sh [out dir, default build/release]
 # Needs: python3 with Pillow, fonts-dejavu-core, cpio, gzip, dpkg-deb, curl, qemu-arm, openssl
 set -euo pipefail
+umask 022
 
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 OUT=${1:-$REPO/build/release}
@@ -72,6 +77,7 @@ SIGNPASS=${DLZMOD_SIGNING_PASS:-}
 unset DLZMOD_SIGNING_PASS
 SIGN=yes
 case $COMMIT in *+dirty) SIGN=no ;; esac
+[ "${UNSIGNED:-}" != 1 ] || SIGN=no
 KEYNAME=$CHANNEL
 if [ "$CHANNEL" = release ]; then
   KEYNAME=${RELEASE_KEY:-release}
@@ -79,6 +85,22 @@ if [ "$CHANNEL" = release ]; then
 fi
 for k in release release2 dev; do
   [ -f "$INST/keys/$k.pub" ] || { echo "no public key: $INST/keys/$k.pub (mkkeys.sh)" >&2; exit 1; }
+done
+# a full install (notes/updates.md, "Release files"): install/release/reinstall-below holds the first
+# version every card must have been installed with; the updaters from before #63 only know REINSTALL
+below=$(tr -d '\r\n' < "$INST/release/reinstall-below" 2>/dev/null || true)
+reinstall=no
+if [ -n "$below" ]; then
+  [[ $below =~ ^v[0-9]\.[0-9]{1,2}\.[0-9]{1,2}$ ]] || { echo "install/release/reinstall-below: bad version '$below'" >&2; exit 1; }
+  reinstall=yes
+fi
+# #63: withdrawn keys (install/keys/withdrawn, one name per line: release or dev, never release2),
+# in every package from then on: the updater adds them to a card's list (from the spare key's
+# package), the installer leaves them out
+withdrawn=$( { grep -v '^#' "$INST/keys/withdrawn" 2>/dev/null || true; } | tr -d '\r' | grep . | LC_ALL=C sort -u | paste -sd, || true)
+for w in ${withdrawn//,/ }; do
+  case $w in release|dev) ;; *) echo "install/keys/withdrawn: $w cannot be withdrawn (only release or dev)" >&2; exit 1 ;; esac
+  [ "$w" != "$KEYNAME" ] || { echo "the $KEYNAME key is withdrawn (install/keys/withdrawn): sign with another" >&2; exit 1; }
 done
 # the dev key the package's cards trust: your own next to dev.pem, else the repo's
 DEVPUB=$INST/keys/dev.pub
@@ -137,6 +159,18 @@ while read -r sum path; do
   src=${src/etc\/udev\/rules.d\//}
   [ "$(sha256sum < "$src" | cut -d' ' -f1)" = "$sum" ] || { echo "dlzmod-update: GUARDS hash for $path does not match $src" >&2; exit 1; }
 done <<< "$guards"
+# its copy of the scheduling drop-ins (#140), which it places on a card an older updater left without
+sched=$(sed -n "/^SCHED_CONF=\$(cat << 'SCHED_EOF'$/,/^SCHED_EOF$/p" "$INST/sd-system/dlzmod-update" | sed '1d;$d')
+for u in glesgui evolve-node evolve-app; do
+  [ -n "$sched" ] && [ "$sched" = "$(cat "$INST/sd-system/$u.service.d/dlzmod.conf")" ] \
+    || { echo "dlzmod-update: SCHED_CONF does not match sd-system/$u.service.d/dlzmod.conf" >&2; exit 1; }
+done
+# and of the early-start drop-ins (#141), which its gate also takes only with that text
+early=$(sed -n "/^EARLY_CONF=\$(cat << 'EARLY_EOF'$/,/^EARLY_EOF$/p" "$INST/sd-system/dlzmod-update" | sed '1d;$d')
+for u in dlzmod-update dlzmod-grow-data; do
+  [ -n "$early" ] && [ "$early" = "$(cat "$INST/sd-system/$u.service.d/dlzmod.conf")" ] \
+    || { echo "dlzmod-update: EARLY_CONF does not match sd-system/$u.service.d/dlzmod.conf" >&2; exit 1; }
+done
 missing=$(grep -v '^#' "$INST/installer/applets.txt" | grep . | grep -vxF -f <(echo "$have") || true)
 [ -z "$missing" ] || { echo "busybox lacks applets:" $missing >&2; exit 1; }
 
@@ -154,6 +188,9 @@ for f in cpio-replace.py patch.py modversion.py logobbox.py bootsplash.py; do in
 install -m 644 "$INST/app-mod/dlzmod.js" "$pkg/mod/app-mod/"
 install -m 644 "$INST/server-mod/dlzmod-server.js" "$pkg/mod/server-mod/"
 cp -r "$INST/sd-system" "$pkg/mod/sd-system"
+# fixed modes, not the source's (a tree on /mnt/d shows every file as 755, a Linux clone git's): the
+# same package from the same commit anywhere; apply-mod.sh places each file with its own mode
+find "$pkg/mod/sd-system" -type d -exec chmod 755 {} + -o -type f -exec chmod 644 {} +
 mkdir "$pkg/mod/keys"
 for k in release release2; do tr -d '\r' < "$INST/keys/$k.pub" > "$pkg/mod/keys/$k.pub"; done
 tr -d '\r' < "$DEVPUB" > "$pkg/mod/keys/dev.pub"
@@ -176,7 +213,9 @@ DLZMOD_VERSION=$VERSION
 MODEL=XS
 MODELS=XS,full-size
 EVOLVE_NODE=3297
-REINSTALL=no
+REINSTALL=$reinstall
+REINSTALL_BELOW=$below
+WITHDRAWN=$withdrawn
 PLACEHOLDER=$placeholder
 DRYRUN_ONLY=$dryrun_only
 BUILT=$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
@@ -203,7 +242,10 @@ tar -C "$work" --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --n
 echo "package: $OUT/$NAME.tar ($(stat -c %s "$OUT/$NAME.tar") bytes, $(wc -l < "$pkg/manifest") files," \
   "initrd $(stat -c %s "$rel/initrd.cpio.gz") bytes, commit $COMMIT, placeholder $placeholder)"
 if [ "$SIGN" = no ]; then
-  echo "NOT SIGNED: uncommitted changes (cards refuse it as an update; commit, then build)"
+  case $COMMIT in
+    *+dirty) echo "NOT SIGNED: uncommitted changes (cards refuse it as an update; commit, then build)" ;;
+    *) echo "NOT SIGNED: UNSIGNED=1 (cards refuse it as an update; for comparing builds)" ;;
+  esac
   exit 0
 fi
 # ed25519 signatures are deterministic: the same tar and key give the same .sig

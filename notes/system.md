@@ -41,11 +41,39 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
 - Mackie units hook into `basic.target.wants` (gd32, fpga, faderlink, dspserver, weston, glesgui,
   upgradedaemon) and `multi-user.target.wants` (evolve-node, evolve-app) [static]. Order and roles:
   [architecture.md](architecture.md#processes)
+- `basic.target` waits for faderlink (`Before=basic.target`), which waits for the FPGA load
+  (9.4-14.3 s into a start) [device]. A unit with the default dependencies starts after it: the
+  mod's `dlzmod-update` and `dlzmod-grow-data`, ordered before evolve-node, evolve-app and
+  dspserver, held node back to ~16 s, where stock starts it at ~9.5 s. **The mod** (#141): their
+  drop-ins take the default dependencies off (after `sysinit.target`, stopped at shutdown, the
+  eMMC lock still first). On the dev card [device, 11 starts]: the mixer view at 29.4-31.1 s instead
+  of 37.3-38.3 s; audio ready at ~19.6 s in 8, ~27 s in 3 (dspserver's preamp step waited ~7.5 s
+  when it met glesgui's graphics start, not the Wi-Fi: `components/dspserver.md`, #147), always
+  before the view.
 - Also enabled: NetworkManager, systemd-networkd, resolved, wpa_supplicant, avahi, ssh, openvpn
   (no config, does nothing), chrony, cron (stock, empty), rsyslog, sysstat, armbian-firstrun-config [static]
 - Masked: `ondemand.service`, `sudo.service` [static]
 - Only `serial-getty@ttyS0` is enabled; getty overrides add a 10 s sleep, no autologin [static]
 - `rc.local` is empty (`exit 0`) [static]
+
+### Scheduling
+
+- Stock units of `glesgui`, `evolve-node`, `evolve-app`, `dspserver` and `faderlink`:
+  `CPUSchedulingPolicy=fifo`, `CPUSchedulingPriority=20`, `Nice=-20`, `Restart=always` [static]. Weston, Xwayland, sshd, journald, rsyslog, systemd and the kworkers
+  run normal (TS) [device, `ps -eLo cls,rtprio`].
+- `/proc/sys/kernel/sched_rt_runtime_us` is `-1` (RT throttling off: real-time tasks may keep a core
+  for ever); dspserver sets it at its start (its start snippet; the string is only in dspserver)
+  [device, static]. Cores 0-2 are shared (`isolcpus=3` is dspserver's audio core).
+- dspserver's own threads on cores 0-2 set their priorities themselves, above 20: main loop RR 50,
+  NDI senders RR 50, reverb FIFO 99, a few FIFO 20; ~1 % CPU each in normal use [device].
+- glesgui and node set no policy themselves (no `sched_setscheduler`/`pthread_setschedparam`
+  imported; glesgui imports `sched_yield`) [static]: the units decide.
+- **The mod** (#140): drop-ins `CPUSchedulingPolicy=other`, `CPUSchedulingPriority=0` for glesgui,
+  evolve-node and evolve-app (Nice=-20 kept; dspserver and faderlink unchanged), after real-time
+  glesgui and node starved the rest of the start (components/glesgui.md, "Bad starts"). The explicit
+  0: systemd 249 refuses an empty `CPUSchedulingPriority=` and keeps 20, which `other` does not
+  take [static, the dump's systemd-analyze under qemu]. On the card: glesgui and the 22 node threads
+  TS nice -20, dspserver as before [device].
 
 ## Clock, filesystems, tools
 
@@ -191,7 +219,8 @@ Implication: keep the mixer on a trusted LAN, and never port-forward it.
   last ~10-40 s [guess, from those two], and a start that freezes early can leave nothing at all; the
   last line kept is the last write-back, not the moment of the freeze [device: a start that hung
   after its boot log copy (10.4 s) left no line in the card's syslog; its first 10 s survive only in
-  the boot log copy]
+  the boot log copy]. Since #136 `dlzmod-bootreport` writes the syslog through (`sync <file>`) every
+  10-15 s until the start has finished, and the boot log copy to DLZDATA comes only after that
 
 ### What changes at runtime
 
