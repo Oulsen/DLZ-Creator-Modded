@@ -302,7 +302,12 @@ release image trusts only the release keys: use a second microSD for development
    install makes new host keys, so `push.sh` stops with a changed host key until then. Not needed
    for a `build-sd.sh` card with an SSH key.
 
-**The loop** (Git Bash, repo root):
+**The loop** (Git Bash, repo root). Start the network log listener first (`dev/netlog.ps1`, "A start
+that hangs" below) and keep it open for the whole session: the floor of each start, the install and
+the timings arrive without a login, a start that hangs still leaves its log, and logins may come 30 s
+after the screen instead of a blind 90 s. The card sends to one PC, the last one that ran
+`bash dev/netlog.sh on`: on another PC (laptop, desktop) run it again there, and allow the port in
+that PC's firewall once.
 
 ```bash
 git commit -m "WIP ..."   # only a committed tree is signed; WIP commits disappear in the squash merge
@@ -394,8 +399,9 @@ issue's technical notes point to the note section instead of copying it.
   ```
 
   "Next Version" holds the next milestone's issues that have not started; after a release the
-  following milestone's issues move into it. The mixer test is part of the work on the branch (the
-  dev card, `dev/push.sh`), before the PR. What can only be seen later (an install log on the next
+  following milestone's issues move into it. The fast tests run before the PR; the mixer test (a
+  drop-in of the PR branch on the dev card, `dev/push.sh`) comes after the review and the device
+  review, before the merge ("On the mixer before the merge" below). What can only be seen later (an install log on the next
   install) is noted in the issue's "Done when" and checked at the release ("Releases", step 4).
   After the merge the issue is closed by hand with "Fixed in develop, comes with vX.Y.Z." and its
   card goes to "Fixed in develop", so the milestone's progress shows what is done; "Fixed in develop" = in `develop`, not on `main` yet, "Released" =
