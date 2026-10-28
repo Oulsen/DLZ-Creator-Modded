@@ -1,8 +1,12 @@
 [Unit]
 Description=dlzmod: move the clock past DLZDATA's newest file (a power-off after the last save)
-After=local-fs.target fake-hwclock.service dlzmod-grow-data.service
-# before anything writes to DLZDATA, and before the saver's first save
-Before=dlzmod-clock.service dlzmod-update.service dlzmod-bootlog.service evolve-node.service evolve-app.service dspserver.service
+# after the update, which mounts DLZDATA itself: not before it, which would hold it (and Mackie's
+# node processes after it) behind basic.target again (#141; this unit has the default dependencies,
+# the updaters on the cards refuse a unit without them). What the update writes carries this start's
+# clock, so it is not ahead of it.
+After=local-fs.target fake-hwclock.service dlzmod-grow-data.service dlzmod-update.service
+# before the mixer software writes to DLZDATA, and before the saver's first save
+Before=dlzmod-clock.service evolve-node.service evolve-app.service dspserver.service
 
 [Service]
 # once per start (not again when the saver restarts); a failure leaves the clock as fake-hwclock
