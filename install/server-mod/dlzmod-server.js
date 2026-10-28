@@ -1983,9 +1983,10 @@ async function DLZMOD_time(args, send, opts = {}) {
       if (!paired || DLZMOD_time.busy) return;
       const t = Number(a.now);
       if (!DLZMOD_clockYearOk(t) || !(t > now() + 5000)) return;
-      if (["internet", "hand"].includes(await DLZMOD_clockSource(run))) return;
+      // busy before chronyc is asked: a time set by hand meanwhile must not be overwritten
       DLZMOD_time.busy = true;
       try {
+        if (["internet", "hand"].includes(await DLZMOD_clockSource(run))) return;
         await DLZMOD_clockSet(t, "device", run, null, DLZMOD_tzCurrent(p));
       } finally {
         DLZMOD_time.busy = false;
@@ -2005,8 +2006,9 @@ async function DLZMOD_time(args, send, opts = {}) {
       } else {
         const zone = DLZMOD_tzCurrent(p);
         // the browser's own time, or a date and time in the mixer's zone (the picker)
+        // (the picker's years are the zone's: 1 Jan 2025 00:30 in Amsterdam is still 2024 in UTC)
         const t = a.now !== undefined ? Number(a.now) : DLZMOD_tzEpoch(zone, a.time);
-        if (!DLZMOD_clockYearOk(t)) {
+        if (a.now !== undefined ? !DLZMOD_clockYearOk(t) : isNaN(t)) {
           const [y0, y1] = DLZMOD_clockYears();
           result(false, "Not a date the mixer takes (" + y0 + " to " + y1 + ")");
         } else {

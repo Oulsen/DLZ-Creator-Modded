@@ -1605,6 +1605,12 @@ test("Clock picker: opens at the mixer's time, arrows change it, Set sends it; e
   ctx.DLZMOD_clockPicker();
   assert.strictEqual(ui.windows.length, 4, "a tap outside: opens again");
   ui.windows.at(-1).close();
+  reset();
+  ctx.DLZMOD_setTimeState(Object.assign({}, CLOCK, { local: Object.assign({}, CLOCK.local, { y: 2024, mo: 2, d: 29 }) }));
+  ctx.DLZMOD_clockPicker();
+  assert.deepStrictEqual(plain(ui.windows[0].f), { y: 2025, mo: 2, d: 28, h: 23, mi: 58 },
+    "29 Feb of a saved 2024: 28 Feb 2025, a date the server takes");
+  ui.windows[0].close();
 });
 test("Clock: a browser gives its time at every connect, the mixer's own screen does not", () => {
   reset();

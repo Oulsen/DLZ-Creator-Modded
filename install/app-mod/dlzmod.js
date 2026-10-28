@@ -1364,7 +1364,9 @@ function DLZMOD_clockPicker() {
   });
   DLZMOD_clockPicker.popup = new PopupWindow(app, {
     w: W, h: H, bgColor: Color.bgPopup,
-    f: { y: Math.max(y0, Math.min(y1, s.local.y)), mo: s.local.mo, d: s.local.d, h: s.local.h, mi: s.local.mi },
+    // (a step of 0 also takes 29 Feb of a saved 2024 to 28 Feb 2025)
+    f: DLZMOD_clockStep({ y: Math.max(y0, Math.min(y1, s.local.y)), mo: s.local.mo, d: s.local.d, h: s.local.h,
+      mi: s.local.mi }, "y", 0),
     initWidgets: function () {
       keys.forEach((k, i) => {
         arrow(this, i, 1);

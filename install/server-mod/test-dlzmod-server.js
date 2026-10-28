@@ -2405,6 +2405,39 @@ test("clock from a browser at connect: paired only, forward only (over 5 s), san
   assert.deepStrictEqual(synced.sets(), [], "in sync with the internet");
 });
 
+test("clock: a browser's time and a time set by hand meanwhile do not both run (busy while chronyc is asked)", async () => {
+  const t = amsterdam();
+  clockReset();
+  let answer;
+  const r = clockRun();
+  const slow = async (file, args) => {
+    if (file === "/usr/bin/chronyc") await new Promise((res) => (answer = res));
+    return r.run(file, args);
+  };
+  const pending = ctx.DLZMOD_time({ op: "sync", now: NOW + 3600000 }, paired([]), clockOpts(t, { run: slow }));
+  const s = [];
+  await ctx.DLZMOD_time({ op: "clock", time: { y: 2026, mo: 1, d: 1, h: 0, mi: 0 } }, sendTo(s), clockOpts(t, r));
+  assert.deepStrictEqual(timeOf(s, "DLZMOD_TIME_RESULT"),
+    [{ ok: false, text: "Still busy with the last change, try again in a moment" }]);
+  answer();
+  await pending;
+  assert.deepStrictEqual(r.sets().map((c) => c[0]), ["/usr/bin/date", "/usr/local/sbin/dlzmod-clock"], "one set, the browser's");
+  assert.strictEqual(ctx.DLZMOD_time.busy, false);
+  clockReset();
+  ctx.DLZMOD_clock().how = "hand";
+  await ctx.DLZMOD_time({ op: "sync", now: NOW + 3600000 }, paired([]), clockOpts(t, r));
+  assert.strictEqual(ctx.DLZMOD_time.busy, false, "a refused sync lets go too");
+});
+test("clock by hand: the picker's years are the zone's (1 Jan 2025 00:30 in Amsterdam is 2024 in UTC)", async () => {
+  const t = amsterdam();
+  clockReset();
+  const r = clockRun();
+  const s = [];
+  await ctx.DLZMOD_time({ op: "clock", time: { y: 2025, mo: 1, d: 1, h: 0, mi: 30 } }, sendTo(s), clockOpts(t, r));
+  assert.deepStrictEqual(r.sets()[0], ["/usr/bin/date", "-u", "-s", "@" + Date.UTC(2024, 11, 31, 23, 30) / 1000 + ".000"]);
+  assert.strictEqual(timeOf(s, "DLZMOD_TIME_RESULT")[0].ok, true);
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {
