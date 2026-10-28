@@ -115,9 +115,15 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
   stay without a date although the clock is right. chronyc gets 1 s at the start of a recording,
   then it starts without the date (`DLZMOD_recStamp`); chronyc is asked at most every 10 s, so a
   recording started in that time after such a slow answer has no date either, even when chrony is
-  in sync by then. [static: unit tests; PC sandbox: the switch,
-  its reset, and names up to `REC_0007_woodpecker_2026-10-28_1430.wav` whole in the Media list;
-  the player's title line and a recording on the mixer not yet checked]
+  in sync by then. [device: with the switch on and the clock from the internet, a recording got
+  `REC_0005_wombat_2026-10-28_2013.wav` in local time (CET), numbered after the older
+  `REC_0004_gorilla`; static: unit tests; PC sandbox: the switch, its reset, and names up to
+  `REC_0007_woodpecker_2026-10-28_1430.wav` whole in the Media list]. The player's title line
+  (`player.name`, set by dspserver, 530 px, shortened in the middle by Mackie's `shortenMid`)
+  shows "artist - name": stock recordings carry an INFO chunk with the artist `DLZ|Creator` (with
+  the `|`) and `ISFT Lavf58.76.100`, no title, so it reads `DLZ|Creator - REC_00..bat_2026-10-28_2013`
+  [device: the same tag in a recording from before the update]; the number and the date stay
+  visible, the animal is cut
 - **Recordings go to the SD card by default** (`settings.rec.toUSB` off in the card's state).
 - **About's "Device IP Address"** asks `eth0`, then `wlan0`.
 - **Look and meters** (`app.js`): see "Mod settings" below.
