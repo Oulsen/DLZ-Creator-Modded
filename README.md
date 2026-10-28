@@ -58,6 +58,8 @@ below. They all start as stock: turn on what you want.
   was, so new recordings sort after older ones
 - Recording times are local time, not world time (UTC): pick your time zone under Settings, Time
   (in a browser: the computer's own zone in one tap); summer and winter time follow by themselves
+- The touch screen keeps working when the clock is set back (by hand, or corrected from the
+  internet); before, it stopped reacting for as long as the clock went back
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md). What is coming: [Roadmap](#roadmap).
 

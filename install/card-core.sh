@@ -442,7 +442,7 @@ set_rec_default_sd() {
   echo "srv_data.json: recordings default to microSD (settings.rec.toUSB=0)"
 }
 
-# install_sd_system, apply_patches, set_mod_defaults: shared with the drop-in update on the card
+# install_sd_system, apply_patches, patch_glesgui, set_mod_defaults: shared with the drop-in update on the card
 . "$TOOLS/apply-mod.sh"
 
 # The keys the drop-in update accepts packages from (sd-system/dlzmod-update), fixed here for the
@@ -503,6 +503,7 @@ sync
 echo "bound to: $([ "$DLZMOD_MIXER_ID" = any ] && echo "any mixer (developer card)" || echo "this mixer's eMMC")"
 step 7 "mixer software changes"
 apply_patches
+patch_glesgui
 set_rec_default_sd
 set_mod_defaults
 record_version

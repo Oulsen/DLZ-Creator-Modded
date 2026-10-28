@@ -1,0 +1,86 @@
+#!/usr/bin/python3
+# DLZ Creator Modded (#188): Mackie's glesgui (/usr/local/bin/glesgui, draws the screen and reads the
+# touch panel) polls touch at most every 20 ms, timed on the wall clock (system_clock::now()). After
+# the clock goes back, no touch is read until the clock has caught up again: for as long as the step.
+# This points that one call at the steady clock next to it (steady_clock::now(), same layout): one
+# branch instruction, only in a glesgui with the stock hash (build 1731, XS and full-size); any
+# other glesgui is left as it is. The card's copy only: the eMMC keeps its own.
+#
+# dlzmod-glesgui [<rootfs>]   ("" or none: the running system). Called by card-core.sh on a new card
+# and by dlzmod-update at a start without an update file. A running glesgui keeps the file it started
+# from: the patched one is used from its next start. Written next to it and renamed over it, so a
+# power cut leaves the stock file or the patched one. Exit 0 also when it leaves glesgui alone.
+import hashlib, os, shutil, sys
+
+ROOT = sys.argv[1] if len(sys.argv) > 1 else ""
+PATH = ROOT + "/usr/local/bin/glesgui"
+SIZE = 42663952
+STOCK = "ee5a680f3da783bb55fe346e7435ddc70a6eccd1fbb2481d08e690e879e2ee77"
+PATCHED = "daee046cc63d0224fe3085deb408f46b92f998e35d93c2004981acf597dd133f"
+# the touch poller's call of system_clock::now() (bl 0xdba74 at 0x22270), and the same call of
+# steady_clock::now() (bl 0xdbab4)
+OFF = 0x12270
+OLD = bytes.fromhex("ffe502eb")
+NEW = bytes.fromhex("0fe602eb")
+
+
+def say(text):
+    print("dlzmod-glesgui: " + text)
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+try:
+    st = os.lstat(PATH)
+except FileNotFoundError:
+    say("no glesgui, left alone")
+    sys.exit(0)
+if not os.path.isfile(PATH) or os.path.islink(PATH) or st.st_size != SIZE:
+    say("not the glesgui this knows (size), left alone")
+    sys.exit(0)
+with open(PATH, "rb") as f:
+    f.seek(OFF)
+    at = f.read(len(OLD))
+# every start: the size and these 4 bytes, no hash of the 42 MB
+if at == NEW:
+    sys.exit(0)
+if at != OLD or sha256(PATH) != STOCK:
+    say("not the glesgui this knows, left alone (touch after a clock step back as stock)")
+    sys.exit(0)
+fs = os.statvfs(os.path.dirname(PATH))
+if fs.f_bavail * fs.f_frsize < SIZE + (16 << 20):
+    say("not enough room on the card for the patched copy, left alone")
+    sys.exit(0)
+tmp = PATH + ".dlzmod-new"
+try:
+    # in blocks: the mixer has ~120 MB of free memory
+    with open(PATH, "rb") as src, open(tmp, "wb") as dst:
+        shutil.copyfileobj(src, dst, 1 << 20)
+        dst.seek(OFF)
+        dst.write(NEW)
+        dst.flush()
+        os.fsync(dst.fileno())
+    if sha256(tmp) != PATCHED:
+        raise OSError("the patched copy is not what it should be")
+    os.chmod(tmp, st.st_mode & 0o7777)
+    os.chown(tmp, st.st_uid, st.st_gid)
+    os.replace(tmp, PATH)
+    dfd = os.open(os.path.dirname(PATH), os.O_RDONLY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
+except OSError as e:
+    try:
+        os.unlink(tmp)
+    except OSError:
+        pass
+    say("could not patch glesgui: " + str(e))
+    sys.exit(1)
+say("touch timed on a clock that never jumps (#188), from glesgui's next start")

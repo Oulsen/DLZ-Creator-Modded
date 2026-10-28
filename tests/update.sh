@@ -925,6 +925,27 @@ said "previous files restored" && said "placed the scheduling drop-ins of: evolv
 backnow "put-back with a drop-in missing"
 fi
 
+if case_ "76: glesgui's touch on a steady clock (#188): the install patched it; a stock one is patched at a start, once; another one left alone"; then
+G=$R/usr/local/bin/glesgui
+GSTOCK=$(sed -n 's/^STOCK = "\(.*\)"/\1/p' $REPO/install/sd-system/dlzmod-glesgui)
+GPATCHED=$(sed -n 's/^PATCHED = "\(.*\)"/\1/p' $REPO/install/sd-system/dlzmod-glesgui)
+GOFF=$(( $(sed -n 's/^OFF = //p' $REPO/install/sd-system/dlzmod-glesgui) ))
+[ "$(sha $G)" = "$GPATCHED" ] && ok "the install patched it" || bad "the install did not patch it ($(sha $G | cut -c1-16))"
+# back to stock (the 4 bytes as Mackie ships them), as on a card updated from v0.3.x
+printf '\377\345\002\353' | dd of=$G bs=1 seek=$GOFF conv=notrunc 2> /dev/null
+[ "$(sha $G)" = "$GSTOCK" ] || bad "could not make it stock again"
+n1=$(reports); run
+[ "$(sha $G)" = "$GPATCHED" ] && grep -qF "#188" $W/run.out && [ "$(stat -c %a $G)" = 755 ] \
+  && ok "a start without an update file patched it (755)" || bad "not patched at a start"
+[ "$(reports)" = "$n1" ] && ok "no report for it" || bad "a report for the glesgui patch"
+run; ! grep -qF "dlzmod-glesgui" $W/run.out && [ "$(sha $G)" = "$GPATCHED" ] && ok "the start after: silent, unchanged" || bad "the start after: not silent or changed"
+printf 'X' | dd of=$G bs=1 seek=100 conv=notrunc 2> /dev/null; printf '\377\345\002\353' | dd of=$G bs=1 seek=$GOFF conv=notrunc 2> /dev/null
+before=$(sha $G); run
+[ "$(sha $G)" = "$before" ] && grep -qF "left alone" $W/run.out && ok "another glesgui: left alone, says so" || bad "another glesgui changed or not said"
+printf '@' | dd of=$G bs=1 seek=100 conv=notrunc 2> /dev/null; printf '\017\346\002\353' | dd of=$G bs=1 seek=$GOFF conv=notrunc 2> /dev/null
+[ "$(sha $G)" = "$GPATCHED" ] || bad "could not put the patched glesgui back"
+fi
+
 if case_ "63: stops before DLZDATA (not on an SD card): no report file left in /tmp"; then
 chroot $R /usr/local/sbin/dlzmod-update > $W/run.out 2>&1
 grep -q "not on an SD card" $W/run.out && ok "stopped: not on an SD card" || bad "did not stop at the SD check: $(cat $W/run.out)"
@@ -935,7 +956,7 @@ if case_ "14: guards still as installed after all this"; then
 for f in flash-gd32 upgradedaemon upgraderun; do
   cmp -s $R/etc/systemd/system/$f.service.d/dlzmod.conf $REPO/install/sd-system/$f.service.d/dlzmod.conf && ok "$f guard" || bad "$f GUARD CHANGED"
 done
-find $R/etc $R/srv $R/usr/local/sbin $R/var/lib/dlzmod-update -name '*.dlzmod-new' 2>/dev/null | grep -q . && bad "temp files left" || ok "no temp files left"
+find $R/etc $R/srv $R/usr/local/sbin $R/usr/local/bin $R/var/lib/dlzmod-update -name '*.dlzmod-new' 2>/dev/null | grep -q . && bad "temp files left" || ok "no temp files left"
 fi
 
 case_; times_summary

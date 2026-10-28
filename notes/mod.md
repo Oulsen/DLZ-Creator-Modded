@@ -276,7 +276,11 @@ that choice and the whole screen shows it at once: the screen is the preview, no
   drawing (the brightness knob's value changed on it), touch came back after about 5 minutes, and
   the card said "Set from the internet". The earlier run (dev-7c89412, step back 91.6 s at 62 s,
   "the screen stood still", restarted by hand) had both waits; which one the user saw is not known.
-  A step forward does neither. Fixed in #188, not in the mod's JS.
+  A step forward does neither. The fix (#188) is in glesgui itself: `dlzmod-glesgui` points that
+  call at the steady clock ([glesgui.md](components/glesgui.md)). A new card gets it from
+  `card-core.sh`; an updated one from `dlzmod-update` at a start without an update file (not in the
+  update's sandbox: its stage is in RAM, glesgui is 42 MB), used from glesgui's next start. Only a
+  glesgui with the stock hash is changed; at later starts it reads only 4 bytes [static; tests/glesgui.sh].
 - **The card**: the date and time in the zone, where they came from (yellow without a source), and
   in a browser the computer's own; Set... (`DLZMOD_clockPicker`: day, month, year, hour, minute with
   arrows that repeat while held, as Mackie's unused `PageTime`) and, in a browser, Use This
