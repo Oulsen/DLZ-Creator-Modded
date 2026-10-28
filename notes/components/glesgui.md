@@ -29,6 +29,16 @@ A **dumb Canvas2D renderer**: the UI logic lives in `/srv/app.js`, glesgui only 
   not feel faster. Gotcha: after such a run, the stock X11 glesgui hangs at "Opening
   GUI..." with its main thread at 100% CPU, also after a second restart; only a reboot fixed it.
   Touch-down to the new picture on the panel: see "Tap to screen" below.
+- **Touch is polled on the wall clock** (#188) [static, disassembly; matches the device]: the
+  function at `0x22264` reads `std::chrono::system_clock::now()` (`0xdba74`, `CLOCK_REALTIME`),
+  skips the poll when less than 20 ms (by that clock) passed since the last one, else stores the
+  time, reads the GLFW button and cursor state and sends it (`0x20d5c`, which drops a repeat of the
+  same message). After the clock steps back, no touch reaches app.js for the length of the step,
+  while frames still draw [device, 2026-10-28: 323 s back, touch gone ~5 min]. The mod points that
+  one call at `steady_clock::now()` (`0xdbab4`, `CLOCK_MONOTONIC`, same return layout): file
+  offset `0x12270`, `bl` `eb02e5ff` → `eb02e60f` (`sd-system/dlzmod-glesgui`, only on the stock
+  hash, the card's copy only). With it, touch kept working through a 292.6 s step back [device,
+  2026-10-28].
 - Side effects: a "Screen calibration gesture" runs `ts-calibrate.sh &` and
   `killall -STOP/-CONT /usr/local/bin/dspserver`; forces `/sys/class/drm/*/power/control` to `on`;
   writes `/tmp/thread_watchdog`.
@@ -156,7 +166,8 @@ longer a reliable trigger.
 
 ### Mod angles
 
-- Change what is drawn: patch app.js, not glesgui.
+- Change what is drawn: patch app.js, not glesgui. The one-instruction patch (#188, above) is the
+  exception: a fixed instruction, checked against the stock hash before and after.
 - Your own renderer/overlay: a process can write to the FIFO (if app.js is stopped) and serve 8011.
 - Capture the full draw-call list live (tee the FIFO) before relying on it.
 

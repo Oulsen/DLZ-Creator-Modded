@@ -43,6 +43,9 @@ jobs:
       - name: Clock saver
         run: bash tests/clock.sh
 
+      - name: Touch fix for glesgui (without the dump)
+        run: bash tests/glesgui.sh
+
       - name: Report of each start
         run: bash tests/bootreport.sh
 

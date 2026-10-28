@@ -67,7 +67,7 @@ install_sd_system() {
     echo "early-start drop-ins: this card's updater does not know them yet, its new copy places them at the next start"
   fi
   # dspserver waits for server.js before starting (dlzmod-wait-hub, its drop-in above)
-  for f in dlzmod-grow-data dlzmod-bootlog dlzmod-bootreport dlzmod-clock dlzmod-wait-hub dlzmod-netlog; do
+  for f in dlzmod-grow-data dlzmod-bootlog dlzmod-bootreport dlzmod-clock dlzmod-wait-hub dlzmod-netlog dlzmod-glesgui; do
     put_file 755 "$s/$f" "$MNT/usr/local/sbin/$f"
   done
   for f in dlzmod-grow-data dlzmod-bootreport dlzmod-netlog dlzmod-clock; do
@@ -152,6 +152,13 @@ install_update_unit() {
 apply_patches() {
   python3 "$TOOLS/patch.py" app "$MNT/srv/app.js"
   python3 "$TOOLS/patch.py" server "$MNT/srv/server.js"
+}
+
+# #188: touch after a clock step back (sd-system/dlzmod-glesgui). A new card only: not in the update's
+# sandbox (its stage is in RAM, glesgui is 42 MB); an updated card's updater runs the script at a
+# start without an update file. Leaves an unknown glesgui alone; a failure costs only the fix.
+patch_glesgui() {
+  python3 "$TOOLS/sd-system/dlzmod-glesgui" "$MNT" || echo "glesgui: left as it is (touch after a clock step back as stock)"
 }
 
 # The Mod page's settings with their defaults in the hub state from the first boot. Without them the

@@ -421,6 +421,10 @@ missing_dropins() {
   [ -z "$CHECK_ONLY" ] && [ ! -s "$STATE/inprogress" ] && emmc_locked || return 0
   place_dropins scheduling "#140" "$SCHED_UNITS" "$SCHED_CONF"
   place_dropins early-start "#141" "$EARLY_UNITS" "$EARLY_CONF"
+  # #188: glesgui's touch on a steady clock (a new card has it from card-core.sh; an updated one gets
+  # it here, once: at later starts the script only reads 4 bytes). Its line goes to the journal: it
+  # says something only when it patches or leaves glesgui alone
+  [ ! -x "$ROOT/usr/local/sbin/dlzmod-glesgui" ] || "$ROOT/usr/local/sbin/dlzmod-glesgui" "$ROOT" || true
 }
 pkgs=("$U"/dlzmod-*.tar)
 if [ ${#pkgs[@]} = 0 ]; then   # nothing to do (every normal start)
