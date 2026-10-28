@@ -27,7 +27,10 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   cached rate), so it cannot be used to read the real clock. The thermal sensor works
   (`sun8i_thermal` loaded, zones cpu0/gpu) but runs uncalibrated ("Failed to get calibration nvmem
   cell"): cpu0 68.8 °C, gpu 67.0 °C after 1 h 28 min in normal use [device], so read the absolute
-  values with care. Who asks for what: `/etc/default/cpufrequtils` belongs to no package (Armbian's
+  values with care. Calibrated, the sensor is ±3 °C from 0 to 100 °C (datasheet, Thermal Sensor);
+  on the R40 family the calibration sits in the SID eFuse, which this DTB does not link to the
+  sensor [guess; offset not in the datasheet: user manual or mainline driver]. Who asks for what:
+  `/etc/default/cpufrequtils` belongs to no package (Armbian's
   build writes it from the board config's CPU limits), and dspserver's start-up shell snippet echoes
   `performance` into `policy0/scaling_governor` next to `sched_rt_runtime_us = -1`; neither checks
   the result [static]. Both failures are quiet (at most an error line in the journal), so the missing OPPs
@@ -38,11 +41,18 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   at 4x1.2 GHz full load) [static, upstream thread]. The board's dcdc2 range (1.2–1.3 V) covers
   exactly the 1.2 GHz point. Chip limits (A40i datasheet rev 1.1, tables 5-1, 5-2 and 6-1): VDD-CPU
   recommended 1.0 / 1.1 / 1.3 V (min/typ/max), absolute maximum 1.32 V; ambient -40..85 °C, junction
-  -40..125 °C, θJA 24 °C/W. The datasheet names no top CPU clock (only the PLL's 60 MHz–2.1 GHz
-  output range); module makers' "up to 1.5 GHz" has no voltage behind it on this board [static]. So
-  1104 MHz at 1.24 V sits inside the recommended range with margin, 1200 MHz at 1.30 V on its upper
-  edge and 20 mV under the damage limit, which leaves no room for the PMIC's tolerance or ripple.
-  Measured against today's 1056 MHz, 1104 MHz gains ~4.5% and 1200 MHz ~13.6%
+  -40..125 °C, θJA 24 °C/W (a JEDEC test board without airflow, "reference only": not the mixer's
+  case). It gives no current or power figures (5.10 refers to Allwinner), so the heat a faster
+  clock adds has to be measured. The CPU PLL takes up to 1.5 ms to lock (table 5-10). The
+  datasheet names no top CPU clock (only the PLL's 60 MHz–2.1 GHz output range); module makers'
+  "up to 1.5 GHz" has no voltage behind it on this board [static]. With dspserver's K = 2 the clock
+  moves in 48 MHz steps: 1104, 1152, 1200 MHz (24 MHz × N × K; 1128 and 1176 MHz cannot be made).
+  1104 MHz at 1.24 V sits inside the recommended range with margin; 1152 MHz has no BSP voltage
+  (halfway is 1.27 V, so 1.28 V in dcdc2's 20 mV steps [guess]); 1200 MHz at 1.30 V sits on the
+  upper edge and 20 mV under the damage limit, which leaves no room for the PMIC's tolerance or
+  ripple. Measured against today's 1056 MHz: 1104 MHz +4.5%, 1152 MHz +9.1%, 1200 MHz +13.6%, for
+  work that is bound by the CPU (the DRAM clock stays). CPU power grows with clock × voltage²:
+  1200 MHz at 1.30 V is ~+33% over today
 - `vm.swappiness=100`, `kernel.printk = 3 4 1 3`; zram disabled [static]
 
 ## Boot and services
@@ -105,7 +115,12 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   is ahead and wins); after the switch on the back systemd logs "System time before build time,
   advancing clock" and fake-hwclock sets its saved time. Those two lines tell a cold start from a
   warm one in any boot log. So there is no backup battery [guess, strong; a public teardown shows
-  no coin cell on the digital board's top side either]. Online, chrony (`makestep 1 3`) then steps
+  no coin cell on the digital board's top side either]. The SoC's RTC runs from its own `VCC-RTC`
+  pin (3.0–3.3 V, datasheet 5-2), fed by the PMIC's `rtc_ldo` at 3.0 V ([hardware.md](hardware.md)),
+  which goes off with the switch on the back [guess: from the names]. The datasheet asks for a
+  32.768 kHz crystal of ±20 ppm (table 5-21); with one, a clock set by hand drifts up to ~1.7 s a
+  day, about a minute a month, without NTP [static; the board's crystal itself is not known].
+  Online, chrony (`makestep 1 3`) then steps
   the clock some 20-40 s into the boot: by the time since the last clean shutdown after a cold
   start, by about a second after a warm one [device]. Timezone is `Etc/UTC`
   (`/etc/localtime`, `/etc/timezone`), so recording file times are UTC [static]: server.js mounts
