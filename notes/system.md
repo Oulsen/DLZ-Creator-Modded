@@ -18,16 +18,20 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
 - CPU clock: `/etc/default/cpufrequtils` asks for 1.2 GHz with the `performance` governor, but it
   never applies: the DTB's `cpu@0..3` nodes have no `clocks`, `cpu-supply` or `operating-points`,
   so `cpufreq-dt` (a module, like `sun50i-cpufreq-nvmem`) has nothing to bind to and no policy
-  exists [static; missing `policy0` device]. The CPU keeps the clock U-Boot's SPL set: `pll-cpu` and
-  `cpu` at 1008 MHz in debugfs `clk_summary`, `vdd-cpu` at 1.2 V, `/sys/devices/system/cpu/cpufreq/`
-  empty, no cpufreq module loaded [device, SD boot]. The thermal sensor works
+  exists [static; missing `policy0` device]. U-Boot's SPL sets 1008 MHz, `vdd-cpu` stays at 1.2 V,
+  `/sys/devices/system/cpu/cpufreq/` empty, no cpufreq module loaded [device, SD boot]. dspserver
+  then raises the clock itself, past the kernel, through `/dev/mem`: its journal shows "old CPU PLL:
+  90001410" → "new CPU PLL: 90001510" at every start, i.e. N 21 → 22 with K 2, M 1, P 1 in the R40's
+  PLL_CPUX layout, 1008 → **1056 MHz** at the same 1.2 V [device; decode static, field layout of
+  mainline `ccu-sun8i-r40`]. debugfs `clk_summary` keeps showing 1008 MHz (the clock framework's
+  cached rate), so it cannot be used to read the real clock. The thermal sensor works
   (`sun8i_thermal` loaded, zones cpu0/gpu) but runs uncalibrated ("Failed to get calibration nvmem
   cell"): cpu0 68.8 °C, gpu 67.0 °C after 1 h 28 min in normal use [device], so read the absolute
   values with care. Who asks for what: `/etc/default/cpufrequtils` belongs to no package (Armbian's
   build writes it from the board config's CPU limits), and dspserver's start-up shell snippet echoes
   `performance` into `policy0/scaling_governor` next to `sched_rt_runtime_us = -1`; neither checks
   the result [static]. Both failures are quiet (at most an error line in the journal), so the missing OPPs
-  go unnoticed while the mixer works at 1008 MHz. The mainline R40 dtsi had no CPU OPPs in 5.10: they were
+  go unnoticed while the mixer works at 1056 MHz. The mainline R40 dtsi had no CPU OPPs in 5.10: they were
   only proposed in 2022 (LKML "ARM: dts: sun8i-r40: add opp table for cpu"), with values from
   Allwinner's BSP: 720 MHz 1.00 V, 912 MHz 1.10 V, 1008 MHz 1.16 V, 1104 MHz 1.24 V, 1200 MHz 1.30 V,
   clock latency 2 ms. 1104 and 1200 MHz were left to board DTS files (current draw; ~800 mA at 5 V
@@ -37,7 +41,8 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   -40..125 °C, θJA 24 °C/W. The datasheet names no top CPU clock (only the PLL's 60 MHz–2.1 GHz
   output range); module makers' "up to 1.5 GHz" has no voltage behind it on this board [static]. So
   1104 MHz at 1.24 V sits inside the recommended range with margin, 1200 MHz at 1.30 V on its upper
-  edge and 20 mV under the damage limit, which leaves no room for the PMIC's tolerance or ripple
+  edge and 20 mV under the damage limit, which leaves no room for the PMIC's tolerance or ripple.
+  Measured against today's 1056 MHz, 1104 MHz gains ~4.5% and 1200 MHz ~13.6%
 - `vm.swappiness=100`, `kernel.printk = 3 4 1 3`; zram disabled [static]
 
 ## Boot and services
@@ -149,7 +154,11 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   (`nproc` = 3); cores 0-2 measured 8% busy each (`/proc/stat`, 5 s). Dozens of audio threads
   (AsyncReverb, NDIStereoSender, dspLoopThreadC2, glesgui) wake together ~590/s on the audio block
   period, so the 5-second load sample keeps catching them runnable at once. For real load use
-  per-core `/proc/stat`, not `uptime`/`top`'s load average.
+  per-core `/proc/stat`, not `uptime`/`top`'s load average. `dspLoopThreadC3` (SCHED_FIFO 99)
+  shows 99.3% in `ps`/`top -H` and core 3 is busy ~99.6% at any moment, so `top -H` cannot show the
+  DSP's headroom: the thread keeps its core whether it has work or not. dspLoopThreadC2 (core 2)
+  1.2%, each AsyncReverb thread 0.7%; cores 0-2 7-13% busy over a few seconds of normal use
+  [device].
 - USB host: both EHCI/OHCI pairs (`usb@1c19000/400`, `usb@1c1c000/400`) exist; which one is the
   external USB-A port is open (question 18) [static]
 
