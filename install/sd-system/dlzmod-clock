@@ -46,16 +46,19 @@ newest() {
     END { if (best) print best + 2 }'
 }
 
+# milliseconds since power-on: the time the floor took, not counting the jump it makes
+uptime_ms() { awk '{ printf "%d", $1 * 1000 }' /proc/uptime; }
+
 # floor <dir>: DLZDATA, mounted by the caller
 floor() {
   local t0 now to
-  t0=$(date +%s%3N)
+  t0=$(uptime_ms)
   now=$(date +%s)
   to=$(newest "$1" "$now")
   if [ -n "$to" ]; then
-    date -u -s "@$to" > /dev/null && log "clock moved forward $((to - now)) s, past the newest file on DLZDATA ($(( $(date +%s%3N) - t0 )) ms)"
+    date -u -s "@$to" > /dev/null && log "clock moved forward $((to - now)) s, past the newest file on DLZDATA ($(( $(uptime_ms) - t0 )) ms)"
   else
-    log "no newer file on DLZDATA, clock stays at $(date -u '+%F %T') ($(( $(date +%s%3N) - t0 )) ms)"
+    log "no newer file on DLZDATA, clock stays at $(date -u '+%F %T') ($(( $(uptime_ms) - t0 )) ms)"
   fi
 }
 
