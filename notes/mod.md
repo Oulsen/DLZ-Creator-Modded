@@ -133,7 +133,7 @@ Sub-tabs Display / Colors / Time / Network / Remote / Mod (a browser: Display / 
   wrapping the LR fader's `paint`); off = Mackie's plain meters. The scale is dB-linear over 80 dB with
   0 dBFS at the top [device: test tones at -6 and -30 dBFS].
 - **Colors** (#21): see "Themes and colours" below.
-- **Time** (#9): the time zone, below.
+- **Time** (#9, #13): two cards, the time zone and the clock, below.
 - **Network** (#12, #44): Wi-Fi and SSH, below.
 - **Remote Control** (#45, #48): control from a computer's web browser, off by default; below (phones
   and tablets: Mackie's web UI does not fit them and misses touches, #52).
@@ -227,13 +227,39 @@ that choice and the whole screen shows it at once: the screen is the preview, no
   the card in a card reader); the older ones, written before, stay an hour early.
 - **Who**: the status for anyone who asks (the answer to the one who asked); a change from the mixer's own screen and from paired
   devices (`dlzmodPaired`), not from an unpaired browser (pairing off) [static; unit tests].
-- **The panel**: the zone, its offset and the time there now (node's ICU, `DLZMOD_tzInfo`), every 3 s
-  while shown; Change... opens a list (`DLZMOD_zonePicker`) the way Windows lists zones: 42 rows
+- **The card**: the zone and its offset (node's ICU, `DLZMOD_tzInfo`; the time there is on the clock
+  card), every 3 s while shown; Change... opens a list (`DLZMOD_zonePicker`) the way Windows lists zones: 42 rows
   (`DLZMOD_zoneList`), one per set of clock rules, sorted by winter offset ("UTC+01:00 Amsterdam,
   Berlin, Paris, Rome, Madrid"), 14 per page reading down two columns, opened on the zone set; a row
   sets it at once. Not a bare offset ("GMT+1"): that would not follow summer time. A browser shows
-  its own zone (`Intl...timeZone`) with Use This One, which takes any zone the mixer has [sandbox].
+  its own zone (`Intl...timeZone`) with Use This Computer's Zone, which takes any zone the mixer has [sandbox].
   `tests/patches.sh` checks every row against the dump's tzdata and the zone's real winter offset.
+
+## Clock (#13)
+
+- **Why**: without internet the clock only goes forward from the time saved before the last
+  power-off (#1, `dlzmod-clock`), so it is not the right time ([system.md](system.md), "Clock").
+- **Where it came from this start** (`DLZMOD_clockSource`): `internet` once `chronyc -c tracking`
+  gives a leap status other than `Not synchronised` (then it stays so and chronyc is not asked
+  again), else `hand` or `device` after a set below, else nothing ("Not checked since the start");
+  chronyc at most every 10 s (by uptime, which a clock change does not move) [static; unit tests].
+- **By hand** (`DLZMOD_TIME {op: "clock"}`, the screen and paired devices): the picker's date and
+  time in the mixer's zone (`DLZMOD_tzEpoch`, the offset of that moment; a time skipped in spring
+  comes out an hour later), or a browser's own time (Use This Computer's Time). It may go back: the
+  way to correct a clock set too far ahead, which the forward-only fake-hwclock would keep. Refused
+  with internet (chrony would only slew it back) and outside 2025-2099.
+- **From a browser at connect** (`op: "sync"`, sent by `DLZMOD_connected` after the hub's `INIT` at
+  every connect and reconnect, patch.py on `$NET.onConnect`): only from a paired device (the screen
+  has the mixer's own clock), only more than 5 s forward, 2025-2099, not with internet and not after
+  a time set by hand this start; no answer.
+- **Setting it**: `date -u -s @<seconds.ms>`, then `dlzmod-clock save` at once (its minute loop
+  would within a minute: a failed save only says "It is saved within a minute"), so the time
+  survives a power-off. Not the RTC: the kernel writes it only after an NTP sync (`rtcsync`).
+  Online, chrony steps a hand-set time within its first three updates (`makestep 1 3`) [static].
+- **The card**: the date and time in the zone, where they came from (yellow without a source), and
+  in a browser the computer's own; Set... (`DLZMOD_clockPicker`: day, month, year, hour, minute with
+  arrows that repeat while held, as Mackie's unused `PageTime`) and, in a browser, Use This
+  Computer's Time; both off with internet [sandbox].
 
 ## Network panel: Wi-Fi and SSH
 

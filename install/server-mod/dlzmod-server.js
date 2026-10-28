@@ -1838,11 +1838,6 @@ function DLZMOD_tzInfo(zone, now = new Date()) {
   }
 }
 
-function DLZMOD_tzState(p) {
-  const zone = DLZMOD_tzCurrent(p);
-  return Object.assign({ zone: zone }, DLZMOD_tzInfo(zone));
-}
-
 // /etc/localtime as a link, swapped in at once (a power cut leaves the old or the new one)
 function DLZMOD_tzLink(target, file) {
   const fs = require("fs");
@@ -1867,9 +1862,109 @@ async function DLZMOD_tzSet(zone, run, result, p = DLZMOD_tzPaths(), link = DLZM
   result(true, "Time zone: " + zone.replace(/_/g, " ") + (r.ok ? "" : "\nRecording times follow it within a minute."));
 }
 
-// the command from the Time tab: status (everyone), set (the screen, paired devices)
+// Clock (#13), the Time tab too. Without internet the mixer only has the time saved before the last
+// power-off, moved past DLZDATA's newest file (sd-system/dlzmod-clock, #1): the owner sets it by hand,
+// or a paired browser gives its time when it connects. With internet chrony sets it some 20-40 s
+// into the start and nothing else may (a time set by hand would only be slewed back). The browser's
+// time only moves the clock forward and not after a time set by hand this start; by hand it may go
+// back, so a clock set too far ahead (which the forward-only fake-hwclock keeps) can be corrected.
+// Either way the time is saved at once (dlzmod-clock save), so it survives a power-off. Only years in
+// DLZMOD_clockYears: a phone with a wild clock must not throw the mixer into a year it stays in.
+function DLZMOD_clockYears() {
+  return [2025, 2099];
+}
+
+// minutes ahead of UTC in the zone at ms ("GMT+05:30" → 330), NaN for an unknown zone
+function DLZMOD_tzOffsetMin(zone, ms) {
+  try {
+    const name = new Intl.DateTimeFormat("en-GB", { timeZone: zone, timeZoneName: "longOffset" }).formatToParts(ms)
+      .find((x) => x.type === "timeZoneName").value;
+    const m = /^GMT(?:([+-])(\d\d):(\d\d))?$/.exec(name);
+    return !m ? NaN : !m[1] ? 0 : (m[1] === "-" ? -1 : 1) * (+m[2] * 60 + +m[3]);
+  } catch (e) {
+    return NaN;
+  }
+}
+
+// the date and time in the zone: fields for the picker and "Tue 28 Oct 2026"
+function DLZMOD_tzLocal(zone, ms) {
+  const off = DLZMOD_tzOffsetMin(zone, ms);
+  if (isNaN(off)) return null;
+  const d = new Date(ms + off * 60000);
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return { y: d.getUTCFullYear(), mo: d.getUTCMonth() + 1, d: d.getUTCDate(), h: d.getUTCHours(), mi: d.getUTCMinutes(),
+    date: days[d.getUTCDay()] + " " + d.getUTCDate() + " " + months[d.getUTCMonth()] + " " + d.getUTCFullYear() };
+}
+
+// the moment a date and time in the zone stands for, NaN for fields out of range. The offset of the
+// moment itself (a second look when the first guess was across a change to or from summer time); a
+// time skipped at the change (02:30 in spring) comes out an hour later
+function DLZMOD_tzEpoch(zone, f) {
+  const [y0, y1] = DLZMOD_clockYears();
+  const ok = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+  if (!f || !ok(f.y, y0, y1) || !ok(f.mo, 1, 12) || !ok(f.h, 0, 23) || !ok(f.mi, 0, 59)) return NaN;
+  if (!ok(f.d, 1, new Date(Date.UTC(f.y, f.mo, 0)).getUTCDate())) return NaN;
+  const wall = Date.UTC(f.y, f.mo - 1, f.d, f.h, f.mi);
+  const first = DLZMOD_tzOffsetMin(zone, wall);
+  const off = DLZMOD_tzOffsetMin(zone, wall - first * 60000);
+  return wall - (isNaN(off) ? first : off) * 60000;
+}
+
+function DLZMOD_clockYearOk(ms) {
+  const [y0, y1] = DLZMOD_clockYears();
+  const y = Number.isFinite(ms) ? new Date(ms).getUTCFullYear() : NaN;
+  return y >= y0 && y <= y1;
+}
+
+// how the clock was set this start: "internet" (chrony in sync: stays so), "hand", "device" (a
+// paired browser's time) or "" (the saved time). chronyc is asked at most every 10 s (uptime, which a
+// clock change does not move); its CSV's last field is the leap status, "Not synchronised" before
+// the first sync
+function DLZMOD_clock() {
+  return DLZMOD_time.clock || (DLZMOD_time.clock = { how: "", asked: -Infinity });
+}
+
+async function DLZMOD_clockSource(run) {
+  const c = DLZMOD_clock();
+  const t = process.uptime() * 1000;
+  if (c.how !== "internet" && t - c.asked >= 10000) {
+    c.asked = t;
+    const r = await run("/usr/bin/chronyc", ["-c", "tracking"], undefined, 5000);
+    const leap = r.ok ? r.out.trim().split("\n").pop().split(",").pop() : "";
+    if (leap && leap !== "Not synchronised") c.how = "internet";
+  }
+  return c.how;
+}
+
+async function DLZMOD_clockState(p, run, now) {
+  const zone = DLZMOD_tzCurrent(p);
+  return Object.assign({ zone: zone }, DLZMOD_tzInfo(zone, new Date(now)),
+    { local: DLZMOD_tzLocal(zone, now), clock: await DLZMOD_clockSource(run) });
+}
+
+// date -u -s, then the clock script saves it (its minute loop would within a minute: so a failing
+// save only says so); the RTC is not written (the kernel does that only after a sync with internet)
+async function DLZMOD_clockSet(ms, how, run, result, zone) {
+  const r = await run("/usr/bin/date", ["-u", "-s", "@" + (ms / 1000).toFixed(3)]);
+  if (!r.ok) {
+    console.error("dlzmod: date -s:", r.err.trim());
+    return result(false, "The clock could not be set");
+  }
+  DLZMOD_clock().how = how;
+  const s = await run("/usr/local/sbin/dlzmod-clock", ["save"]);
+  if (!s.ok) console.error("dlzmod: dlzmod-clock save:", (s.err || s.out).trim());
+  const l = DLZMOD_tzLocal(zone, ms) || DLZMOD_tzLocal("Etc/UTC", ms);
+  const hm = String(l.h).padStart(2, "0") + ":" + String(l.mi).padStart(2, "0");
+  console.log("dlzmod: clock set (" + how + ") to " + new Date(ms).toISOString());
+  if (result) result(true, "Clock set: " + l.date + "  " + hm + (s.ok ? "" : "\nIt is saved within a minute."));
+}
+
+// the command from the Time tab: status (everyone), set (the zone) and clock (by hand) from the
+// screen and paired devices, sync (a paired browser's time when it connects, no answer)
 async function DLZMOD_time(args, send, opts = {}) {
   const run = opts.run || DLZMOD_run;
+  const now = opts.now || Date.now;
   const p = DLZMOD_tzPaths(opts);
   const reply = (cmd, data) => {
     try {
@@ -1878,20 +1973,50 @@ async function DLZMOD_time(args, send, opts = {}) {
   };
   const result = (ok, text) => reply("DLZMOD_TIME_RESULT", { ok: ok, text: text });
   const a = args || {};
+  const local = !!(send && send.dlzmodLocal === true);
+  const paired = !local && !!(send && send.dlzmodPaired === true);
   try {
-    if (a.op === "status") return reply("DLZMOD_TIME_STATE", DLZMOD_tzState(p));
-    if (a.op !== "set") return result(false, "Unknown time action");
-    if (!(send && (send.dlzmodLocal === true || send.dlzmodPaired === true))) {
-      return result(false, "The time zone can only be changed on the\nmixer's own screen or a paired device.");
+    if (a.op === "status") return reply("DLZMOD_TIME_STATE", await DLZMOD_clockState(p, run, now()));
+    if (!["set", "clock", "sync"].includes(a.op)) return result(false, "Unknown time action");
+    if (a.op === "sync") {
+      // (the mixer's own screen has the mixer's own clock)
+      if (!paired || DLZMOD_time.busy) return;
+      const t = Number(a.now);
+      if (!DLZMOD_clockYearOk(t) || !(t > now() + 5000)) return;
+      if (["internet", "hand"].includes(await DLZMOD_clockSource(run))) return;
+      DLZMOD_time.busy = true;
+      try {
+        await DLZMOD_clockSet(t, "device", run, null, DLZMOD_tzCurrent(p));
+      } finally {
+        DLZMOD_time.busy = false;
+      }
+      return;
+    }
+    if (!local && !paired) {
+      return result(false, "The time can only be changed on the\nmixer's own screen or a paired device.");
     }
     if (DLZMOD_time.busy) return result(false, "Still busy with the last change, try again in a moment");
     DLZMOD_time.busy = true;
     try {
-      await DLZMOD_tzSet(String(a.zone || ""), run, result, p, opts.link);
+      if (a.op === "set") {
+        await DLZMOD_tzSet(String(a.zone || ""), run, result, p, opts.link);
+      } else if (await DLZMOD_clockSource(run) === "internet") {
+        result(false, "The clock is set from the internet:\nit is right and cannot be changed.");
+      } else {
+        const zone = DLZMOD_tzCurrent(p);
+        // the browser's own time, or a date and time in the mixer's zone (the picker)
+        const t = a.now !== undefined ? Number(a.now) : DLZMOD_tzEpoch(zone, a.time);
+        if (!DLZMOD_clockYearOk(t)) {
+          const [y0, y1] = DLZMOD_clockYears();
+          result(false, "Not a date the mixer takes (" + y0 + " to " + y1 + ")");
+        } else {
+          await DLZMOD_clockSet(t, "hand", run, result, zone);
+        }
+      }
     } finally {
       DLZMOD_time.busy = false;
     }
-    reply("DLZMOD_TIME_STATE", DLZMOD_tzState(p));
+    reply("DLZMOD_TIME_STATE", await DLZMOD_clockState(p, run, now()));
   } catch (e) {
     console.error("dlzmod: time " + a.op + ":", e.message);
     result(false, "That did not work (" + a.op + ")");

@@ -2147,7 +2147,8 @@ const tzIn = () => {
 const tzRun = (ok = true) => {
   const calls = [];
   const run = async (file, args) => {
-    calls.push([file].concat(args));
+    // (the status asks chronyc whether the clock is in sync, #13)
+    if (file !== "/usr/bin/chronyc") calls.push([file].concat(args));
     return { ok: ok, out: "", err: ok ? "" : "settimeofday() failed" };
   };
   return { run, calls };
@@ -2239,6 +2240,170 @@ if (process.platform !== "win32") {
     assert.ok(!fs.existsSync(t.opts.localtime + ".dlzmod-new"));
   });
 }
+
+// Clock (#13): chronyc's answer, date -s and the clock script's save, all stand-ins
+const TRACK = (leap) => "C0A80101,192.168.1.1,3,1761660000.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,64.0," + leap + "\n";
+const clockRun = (o = {}) => {
+  const calls = [];
+  const run = async (file, args) => {
+    calls.push([file].concat(args));
+    if (file === "/usr/bin/chronyc") return { ok: true, out: TRACK(o.leap || "Not synchronised"), err: "" };
+    if (file === "/usr/bin/date") return { ok: o.date !== false, out: "", err: o.date === false ? "date: cannot set date" : "" };
+    if (file === "/usr/local/sbin/dlzmod-clock") return { ok: o.save !== false, out: "", err: "" };
+    return { ok: true, out: "", err: "" };
+  };
+  return { run, calls, sets: () => calls.filter((c) => c[0] !== "/usr/bin/chronyc") };
+};
+const NOW = Date.UTC(2026, 0, 31, 22, 58);   // 23:58 in Amsterdam
+const clockOpts = (t, r, now = NOW) => Object.assign({ run: r.run, now: () => now }, t.opts);
+const paired = (sent) => Object.assign((m) => sent.push(plain(m)), { dlzmodPaired: true });
+const clockReset = () => {
+  ctx.DLZMOD_time.clock = null;
+  ctx.DLZMOD_time.busy = false;
+};
+const amsterdam = () => {
+  const t = tzIn();
+  fs.writeFileSync(t.opts.timezone, "Europe/Amsterdam\n");
+  return t;
+};
+
+test("clock: offsets and local times in a zone, both ways, across summer time", () => {
+  assert.strictEqual(ctx.DLZMOD_tzOffsetMin("Europe/Amsterdam", Date.UTC(2026, 0, 1)), 60);
+  assert.strictEqual(ctx.DLZMOD_tzOffsetMin("Europe/Amsterdam", Date.UTC(2026, 6, 1)), 120);
+  assert.strictEqual(ctx.DLZMOD_tzOffsetMin("Asia/Kolkata", Date.UTC(2026, 0, 1)), 330);
+  assert.strictEqual(ctx.DLZMOD_tzOffsetMin("America/St_Johns", Date.UTC(2026, 0, 1)), -210);
+  assert.strictEqual(ctx.DLZMOD_tzOffsetMin("Etc/UTC", Date.UTC(2026, 0, 1)), 0);
+  assert.ok(isNaN(ctx.DLZMOD_tzOffsetMin("Mars/Olympus", 0)));
+  assert.deepStrictEqual(plain(ctx.DLZMOD_tzLocal("Europe/Amsterdam", NOW)),
+    { y: 2026, mo: 1, d: 31, h: 23, mi: 58, date: "Sat 31 Jan 2026" });
+  assert.strictEqual(ctx.DLZMOD_tzLocal("Mars/Olympus", NOW), null);
+  const at = (zone, y, mo, d, h, mi) => ctx.DLZMOD_tzEpoch(zone, { y, mo, d, h, mi });
+  assert.strictEqual(at("Europe/Amsterdam", 2026, 1, 31, 23, 58), NOW);
+  assert.strictEqual(at("Europe/Amsterdam", 2026, 7, 1, 12, 0), Date.UTC(2026, 6, 1, 10, 0), "summer: +2");
+  assert.strictEqual(at("America/New_York", 2026, 3, 8, 1, 59), Date.UTC(2026, 2, 8, 6, 59), "just before the change");
+  assert.strictEqual(at("America/New_York", 2026, 3, 8, 3, 0), Date.UTC(2026, 2, 8, 7, 0), "just after it");
+  assert.strictEqual(at("Europe/Amsterdam", 2026, 3, 29, 2, 30), Date.UTC(2026, 2, 29, 1, 30),
+    "a time skipped in spring: an hour later (03:30 summer time)");
+  assert.strictEqual(at("Europe/Amsterdam", 2028, 2, 29, 12, 0), Date.UTC(2028, 1, 29, 11, 0), "a leap day");
+  for (const f of [[2027, 2, 29, 12, 0], [2026, 13, 1, 0, 0], [2026, 4, 31, 0, 0], [2026, 1, 1, 24, 0],
+    [2026, 1, 1, 0, 60], [2024, 12, 31, 23, 59], [2100, 1, 1, 0, 0], [2026.5, 1, 1, 0, 0], ["2026", 1, 1, 0, 0]]) {
+    assert.ok(isNaN(at("Europe/Amsterdam", ...f)), JSON.stringify(f));
+  }
+  assert.ok(isNaN(ctx.DLZMOD_tzEpoch("Europe/Amsterdam", undefined)));
+  assert.ok(isNaN(at("Mars/Olympus", 2026, 1, 1, 0, 0)));
+});
+test("clock: in sync with the internet once chronyc says so, then not asked again; asked at most every 10 s", async () => {
+  clockReset();
+  const r = clockRun();
+  assert.strictEqual(await ctx.DLZMOD_clockSource(r.run), "");
+  assert.strictEqual(await ctx.DLZMOD_clockSource(r.run), "", "10 s not over: the last answer");
+  assert.strictEqual(r.calls.length, 1);
+  assert.deepStrictEqual(r.calls[0], ["/usr/bin/chronyc", "-c", "tracking"]);
+  ctx.DLZMOD_clock().asked -= 10000;
+  const synced = clockRun({ leap: "Normal" });
+  assert.strictEqual(await ctx.DLZMOD_clockSource(synced.run), "internet");
+  ctx.DLZMOD_clock().asked -= 10000;
+  assert.strictEqual(await ctx.DLZMOD_clockSource(r.run), "internet", "stays so");
+  assert.strictEqual(r.calls.length, 1, "and chronyc is not asked again");
+  clockReset();
+  const broken = async () => ({ ok: false, out: "", err: "506 Cannot talk to daemon" });
+  assert.strictEqual(await ctx.DLZMOD_clockSource(broken), "", "no chronyd: not in sync");
+  clockReset();
+  assert.strictEqual(await ctx.DLZMOD_clockSource(clockRun({ leap: "Insert second" }).run), "internet");
+});
+test("clock: the status has the date and time in the zone and where they came from", async () => {
+  clockReset();
+  const t = amsterdam();
+  const s = [];
+  await ctx.DLZMOD_time({ op: "status" }, remoteTo(s), clockOpts(t, clockRun()));
+  assert.deepStrictEqual(timeOf(s, "DLZMOD_TIME_STATE"), [{ zone: "Europe/Amsterdam", offset: "UTC+01:00", time: "23:58",
+    local: { y: 2026, mo: 1, d: 31, h: 23, mi: 58, date: "Sat 31 Jan 2026" }, clock: "" }]);
+});
+test("clock by hand: in the mixer's zone, saved at once; also back; from the screen or a paired device only", async () => {
+  const t = amsterdam();
+  for (const send of [sendTo, paired]) {
+    clockReset();
+    const r = clockRun();
+    const s = [];
+    await ctx.DLZMOD_time({ op: "clock", time: { y: 2025, mo: 7, d: 1, h: 12, mi: 30 } }, send(s), clockOpts(t, r));
+    assert.deepStrictEqual(r.sets(), [["/usr/bin/date", "-u", "-s", "@" + Date.UTC(2025, 6, 1, 10, 30) / 1000 + ".000"],
+      ["/usr/local/sbin/dlzmod-clock", "save"]], "back half a year, in summer time");
+    assert.deepStrictEqual(timeOf(s, "DLZMOD_TIME_RESULT"), [{ ok: true, text: "Clock set: Tue 1 Jul 2025  12:30" }]);
+    assert.strictEqual(timeOf(s, "DLZMOD_TIME_STATE")[0].clock, "hand", "the new status after it");
+  }
+  clockReset();
+  const r = clockRun();
+  const s = [];
+  await ctx.DLZMOD_time({ op: "clock", now: NOW + 3600000 }, remoteTo(s), clockOpts(t, r));
+  assert.deepStrictEqual(timeOf(s, "DLZMOD_TIME_RESULT"),
+    [{ ok: false, text: "The time can only be changed on the\nmixer's own screen or a paired device." }]);
+  assert.deepStrictEqual(r.sets(), [], "an unpaired device: nothing run");
+  const s2 = [];
+  await ctx.DLZMOD_time({ op: "clock", now: Date.UTC(2026, 9, 28, 14, 35, 8, 250) }, paired(s2), clockOpts(t, r));
+  assert.deepStrictEqual(r.sets()[0], ["/usr/bin/date", "-u", "-s", "@" + Date.UTC(2026, 9, 28, 14, 35, 8) / 1000 + ".250"],
+    "a browser's own time, to the millisecond");
+  assert.deepStrictEqual(timeOf(s2, "DLZMOD_TIME_RESULT"), [{ ok: true, text: "Clock set: Wed 28 Oct 2026  15:35" }]);
+});
+test("clock by hand: refused with internet, outside the years, for a wrong date; failures say so", async () => {
+  const t = amsterdam();
+  clockReset();
+  const synced = clockRun({ leap: "Normal" });
+  const s = [];
+  await ctx.DLZMOD_time({ op: "clock", time: { y: 2026, mo: 1, d: 1, h: 0, mi: 0 } }, sendTo(s), clockOpts(t, synced));
+  assert.deepStrictEqual(timeOf(s, "DLZMOD_TIME_RESULT"),
+    [{ ok: false, text: "The clock is set from the internet:\nit is right and cannot be changed." }]);
+  assert.deepStrictEqual(synced.sets(), []);
+  clockReset();
+  const r = clockRun();
+  const s2 = [];
+  for (const a of [{ time: { y: 2024, mo: 12, d: 31, h: 23, mi: 59 } }, { time: { y: 2026, mo: 2, d: 30, h: 0, mi: 0 } },
+    { now: Date.UTC(2100, 0, 1) }, { now: "soon" }, { now: null }, {}]) {
+    await ctx.DLZMOD_time(Object.assign({ op: "clock" }, a), sendTo(s2), clockOpts(t, r));
+  }
+  assert.ok(timeOf(s2, "DLZMOD_TIME_RESULT").every((x) => !x.ok && x.text === "Not a date the mixer takes (2025 to 2099)"));
+  assert.strictEqual(timeOf(s2, "DLZMOD_TIME_RESULT").length, 6);
+  assert.deepStrictEqual(r.sets(), []);
+  const s3 = [];
+  const noDate = clockRun({ date: false });
+  await ctx.DLZMOD_time({ op: "clock", now: NOW }, sendTo(s3), clockOpts(t, noDate));
+  assert.deepStrictEqual(timeOf(s3, "DLZMOD_TIME_RESULT"), [{ ok: false, text: "The clock could not be set" }]);
+  assert.deepStrictEqual(noDate.sets().length, 1, "no save after a failed set");
+  assert.strictEqual(ctx.DLZMOD_clock().how, "", "nor a new source");
+  const s4 = [];
+  await ctx.DLZMOD_time({ op: "clock", now: NOW }, sendTo(s4), clockOpts(t, clockRun({ save: false })));
+  assert.deepStrictEqual(timeOf(s4, "DLZMOD_TIME_RESULT"),
+    [{ ok: true, text: "Clock set: Sat 31 Jan 2026  23:58\nIt is saved within a minute." }]);
+});
+test("clock from a browser at connect: paired only, forward only (over 5 s), sane years, not after internet or by hand", async () => {
+  const t = amsterdam();
+  const sync = async (send, now, r, at = NOW) => {
+    const s = [];
+    await ctx.DLZMOD_time({ op: "sync", now: now }, send(s), clockOpts(t, r, at));
+    assert.deepStrictEqual(s, [], "no answer");
+  };
+  clockReset();
+  const r = clockRun();
+  await sync(sendTo, NOW + 3600000, r);
+  await sync(remoteTo, NOW + 3600000, r);
+  await sync(paired, NOW + 5000, r);
+  await sync(paired, NOW - 3600000, r);
+  await sync(paired, Date.UTC(2100, 0, 1), r);
+  await sync(paired, "later", r);
+  assert.deepStrictEqual(r.sets(), [], "the screen, an unpaired device, 5 s, back, 2100, no number: nothing");
+  await sync(paired, NOW + 3600000, r);
+  assert.deepStrictEqual(r.sets(), [["/usr/bin/date", "-u", "-s", "@" + (NOW + 3600000) / 1000 + ".000"],
+    ["/usr/local/sbin/dlzmod-clock", "save"]]);
+  assert.strictEqual(ctx.DLZMOD_clock().how, "device");
+  await sync(paired, NOW + 7200000, r, NOW + 3600000);
+  assert.strictEqual(r.sets().length, 4, "another device further ahead: forward again");
+  ctx.DLZMOD_clock().how = "hand";
+  await sync(paired, NOW + 9000000, r, NOW + 7200000);
+  assert.strictEqual(r.sets().length, 4, "a time set by hand stays");
+  clockReset();
+  const synced = clockRun({ leap: "Normal" });
+  await sync(paired, NOW + 3600000, synced);
+  assert.deepStrictEqual(synced.sets(), [], "in sync with the internet");
+});
 
 (async () => {
   let failed = 0;

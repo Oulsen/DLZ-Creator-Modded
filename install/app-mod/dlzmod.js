@@ -1161,7 +1161,7 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
 // offset (DLZMOD_zonePicker); a browser also offers its own zone. The server takes a change from the
 // mixer's own screen and from paired devices, and says so to others.
 function DLZMOD_timeState() {
-  return DLZMOD_timeState.s || { zone: "", offset: "", time: "" };
+  return DLZMOD_timeState.s || { zone: "", offset: "", time: "", local: null, clock: "" };
 }
 
 function DLZMOD_setTimeState(s) {
@@ -1196,43 +1196,228 @@ function DLZMOD_setZone(zone) {
   if (zone) $NET.cmd("DLZMOD_TIME", { op: "set", zone: zone });
 }
 
+// Time page: two cards, the time zone and the clock, in a container without paint of its own (as
+// the Network page), so that page.time.update() and globalVisible() cover both
 function DLZMOD_timePanel(parent, x, y, w) {
-  const external = DLZMOD_external();
-  const bw = 280;
+  const cw = (w - 12) / 2 | 0;
   return new Widget(parent, {
     anchors: [x, y],
     size: [w, DLZMOD_panelH()],
+    opaque: !1,
+    paint: function () {},
+    _constructor: function () {
+      this.zone = DLZMOD_zoneCard(this, 0, cw);
+      this.clock = DLZMOD_clockCard(this, w - cw, cw);
+    },
+  });
+}
+
+function DLZMOD_zoneCard(parent, x, w) {
+  const external = DLZMOD_external();
+  return new Widget(parent, {
+    anchors: [x, 0],
+    size: [w, DLZMOD_panelH()],
     bgColor: Color.bgDark,
     _constructor: function () {
-      this.change = new E1Button(this, {
-        anchors: [w - 28 - bw, 100], size: [bw, 56], text: "Change...", onPress: () => DLZMOD_zonePicker(),
-      });
       this.own = new E1Button(this, {
-        anchors: [w - 28 - bw, 180], size: [bw, 56], text: "Use This One", visible: external,
+        anchors: [0, 230, null, null, !0], size: [w - 48, 56], text: "Use This Computer's Zone", visible: external,
         onPress: () => DLZMOD_setZone(DLZMOD_ownZone()),
         getState: function () {
           const z = DLZMOD_ownZone();
           this.enabled = !!z && z !== DLZMOD_timeState().zone;
         },
       });
+      this.change = new E1Button(this, {
+        anchors: [0, 300, null, null, !0], size: [w - 48, 56], text: "Change...", onPress: () => DLZMOD_zonePicker(),
+      });
     },
     paint: function (t) {
-      DLZMOD_paintPanel(this, t, "Time", Color.white, Font.font(500, "20pt"));
-      const s = DLZMOD_timeState(), max = w - 28 - bw - 48;
-      DLZMOD_paintRow(t, 28, 128, "Time zone", s.zone ? DLZMOD_zoneName(s.zone) : "…", max);
-      if (s.offset) t.drawText(s.offset + (s.time ? "  ·  now " + s.time : ""), 28, 162,
-        { color: "#888888", font: Font.font(500, "12pt"), align: "left", valign: "middle", max: max });
-      if (external) DLZMOD_paintRow(t, 28, 208, "This computer", DLZMOD_zoneName(DLZMOD_ownZone()) || "Unknown", max);
-      const grey = { color: "#888888", font: Font.font(500, "12pt"), align: "left", valign: "middle", max: w - 56 };
-      t.drawText("New recordings get their times in this zone, the way a computer shows them.", 28, 300, grey);
-      t.drawText("Summer and winter time follow by themselves.", 28, 322, grey);
+      DLZMOD_paintPanel(this, t, "Time Zone", Color.white, Font.font(500, "20pt"));
+      const s = DLZMOD_timeState(), max = this.w - 48;
+      t.drawText(s.zone ? DLZMOD_zoneName(s.zone) : "…", 24, 92, { color: Color.white, font: Font.font(500, "16pt"),
+        align: "left", valign: "middle", max: max });
+      if (s.offset && s.offset !== DLZMOD_zoneName(s.zone)) t.drawText(s.offset, 24, 118, { color: "#888888", font: Font.font(500, "12pt"), align: "left",
+        valign: "middle", max: max });
+      if (external) DLZMOD_paintRow(t, 24, 178, "This computer", DLZMOD_zoneName(DLZMOD_ownZone()) || "Unknown", max);
+      t.drawText("Recording times follow it, summer time too", this.w / 2 | 0, this.h - 24,
+        { color: "#666666", font: Font.font(500, "12pt"), align: "center", max: max });
     },
   });
 }
 
+// Clock (#13): the mixer's date and time and where they came from this start (the server's
+// DLZMOD_clockSource). Without internet it is set here: by hand (DLZMOD_clockPicker), or in a browser
+// to the computer's own time; a browser also gives its time when it connects (DLZMOD_connected,
+// forward only). With internet the server refuses both, so the buttons are off.
+function DLZMOD_clockCard(parent, x, w) {
+  const external = DLZMOD_external();
+  const free = () => DLZMOD_timeState().clock !== "internet" && !!DLZMOD_timeState().local;
+  return new Widget(parent, {
+    anchors: [x, 0],
+    size: [w, DLZMOD_panelH()],
+    bgColor: Color.bgDark,
+    _constructor: function () {
+      this.own = new E1Button(this, {
+        anchors: [0, 230, null, null, !0], size: [w - 48, 56], text: "Use This Computer's Time", visible: external,
+        onPress: () => $NET.cmd("DLZMOD_TIME", { op: "clock", now: Date.now() }),
+        getState: function () {
+          this.enabled = free();
+        },
+      });
+      this.set = new E1Button(this, {
+        anchors: [0, 300, null, null, !0], size: [w - 48, 56], text: "Set...", onPress: () => DLZMOD_clockPicker(),
+        getState: function () {
+          this.enabled = free();
+        },
+      });
+    },
+    paint: function (t) {
+      DLZMOD_paintPanel(this, t, "Clock", Color.white, Font.font(500, "20pt"));
+      const s = DLZMOD_timeState(), max = this.w - 48;
+      t.drawText(s.local ? s.local.date + "  " + s.time : "…", 24, 92, { color: Color.white,
+        font: Font.font(500, "16pt"), align: "left", valign: "middle", max: max });
+      const [text, color] = DLZMOD_clockSourceText(s);
+      if (text) t.drawText(text, 24, 118, { color: color, font: Font.font(500, "12pt"), align: "left", valign: "middle",
+        max: max });
+      if (external) DLZMOD_paintRow(t, 24, 178, "This computer", DLZMOD_ownTime(), max);
+      t.drawText("With internet the mixer sets its clock itself", this.w / 2 | 0, this.h - 24,
+        { color: "#666666", font: Font.font(500, "12pt"), align: "center", max: max });
+    },
+  });
+}
+
+function DLZMOD_clockSourceText(s) {
+  if (!s.local) return ["", ""];
+  return {
+    internet: ["Set from the internet", Color.green],
+    hand: ["Set by hand", "#888888"],
+    device: ["From a phone or computer", "#888888"],
+  }[s.clock] || ["Not checked since the start (no internet)", DLZMOD_yellow()];
+}
+
+// the browser's own date and time, as the card shows the mixer's
+function DLZMOD_ownTime(d = new Date()) {
+  return DLZMOD_dateText(d.getFullYear(), d.getMonth() + 1, d.getDate()) + "  " +
+    String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+
+// "Tue 28 Oct 2026", as the server writes it (DLZMOD_tzLocal)
+function DLZMOD_dateText(y, mo, d) {
+  const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(Date.UTC(y, mo - 1, d)).getUTCDay()];
+  return day + " " + d + " " + DLZMOD_monthNames()[mo - 1] + " " + y;
+}
+
+function DLZMOD_monthNames() {
+  return ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+}
+
+// days in a month (mo 1-12)
+function DLZMOD_monthDays(y, mo) {
+  return new Date(Date.UTC(y, mo, 0)).getUTCDate();
+}
+
+// the years the server takes (DLZMOD_clockYears in dlzmod-server.js)
+function DLZMOD_clockYears() {
+  return [2025, 2099];
+}
+
+// a picker field one step up or down: month, day, hour and minute go round (as Mackie's unused
+// PageTime does), the year stops at the server's limits; a day past the month's end becomes its last
+function DLZMOD_clockStep(f, k, d) {
+  const [y0, y1] = DLZMOD_clockYears();
+  const n = Object.assign({}, f);
+  const round = (v, lo, hi) => (v - lo + d + (hi - lo + 1)) % (hi - lo + 1) + lo;
+  if (k === "y") n.y = Math.max(y0, Math.min(y1, n.y + d));
+  if (k === "mo") n.mo = round(n.mo, 1, 12);
+  if (k === "d") n.d = round(n.d, 1, DLZMOD_monthDays(n.y, n.mo));
+  if (k === "h") n.h = round(n.h, 0, 23);
+  if (k === "mi") n.mi = round(n.mi, 0, 59);
+  n.d = Math.min(n.d, DLZMOD_monthDays(n.y, n.mo));
+  return n;
+}
+
+// The date and time in a Mackie popup (modal): five columns (day, month, year, hour, minute) with
+// arrows above and below that repeat while held, as Mackie's PageTime; opened at the mixer's time in
+// its time zone. Set sends it to the server, which may also go back (a clock set too far ahead).
+function DLZMOD_clockPicker() {
+  const W = 900, H = 500, COL = 150, MID = 200;
+  const s = DLZMOD_timeState();
+  if (DLZMOD_clockPicker.popup || !s.local) return;
+  const [y0, y1] = DLZMOD_clockYears();
+  const keys = ["d", "mo", "y", "h", "mi"];
+  // column centres, a gap between the date and the time
+  const cx = (i) => W / 2 + (i - 2) * COL + (i < 3 ? -20 : 20) | 0;
+  const arrow = (popup, i, dir) => new Button(popup, {
+    anchors: [cx(i) - 65, dir > 0 ? MID - 135 : MID + 55], size: [130, 80], colors: [Color.buttonBg, "#333333"],
+    round: 6,
+    paintOverlay: function (t) {
+      t.fillStyle = Color.white;
+      t.fillPolygon(this.w / 2 | 0, this.h / 2 | 0, 14, 3, Math.PI / 2 * (dir > 0 ? 3 : 1));
+    },
+    onPress: () => popup.step(keys[i], dir),
+    onhold: function () {
+      this.hh = setInterval(() => this.onPress(), 120);
+    },
+    onUp: function () {
+      clearInterval(this.hh);
+    },
+  });
+  DLZMOD_clockPicker.popup = new PopupWindow(app, {
+    w: W, h: H, bgColor: Color.bgPopup,
+    f: { y: Math.max(y0, Math.min(y1, s.local.y)), mo: s.local.mo, d: s.local.d, h: s.local.h, mi: s.local.mi },
+    initWidgets: function () {
+      keys.forEach((k, i) => {
+        arrow(this, i, 1);
+        arrow(this, i, -1);
+      });
+      new E1Button(this, {
+        anchors: [24, null, null, 22], size: [260, 50], text: "Set",
+        onPress: () => {
+          const f = this.f;
+          this.close();
+          $NET.cmd("DLZMOD_TIME", { op: "clock", time: f });
+        },
+      });
+      new E1Button(this, {
+        anchors: [null, null, 24, 22], size: [180, 50], text: lang.CANCEL,
+        onPress: () => this.close(),
+      });
+    },
+    // every way out ends here, a tap outside the popup too (see DLZMOD_wifiList)
+    onDestroy: function () {
+      DLZMOD_clockPicker.popup = null;
+      PopupWindow.prototype.onDestroy.call(this);
+      DLZMOD_repaintSoon();
+    },
+    step: function (k, d) {
+      this.f = DLZMOD_clockStep(this.f, k, d);
+      this.update();
+    },
+    paint: function (t) {
+      PopupWindow.prototype.paint.call(this, t);
+      const f = this.f, two = (v) => String(v).padStart(2, "0");
+      const big = { color: Color.white, font: Font.font(500, "25pt"), align: "center", valign: "middle" };
+      t.drawText("Date and Time", this.w / 2 | 0, 36, { color: Color.white, font: Font.font(600, "18pt"),
+        align: "center", valign: "middle" });
+      [f.d, DLZMOD_monthNames()[f.mo - 1], f.y, two(f.h), two(f.mi)].forEach((v, i) => t.drawText(String(v), cx(i), MID,
+        big));
+      t.drawText(":", (cx(3) + cx(4)) / 2 | 0, MID, big);
+      t.drawText(DLZMOD_dateText(f.y, f.mo, f.d) + "  " + two(f.h) + ":" + two(f.mi) + "  (" +
+        DLZMOD_zoneName(DLZMOD_timeState().zone) + ")", this.w / 2 | 0, 368, { color: "#888888",
+        font: Font.font(500, "13pt"), align: "center", valign: "middle", max: W - 48 });
+    },
+  });
+}
+
+// at every (re)connect (patch.py, after the hub's INIT): a browser gives the mixer its time; the
+// server takes it only without internet, only forward and not after a time set by hand
+function DLZMOD_connected() {
+  if (DLZMOD_external()) $NET.cmd("DLZMOD_TIME", { op: "sync", now: Date.now() });
+}
+
 // The zones to pick from on the mixer, the way Windows lists them: one row per set of clock rules,
 // sorted by the offset in winter (standard time), with well-known cities; a zone, not a bare offset,
-// so summer time follows. A browser can set any other zone the mixer has (Use This One). Each name
+// so summer time follows. A browser can set any other zone the mixer has (Use This Computer's Zone). Each name
 // must exist in the mixer's tzdata and match its offset (tests/patches.sh checks both against the dump).
 function DLZMOD_zoneList() {
   return [
