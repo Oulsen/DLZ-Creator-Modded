@@ -51,7 +51,7 @@ function DLZMOD_layoutTabs(page) {
 // and works like stock until a setting is changed.
 function DLZMOD_keys() {
   return { "dlzmod.hideHeader": 0, "dlzmod.meterMode": 0, "dlzmod.preColor": 0, "dlzmod.preLevel": 0,
-    "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0 };
+    "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0, "dlzmod.recDate": 0 };
 }
 
 // The owner's own colours on top of the theme (#21): the background, and an accent colour for the
@@ -2135,6 +2135,26 @@ function DLZMOD_mediaDownloadButton(page, style) {
     },
     onPress: () => DLZMOD_download(page),
   }));
+}
+
+// #14: date and time in recording names (dlzmod-server.js, DLZMOD_recStamp), a switch on Settings,
+// Recording / Routing, in the form of the panel's own rows: key, label, the reset button's value.
+// Settings builds that panel before the Mod page, so the keys are added here already
+function DLZMOD_recDateRow() {
+  DLZMOD_initKeys();
+  return ["dlzmod.recDate", "Date & Time in Name", 0];
+}
+
+// the panel's switch rows (stock: 64 px apart from 190, three of them): four, 52 apart from 178, the
+// last ending 14 px above the panel's bottom (392)
+function DLZMOD_recRowY(i) {
+  return 178 + 52 * i;
+}
+
+// the mod's mark on a setting in a stock screen (ground rule 9, for bug reports and support): a short
+// bar in the mod's yellow left of the setting's label, at the height of its control w
+function DLZMOD_stockMark(t, w) {
+  if (w) t.fRect(DLZMOD_yellow(), 10, w.geomCenterY() - 9, 3, 18);
 }
 
 // the Media page's path ("sd:\DLZ_Creator_XS_Recordings") to {medium, dir} when it is a recordings

@@ -6,7 +6,12 @@ The board, Mackie's device tree, the boot chain, the eMMC layout and the SD slot
 
 ## Hardware
 
-- SoC: Allwinner A40i-H (R40 family), 1 GiB DRAM (U-Boot relocates near 0x7c000000)
+- SoC: Allwinner A40i-H (R40 family), 1 GiB DRAM (U-Boot relocates near 0x7c000000). Reference:
+  the A40i Datasheet rev 1.1 (Allwinner, 2018; linux-sunxi's copy, also in the Wayback Machine as
+  `Allwinner_A40i_Datasheet_V1.1_cleaned.pdf`): limits per supply in tables 5-1/5-2, clocks in 5.8,
+  thermal in chapter 6. It gives no current or power figures (section 5.10 refers to Allwinner).
+  USB: three ports, USB0 OTG (host or device), USB1 and USB2 host only (EHCI/OHCI); its own audio
+  codec (24-bit/192 kHz DAC), which the XS does not use for its audio path [static; guess: unused]
 - FPGA: GOWIN (on the digital board), loaded at every boot by `flash-fpga.sh`
 - MCU: GD32 (control surface), flashed over SWD with openocd by `flash-gd32.sh`
 - PMIC: X-Powers AXP221 on I2C @ 0x34 (U-Boot has a `poweroff` command for it; untested on this
@@ -73,20 +78,24 @@ exactly, or the kernel may set other voltages at boot.
   `x-powers,dcdc-freq = <3000>` (written to the PMIC: keep it). Charger/battery/ac/usb/led subnodes
   disabled; keep them so, keep `drivevbus` undeclared
 
-  | Reg | Name | Range | Always-on | Used by |
-  |---|---|---|---|---|
-  | dcdc1 | vcc-3v3 | 3.3 V | yes | SD + eMMC supplies, GT911 |
-  | dcdc2 | vdd-cpu | 1.2–1.3 V | yes | (no cpu-supply/OPPs: no DVFS) |
-  | dcdc3 | vdd-sys | 1.0–1.3 V | yes | |
-  | dcdc5 | vcc-dram | 1.5 V | yes | |
-  | dc1sw | vcc-gmac-phy | 3.3 V | no | Ethernet PHY |
-  | aldo2 | vcc-pa | 2.5 V | no | |
-  | aldo3 | avcc | 2.7–3.3 V | yes | |
-  | dldo1 | vcc-lcd-io | 3.3 V | yes | panel |
-  | dldo2 / dldo3 | vcc-wifi / -2 | 3.3 V | yes | |
-  | dldo4 / eldo3 | vdd2v5-sata / vdd1v2-sata | 2.5 V / 1.2 V | no | |
-  | rtc_ldo | rtc_ldo | 3.0 V | yes | |
-  | dcdc4, dc5ldo, aldo1, eldo1, eldo2 | — | no constraints | no | (Linux may not change them) |
+  | Reg | Name | Range | Always-on | Used by | SoC recommends (datasheet 5-2) |
+  |---|---|---|---|---|---|
+  | dcdc1 | vcc-3v3 | 3.3 V | yes | SD + eMMC supplies, GT911 | VCC-IO 3.0–3.6 V |
+  | dcdc2 | vdd-cpu | 1.2–1.3 V | yes | (no cpu-supply/OPPs: no DVFS) | 1.0–1.3 V (max 1.32 V) |
+  | dcdc3 | vdd-sys | 1.0–1.3 V | yes | | 1.0–1.3 V (max 1.32 V) |
+  | dcdc5 | vcc-dram | 1.5 V | yes | | DDR3 1.425–1.575 V |
+  | dc1sw | vcc-gmac-phy | 3.3 V | no | Ethernet PHY | |
+  | aldo2 | vcc-pa | 2.5 V | no | | VCC-PA 2.25–2.75 V (2.5 V mode) |
+  | aldo3 | avcc | 2.7–3.3 V | yes | | AVCC 2.94–3.06 V |
+  | dldo1 | vcc-lcd-io | 3.3 V | yes | panel | |
+  | dldo2 / dldo3 | vcc-wifi / -2 | 3.3 V | yes | | |
+  | dldo4 / eldo3 | vdd2v5-sata / vdd1v2-sata | 2.5 V / 1.2 V | no | | 2.25–2.75 V / 1.0–1.2 V |
+  | rtc_ldo | rtc_ldo | 3.0 V | yes | | VCC-RTC 3.0–3.3 V |
+  | dcdc4, dc5ldo, aldo1, eldo1, eldo2 | — | no constraints | no | (Linux may not change them) | |
+
+  Which SoC pin each regulator feeds is read from the names, not from a schematic [guess]. aldo3's
+  DTB range is wider than AVCC's (2.94–3.06 V); what it is set to is not measured. eldo3 at 1.2 V
+  sits on VDD-SATA's recommended maximum; SATA is unused
 
   Declared, enabled, not always-on and unused regulators are switched off by Linux ~30 s after boot
   (stock does the same). Leaving a regulator out of the tree leaves it alone [guess]. `dc1sw` is on

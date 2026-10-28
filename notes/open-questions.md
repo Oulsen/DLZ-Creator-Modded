@@ -32,7 +32,8 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
 
 6. Does dspserver run `/root/post-i2c.js` (and the codec scripts) if present? Do the codec scripts
    replace or add to the built-in init? (The `sys.*` API is known statically, see dspserver.md.)
-7. Which codec chips are on the XS board (AKM, Everest, ESS Sabre)?
+7. Which codec chips are on the XS board (AKM, Everest, ESS Sabre)? (The A40i's own codec is not
+   one of them: `hardware.md`, SoC.)
 8. Which chip does USB audio to the PC: the FPGA or a separate bridge? (`lsusb -v` on the PC.)
    Known: it can show up under two identities, `0A73:003A` (normal, LOUD's driver) and once
    `0A4A:AC1E` (a standard USB Audio 2.0 device) [device]; neither ID is in any file on the rootfs,
@@ -43,8 +44,10 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
 10. GD32 UART protocol and baud rate on ttyS2.
 11. Which `/dev/mem` regions does faderlink map? (dspserver: `0x01C00000`, 8 MB, incl. port I for its
     chip buses: `components/dspserver.md`.)
-19. How much CPU headroom does the DSP thread have (`top -H`, idle vs. all FX on)? Decides whether
-    extra graph blocks (limiter, full Compressor/Deesser) fit.
+19. How much CPU headroom does the DSP thread have? Decides whether extra graph blocks (limiter,
+    full Compressor/Deesser) fit. Not with `top -H`: `dspLoopThreadC3` keeps core 3 at ~99% and its
+    work cannot be told from its waiting (`system.md`, "Load average"); needs a measure from inside
+    the audio loop.
 20. Intercom: confirm on the device what `ctrl.intercom.X.X.enable` does from the UI (see
     components/mixergraph.md).
 22. How many playback channels does the PC see on the XS USB interface (Windows sound settings /
@@ -68,7 +71,8 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
 16. Where does `Recorded_Samples/` land on USB/SD media? (Recordings: `DLZ_Creator_XS_Recordings/`
     at the root of the medium, `DLZDATA` on a mod card [device]; see node-backend.md.)
 17. Is the `srv_data.json` in the dump factory-fresh or from use?
-18. Which USB controller is the external USB-A port on, and does U-Boot need VBUS enabled for it?
+18. Which USB controller is the external USB-A port on (most likely USB1 or USB2, the SoC's
+    host-only ports; USB0 is OTG and can be a host too), and does U-Boot need VBUS enabled for it?
     (Only matters if we ever boot from USB, see hardware.md.) Also: how much current the port can
     supply, and whether a heavy load (bus-powered drive, phone charging) sags the board's 5 V.
 31. What does a "frozen on the logo" crash look like from inside? Kill glesgui 6 times in 10 s on the
@@ -88,7 +92,9 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
 
 33. Is the "half off" state (SoC rails off, GD32 still powered, button LEDs lit) harmful if it lasts
     long? The GD32 drives UART and SWD lines into an unpowered SoC (possible back-powering through
-    the protection diodes) [guess]. Stock never powers off in software. The installer's normal
+    the protection diodes) [guess]. The datasheet allows a GPIO input at most VCC-IO + 0.3 V
+    (table 5-3), so with the SoC's rails off anything above 0.3 V is outside spec; whether it does
+    harm is not stated. Stock never powers off in software. The installer's normal
     endings never power off (they show "Safe to power off"); it reaches the state only through its
     45-minute safety timer (a hung installer), a U-Boot load failure (`boot.txt`) or nothing
     bootable (`bootcmd` ends in `poweroff`). INSTALL.md says to switch off at the back.
