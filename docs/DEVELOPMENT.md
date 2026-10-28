@@ -302,7 +302,12 @@ release image trusts only the release keys: use a second microSD for development
    install makes new host keys, so `push.sh` stops with a changed host key until then. Not needed
    for a `build-sd.sh` card with an SSH key.
 
-**The loop** (Git Bash, repo root):
+**The loop** (Git Bash, repo root). Start the network log listener first (`dev/netlog.ps1`, "A start
+that hangs" below) and keep it open for the whole session: the floor of each start, the install and
+the timings arrive without a login, a start that hangs still leaves its log, and logins may come 30 s
+after the screen instead of a blind 90 s. The card sends to one PC, the last one that ran
+`bash dev/netlog.sh on`: on another PC (laptop, desktop) run it again there, and allow the port in
+that PC's firewall once.
 
 ```bash
 git commit -m "WIP ..."   # only a committed tree is signed; WIP commits disappear in the squash merge
