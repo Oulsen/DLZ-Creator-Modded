@@ -885,7 +885,7 @@ function DLZMOD_settingsPage(parent, y) {
       const names = ["Display", "Colors", "Time", "Network", "Remote", "Mod"];
       const shown = DLZMOD_external() ? [0, 1, 2, 5] : [0, 1, 2, 3, 4, 5];
       this.tabs = shown.map((i, k) => new ToggleButton(this, {
-        anchors: [k * 153, 0], w: 151, h: 44, text: names[i], opaque: !1,
+        anchors: [k * 153, 0], w: 149, h: 44, text: names[i], opaque: !1,
         colors: [Color.buttonBg, DLZMOD_accent()], textColor: Color.subNavButtonText, textColorON: Color.black,
         textStyle: { align: "left", valign: "middle", x: 7, y: 23, offsetX: 0, offsetY: 0, font: Font.font(600, "18px") },
         onToggleON: () => this.setSub(i), getVal: () => this.sub === i,

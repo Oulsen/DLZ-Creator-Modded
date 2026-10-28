@@ -212,6 +212,12 @@ that choice and the whole screen shows it at once: the screen is the preview, no
   clock saver's minute loop when `date +%z` changes (summer time). A fixed offset per change, so a
   file written in summer reads an hour off in winter on the mixer itself; a computer shows the
   time it was written in local time either way.
+  Media already mounted keep the times of files the kernel had read before a change (it converts a
+  FAT time when it reads the file in and keeps it) until they are mounted again or the mixer restarts;
+  files written after the change are right [static, device review]. Accepted after the device review
+  (tier 4, b86337b, both SAFE TO RUN): `*.dlzmod-new` temp files a power cut can leave in `/etc`
+  (the next change removes them, nothing at start reads them); up to a minute of times off by an hour
+  at a summer time change; a failed `zone` at start is tried again only when the saver starts.
 - **Who**: the status for anyone who asks (the answer to the one who asked); a change from the mixer's own screen and from paired
   devices (`dlzmodPaired`), not from an unpaired browser (pairing off) [static; unit tests].
 - **The panel**: the zone, its offset and the time there now (node's ICU, `DLZMOD_tzInfo`), every 3 s
