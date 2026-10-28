@@ -32,7 +32,12 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   Allwinner's BSP: 720 MHz 1.00 V, 912 MHz 1.10 V, 1008 MHz 1.16 V, 1104 MHz 1.24 V, 1200 MHz 1.30 V,
   clock latency 2 ms. 1104 and 1200 MHz were left to board DTS files (current draw; ~800 mA at 5 V
   at 4x1.2 GHz full load) [static, upstream thread]. The board's dcdc2 range (1.2–1.3 V) covers
-  exactly the 1.2 GHz point
+  exactly the 1.2 GHz point. Chip limits (A40i datasheet rev 1.1, tables 5-1, 5-2 and 6-1): VDD-CPU
+  recommended 1.0 / 1.1 / 1.3 V (min/typ/max), absolute maximum 1.32 V; ambient -40..85 °C, junction
+  -40..125 °C, θJA 24 °C/W. The datasheet names no top CPU clock (only the PLL's 60 MHz–2.1 GHz
+  output range); module makers' "up to 1.5 GHz" has no voltage behind it on this board [static]. So
+  1104 MHz at 1.24 V sits inside the recommended range with margin, 1200 MHz at 1.30 V on its upper
+  edge and 20 mV under the damage limit, which leaves no room for the PMIC's tolerance or ripple
 - `vm.swappiness=100`, `kernel.printk = 3 4 1 3`; zram disabled [static]
 
 ## Boot and services
