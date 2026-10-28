@@ -2007,8 +2007,11 @@ test("update upload: a paired device reaches it, others do not", () => {
 
 // #136: the boot log copied to the SD card once a start has finished (DLZMOD_bootlogCopy). Same rig
 // as the upload: the medium a temp folder, its remount stubbed; the timer never fires, tick() is
-// called by hand
+// called by hand. Each test starts as a fresh start: the file seen and its tries are forgotten
+// (#187: Windows can give the next test's file the same mtime, which then counted as copied)
 const bootRig = () => {
+  delete ctx.DLZMOD_bootlogCopy.file;
+  delete ctx.DLZMOD_bootlogCopy.tries;
   const up = upMedia();
   const src = path.join(up.state, "syslog-last-boots.txt");
   const uptime = path.join(up.state, "uptime");
