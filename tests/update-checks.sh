@@ -54,10 +54,23 @@ for t in $tags current; do
     while IFS= read -r p; do allowed "$p" || echo "$p"; done' <<< "$paths")
   [ -z "$no" ] && ok "the $t updater may place every sd-system file ($(wc -l <<< "$paths") paths)" \
     || bad "the $t updater refuses: $(echo $no)"
+  # and their shape (modes, link targets, no early start but its own drop-ins): `shape_ok`, with the
+  # drop-in text it compares against
+  fn=$(sed -n -e '/^EARLY_CONF=\$(cat/,/^)$/p' -e '/^shape_ok() {$/,/^}$/p' <<< "$old")
+  no=$(S=$tree bash -c "$fn"'
+    while IFS= read -r p; do shape_ok "$p" || echo "$p"; done' <<< "$paths")
+  [ -z "$no" ] && ok "the $t updater takes their shape" || bad "the $t updater refuses the shape of: $(echo $no)"
 done
 # the check can fail: a drop-in for a unit no updater knows
 no=$(bash -c "$(sed -n '/^allowed() {$/,/^}$/p' "$NEW")"'; allowed etc/systemd/system/cron.service.d/dlzmod.conf || echo refused')
 [ "$no" = refused ] && ok "and refuses a drop-in for another unit" || bad "the allowlist takes a drop-in for another unit"
+# and the shape check too: a unit of its own that starts early (why #1's clock floor runs inside the
+# updater, not as a unit)
+mkdir -p "$TMP/tree-early/etc/systemd/system"
+printf '[Unit]\nDefaultDependencies=no\n' > "$TMP/tree-early/etc/systemd/system/dlzmod-early.service"
+no=$(S=$TMP/tree-early bash -c "$(sed -n -e '/^EARLY_CONF=\$(cat/,/^)$/p' -e '/^shape_ok() {$/,/^}$/p' "$NEW")"'
+  shape_ok etc/systemd/system/dlzmod-early.service || echo refused')
+[ "$no" = refused ] && ok "and refuses a unit that starts early" || bad "the shape check takes a unit that starts early"
 # the check itself must be able to fail: this copy's own gate against copies that drop a gate string
 # or change the guard list
 # (a refusal is exit 1; 2 = this copy's own gate was not found, which must not count as a refusal)
