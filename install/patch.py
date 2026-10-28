@@ -196,10 +196,10 @@ APP_PATCHES = [
         "anchors:[null,DLZMOD_recRowY(e),18]",
     ),
     (
-        # rec2's paint, after the labels: the mod's mark next to the new one
+        # rec2's paint, after the labels: the mod's mark next to the new one (the last row)
         "recording: date and time in names, the mod's mark",
         'let e=Data.get("recState");e&&e!=E_REC_STATE.FULL&&t.drawText(lang.RECORDING_IN_PROGRESS+"*",this.w/2|0,24',
-        'DLZMOD_stockMark(t,this.sws2[3]);'
+        'DLZMOD_stockMark(t,this.sws2[this.sws2.length-1]);'
         'let e=Data.get("recState");e&&e!=E_REC_STATE.FULL&&t.drawText(lang.RECORDING_IN_PROGRESS+"*",this.w/2|0,24',
     ),
     (
