@@ -28,10 +28,44 @@ A **dumb Canvas2D renderer**: the UI logic lives in `/srv/app.js`, glesgui only 
   plugins), app.js reconnects and the UI is usable, but the main meter screen flickers and it did
   not feel faster. Gotcha: after such a run, the stock X11 glesgui hangs at "Opening
   GUI..." with its main thread at 100% CPU, also after a second restart; only a reboot fixed it.
-  Touch-down to app.js's next frame: median 52 ms [device].
+  Touch-down to the new picture on the panel: see "Tap to screen" below.
 - Side effects: a "Screen calibration gesture" runs `ts-calibrate.sh &` and
   `killall -STOP/-CONT /usr/local/bin/dspserver`; forces `/sys/class/drm/*/power/control` to `on`;
   writes `/tmp/thread_watchdog`.
+
+### Tap to screen (#7)
+
+The screen follows a tap 60-190 ms later (to the page flip) while the knob LEDs change at once; same
+on stock. No
+stage is stuck or busy, the screen's path is just long. Work on it: #196.
+
+- **Stages** [device, 16 tab switches]: touch-down → app.js writes the page 28 / 56 / 92 ms (min /
+  median / max); glesgui reads it within 4 ms; glesgui read → page flip 24 / 41 / 104 ms; **touch-down
+  → flip 60 / 92 / 188 ms**, growing with the page (14-20 KiB 60-104 ms, Overview's 61 KiB
+  168-188 ms). Not in it: scanout (≤16 ms), the LCD and the touch controller. The page goes out on
+  touch-down, before the finger lifts. glesgui uses ~70-80 ms CPU for the biggest frame, Xwayland and
+  Weston a tick or two.
+- **Why the LEDs lead**: their colour (`K.N.color`) leaves app.js in the same page logic and takes the
+  short path hub → faderlink → fader board; the screen waits for app.js's next draw tick
+  (`NODE_FPS` 30), glesgui's drawing, XWayland, Weston's composite (rotate-180) and the flip [static;
+  the LED side not timed].
+- **Ruled out**: CPU shortage or a stuck process [device]; draw calls only some pages use (`clip`,
+  gradients, `drawImage`: all tabs feel the same) [user]; frame size alone (the keyboard popup is an
+  85 KiB frame, bigger than most tab switches, and feels fine) [PC sandbox + user]; the screen
+  showing each frame one frame late (static pages get no next frame for 1.5-3 s, yet the busy
+  Overview does not switch faster and forcing a redraw with a knob changes nothing) [device + user].
+- **Decision**: settings first (#196): `NODE_FPS` 60 (the tick waits up to 33 ms) and `vblank_mode=0`
+  for glesgui (may drop a vsync wait in its swap; unknown whether Mesa honours it on this EGL/X11
+  path). A replacement renderer was weighed and left out: it could win part of the 41 ms at most, must
+  match ~100 Canvas2D calls and Mackie's fonts, and the screen is the mixer's only UI.
+- **How it was measured**: a read-only Python script piped over SSH (nothing written on the mixer),
+  polling every 4 ms: touch-downs (`BTN_TOUCH` on `/dev/input/event1`, 16-byte `input_event` on armhf),
+  app.js `wchar` and glesgui `rchar` in `/proc/<pid>/io` (`wchar` also counts app.js's hub traffic),
+  utime + stime per process, and the page flip: `plane-1`'s `fb=` in
+  `/sys/kernel/debug/dri/3/state` (sun4i-drm; `dri/0-2` are vgem, vkms and lima) changes to another
+  of Weston's buffers on each flip. A flip shows no content, so the first flip after glesgui's read
+  is taken as the new page. In the sandbox, wrapping `app.ctx`'s methods counts the draw calls per
+  frame (a tab switch is one frame, 26-99 KiB) [PC sandbox].
 
 ### Bad starts after a software restart (#81)
 
