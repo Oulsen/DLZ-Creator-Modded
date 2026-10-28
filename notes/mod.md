@@ -302,6 +302,12 @@ that choice and the whole screen shows it at once: the screen is the preview, no
   `card-core.sh`; an updated one from `dlzmod-update` at a start without an update file (not in the
   update's sandbox: its stage is in RAM, glesgui is 42 MB), used from glesgui's next start. Only a
   glesgui with the stock hash is changed; at later starts it reads only 4 bytes [static; tests/glesgui.sh].
+  On the dev card [device, 2026-10-28, dev-6e44350]: the start after the drop-in patched it at
+  19.5 s (~8 s, once; Mackie's node processes started at 19.8 s instead of ~12 s); glesgui started
+  0.04 s later (no ordering between the two: by chance) and so already ran the patched file
+  (`/proc/<pid>/exe` not "(deleted)"); later starts silent. Then
+  offline, the clock set 5 min ahead, Wi-Fi in: chrony stepped back 292.6 s at 87 s and touch kept
+  working.
 - **The card**: the date and time in the zone, where they came from (yellow without a source), and
   in a browser the computer's own; Set... (`DLZMOD_clockPicker`: day, month, year, hour, minute with
   arrows that repeat while held, as Mackie's unused `PageTime`) and, in a browser, Use This

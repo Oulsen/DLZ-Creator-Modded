@@ -37,7 +37,8 @@ A **dumb Canvas2D renderer**: the UI logic lives in `/srv/app.js`, glesgui only 
   while frames still draw [device, 2026-10-28: 323 s back, touch gone ~5 min]. The mod points that
   one call at `steady_clock::now()` (`0xdbab4`, `CLOCK_MONOTONIC`, same return layout): file
   offset `0x12270`, `bl` `eb02e5ff` → `eb02e60f` (`sd-system/dlzmod-glesgui`, only on the stock
-  hash, the card's copy only).
+  hash, the card's copy only). With it, touch kept working through a 292.6 s step back [device,
+  2026-10-28].
 - Side effects: a "Screen calibration gesture" runs `ts-calibrate.sh &` and
   `killall -STOP/-CONT /usr/local/bin/dspserver`; forces `/sys/class/drm/*/power/control` to `on`;
   writes `/tmp/thread_watchdog`.
