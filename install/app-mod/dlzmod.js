@@ -1220,7 +1220,7 @@ function DLZMOD_zoneCard(parent, x, w) {
     bgColor: Color.bgDark,
     _constructor: function () {
       this.own = new E1Button(this, {
-        anchors: [0, 230, null, null, !0], size: [w - 48, 56], text: "Use This Computer's Zone", visible: external,
+        anchors: [0, 210, null, null, !0], size: [w - 48, 56], text: "Use This Computer's Zone", visible: external,
         onPress: () => DLZMOD_setZone(DLZMOD_ownZone()),
         getState: function () {
           const z = DLZMOD_ownZone();
@@ -1228,7 +1228,7 @@ function DLZMOD_zoneCard(parent, x, w) {
         },
       });
       this.change = new E1Button(this, {
-        anchors: [0, 300, null, null, !0], size: [w - 48, 56], text: "Change...", onPress: () => DLZMOD_zonePicker(),
+        anchors: [0, 280, null, null, !0], size: [w - 48, 56], text: "Change...", onPress: () => DLZMOD_zonePicker(),
       });
     },
     paint: function (t) {
@@ -1258,14 +1258,14 @@ function DLZMOD_clockCard(parent, x, w) {
     bgColor: Color.bgDark,
     _constructor: function () {
       this.own = new E1Button(this, {
-        anchors: [0, 230, null, null, !0], size: [w - 48, 56], text: "Use This Computer's Time", visible: external,
+        anchors: [0, 210, null, null, !0], size: [w - 48, 56], text: "Use This Computer's Time", visible: external,
         onPress: () => $NET.cmd("DLZMOD_TIME", { op: "clock", now: Date.now() }),
         getState: function () {
           this.enabled = free();
         },
       });
       this.set = new E1Button(this, {
-        anchors: [0, 300, null, null, !0], size: [w - 48, 56], text: "Set...", onPress: () => DLZMOD_clockPicker(),
+        anchors: [0, 280, null, null, !0], size: [w - 48, 56], text: "Set...", onPress: () => DLZMOD_clockPicker(),
         getState: function () {
           this.enabled = free();
         },
@@ -1409,6 +1409,14 @@ function DLZMOD_clockPicker() {
         font: Font.font(500, "13pt"), align: "center", valign: "middle", max: W - 48 });
     },
   });
+}
+
+// ms on Date.now()'s scale, but a clock that never jumps, for the screen's frame timer (patch.py):
+// with Date.now() a clock set back 91 s stopped the screen for 91 s [device]. Date.now() where there
+// is no performance clock
+function DLZMOD_frameNow() {
+  const p = typeof performance !== "undefined" ? performance : null;
+  return p && p.timeOrigin ? p.timeOrigin + p.now() : Date.now();
 }
 
 // at every (re)connect (patch.py, after the hub's INIT): a browser gives the mixer its time; the

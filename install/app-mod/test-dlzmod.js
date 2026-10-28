@@ -1612,6 +1612,26 @@ test("Clock picker: opens at the mixer's time, arrows change it, Set sends it; e
     "29 Feb of a saved 2024: 28 Feb 2025, a date the server takes");
   ui.windows[0].close();
 });
+test("Clock: the screen's frame timer does not stop when the clock is set back (patch.py)", () => {
+  // Mackie's timer (app.js, node only): wait 17 ms minus the time since the last frame
+  const wait = (now, last) => Math.max(0, 17 - (now - last));
+  const D = vm.runInContext("Date", ctx), realNow = D.now;
+  let mono = 5000;
+  ctx.performance = { timeOrigin: 1e12, now: () => mono };
+  try {
+    const last = ctx.DLZMOD_frameNow();
+    assert.strictEqual(last, 1e12 + 5000);
+    D.now = () => realNow() - 91000;   // chrony steps the clock back 91 s
+    mono += 10;
+    assert.strictEqual(wait(ctx.DLZMOD_frameNow(), last), 7, "the next frame as planned");
+    assert.ok(wait(D.now(), realNow()) > 90000, "by the wall clock it waited 91 s [device]");
+  } finally {
+    D.now = realNow;
+    delete ctx.performance;
+  }
+  const before = Date.now();
+  assert.ok(ctx.DLZMOD_frameNow() >= before, "no performance clock: Date.now()");
+});
 test("Clock: a browser gives its time at every connect, the mixer's own screen does not", () => {
   reset();
   ctx.DLZMOD_connected();

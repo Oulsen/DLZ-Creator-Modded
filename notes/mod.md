@@ -260,6 +260,15 @@ that choice and the whole screen shows it at once: the screen is the preview, no
   scale, a clock that never jumps), not `Date.now()`: with the wall clock set back (by hand, or by
   chrony after a phone's time that was ahead) the 10 s before a medium goes read-only again would
   have lasted as long as the jump, and the wrong-PIN pause too [static; unit test, device review].
+  The screen too: app.js makes its own frame timer under node (no `requestAnimationFrame` there;
+  search `lastRafTimer`), which waits 17 ms minus the time since the last frame by `Date.now()`, so a
+  step back stopped every frame for the length of the step. On the dev card [device, 2026-10-28,
+  dev-7c89412]: started offline with a time set ahead by hand, the Wi-Fi stick plugged in at 46 s,
+  chrony stepped the clock back 91.6 s at 62 s and the screen stood still (restarted by hand a minute
+  later). patch.py gives that timer `DLZMOD_frameNow` (`performance.timeOrigin + now()`; app.js runs
+  as `node app.js` and leaves node's own `performance` in place). The other `Date.now()` uses in
+  app.js (a double tap, a swipe's speed) misread at most once. Stock rarely steps back much: its
+  saved time is always behind; with a time set by hand, a phone's time or the #1 floor it can.
 - **The card**: the date and time in the zone, where they came from (yellow without a source), and
   in a browser the computer's own; Set... (`DLZMOD_clockPicker`: day, month, year, hour, minute with
   arrows that repeat while held, as Mackie's unused `PageTime`) and, in a browser, Use This
