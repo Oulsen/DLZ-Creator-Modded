@@ -20,18 +20,19 @@ die() { echo "rig: $*" >&2; exit 1; }
 # then fails at its source check (check-rootfs.sh) without saying why. Checked as the rehearsal runs
 # it: busybox's applets through binfmt, the same pipe as that check
 qcheck() {
-  local b t
-  [ -e /proc/sys/fs/binfmt_misc/qemu-arm ] \
-    || die "no binfmt registration for ARM programs (apt install qemu-user qemu-user-binfmt; tests/README.md)"
+  local b t out
+  # (any ARM registration that is on, whatever its name: qemu-arm from qemu-user-binfmt, older ones)
+  grep -qx enabled /proc/sys/fs/binfmt_misc/qemu-arm* 2> /dev/null \
+    || die "no binfmt registration for ARM programs that is on (apt install qemu-user qemu-user-binfmt; tests/README.md)"
   b=$(readlink -f "$(dirname "$0")/../vendor/busybox.bin")
   [ -f "$b" ] || die "no vendor/busybox.bin (git-ignored): . install/release/vendor.sh && vendor_prepare vendor (docs/DEVELOPMENT.md)"
   t=$(mktemp -d) || die "mktemp failed"
   for a in sh echo grep head; do ln -s "$b" "$t/$a"; done
-  if [ "$(PATH=$t "$t/sh" -c "echo 'build 1731' | grep -o 'build [0-9]*' | head -1" 2>&1)" != "build 1731" ]; then
-    rm -rf "$t"
-    die "this qemu cannot run the mixer's busybox in a pipe ($(qemu-arm --version 2>/dev/null | head -1)): needs qemu 8 or later, Ubuntu 24.04 or later (tests/README.md, #190)"
-  fi
+  # stdout only: a qemu warning on stderr is no failure; on 22.04 stdout stays empty
+  out=$(PATH=$t "$t/sh" -c "echo 'build 1731' | grep -o 'build [0-9]*' | head -1" 2> /dev/null)
   rm -rf "$t"
+  [ "$out" = "build 1731" ] \
+    || die "this qemu cannot run the mixer's busybox in a pipe (got '$out'; $(qemu-arm --version 2>/dev/null | head -1)): needs qemu 8 or later, Ubuntu 24.04 or later (tests/README.md, #190)"
 }
 [ "${1:-}" = clean ] || qcheck
 modprobe dm_snapshot || die "modprobe dm_snapshot failed"   # the chroot's modprobe looks in the device's modules
