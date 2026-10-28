@@ -35,7 +35,8 @@ A **dumb Canvas2D renderer**: the UI logic lives in `/srv/app.js`, glesgui only 
 
 ### Tap to screen (#7)
 
-The screen follows a tap ~100-200 ms later while the knob LEDs change at once; same on stock. No
+The screen follows a tap 60-190 ms later (to the page flip) while the knob LEDs change at once; same
+on stock. No
 stage is stuck or busy, the screen's path is just long. Work on it: #196.
 
 - **Stages** [device, 16 tab switches]: touch-down → app.js writes the page 28 / 56 / 92 ms (min /
