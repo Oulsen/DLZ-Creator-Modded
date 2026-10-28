@@ -183,6 +183,26 @@ APP_PATCHES = [
         "this.bDownload=DLZMOD_mediaDownloadButton(this,e),this.bSort=new E1ToggleButton(this,{anchors:[316,-214,",
     ),
     (
+        # #14: Settings, Recording / Routing: a fourth switch under Bypass Processing, Post-Fader and
+        # One-Tap Record (DLZMOD_recDateRow), set back by the panel's reset button with them
+        "recording: date and time in names, the switch",
+        '["settings.rec.onetap",lang.ONETAP_RECORD,0]];this.sws2=[]',
+        '["settings.rec.onetap",lang.ONETAP_RECORD,0],DLZMOD_recDateRow()];this.sws2=[]',
+    ),
+    (
+        # the four switches closer together, so the fourth fits in the panel
+        "recording: date and time in names, the rows",
+        "anchors:[null,175+64*e+15,18]",
+        "anchors:[null,DLZMOD_recRowY(e),18]",
+    ),
+    (
+        # rec2's paint, after the labels: the mod's mark next to the new one
+        "recording: date and time in names, the mod's mark",
+        'let e=Data.get("recState");e&&e!=E_REC_STATE.FULL&&t.drawText(lang.RECORDING_IN_PROGRESS+"*",this.w/2|0,24',
+        'DLZMOD_stockMark(t,this.sws2[3]);'
+        'let e=Data.get("recState");e&&e!=E_REC_STATE.FULL&&t.drawText(lang.RECORDING_IN_PROGRESS+"*",this.w/2|0,24',
+    ),
+    (
         # #13: at every (re)connect, after the hub's INIT: a browser gives the mixer its time
         # (DLZMOD_connected; the server takes it forward only, without internet)
         "time: a browser's clock when it connects",

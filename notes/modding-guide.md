@@ -34,7 +34,9 @@ How to make a mod without rediscovering the system. Read [architecture.md](archi
    only present on the mod card. The Mod tab keeps what is about the mod itself (version, about,
    startup log, update, start the original firmware once) and experiments. A new feature may start
    in the Mod tab for a first test version, then moves to its stock place once it works. Each
-   setting in a stock screen gets a small, consistent mod marker (for bug reports and support).
+   setting in a stock screen gets a small, consistent mod marker (for bug reports and support):
+   a short bar in the mod's yellow left of its label (`DLZMOD_stockMark`; first on Recording /
+   Routing, #14).
    Every injection is one more `app.js` anchor: check the stock screen plus the new setting in the
    sandbox with a screenshot.
 

@@ -2456,6 +2456,56 @@ test("clock by hand: the picker's years are the zone's (1 Jan 2025 00:30 in Amst
   assert.strictEqual(timeOf(s, "DLZMOD_TIME_RESULT")[0].ok, true);
 });
 
+// #14: date and time in recording names
+const stampOpts = (how, o = {}) => {
+  clockReset();
+  ctx.DLZMOD_clock().how = how;
+  ctx.DLZMOD_clock().asked = process.uptime() * 1000;   // chronyc not asked again within 10 s
+  return Object.assign({ on: 1, run: clockRun().run, now: () => NOW }, amsterdam().opts, o);
+};
+test("recording date: in the mixer's zone, only when on and the clock was set this start", async () => {
+  for (const how of ["internet", "hand", "device"]) {
+    assert.strictEqual(await ctx.DLZMOD_recStamp(stampOpts(how)), "2026-01-31_2358", how);
+  }
+  assert.strictEqual(await ctx.DLZMOD_recStamp(stampOpts("")), "", "the saved time: no date");
+  assert.strictEqual(await ctx.DLZMOD_recStamp(stampOpts("internet", { on: 0 })), "", "off");
+  assert.strictEqual(await ctx.DLZMOD_recStamp(stampOpts("hand", { now: () => Date.UTC(2026, 6, 4, 7, 5) })),
+    "2026-07-04_0905", "summer time, two digits");
+  clockReset();
+  assert.strictEqual(await ctx.DLZMOD_recStamp(Object.assign({ on: 1, run: clockRun({ leap: "Normal" }).run,
+    now: () => NOW }, amsterdam().opts)), "2026-01-31_2358", "chronyc asked: in sync");
+  clockReset();
+});
+test("recording date: off when the setting was never made, from the setting when it was", async () => {
+  const o = stampOpts("hand");
+  delete o.on;
+  assert.strictEqual(await ctx.DLZMOD_recStamp(o), "", "no getDataKey (never set)");
+  ctx.getDataKey = (k) => (k === "dlzmod.recDate" ? 1 : undefined);
+  try {
+    assert.strictEqual(await ctx.DLZMOD_recStamp(o), "2026-01-31_2358");
+  } finally {
+    delete ctx.getDataKey;
+    clockReset();
+  }
+});
+test("recording date: a hung chronyc delays the start by at most 1 s, then no date", async () => {
+  clockReset();
+  const t0 = Date.now();
+  const hung = () => new Promise(() => {});
+  assert.strictEqual(await ctx.DLZMOD_recStamp(Object.assign({ on: 1, run: hung, now: () => NOW }, amsterdam().opts)), "");
+  const dt = Date.now() - t0;
+  assert.ok(dt >= 900 && dt < 1500, dt + " ms");
+  clockReset();
+});
+test("recName: the date after the animal, the number still first", async () => {
+  const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "dlzrec-")), "DLZ_Creator_XS_Recordings");
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, "REC_0011_owl_2026-01-30_1015.wav"), "");
+  assert.match(await recName(dir, [], stampOpts("internet")), /^REC_0012_[a-z]{2,10}_2026-01-31_2358$/);
+  assert.match(await recName(dir, [], stampOpts("")), NAME("0012"));
+  clockReset();
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {

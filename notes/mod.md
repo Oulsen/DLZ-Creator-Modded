@@ -103,6 +103,19 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
   `REC_0006` (stock: `REC_0002`); after `REC_9999` comes `REC_10000`; animal names on the SD card;
   counting across SD and USB not yet tested on the mixer]. Stock's weak spots: [components/node-backend.md](components/node-backend.md),
   "Recording file name".
+- **Date and time in recording names** (#14): `REC_0042_otter_2026-10-11_1430`, the start of the
+  recording in the mixer's zone, after the animal (the number stays first). A switch on Settings,
+  Recording / Routing, "Date & Time in Name" (`dlzmod.recDate`, off by default; a fourth row under
+  Mackie's three, the rows 52 px apart instead of 64; the panel's reset button turns it off with
+  them; a short yellow bar left of the label marks it as the mod's, `DLZMOD_stockMark`, ground rule 9).
+  The date goes in only when the clock was set this start, from the internet, by hand or from a
+  paired device (`DLZMOD_clockSource`, see "Clock"); with only the time saved at the last power-off
+  (#1), which can be days behind, the name stays `REC_NNNN_animal`. A paired device whose time is
+  within 5 s of the mixer's sets nothing, so after a short power-off without internet the name can
+  stay without a date although the clock is right. chronyc gets 1 s at the start of a recording,
+  then it starts without the date (`DLZMOD_recStamp`). [static: unit tests; PC sandbox: the switch,
+  its reset, and names up to `REC_0007_woodpecker_2026-10-28_1430.wav` whole in the Media list;
+  the player's title line and a recording on the mixer not yet checked]
 - **Recordings go to the SD card by default** (`settings.rec.toUSB` off in the card's state).
 - **About's "Device IP Address"** asks `eth0`, then `wlan0`.
 - **Look and meters** (`app.js`): see "Mod settings" below.
