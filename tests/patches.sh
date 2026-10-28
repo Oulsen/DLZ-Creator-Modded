@@ -5,6 +5,8 @@
 # - the patched files still parse, by the mixer's own node (the dump's, under qemu): the originals
 #   first, as a control that the check can read them at all
 # - the patched server.js keeps the refusals the updater checks for (its SERVER_MARKERS)
+# - the Time tab's zones (#9, DLZMOD_zoneList) are in the mixer's tzdata, and each row's offset is the
+#   zone's winter offset (standard time: the lower of January's and July's, by the mixer's node)
 #   bash tests/patches.sh
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -41,5 +43,32 @@ done <<< "$MARKERS"
 for f in install/app-mod/dlzmod.js install/server-mod/dlzmod-server.js; do
   dnode --check "$f" > "$TMP/f.check" 2>&1 && ok "$f parses" || bad "$f does not parse: $(head -3 "$TMP/f.check")"
 done
+# the Time tab's list: the function alone, from the app mod (the rest of it needs Mackie's UI)
+sed -n '/^function DLZMOD_zoneList() {$/,/^}$/p' install/app-mod/dlzmod.js > "$TMP/zones.js"
+echo 'for (const z of DLZMOD_zoneList()) {
+  const off = (m) => new Intl.DateTimeFormat("en-GB", { timeZone: z.zone, timeZoneName: "longOffset" })
+    .formatToParts(new Date(Date.UTC(2026, m, 15))).find((x) => x.type === "timeZoneName").value;
+  const mins = (o) => o === "GMT" ? 0 : (o[3] === "-" ? -1 : 1) * (+o.slice(4, 6) * 60 + +o.slice(7, 9));
+  let std;
+  try {
+    std = Math.min(mins(off(0)), mins(off(6)));
+  } catch (e) {
+    console.log(z.zone + " unknown to the node on the mixer");
+    continue;
+  }
+  const label = z.offset === "UTC" ? 0 : mins(z.offset.replace(/^UTC/, "GMT"));
+  console.log(z.zone + " " + (std === label ? "ok" : "offset " + z.offset + ", is " + std + " min"));
+}' >> "$TMP/zones.js"
+if dnode "$TMP/zones.js" > "$TMP/zones.out" 2>&1 && [ -s "$TMP/zones.out" ]; then
+  n=0
+  while read -r zone res; do
+    n=$((n + 1))
+    [ "$res" = ok ] || bad "Time tab: $zone: $res"
+    head -c 4 "$DUMP/usr/share/zoneinfo/$zone" 2>/dev/null | grep -q TZif || bad "Time tab: $zone is not in the mixer's tzdata"
+  done < "$TMP/zones.out"
+  ok "Time tab: $n zones checked against the mixer's tzdata and offsets"
+else
+  bad "Time tab: the zone list does not run: $(head -3 "$TMP/zones.out")"
+fi
 
 [ $fail = 0 ] && echo "ALL OK" || { echo "SOME FAILED"; exit 1; }

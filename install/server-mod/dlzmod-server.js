@@ -1774,3 +1774,126 @@ async function DLZMOD_sshKeep(a, run, result, paths = DLZMOD_sshPaths()) {
   DLZMOD_writeDurable(paths.keep, "", 0o600);
   result(true, "SSH stays on after a restart");
 }
+
+// Time zone (#9), the Mod page's Time tab: FAT keeps local times and the kernel converts file times
+// with its own offset (0 until the clock script gives it the zone), so recordings showed 1-2 h early
+// on a computer. The zone is stored the system's way (/etc/localtime, a link into the mixer's
+// tzdata, and /etc/timezone), then `hwclock --systz --utc` gives the kernel its offset now
+// (sd-system/dlzmod-clock: also at every start and when summer time starts or ends). From the
+// mixer's own screen and from paired devices (a browser offers its own zone); anyone may ask for the
+// status (the answer goes to the one who asked). Stock: Etc/UTC.
+function DLZMOD_tzPaths(o = {}) {
+  return { zoneinfo: o.zoneinfo || "/usr/share/zoneinfo", localtime: o.localtime || "/etc/localtime",
+    timezone: o.timezone || "/etc/timezone" };
+}
+
+// a zone name the mixer has: Region/City (up to three parts, no dots, so it stays inside zoneinfo),
+// a tzdata file (starts with TZif); not zoneinfo's other trees (right/: clocks with leap seconds,
+// 27 s off; posix/: copies) or its special files
+function DLZMOD_tzValid(zone, p = DLZMOD_tzPaths()) {
+  if (typeof zone !== "string" || zone.length > 64 || !/^[A-Za-z0-9_+-]+(\/[A-Za-z0-9_+-]+){0,2}$/.test(zone)) {
+    return false;
+  }
+  if (/^(right|posix)\//.test(zone) || ["Factory", "localtime", "posixrules"].includes(zone)) return false;
+  const fs = require("fs");
+  try {
+    const fd = fs.openSync(p.zoneinfo + "/" + zone, "r");
+    try {
+      const b = Buffer.alloc(4);
+      return fs.readSync(fd, b, 0, 4, 0) === 4 && b.toString("latin1") === "TZif";
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (e) {
+    return false;
+  }
+}
+
+// the zone set now: the link's target (what the system uses), else /etc/timezone, else UTC
+function DLZMOD_tzCurrent(p = DLZMOD_tzPaths()) {
+  const fs = require("fs");
+  try {
+    const t = fs.readlinkSync(p.localtime);
+    const i = t.indexOf("zoneinfo/");
+    if (i >= 0 && DLZMOD_tzValid(t.slice(i + 9), p)) return t.slice(i + 9);
+  } catch (e) {}
+  try {
+    const z = fs.readFileSync(p.timezone, "utf8").trim();
+    if (DLZMOD_tzValid(z, p)) return z;
+  } catch (e) {}
+  return "Etc/UTC";
+}
+
+// "UTC+01:00" and "14:05" in the zone, from node's own time zone data (not the process's TZ, which
+// Mackie's server keeps)
+function DLZMOD_tzInfo(zone, now = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: zone, timeZoneName: "longOffset", hour: "2-digit",
+      minute: "2-digit", hourCycle: "h23" }).formatToParts(now);
+    const get = (t) => (parts.find((x) => x.type === t) || {}).value || "";
+    const offset = get("timeZoneName").replace(/^GMT/, "UTC").replace(/^UTC\+00:00$/, "UTC");
+    return { offset: offset, time: get("hour") + ":" + get("minute") };
+  } catch (e) {
+    return { offset: "", time: "" };
+  }
+}
+
+function DLZMOD_tzState(p) {
+  const zone = DLZMOD_tzCurrent(p);
+  return Object.assign({ zone: zone }, DLZMOD_tzInfo(zone));
+}
+
+// /etc/localtime as a link, swapped in at once (a power cut leaves the old or the new one)
+function DLZMOD_tzLink(target, file) {
+  const fs = require("fs");
+  const tmp = file + ".dlzmod-new";
+  try {
+    fs.unlinkSync(tmp);
+  } catch (e) {}
+  fs.symlinkSync(target, tmp);
+  fs.renameSync(tmp, file);
+}
+
+async function DLZMOD_tzSet(zone, run, result, p = DLZMOD_tzPaths(), link = DLZMOD_tzLink) {
+  if (!DLZMOD_tzValid(zone, p)) return result(false, "Unknown time zone");
+  // /etc/timezone first: a failure there changes nothing; the link (what the system uses and the
+  // panel shows) last, flushed with its folder
+  DLZMOD_writeDurable(p.timezone, zone + "\n", 0o644);
+  link(p.zoneinfo + "/" + zone, p.localtime);
+  DLZMOD_syncDir(require("path").dirname(p.localtime));
+  const r = await run("/sbin/hwclock", ["--systz", "--utc"]);
+  if (!r.ok) console.error("dlzmod: hwclock --systz:", r.err.trim());
+  // (failing: the clock script's minute loop gives the kernel a changed offset; an unchanged one it has)
+  result(true, "Time zone: " + zone.replace(/_/g, " ") + (r.ok ? "" : "\nRecording times follow it within a minute."));
+}
+
+// the command from the Time tab: status (everyone), set (the screen, paired devices)
+async function DLZMOD_time(args, send, opts = {}) {
+  const run = opts.run || DLZMOD_run;
+  const p = DLZMOD_tzPaths(opts);
+  const reply = (cmd, data) => {
+    try {
+      send({ cmd: cmd, id: 0, data: data });
+    } catch (e) {}
+  };
+  const result = (ok, text) => reply("DLZMOD_TIME_RESULT", { ok: ok, text: text });
+  const a = args || {};
+  try {
+    if (a.op === "status") return reply("DLZMOD_TIME_STATE", DLZMOD_tzState(p));
+    if (a.op !== "set") return result(false, "Unknown time action");
+    if (!(send && (send.dlzmodLocal === true || send.dlzmodPaired === true))) {
+      return result(false, "The time zone can only be changed on the\nmixer's own screen or a paired device.");
+    }
+    if (DLZMOD_time.busy) return result(false, "Still busy with the last change, try again in a moment");
+    DLZMOD_time.busy = true;
+    try {
+      await DLZMOD_tzSet(String(a.zone || ""), run, result, p, opts.link);
+    } finally {
+      DLZMOD_time.busy = false;
+    }
+    reply("DLZMOD_TIME_STATE", DLZMOD_tzState(p));
+  } catch (e) {
+    console.error("dlzmod: time " + a.op + ":", e.message);
+    result(false, "That did not work (" + a.op + ")");
+  }
+}

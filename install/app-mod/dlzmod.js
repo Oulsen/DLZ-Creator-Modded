@@ -861,8 +861,8 @@ function DLZMOD_hookPopups() {
 // Mod page under Settings, after About. Unlike Mackie's pages (829 x 392 with wide margins) it fills
 // the Settings area with 12 px margins: on the device the knob panel leaves Settings 938 px, and with
 // the header shown 464 px below the tab bar (measured in the sandbox), so 914 x 440. Sub-tabs in the
-// style of Settings' own tab bar sit above one of five pages of panels: Display (Screen + Meters),
-// Colors, Network, Remote, Mod. Laid out for the header shown; with it hidden Mackie's centring (anchors) splits the
+// style of Settings' own tab bar sit above one of six pages of panels: Display (Screen + Meters),
+// Colors, Time, Network, Remote, Mod. Laid out for the header shown; with it hidden Mackie's centring (anchors) splits the
 // extra 30 px above and below. glesgui only has Proxima Nova Light/Regular/Semibold: use font weights
 // 300-600.
 function DLZMOD_settingsPage(parent, y) {
@@ -882,10 +882,10 @@ function DLZMOD_settingsPage(parent, y) {
       this.sub = 0;
       // in a browser no Network and Remote: only the mixer's own screen changes those (the server
       // refuses them from other devices)
-      const names = ["Display", "Colors", "Network", "Remote", "Mod"];
-      const shown = DLZMOD_external() ? [0, 1, 4] : [0, 1, 2, 3, 4];
+      const names = ["Display", "Colors", "Time", "Network", "Remote", "Mod"];
+      const shown = DLZMOD_external() ? [0, 1, 2, 5] : [0, 1, 2, 3, 4, 5];
       this.tabs = shown.map((i, k) => new ToggleButton(this, {
-        anchors: [k * 180, 0], w: 178, h: 44, text: names[i], opaque: !1,
+        anchors: [k * 153, 0], w: 149, h: 44, text: names[i], opaque: !1,
         colors: [Color.buttonBg, DLZMOD_accent()], textColor: Color.subNavButtonText, textColorON: Color.black,
         textStyle: { align: "left", valign: "middle", x: 7, y: 23, offsetX: 0, offsetY: 0, font: Font.font(600, "18px") },
         onToggleON: () => this.setSub(i), getVal: () => this.sub === i,
@@ -893,26 +893,32 @@ function DLZMOD_settingsPage(parent, y) {
       this.screen = DLZMOD_screenPanel(this, 0, top, 290);
       this.meters = DLZMOD_metersPanel(this, 290 + 12, top, 914 - 290 - 12);
       this.colours = DLZMOD_coloursPanel(this, 0, top, 914);
+      this.time = DLZMOD_timePanel(this, 0, top, 914);
       this.network = DLZMOD_networkPanel(this, 0, top, 914);
       this.pair = DLZMOD_pairPanel(this, 0, top, 914);
       this.about = DLZMOD_aboutPanel(this, 0, top, 914);
-      this.groups = [[this.screen, this.meters], [this.colours], [this.network], [this.pair], [this.about]];
+      this.groups = [[this.screen, this.meters], [this.colours], [this.time], [this.network], [this.pair],
+        [this.about]];
       this.setSub(0);
       // the Network and Remote Control panels' status, every 3 s while one is on screen (the PIN
-      // changes after each pairing)
-      setInterval(() => (this.network.globalVisible() || this.pair.globalVisible()) &&
-        $NET.cmd("DLZMOD_NET", { op: "status" }), 3000);
+      // changes after each pairing); the Time panel's (the time now)
+      setInterval(() => {
+        if (this.network.globalVisible() || this.pair.globalVisible()) $NET.cmd("DLZMOD_NET", { op: "status" });
+        if (this.time.globalVisible()) $NET.cmd("DLZMOD_TIME", { op: "status" });
+      }, 3000);
     },
     setSub: function (i) {
       this.sub = i;
       if (this.pair) this.pair.revealPin(!1);   // leaving or opening Remote Control hides the PIN
       this.groups.forEach((g, j) => g.forEach((p) => p.setVisible(j === i)));
-      if (i === 2 || i === 3) $NET.cmd("DLZMOD_NET", { op: "status" });
+      if (i === 2) $NET.cmd("DLZMOD_TIME", { op: "status" });
+      if (i === 3 || i === 4) $NET.cmd("DLZMOD_NET", { op: "status" });
       this.update();
     },
     onShow: function () {
       this.pair.revealPin(!1);
       $NET.cmd("DLZMOD_NET", { op: "status" });
+      $NET.cmd("DLZMOD_TIME", { op: "status" });
     },
   });
 }
@@ -1144,6 +1150,210 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
       DLZMOD_paintRow(t, 28, 206, "Updates", text, max, color);
       t.drawText("by Oulsen · github.com/Oulsen/DLZ-Creator-Modded", this.w / 2 | 0, this.h - 24,
         { color: "#666666", font: Font.font(500, "12pt"), align: "center", max: max });
+    },
+  });
+}
+
+// Time (#9): the time zone recordings get their times in. A computer shows a FAT card's file times
+// as they are, as its own local time, so a mixer on UTC (stock) gave them 1-2 h early in the
+// Netherlands. The server mod keeps the zone (DLZMOD_time in dlzmod-server.js) and sends it with its
+// offset and the time there now; nothing of it is a hub key. Picked from a short list sorted by
+// offset (DLZMOD_zonePicker); a browser also offers its own zone. The server takes a change from the
+// mixer's own screen and from paired devices, and says so to others.
+function DLZMOD_timeState() {
+  return DLZMOD_timeState.s || { zone: "", offset: "", time: "" };
+}
+
+function DLZMOD_setTimeState(s) {
+  DLZMOD_timeState.s = s;
+  const page = DLZMOD_page();
+  if (page) page.time.update();
+}
+
+function DLZMOD_timeResult(r) {
+  showMessage(r.text, { title: "Time", textColor: r.ok ? Color.green : Color.red2, font: Font.font(500, "17pt"),
+    textDY: 32 });
+  const page = DLZMOD_page();
+  if (page) page.time.update();
+}
+
+// "America/Argentina/Buenos_Aires" as "America / Argentina / Buenos Aires"; stock's Etc/UTC as UTC
+function DLZMOD_zoneName(z) {
+  if (z === "Etc/UTC") return "UTC";
+  return String(z || "").replace(/_/g, " ").split("/").join(" / ");
+}
+
+// the browser's own zone ("" when the browser does not say)
+function DLZMOD_ownZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch (e) {
+    return "";
+  }
+}
+
+function DLZMOD_setZone(zone) {
+  if (zone) $NET.cmd("DLZMOD_TIME", { op: "set", zone: zone });
+}
+
+function DLZMOD_timePanel(parent, x, y, w) {
+  const external = DLZMOD_external();
+  const bw = 280;
+  return new Widget(parent, {
+    anchors: [x, y],
+    size: [w, DLZMOD_panelH()],
+    bgColor: Color.bgDark,
+    _constructor: function () {
+      this.change = new E1Button(this, {
+        anchors: [w - 28 - bw, 100], size: [bw, 56], text: "Change...", onPress: () => DLZMOD_zonePicker(),
+      });
+      this.own = new E1Button(this, {
+        anchors: [w - 28 - bw, 180], size: [bw, 56], text: "Use This One", visible: external,
+        onPress: () => DLZMOD_setZone(DLZMOD_ownZone()),
+        getState: function () {
+          const z = DLZMOD_ownZone();
+          this.enabled = !!z && z !== DLZMOD_timeState().zone;
+        },
+      });
+    },
+    paint: function (t) {
+      DLZMOD_paintPanel(this, t, "Time", Color.white, Font.font(500, "20pt"));
+      const s = DLZMOD_timeState(), max = w - 28 - bw - 48;
+      DLZMOD_paintRow(t, 28, 128, "Time zone", s.zone ? DLZMOD_zoneName(s.zone) : "…", max);
+      if (s.offset) t.drawText(s.offset + (s.time ? "  ·  now " + s.time : ""), 28, 162,
+        { color: "#888888", font: Font.font(500, "12pt"), align: "left", valign: "middle", max: max });
+      if (external) DLZMOD_paintRow(t, 28, 208, "This computer", DLZMOD_zoneName(DLZMOD_ownZone()) || "Unknown", max);
+      const grey = { color: "#888888", font: Font.font(500, "12pt"), align: "left", valign: "middle", max: w - 56 };
+      t.drawText("New recordings get their times in this zone, the way a computer shows them.", 28, 300, grey);
+      t.drawText("Summer and winter time follow by themselves.", 28, 322, grey);
+    },
+  });
+}
+
+// The zones to pick from on the mixer, the way Windows lists them: one row per set of clock rules,
+// sorted by the offset in winter (standard time), with well-known cities; a zone, not a bare offset,
+// so summer time follows. A browser can set any other zone the mixer has (Use This One). Each name
+// must exist in the mixer's tzdata and match its offset (tests/patches.sh checks both against the dump).
+function DLZMOD_zoneList() {
+  return [
+    ["UTC-10:00", "Hawaii", "Pacific/Honolulu"],
+    ["UTC-09:00", "Alaska", "America/Anchorage"],
+    ["UTC-08:00", "Los Angeles, Vancouver (Pacific Time)", "America/Los_Angeles"],
+    ["UTC-07:00", "Denver, Calgary (Mountain Time)", "America/Denver"],
+    ["UTC-07:00", "Arizona", "America/Phoenix"],
+    ["UTC-06:00", "Chicago, Winnipeg (Central Time)", "America/Chicago"],
+    ["UTC-06:00", "Mexico City", "America/Mexico_City"],
+    ["UTC-05:00", "New York, Toronto (Eastern Time)", "America/New_York"],
+    ["UTC-05:00", "Bogota, Lima", "America/Bogota"],
+    ["UTC-04:00", "Halifax (Atlantic Time)", "America/Halifax"],
+    ["UTC-04:00", "Santiago", "America/Santiago"],
+    ["UTC-03:30", "Newfoundland", "America/St_Johns"],
+    ["UTC-03:00", "Sao Paulo, Brasilia", "America/Sao_Paulo"],
+    ["UTC-03:00", "Buenos Aires", "America/Argentina/Buenos_Aires"],
+    ["UTC-01:00", "Azores", "Atlantic/Azores"],
+    ["UTC", "UTC (world time)", "Etc/UTC"],
+    ["UTC+00:00", "London, Dublin, Lisbon", "Europe/London"],
+    ["UTC+01:00", "Amsterdam, Berlin, Paris, Rome, Madrid", "Europe/Amsterdam"],
+    ["UTC+01:00", "Lagos", "Africa/Lagos"],
+    ["UTC+02:00", "Athens, Helsinki, Kyiv, Bucharest", "Europe/Athens"],
+    ["UTC+02:00", "Cairo", "Africa/Cairo"],
+    ["UTC+02:00", "Johannesburg", "Africa/Johannesburg"],
+    ["UTC+02:00", "Jerusalem", "Asia/Jerusalem"],
+    ["UTC+03:00", "Istanbul", "Europe/Istanbul"],
+    ["UTC+03:00", "Moscow", "Europe/Moscow"],
+    ["UTC+03:00", "Riyadh, Kuwait", "Asia/Riyadh"],
+    ["UTC+03:00", "Nairobi", "Africa/Nairobi"],
+    ["UTC+03:30", "Tehran", "Asia/Tehran"],
+    ["UTC+04:00", "Dubai, Abu Dhabi", "Asia/Dubai"],
+    ["UTC+05:00", "Karachi", "Asia/Karachi"],
+    ["UTC+05:30", "Mumbai, New Delhi, Kolkata", "Asia/Kolkata"],
+    ["UTC+05:45", "Kathmandu", "Asia/Kathmandu"],
+    ["UTC+06:00", "Dhaka", "Asia/Dhaka"],
+    ["UTC+07:00", "Bangkok, Hanoi, Jakarta", "Asia/Bangkok"],
+    ["UTC+08:00", "Beijing, Hong Kong, Singapore", "Asia/Shanghai"],
+    ["UTC+08:00", "Perth", "Australia/Perth"],
+    ["UTC+09:00", "Tokyo, Seoul", "Asia/Tokyo"],
+    ["UTC+09:30", "Adelaide", "Australia/Adelaide"],
+    ["UTC+09:30", "Darwin", "Australia/Darwin"],
+    ["UTC+10:00", "Sydney, Melbourne, Canberra", "Australia/Sydney"],
+    ["UTC+10:00", "Brisbane", "Australia/Brisbane"],
+    ["UTC+12:00", "Auckland, Wellington", "Pacific/Auckland"],
+  ].map(([offset, cities, zone]) => ({ offset: offset, cities: cities, zone: zone }));
+}
+
+// The list in a Mackie popup (modal), in pages of 14 that read down each column, opened on the page
+// of the zone set now (in the Mod page's colour). A tap on a row closes it and sets that zone.
+function DLZMOD_zonePicker() {
+  const COLS = 2, ROWS = 7, ROW_H = 48, TOP = 66, W = 900, H = 500, PER = COLS * ROWS;
+  const colW = (W - 48) / COLS | 0;
+  const zones = DLZMOD_zoneList();
+  const pages = Math.ceil(zones.length / PER);
+  if (DLZMOD_zonePicker.popup) return;
+  const at = zones.findIndex((z) => z.zone === DLZMOD_timeState().zone);
+  DLZMOD_zonePicker.popup = new PopupWindow(app, {
+    w: W, h: H, bgColor: Color.bgPopup, page: at < 0 ? 0 : at / PER | 0,
+    initWidgets: function () {
+      for (let i = 0; i < PER; i++) {
+        new Widget(this, {
+          anchors: [24 + (i / ROWS | 0) * colW, TOP + (i % ROWS) * ROW_H], size: [colW - 6, ROW_H - 6], opaque: !1,
+          idx: i,
+          paint: function () {},   // touch area only: the popup paints the rows
+          onup: function () {
+            const z = this.parent.items()[this.idx];
+            if (z) this.parent.pick(z);
+          },
+        });
+      }
+      new E1Button(this, {
+        anchors: [24, null, null, 22], size: [180, 50], text: "<",
+        onPress: () => this.show(this.page - 1),
+        getState: function () {
+          this.enabled = this.parent.page > 0;
+        },
+      });
+      new E1Button(this, {
+        anchors: [228, null, null, 22], size: [180, 50], text: ">",
+        onPress: () => this.show(this.page + 1),
+        getState: function () {
+          this.enabled = this.parent.page < pages - 1;
+        },
+      });
+      new E1Button(this, {
+        anchors: [null, null, 24, 22], size: [180, 50], text: lang.CANCEL,
+        onPress: () => this.close(),
+      });
+    },
+    // every way out ends here, a tap outside the popup too (see DLZMOD_wifiList)
+    onDestroy: function () {
+      DLZMOD_zonePicker.popup = null;
+      PopupWindow.prototype.onDestroy.call(this);
+      DLZMOD_repaintSoon();
+    },
+    show: function (page) {
+      this.page = Math.max(0, Math.min(page, pages - 1));
+      this.update();
+    },
+    items: function () {
+      return zones.slice(this.page * PER, (this.page + 1) * PER);
+    },
+    pick: function (z) {
+      this.close();
+      DLZMOD_setZone(z.zone);
+    },
+    paint: function (t) {
+      PopupWindow.prototype.paint.call(this, t);
+      t.drawText("Time Zone  " + (this.page + 1) + "/" + pages, this.w / 2 | 0, 36, { color: Color.white,
+        font: Font.font(600, "18pt"), align: "center", valign: "middle" });
+      const cur = DLZMOD_timeState().zone;
+      this.items().forEach((z, i) => {
+        const x = 24 + (i / ROWS | 0) * colW, y = TOP + (i % ROWS) * ROW_H, cy = y + (ROW_H - 6) / 2 | 0;
+        const on = z.zone === cur;
+        t.fRect(on ? DLZMOD_accent() : Color.buttonBg, x, y, colW - 6, ROW_H - 6);
+        t.drawText(z.offset, x + 12, cy, { color: on ? Color.black : "#888888", font: Font.font(500, "12pt"),
+          align: "left", valign: "middle" });
+        t.drawText(z.cities, x + 112, cy, { color: on ? Color.black : Color.white, font: Font.font(500, "13pt"),
+          align: "left", valign: "middle", max: colW - 130 });
+      });
     },
   });
 }

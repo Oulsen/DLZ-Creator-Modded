@@ -5,9 +5,11 @@
 #   floor <dir>  at start, from dlzmod-update while it has DLZDATA mounted read-only (before the
 #          mixer software, without a unit of its own that would wait for basic.target): a file
 #          newer than the clock (written after the last save, before the power went) moves the
-#          clock just past it, so new files sort after the old ones
+#          clock just past it, so new files sort after the old ones; the kernel's time zone first
 #   run    saves the time now and then every minute (dlzmod-clock.service); a TERM (the unit's
-#          stop) saves once more and ends it, in this one process, so no two saves race
+#          stop) saves once more and ends it, in this one process, so no two saves race; follows a
+#          change to or from summer time with the kernel's time zone
+#   zone   gives the kernel the time zone's offset now (#9)
 #   save   saves the time once
 #   newest <dir> <now>  the time floor would set, or nothing (for the tests)
 # The saved file keeps fake-hwclock's format: its load at the next start (sysinit, forward only)
@@ -17,7 +19,7 @@
 set -u
 
 FILE=${DLZMOD_CLOCK_FILE:-/etc/fake-hwclock.data}
-INTERVAL=60
+INTERVAL=${DLZMOD_CLOCK_INTERVAL:-60}
 # Only files at most this far ahead of the clock count: the time lost at a power-off is at most one
 # interval, and the clock at the floor is the saved time plus the seconds since power-on. A file
 # further ahead was written elsewhere (a computer in another time zone, or one whose clock runs
@@ -25,6 +27,8 @@ INTERVAL=60
 AHEAD=120
 # the floor's whole search; a card that slow gives no answer, not a partial one
 FIND_LIMIT=10
+# the offset the kernel was last given (zone), +HHMM
+ZONE=""
 
 log() { echo "dlzmod-clock: $*"; }
 
@@ -46,12 +50,28 @@ newest() {
     END { if (best) print best + 2 }'
 }
 
+# The kernel's time zone (#9): FAT keeps local times, and the kernel converts file times with its own
+# offset, which systemd leaves at 0 (UTC), so recordings showed 1-2 h early on a computer in the
+# Netherlands. hwclock --systz --utc sets that offset from /etc/localtime (the server mod's time
+# zone setting) and nothing else: it neither sets the clock nor reads or writes the RTC. A fixed
+# offset: the run loop gives it again when summer time starts or ends. Before the floor, which
+# compares file times with the clock.
+zone() {
+  local z
+  # (also when it fails: tried again at the next change, not every minute)
+  z=$(date +%z)
+  ZONE=$z
+  hwclock --systz --utc 2> /dev/null || { log "cannot give the kernel the time zone"; return 1; }
+  log "kernel time zone: $(date +%Z) (UTC$z)"
+}
+
 # milliseconds since power-on: the time the floor took, not counting the jump it makes
 uptime_ms() { awk '{ printf "%d", $1 * 1000 }' /proc/uptime; }
 
 # floor <dir>: DLZDATA, mounted by the caller
 floor() {
   local t0 now to
+  zone
   t0=$(uptime_ms)
   now=$(date +%s)
   to=$(newest "$1" "$now")
@@ -68,13 +88,17 @@ run() {
   trap 'save; exit 0' TERM
   save
   # sleep in the background: the TERM is handled at once, not after the minute
-  while :; do sleep "$INTERVAL" & wait $!; save; done
+  while :; do
+    [ "$(date +%z)" = "$ZONE" ] || zone
+    sleep "$INTERVAL" & wait $!; save
+  done
 }
 
 case ${1:-} in
   floor) [ -n "${2:-}" ] || { echo "usage: dlzmod-clock floor <dir>" >&2; exit 2; }; floor "$2" ;;
   save) save ;;
   run) run ;;
+  zone) zone ;;
   newest) newest "$2" "$3" ;;
-  *) echo "usage: dlzmod-clock floor <dir>|save|run|newest <dir> <now>" >&2; exit 2 ;;
+  *) echo "usage: dlzmod-clock floor <dir>|save|run|zone|newest <dir> <now>" >&2; exit 2 ;;
 esac

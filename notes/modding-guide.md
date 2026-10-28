@@ -100,7 +100,7 @@ The pattern, as used by "Hide header" (`install/app-mod/dlzmod.js`):
 - The key is global: a browser remote sees the same setting as the device.
 - Not for state the server owns (Wi-Fi, SSH on the Network panel): those come from the server mod
   as messages (`DLZMOD_NET_STATE`), so nothing is broadcast or saved in `srv_data.json`.
-- Layout: sub-tabs Display / Colors / Network / Remote / Mod (Mackie `ToggleButton`, 178 x 44, mod
+- Layout: sub-tabs Display / Colors / Time / Network / Remote / Mod (Mackie `ToggleButton`, 149 x 44 every 153 px, mod
   yellow when active, or the owner's colour: `DLZMOD_accent()`, #21), 8 px gap, then that sub-page's
   cards, 388 px high. Unlike Mackie's pages
   (829 x 392) the page fills Settings with 12 px margins: 914 x 440, laid out for the header shown

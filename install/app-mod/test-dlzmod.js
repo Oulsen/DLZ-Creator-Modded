@@ -159,6 +159,8 @@ const reset = () => {
   ctx.VU_STRUCT = undefined;
   ctx.DLZMOD_netIdle();
   ctx.DLZMOD_wifiList.popup = null;
+  ctx.DLZMOD_zonePicker.popup = null;
+  ctx.DLZMOD_timeState.s = undefined;
   ctx.DLZMOD_setNetState(undefined);
   ctx.DLZMOD_setUpdateStatus(null);
   ctx.DLZMOD_uploadFiles.busy = false;
@@ -625,43 +627,46 @@ test("header shown, or a full-screen page: the message stays Mackie's, no bar", 
 
 // The Mod page (Settings, DLZ Creator Modded): its tabs and what they show
 const settingsPage = () => ctx.DLZMOD_settingsPage({}, 0);
-test("Mod page: Display, Colors, Network, Remote and Mod on the mixer; Display, Colors and Mod in a browser", () => {
+test("Mod page: Display, Colors, Time, Network, Remote and Mod on the mixer; Display, Colors, Time and Mod in a browser", () => {
   reset();
   settings();
-  assert.deepStrictEqual(plain(settingsPage().tabs.map((t) => t.text)), ["Display", "Colors", "Network", "Remote", "Mod"]);
+  assert.deepStrictEqual(plain(settingsPage().tabs.map((t) => t.text)),
+    ["Display", "Colors", "Time", "Network", "Remote", "Mod"]);
   ctx.EXTERNAL = true;
   try {
     const web = settingsPage();
-    assert.deepStrictEqual(plain(web.tabs.map((t) => t.text)), ["Display", "Colors", "Mod"]);
-    web.tabs[2].onToggleON();
-    assert.strictEqual(web.sub, 4, "its third tab is Mod");
-    assert.deepStrictEqual(plain(web.tabs.map((t) => t.getVal())), [false, false, true]);
+    assert.deepStrictEqual(plain(web.tabs.map((t) => t.text)), ["Display", "Colors", "Time", "Mod"]);
+    web.tabs[3].onToggleON();
+    assert.strictEqual(web.sub, 5, "its fourth tab is Mod");
+    assert.deepStrictEqual(plain(web.tabs.map((t) => t.getVal())), [false, false, false, true]);
   } finally {
     ctx.EXTERNAL = false;
   }
 });
-test("Mod page: a tab shows its own panels; Network and Remote ask for the status; leaving Remote hides the PIN", () => {
+test("Mod page: a tab shows its own panels; Time, Network and Remote ask for the status; leaving Remote hides the PIN", () => {
   reset();
   settings();
   const pg = settingsPage();
-  const shown = () => ["screen", "meters", "colours", "network", "pair", "about"].filter((k) => pg[k].visible);
+  const shown = () => ["screen", "meters", "colours", "time", "network", "pair", "about"].filter((k) => pg[k].visible);
   assert.deepStrictEqual(shown(), ["screen", "meters"], "Display first");
   assert.deepStrictEqual(ui.cmds, []);
-  for (const [i, panels] of [[1, ["colours"]], [2, ["network"]], [3, ["pair"]], [4, ["about"]], [0, ["screen", "meters"]]]) {
+  const net = [["DLZMOD_NET", { op: "status" }]], time = [["DLZMOD_TIME", { op: "status" }]];
+  for (const [i, panels, asks] of [[1, ["colours"], []], [2, ["time"], time], [3, ["network"], net], [4, ["pair"], net],
+    [5, ["about"], []], [0, ["screen", "meters"], []]]) {
     ui.cmds.length = 0;
     pg.tabs[i].onToggleON();
     assert.deepStrictEqual(shown(), panels, "tab " + i);
-    assert.deepStrictEqual(ui.cmds, i === 2 || i === 3 ? [["DLZMOD_NET", { op: "status" }]] : [], "tab " + i);
+    assert.deepStrictEqual(ui.cmds, asks, "tab " + i);
   }
-  pg.tabs[3].onToggleON();
-  pg.pair.revealPin(true);
   pg.tabs[4].onToggleON();
+  pg.pair.revealPin(true);
+  pg.tabs[5].onToggleON();
   assert.strictEqual(pg.pair.shown, false, "leaving Remote: the PIN hidden again");
   pg.pair.revealPin(true);
   ui.cmds.length = 0;
   pg.onShow();
   assert.strictEqual(pg.pair.shown, false, "coming back to the page: hidden");
-  assert.deepStrictEqual(ui.cmds, [["DLZMOD_NET", { op: "status" }]]);
+  assert.deepStrictEqual(ui.cmds, [["DLZMOD_NET", { op: "status" }], ["DLZMOD_TIME", { op: "status" }]]);
 });
 test("Mod page: header and meter marks follow a change from any screen; the before-fader rows only with Both", () => {
   reset();
@@ -734,13 +739,13 @@ test("PIN pad: a PIN set shows on the Remote panel instead of a popup; elsewhere
   const pg = settingsPage();
   ctx.app = { pageSettings: { dlzmod: pg } };
   try {
-    pg.tabs[3].onToggleON();
+    pg.tabs[4].onToggleON();
     ctx.DLZMOD_netResult({ ok: true, quiet: true, text: "PIN set" });
     assert.deepStrictEqual(ui.popups, []);
     assert.strictEqual(pg.pair.shown, true, "the new PIN shown");
     ctx.DLZMOD_netResult({ ok: false, quiet: true, text: "Too easy to guess" });
     assert.deepStrictEqual([ui.popups[0].text, ui.popups[0].opts.textColor], ["Too easy to guess", "red2"]);
-    pg.tabs[4].onToggleON();
+    pg.tabs[5].onToggleON();
     ctx.DLZMOD_netResult({ ok: true, quiet: true, text: "PIN set" });
     assert.deepStrictEqual([ui.popups[1].text, ui.popups[1].opts.textColor], ["PIN set", "green"]);
   } finally {
@@ -997,7 +1002,7 @@ test("Network: which Wi-Fi and SSH controls work in which state", () => {
   reset();
   settings();
   const pg = settingsPage();
-  pg.tabs[2].onToggleON();
+  pg.tabs[3].onToggleON();
   const { wifi, ssh } = pg.network;
   const base = { stick: true, wifi: "connected", ssh: false, sshKeep: false, sshBusy: "" };
   try {
@@ -1023,7 +1028,7 @@ test("Remote Control: which controls work in which state; Show PIN says Hide PIN
   reset();
   settings();
   const pg = settingsPage();
-  pg.tabs[3].onToggleON();
+  pg.tabs[4].onToggleON();
   const pair = pg.pair;
   try {
     // [switch, its position, Forget All Devices, Random PIN, Own PIN, Show PIN]
@@ -1052,7 +1057,7 @@ test("Network: an SSH change counts as running at once, until its outcome; anoth
   reset();
   settings();
   const pg = settingsPage();
-  pg.tabs[2].onToggleON();
+  pg.tabs[3].onToggleON();
   ui.cmds.length = 0;   // the tab's status request
   const ssh = pg.network.ssh;
   const s = { stick: true, wifi: "connected", ssh: true, sshKeep: false, sshBusy: "" };
@@ -1440,7 +1445,7 @@ test("Remote Control panel: a shown PIN hides itself after 30 s; hiding it earli
     f.restore();
   }
 });
-test("Mod page: the Network and Remote status every 3 s, only while one of them is on screen", () => {
+test("Mod page: the Network and Remote status every 3 s, only while one of them is on screen; the Time panel's too", () => {
   reset();
   settings();
   const f = fakeTimers();
@@ -1452,17 +1457,124 @@ test("Mod page: the Network and Remote status every 3 s, only while one of them 
   }
   const poll = f.intervals[0];
   assert.strictEqual(poll.ms, 3000);
-  for (const [tab, asks] of [[0, false], [1, false], [2, true], [3, true], [4, false]]) {
+  const net = [["DLZMOD_NET", { op: "status" }]], time = [["DLZMOD_TIME", { op: "status" }]];
+  for (const [tab, asks] of [[0, []], [1, []], [2, time], [3, net], [4, net], [5, []]]) {
     pg.tabs[tab].onToggleON();
     ui.cmds.length = 0;
     poll.fn();
-    assert.deepStrictEqual(ui.cmds, asks ? [["DLZMOD_NET", { op: "status" }]] : [], "tab " + tab);
+    assert.deepStrictEqual(ui.cmds, asks, "tab " + tab);
   }
-  pg.tabs[2].onToggleON();
+  pg.tabs[3].onToggleON();
   pg.visible = false;
   ui.cmds.length = 0;
   poll.fn();
   assert.deepStrictEqual(ui.cmds, [], "another Settings page or screen: nothing");
+});
+
+// Time (#9): the time zone, kept by the server (DLZMOD_TIME)
+const REAL_INTL = ctx.Intl;
+// a browser that says its zone is z (undefined: one without Intl)
+const browserZone = (z) => {
+  ctx.Intl = z === undefined ? undefined : { DateTimeFormat: () => ({ resolvedOptions: () => ({ timeZone: z }) }) };
+};
+test("Time panel: the zone, its offset and the time there; a browser offers its own zone, the mixer does not", () => {
+  reset();
+  settings();
+  const pg = settingsPage();
+  ctx.app = { pageSettings: { dlzmod: pg } };
+  try {
+    pg.tabs[2].onToggleON();
+    assert.strictEqual(pg.time.own.visible, false, "on the mixer: no own zone");
+    ctx.DLZMOD_setTimeState({ zone: "Europe/Amsterdam", offset: "UTC+01:00", time: "14:05" });
+    assert.ok(pg.time.updates > 0, "a new status repaints the panel");
+    assert.strictEqual(ctx.DLZMOD_zoneName("America/Argentina/Buenos_Aires"), "America / Argentina / Buenos Aires");
+    const n = ui.windows.length;
+    pg.time.change.onPress();
+    assert.strictEqual(ui.windows.length, n + 1, "Change... opens the list");
+    ui.windows.at(-1).close();
+    ctx.EXTERNAL = true;
+    const web = settingsPage();
+    web.tabs[2].onToggleON();
+    browserZone("Europe/London");
+    assert.strictEqual(enabled(web.time.own), true);
+    ui.cmds.length = 0;
+    web.time.own.onPress();
+    assert.deepStrictEqual(ui.cmds, [["DLZMOD_TIME", { op: "set", zone: "Europe/London" }]]);
+    browserZone("Europe/Amsterdam");
+    assert.strictEqual(enabled(web.time.own), false, "already that zone");
+    browserZone(undefined);
+    assert.strictEqual(enabled(web.time.own), false, "a browser that does not say");
+    ui.cmds.length = 0;
+    web.time.own.onPress();
+    assert.deepStrictEqual(ui.cmds, [], "nothing sent without a zone");
+  } finally {
+    ctx.app = undefined;
+    ctx.EXTERNAL = false;
+    ctx.Intl = REAL_INTL;
+  }
+});
+test("Time panel: the outcome of a change in a Time popup", () => {
+  reset();
+  ctx.DLZMOD_timeResult({ ok: true, text: "Time zone: Europe/Amsterdam" });
+  ctx.DLZMOD_timeResult({ ok: false, text: "Unknown time zone" });
+  assert.deepStrictEqual(ui.popups.map((p) => [p.text, p.opts.title, p.opts.textColor]),
+    [["Time zone: Europe/Amsterdam", "Time", "green"], ["Unknown time zone", "Time", "red2"]]);
+});
+test("Zone list: sorted by offset, every zone once, UTC on its own; plain cities, no region names", () => {
+  const zones = plain(ctx.DLZMOD_zoneList());
+  const minutes = (o) => o === "UTC" ? 0 : (o[3] === "-" ? -1 : 1) * (+o.slice(4, 6) * 60 + +o.slice(7, 9));
+  assert.ok(zones.length >= 35 && zones.length <= 45, zones.length + " rows");
+  zones.forEach((z, i) => {
+    assert.match(z.offset, /^UTC([+-]\d\d:\d\d)?$/, z.zone);
+    assert.match(z.zone, /^[A-Za-z_]+(\/[A-Za-z_]+){1,2}$/, z.zone);
+    assert.ok(!/[\/_]/.test(z.cities), z.cities);
+    if (i) assert.ok(minutes(z.offset) >= minutes(zones[i - 1].offset), z.zone + " after " + zones[i - 1].zone);
+  });
+  assert.strictEqual(new Set(zones.map((z) => z.zone)).size, zones.length, "every zone once");
+  assert.deepStrictEqual(zones.filter((z) => z.offset === "UTC").map((z) => z.zone), ["Etc/UTC"]);
+  assert.ok(zones.some((z) => z.zone === "Europe/Amsterdam"));
+});
+test("Zone list: pages of 14, opened on the zone set; a row sets it; < and >; every way out lets it open again", () => {
+  reset();
+  const all = plain(ctx.DLZMOD_zoneList());
+  const pages = Math.ceil(all.length / 14);
+  ctx.DLZMOD_setTimeState({ zone: "Europe/Amsterdam", offset: "UTC+01:00", time: "14:05" });
+  ctx.DLZMOD_zonePicker();
+  const w = ui.windows[0];
+  ctx.DLZMOD_zonePicker();
+  assert.strictEqual(ui.windows.length, 1, "already open: not twice");
+  const at = all.findIndex((z) => z.zone === "Europe/Amsterdam");
+  assert.strictEqual(w.page, at / 14 | 0, "opens on the zone set");
+  const rows = rowsOf(w);
+  assert.strictEqual(rows.length, 14);
+  const [prev, next] = ["<", ">"].map((t) => ui.buttons.find((b) => b.parent === w && b.text === t));
+  w.show(0);
+  prev.getState();
+  next.getState();
+  assert.deepStrictEqual([prev.enabled, next.enabled], [false, true]);
+  assert.deepStrictEqual(plain(w.items()), all.slice(0, 14));
+  next.onPress();
+  assert.deepStrictEqual(plain(w.items()), all.slice(14, 28));
+  w.show(99);
+  assert.strictEqual(w.page, pages - 1, "not past the last page");
+  next.getState();
+  assert.strictEqual(next.enabled, false);
+  const last = all.slice((pages - 1) * 14);
+  if (last.length < 14) {
+    rows[13].onup();
+    assert.strictEqual(w.closed, undefined, "an empty place: nothing");
+  }
+  ui.cmds.length = 0;
+  rows[last.length - 1].onup();
+  assert.strictEqual(w.closed, true, "a row closes the list");
+  assert.deepStrictEqual(ui.cmds, [["DLZMOD_TIME", { op: "set", zone: all.at(-1).zone }]]);
+  ctx.DLZMOD_setTimeState({ zone: "Europe/Berlin", offset: "UTC+01:00", time: "14:05" });
+  ctx.DLZMOD_zonePicker();
+  assert.strictEqual(ui.windows.at(-1).page, 0, "a zone not in the list (set from a browser): the first page");
+  ui.windows.at(-1).onDestroy();   // a tap outside the popup destroys it without close()
+  ctx.DLZMOD_zonePicker();
+  assert.strictEqual(ui.windows.length, 3, "a tap outside: opens again");
+  ui.windows.at(-1).close();
 });
 
 // Small ones
