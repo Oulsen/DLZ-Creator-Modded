@@ -519,7 +519,26 @@ test("header: hidden or shown at once, but not on full-screen pages; saved setti
   settings({ "dlzmod.hideHeader": 1 });
   ctx.DLZMOD_initKeys();
   assert.deepStrictEqual(ctx.Data.data, { "dlzmod.hideHeader": 1, "dlzmod.meterMode": 0, "dlzmod.preColor": 0,
-    "dlzmod.preLevel": 0, "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0 });
+    "dlzmod.preLevel": 0, "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0,
+    "dlzmod.recDate": 0 });
+});
+
+// #14: the date and time switch on Settings, Recording / Routing
+test("recording date: a row like the panel's own, its key known before the panel is built, four rows fit", () => {
+  settings({});
+  assert.deepStrictEqual(Array.from(ctx.DLZMOD_recDateRow()), ["dlzmod.recDate", "Date & Time in Name", 0]);
+  assert.strictEqual(ctx.Data.data["dlzmod.recDate"], 0, "Mackie's Data refuses an unknown key");
+  settings({ "dlzmod.recDate": 1 });
+  ctx.DLZMOD_recDateRow();
+  assert.strictEqual(ctx.Data.data["dlzmod.recDate"], 1, "a saved value stays");
+  // the toggle buttons above end at 109 + 50; the switches are 44 high in a 392 high panel
+  assert.ok(ctx.DLZMOD_recRowY(0) > 159 + 15);
+  assert.ok(ctx.DLZMOD_recRowY(3) + 44 <= 392 - 10);
+  const t = { calls: [], fRect(...a) { this.calls.push(a); } };
+  ctx.DLZMOD_stockMark(t, { geomCenterY: () => 334 });
+  assert.deepStrictEqual(t.calls, [["#FFD600", 10, 325, 3, 18]]);
+  ctx.DLZMOD_stockMark(t, undefined);
+  assert.strictEqual(t.calls.length, 1, "no row: no mark");
 });
 
 // #58: Mackie's messages (showToast) while the header is hidden. o.shown: the header shown, o.nav false:

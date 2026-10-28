@@ -7,8 +7,8 @@
 // REC_9999. Here the number is above every REC_<n> entry in the recordings folders of all inserted
 // media (SD and USB: two media on one mixer never share a number; files and multitrack folders, any
 // case: FAT is case-insensitive). The number alone repeats once a folder is emptied or on another
-// mixer, so an animal keeps names apart (REC_0003_otter; a date and time variant may come back as an
-// option). The REC_NNNN prefix stays first so stock firmware still counts these files.
+// mixer, so an animal keeps names apart (REC_0003_otter), optionally with the date and time after it
+// (#14, DLZMOD_recStamp). The REC_NNNN prefix stays first so stock firmware still counts these files.
 
 // Pure part, tested by install/server-mod/test-dlzmod-server.js.
 // entries: names in the folder the recording goes to; others: names in the recordings folders of
@@ -62,12 +62,44 @@ function DLZMOD_recAnimal(rnd) {
   return s.queue.pop();
 }
 
+// #14: the date and time the recording starts in the mixer's zone ("2026-10-11_1430"), when the
+// owner turned it on (dlzmod.recDate, the Recording / Routing page) and the clock is right this start
+// (internet, by hand or a paired device's time: DLZMOD_clockSource); "" otherwise: the time saved at
+// the last power-off (#1) can be days behind, and a wrong date in a name misleads more than none.
+// chronyc gets 1 s, then the recording starts without it. opts: on, run, now and the zone's paths
+// (tests)
+async function DLZMOD_recStamp(opts = {}) {
+  try {
+    const get = globalThis.getDataKey;
+    const on = opts.on !== undefined ? opts.on : typeof get === "function" && get("dlzmod.recDate");
+    if (!on) return "";
+    let timer;
+    const how = await Promise.race([
+      DLZMOD_clockSource(opts.run || DLZMOD_run),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(""), 1000);
+      }),
+    ]);
+    clearTimeout(timer);
+    if (!["internet", "hand", "device"].includes(how)) return "";
+    const l = DLZMOD_tzLocal(DLZMOD_tzCurrent(DLZMOD_tzPaths(opts)), (opts.now || Date.now)());
+    if (!l) return "";
+    const two = (v) => String(v).padStart(2, "0");
+    return l.y + "-" + two(l.mo) + "-" + two(l.d) + "_" + two(l.h) + two(l.mi);
+  } catch (e) {
+    console.error("dlzmod: recording date:", e.message);
+    return "";
+  }
+}
+
 // Returns the base name (no extension) for a new recording in dir, or null when the folder cannot
 // be read: then no recording starts, instead of guessing a name that may overwrite a file. others:
 // the recordings folders on all media (server.js's "-" for an empty slot and dir itself are
-// skipped); one that cannot be read (no medium, no folder yet) only adds no numbers.
-async function DLZMOD_recName(dir, others = []) {
+// skipped); one that cannot be read (no medium, no folder yet) only adds no numbers. opts: for
+// DLZMOD_recStamp.
+async function DLZMOD_recName(dir, others = [], opts = {}) {
   const fs = require("fs");
+  const stamp = await DLZMOD_recStamp(opts);
   let entries;
   try {
     await fs.promises.mkdir(dir, { recursive: true });
@@ -91,7 +123,8 @@ async function DLZMOD_recName(dir, others = []) {
     } catch (e) {}
     clearTimeout(timer);
   }
-  const name = DLZMOD_pickRecName(entries, DLZMOD_recAnimal(), more);
+  const animal = DLZMOD_recAnimal();
+  const name = DLZMOD_pickRecName(entries, stamp ? animal + "_" + stamp : animal, more);
   console.log("dlzmod: recording to " + dir + "/" + name);
   return name;
 }
