@@ -6,7 +6,8 @@
 # - stock: patched (the patched hash, mode and owner kept, no temp file left), and only the one
 #   instruction differs from stock
 # - a second run: silent, unchanged
-# - a leftover temp file from a power cut: replaced, the result patched
+# - a leftover temp file from a power cut: replaced, the result patched; next to a patched glesgui
+#   (and, without the dump, next to one it leaves alone): removed; a link there removed, not followed
 # - a stock-size file with the stock bytes at the spot but another hash: left alone
 # - no room for the copy (as root: a small tmpfs): left alone, the stock file kept
 # Usage: bash tests/glesgui.sh (from anywhere)
@@ -47,6 +48,13 @@ r=$T/small-file; mkdir -p "$r/usr/local/bin"; head -c 1000 /dev/zero > "$r/usr/l
 left "another size" "$r"
 r=$T/zeros; mkdir -p "$r/usr/local/bin"; truncate -s "$SIZE" "$r/usr/local/bin/glesgui"
 left "the stock size, other bytes" "$r"
+r=$T/leftover; mkdir -p "$r/usr/local/bin"; head -c 1000 /dev/zero > "$r/usr/local/bin/glesgui"
+head -c 5000 /dev/zero > "$r/usr/local/bin/glesgui.dlzmod-new"
+left "a leftover temp file, glesgui left alone: removed" "$r"
+r=$T/tmplink; mkdir -p "$r/usr/local/bin"; head -c 1000 /dev/zero > "$r/usr/local/bin/glesgui"
+echo keep > "$r/target"; ln -s ../../../target "$r/usr/local/bin/glesgui.dlzmod-new"
+left "a link at the temp path: removed" "$r"
+is "a link at the temp path: its target unchanged" "keep" "$(cat "$r/target")"
 
 if [ ! -f "$DUMP" ]; then
   echo "== with the dump: skipped (no $DUMP; WSL: install/mount-ro.sh)"
@@ -65,6 +73,8 @@ $((OFF + 2)) 345 346" "$(cmp -l "$DUMP" "$g" | awk '{print $1, $2, $3}')"
   run "$r" && ok "again: exit 0" || bad "again: exit $?"
   is "again: silent" "" "$(cat "$T/out")"
   is "again: unchanged" "$PATCHED" "$(sum "$g")"
+  truncate -s "$SIZE" "$g.dlzmod-new"
+  run "$r" && is "patched, a 42 MB leftover: removed" "" "$(ls "$r/usr/local/bin" | grep -F .dlzmod-new)"     || bad "patched, a 42 MB leftover: exit $?"
 
   r=$T/cut; g=$r/usr/local/bin/glesgui; mkdir -p "$r/usr/local/bin"
   cp "$DUMP" "$g"; head -c 5000 /dev/urandom > "$g.dlzmod-new"

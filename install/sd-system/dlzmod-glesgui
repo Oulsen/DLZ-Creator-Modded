@@ -36,51 +36,75 @@ def sha256(path):
     return h.hexdigest()
 
 
-try:
-    st = os.lstat(PATH)
-except FileNotFoundError:
-    say("no glesgui, left alone")
-    sys.exit(0)
-if not os.path.isfile(PATH) or os.path.islink(PATH) or st.st_size != SIZE:
-    say("not the glesgui this knows (size), left alone")
-    sys.exit(0)
-with open(PATH, "rb") as f:
-    f.seek(OFF)
-    at = f.read(len(OLD))
-# every start: the size and these 4 bytes, no hash of the 42 MB
-if at == NEW:
-    sys.exit(0)
-if at != OLD or sha256(PATH) != STOCK:
-    say("not the glesgui this knows, left alone (touch after a clock step back as stock)")
-    sys.exit(0)
-fs = os.statvfs(os.path.dirname(PATH))
-if fs.f_bavail * fs.f_frsize < SIZE + (16 << 20):
-    say("not enough room on the card for the patched copy, left alone")
-    sys.exit(0)
-tmp = PATH + ".dlzmod-new"
-try:
-    # in blocks: the mixer has ~120 MB of free memory
-    with open(PATH, "rb") as src, open(tmp, "wb") as dst:
-        shutil.copyfileobj(src, dst, 1 << 20)
-        dst.seek(OFF)
-        dst.write(NEW)
-        dst.flush()
-        os.fsync(dst.fileno())
-    if sha256(tmp) != PATCHED:
-        raise OSError("the patched copy is not what it should be")
-    os.chmod(tmp, st.st_mode & 0o7777)
-    os.chown(tmp, st.st_uid, st.st_gid)
-    os.replace(tmp, PATH)
-    dfd = os.open(os.path.dirname(PATH), os.O_RDONLY)
+TMP = PATH + ".dlzmod-new"
+
+
+def drop_tmp():
+    # a leftover of a copy cut off (power cut, the unit's timeout): up to 42 MB on the card, and in
+    # the way of the room check; a link there is removed, never followed
     try:
-        os.fsync(dfd)
-    finally:
-        os.close(dfd)
-except OSError as e:
-    try:
-        os.unlink(tmp)
-    except OSError:
+        os.unlink(TMP)
+    except FileNotFoundError:
         pass
-    say("could not patch glesgui: " + str(e))
+
+
+def main():
+    drop_tmp()
+    try:
+        st = os.lstat(PATH)
+    except FileNotFoundError:
+        say("no glesgui, left alone")
+        return 0
+    if not os.path.isfile(PATH) or os.path.islink(PATH) or st.st_size != SIZE:
+        say("not the glesgui this knows (size), left alone")
+        return 0
+    with open(PATH, "rb") as f:
+        f.seek(OFF)
+        at = f.read(len(OLD))
+    # every start: the size and these 4 bytes, no hash of the 42 MB
+    if at == NEW:
+        return 0
+    if at != OLD or sha256(PATH) != STOCK:
+        say("not the glesgui this knows, left alone (touch after a clock step back as stock)")
+        return 0
+    fs = os.statvfs(os.path.dirname(PATH))
+    if fs.f_bavail * fs.f_frsize < SIZE + (16 << 20):
+        say("not enough room on the card for the patched copy, left alone")
+        return 0
+    try:
+        # a new file of its own (not through a link); in blocks: the mixer has ~120 MB of free memory
+        fd = os.open(TMP, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with open(PATH, "rb") as src, os.fdopen(fd, "wb") as dst:
+            shutil.copyfileobj(src, dst, 1 << 20)
+            dst.seek(OFF)
+            dst.write(NEW)
+            dst.flush()
+            os.fsync(dst.fileno())
+        if sha256(TMP) != PATCHED:
+            raise OSError("the patched copy is not what it should be")
+        os.chmod(TMP, st.st_mode & 0o7777)
+        try:
+            os.chown(TMP, st.st_uid, st.st_gid)
+        except PermissionError:
+            pass   # not root (a PC build): the file is the caller's anyway
+        os.replace(TMP, PATH)
+        dfd = os.open(os.path.dirname(PATH), os.O_RDONLY)
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
+    except OSError:
+        try:
+            drop_tmp()
+        except OSError:
+            pass
+        raise
+    say("touch timed on a clock that never jumps (#188), from glesgui's next start")
+    return 0
+
+
+try:
+    sys.exit(main())
+except OSError as e:
+    say("could not patch glesgui, left as it was: " + str(e))
     sys.exit(1)
-say("touch timed on a clock that never jumps (#188), from glesgui's next start")

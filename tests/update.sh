@@ -940,8 +940,9 @@ n1=$(reports); run
 [ "$(reports)" = "$n1" ] && ok "no report for it" || bad "a report for the glesgui patch"
 run; ! grep -qF "dlzmod-glesgui" $W/run.out && [ "$(sha $G)" = "$GPATCHED" ] && ok "the start after: silent, unchanged" || bad "the start after: not silent or changed"
 printf 'X' | dd of=$G bs=1 seek=100 conv=notrunc 2> /dev/null; printf '\377\345\002\353' | dd of=$G bs=1 seek=$GOFF conv=notrunc 2> /dev/null
-before=$(sha $G); run
+before=$(sha $G); n1=$(reports); run
 [ "$(sha $G)" = "$before" ] && grep -qF "left alone" $W/run.out && ok "another glesgui: left alone, says so" || bad "another glesgui changed or not said"
+[ "$(reports)" = "$n1" ] && ok "another glesgui: no report" || bad "a report for leaving glesgui alone"
 printf '@' | dd of=$G bs=1 seek=100 conv=notrunc 2> /dev/null; printf '\017\346\002\353' | dd of=$G bs=1 seek=$GOFF conv=notrunc 2> /dev/null
 [ "$(sha $G)" = "$GPATCHED" ] || bad "could not put the patched glesgui back"
 fi
