@@ -17,6 +17,7 @@ cd "$REPO" || exit 1
 VER=$(tr -d '\r\n' < VERSION)
 REL=${DLZ_RELEASE_DIR:-build/release}
 HEAD=$(git rev-parse --short HEAD)
+SELF=$REPO/.claude/skills/release-build/release.sh
 
 committed() {
   [ -z "$(git status --porcelain -- install VERSION)" ] && return 0
@@ -44,20 +45,26 @@ at_develop() {
 
 case ${1:-} in
 build)
+  # the last build's log goes first: a Monitor on the log never shows an old build
+  rm -f build/release-build.log
   committed || exit 1
-  keys=${DLZMOD_KEYS_WIN:-$USERPROFILE/.dlzmod-keys}
-  repo_wsl=$(wsl -d Ubuntu -e wslpath -a "$(cygpath -w "$REPO")" | tr -d '\r')
-  keys_wsl=$(wsl -d Ubuntu -e wslpath -a "$(cygpath -w "$keys")" | tr -d '\r')
-  [ -n "$repo_wsl" ] || { echo "WSL distro Ubuntu not found"; exit 1; }
+  keys=${DLZMOD_KEYS_WIN:-${USERPROFILE:-}/.dlzmod-keys}
+  # without the distro wsl.exe prints its error (UTF-16) on stdout: only a path counts
+  repo_wsl=$(wsl -d Ubuntu -e wslpath -a "$(cygpath -w "$REPO")" 2>/dev/null | tr -d '\r\0')
+  case $repo_wsl in /*) ;; *) echo "WSL distro Ubuntu not found (wsl -l)"; exit 1 ;; esac
+  keys_wsl=$(wsl -d Ubuntu -e wslpath -a "$(cygpath -w "$keys")" | tr -d '\r\0')
   mkdir -p build
   log=build/release-build.log
   echo "release build $VER from $HEAD, its output also in $log" | tee "$log"
+  # said before the build, not only by check after it
+  [ -d "$keys" ] || echo "warning: no dev keys folder $keys (DLZMOD_KEYS_WIN): the dev image will fail, the release files do not need it" | tee -a "$log"
+  { at_develop "$HEAD" || echo "warning: not the release (check ends with this), fine for a test of this commit"; } 2>&1 | tee -a "$log"
   MSYS_NO_PATHCONV=1 wsl -d Ubuntu -u root --cd "$repo_wsl" -e bash install/release/build-release.sh "$keys_wsl" 2>&1 | tee -a "$log"
   rc=${PIPESTATUS[0]}
   # 2: only the dev image failed, the release files are checked all the same
   case $rc in 0|2) ;; *) exit "$rc" ;; esac
   echo; echo "== check" | tee -a "$log"
-  bash "$REPO/.claude/skills/release-build/release.sh" check 2>&1 | tee -a "$log"
+  bash "$SELF" check 2>&1 | tee -a "$log"
   exit "${PIPESTATUS[0]}"
   ;;
 open)
@@ -89,16 +96,15 @@ check)
   dev=build/devcard/dlz-installer-$VER-dev-$commit.img
   if [ -f "$dev" ] && [ "$(stat -c %Y "$dev")" -ge "$ct" ]; then echo "  dev image: $dev"
   else echo "  note: no dev image of $commit in build/devcard (the build's last step failed?); the release files are not affected"; fi
-  at_develop "$commit" || ok=0
+  case $commit in *+dirty) ;; *) at_develop "$commit" || ok=0 ;; esac
   [ $ok = 1 ] && echo "OK: release build of $HEAD (next: device-review on this build, then flashing)" || exit 1
   ;;
 ready)
-  env="$REL/dlzmod-$VER/package.env"
-  [ -f "$env" ] || { echo "no build here: $env (release.sh build)"; exit 1; }
-  commit=$(sed -n 's/^COMMIT=//p' "$env" | tr -d '\r')
-  case $commit in *+dirty) echo "DIRTY: this build is never released"; exit 1 ;; esac
-  at_develop "$commit" || { echo "NOT READY: main stays where it is (back to step 1 with develop's tip)"; exit 1; }
+  # the whole check (files there, clean, HEAD, fresh, develop's tip), then main
+  bash "$SELF" check || { echo "NOT READY: main stays where it is (back to step 1 with develop's tip)"; exit 1; }
+  commit=$(sed -n 's/^COMMIT=//p' "$REL/dlzmod-$VER/package.env" | tr -d '\r')
   full=$(git rev-parse "$commit^{commit}")
+  [ "$(git rev-parse origin/main)" != "$full" ] || { echo "NOT READY: origin/main is already the build's commit"; exit 1; }
   git merge-base --is-ancestor origin/main "$full" \
     || { echo "NOT READY: origin/main is not behind the build, no fast-forward"; exit 1; }
   echo "READY: main can move to the build's commit: git push origin $full:main"
@@ -155,5 +161,5 @@ compare)
   echo "OK: draft $TAG is this PC's build of ${tagged:0:7}; replace the notes' first line, edit the highlights (they go to Discord), then publish"
   ;;
 *)
-  sed -n '2,12p' "$0"; exit 1 ;;
+  sed -n '2,13p' "$0"; exit 1 ;;
 esac

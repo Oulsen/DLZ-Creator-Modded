@@ -44,7 +44,7 @@ a double-click in Explorer), for the user who wants to watch it there.
 Start `build` with `run_in_background`, and follow its log with a Monitor (up to 30 minutes):
 
 ```bash
-tail -n +1 -f build/release-build.log | grep --line-buffered -E '^== |^release build|^building the build environment|FAILED|^Done:|^OK:|^(STALE|DIRTY|OLDER|DEVELOP MOVED|NOT DEVELOP|missing)'
+until [ -f build/release-build.log ]; do sleep 1; done; tail -n +1 -f build/release-build.log | grep --line-buffered -E '^== |^release build|^building the build environment|^warning:|FAILED|^Done:|^OK:|^(STALE|DIRTY|OLDER|DEVELOP MOVED|NOT DEVELOP|missing)|git fetch|unknown commit|older than'
 ```
 
 Report each step to the user as it starts: `== 1/2` the release build (the package and the image;
@@ -52,7 +52,13 @@ Report each step to the user as it starts: `== 1/2` the release build (the packa
 `== check`. The first build after a Dockerfile change shows `building the build environment` and
 its steps in the log. The end: `Done: ...` then the check's result, or `RELEASE BUILD FAILED`
 (`build` stops, read the log), or `DEV IMAGE FAILED` (the release build is done, only the dev image
-is missing; `build` checks all the same). The background task's exit code is the check's. Output in
+is missing; `build` checks all the same, so exit 0 can still mean no dev image). The background
+task's exit code is the check's. A `warning:` before the first step: no dev keys folder, or HEAD is
+not `origin/develop`'s tip (said before the minutes of building, not only by the check after).
+Run `release.sh build` as the background command itself, nothing after it, so the task's exit code
+is the build's (`release.sh build; echo ...` reports the echo's 0). `build` removes the last log
+first: when it refuses before the build (uncommitted changes, no WSL) the task ends with no new log,
+its output says why; stop the Monitor then (TaskStop). Output in
 `build\release`: `dlz-installer-vX.Y.Z.img`, `dlzmod-vX.Y.Z.tar`
 (the folder is emptied first). In `build\devcard`: `dlz-installer-vX.Y.Z-dev-<commit>.img`, with the
 dev key and without `RELEASE=1`, for a new dev card, so it starts at this version instead of
@@ -66,7 +72,10 @@ through the `device-review` skill like any image.
 `STALE`, `DIRTY`, `OLDER` or `missing` line: do not hand over the image; find out why (failed
 step, a commit after the build) and build again. `check` also fetches `origin`: `DEVELOP MOVED`
 names the commits merged into `develop` since the build, `NOT DEVELOP` means the build is not of
-`develop` at all; either way this build is not the release, build `develop`'s tip again. A missing dev image is only a note
+`develop` at all; either way this build is not the release, build `develop`'s tip again. `check`
+needs the network for that (`git fetch origin failed` otherwise). A build of another branch for a
+test on the mixer ends with `NOT DEVELOP` by design: the lines above it say whether its files are
+sound; it is never the release. A missing dev image is only a note
 (`note: no dev image`, `check` still says OK): the release files are not affected; build again when
 a new dev card needs it.
 
@@ -78,8 +87,8 @@ folder, never as WSL paths.
 ## Before `main` moves: `ready`
 
 Right before the maintainer runs `git push origin <commit>:main` (`docs/DEVELOPMENT.md`,
-"Releases", step 3): `ready` fetches `origin` and says `READY` with the push command only when the
-build is clean, still `origin/develop`'s tip and `main` can fast-forward to it. Otherwise
+"Releases", step 3), with `develop`'s tip checked out: `ready` runs the whole `check` and says
+`READY` with the push command only when it passes and `main` can fast-forward to the build. Otherwise
 `NOT READY` and why: `main` stays where it is.
 
 ## At the release: `compare`

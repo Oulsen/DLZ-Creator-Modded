@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run a command in the build environment (buildenv/Dockerfile), with the repo at /src: the release
-# build on the PC (build-release.cmd, from WSL) and on GitHub (.github/workflows/release.yml) is the
+# build on the PC (build-release.sh, from WSL) and on GitHub (.github/workflows/release.yml) is the
 # same image, so the same commit gives the same files (#158). The image is built once per Dockerfile
 # (its tag is the Dockerfile's hash). As root in the container: mkpackage.sh makes a /dev/console node.
 #
