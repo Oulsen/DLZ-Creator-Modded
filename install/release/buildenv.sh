@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run a command in the build environment (buildenv/Dockerfile), with the repo at /src: the release
-# build on the PC (build-release.cmd, from WSL) and on GitHub (.github/workflows/release.yml) is the
+# build on the PC (build-release.sh, from WSL) and on GitHub (.github/workflows/release.yml) is the
 # same image, so the same commit gives the same files (#158). The image is built once per Dockerfile
 # (its tag is the Dockerfile's hash). As root in the container: mkpackage.sh makes a /dev/console node.
 #
@@ -16,7 +16,11 @@ command -v docker >/dev/null || { echo "no docker: start Docker Desktop (WSL int
 docker info >/dev/null 2>&1 || { echo "docker does not answer: start Docker Desktop and wait until it runs" >&2; exit 1; }
 
 IMAGE=dlzmod-buildenv:$(sha256sum "$DIR/Dockerfile" | cut -c1-16)
-docker image inspect "$IMAGE" >/dev/null 2>&1 || docker build -q -t "$IMAGE" "$DIR" >/dev/null
+# the image's first build takes minutes: its steps are shown (on stderr, apart from the command's output)
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  echo "building the build environment $IMAGE (once per Dockerfile, a few minutes)" >&2
+  docker build --progress=plain -t "$IMAGE" "$DIR" >&2
+fi
 
 args=(--rm -v "$REPO:/src" -w /src)
 for v in RELEASE RELEASE_KEY UNSIGNED DLZMOD_SIGNING_PASS; do args+=(-e "$v"); done

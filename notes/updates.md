@@ -39,7 +39,7 @@ update goes through the card itself: the drop-in update below.
 
 GitHub builds and signs the release files from the tag (`.github/workflows/release.yml` →
 `install/release/ci-build.sh`), in the pinned build environment `install/release/buildenv/`; the
-PC builds the same commit in the same image, unsigned (`build-release.cmd`, `UNSIGNED=1`), tests
+PC builds the same commit in the same image, unsigned (`build-release.sh`, `UNSIGNED=1`), tests
 that build on the mixer, and checks with `release.sh compare` that the draft's files are its bytes
 and that the signature fits them (`docs/DEVELOPMENT.md`, "Releases"). Seen on the test tag
 `v0.3.0-test1` (commit 7110028): GitHub's installer image was the PC's byte for byte [device:
