@@ -105,7 +105,7 @@ preflight() {
       cpio-replace.py apply-mod.sh app-mod/dlzmod.js server-mod/dlzmod-server.js \
       sd-system/dlzmod-emmc-ro sd-system/dlzmod-grow-data sd-system/dlzmod-bootlog \
       sd-system/dlzmod-bootreport sd-system/dlzmod-bootreport.service \
-      sd-system/dlzmod-netlog sd-system/dlzmod-netlog.service \
+      sd-system/dlzmod-netlog sd-system/dlzmod-netlog.service sd-system/dlzmod-glesgui \
       sd-system/dlzmod-wait-hub sd-system/dlzmod-update sd-system/dlzmod-update.service \
       sd-system/dlzmod-emmc-ro.service sd-system/dlzmod-grow-data.service \
       sd-system/dlzmod-bootlog.service sd-system/dlzmod-clock sd-system/dlzmod-clock.service \

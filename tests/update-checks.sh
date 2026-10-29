@@ -220,6 +220,33 @@ check() {   # check <expected text> [<label>]: a checks-only run, its last line,
 }
 fresh() { fixture; rm -f "$U"/*; }
 
+# #180: a package without a file apply-mod.sh puts on the card must be refused before anything
+# changes, by the update (its list + GUARD_SRC) and by the install (card-core.sh's list); a file only
+# missed by apply-mod.sh would make the update fail halfway, where only the rollback catches it
+echo "-- the completeness lists hold every file apply-mod.sh takes"
+missing=$(python3 - <<'EOF'
+import re
+am = open('install/apply-mod.sh', encoding='utf-8').read()
+used = {'sd-system/' + n for n in re.findall(r'"\$s/([A-Za-z0-9._/-]+)"', am)}
+used |= {n for n in re.findall(r'"\$TOOLS/([A-Za-z0-9._/-]+)"', am) if not n.startswith('../')}
+for var, items, body in re.findall(r'for (\w+) in ([^;]+); do\n(.*?)\n\s*done', am, re.S):
+    for suf in re.findall(r'"\$s/\$' + var + r'([A-Za-z0-9._/-]*)"', body):
+        used |= {'sd-system/' + i + suf for i in items.split()}
+def listed(path, start):
+    s = open(path, encoding='utf-8').read()
+    i = s.index(start)
+    return set(s[i:s.index('; do', i)].split())
+upd = listed('install/sd-system/dlzmod-update', 'for f in apply-mod.sh')
+upd |= set(re.search(r'^GUARD_SRC="([^"]*)"', open('install/sd-system/dlzmod-update', encoding='utf-8').read(), re.M).group(1).split())
+core = listed('install/card-core.sh', 'for f in check-rootfs.sh')
+if len(used) < 30: print('apply-mod.sh: only %d files found, the parse is broken' % len(used))
+for f in sorted(used - upd): print('the update does not check ' + f)
+for f in sorted(used - core): print('the install does not check ' + f)
+EOF
+)
+[ -z "$missing" ] && ok "every file apply-mod.sh takes is checked by the update and the install" \
+  || { bad "completeness lists:"; sed 's/^/    | /' <<< "$missing"; }
+
 echo "-- checks only: the entry guard"
 fixture
 out=$(DLZMOD_CHECK_ONLY=yes DLZMOD_ROOT=$R DLZMOD_DATA=$D bash "$NEW" 2>&1); rc=$?
@@ -275,6 +302,9 @@ fresh; rm "$R/usr/local/share/dlzmod-keys/dev.pub"; put spare; check "signature:
 fresh; rm "$R/usr/local/share/dlzmod-keys/dev.pub"; put spare; check "CHECKS PASSED" "36: and it passes"
 SIGNKEY=release2 mkpkg spareasdev; fresh; put spareasdev; check "a 'dev' package signed with the release key" "37: the spare key, marked dev"
 mkpkg missing "rm mod/check-rootfs.sh"; fresh; put missing; check "incomplete: check-rootfs.sh missing" "a package without a file it needs"
+for nf in dlzmod-netlog dlzmod-netlog.service dlzmod-glesgui; do   # #180 (mkpkg uses $f)
+  mkpkg "no-$nf" "rm mod/sd-system/$nf"; fresh; put "no-$nf"; check "incomplete: sd-system/$nf missing" "a package without sd-system/$nf"
+done
 mkpkg noparse "echo 'if then' >> mod/apply-mod.sh"; fresh; put noparse; check "its scripts do not parse" "a package whose steps do not parse"
 mkpkg reinstall "sed -i 's/^REINSTALL=.*/REINSTALL=yes/' package.env" "sed -i 's/^REINSTALL=.*/REINSTALL=yes/' package.env"
 fresh; put reinstall; check "needs a full install" "a package that needs a full install"
