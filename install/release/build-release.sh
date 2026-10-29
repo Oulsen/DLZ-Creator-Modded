@@ -19,7 +19,8 @@ cd "$REPO" || exit 1
 KEYS=${1:?usage: build-release.sh <dev keys folder>}
 VER=$(tr -d '\r\n' < VERSION)
 
-echo "== 1/2 release build $VER of $(git rev-parse --short HEAD) (unsigned, to compare with GitHub's)"
+# root in WSL does not own the repo on /mnt: git refuses it without safe.directory
+echo "== 1/2 release build $VER of $(git -c safe.directory="$REPO" rev-parse --short HEAD) (unsigned, to compare with GitHub's)"
 if ! env RELEASE=1 UNSIGNED=1 bash install/release/buildenv.sh bash -c \
     'rm -rf build/release && bash install/release/mkpackage.sh && bash install/release/mkinstaller.sh "build/release/dlzmod-$0"' "$VER"; then
   echo; echo "RELEASE BUILD FAILED, see above"; exit 1
