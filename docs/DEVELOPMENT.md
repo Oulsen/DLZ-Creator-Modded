@@ -173,7 +173,7 @@ The repo is public, so what goes into it is limited by what the project may publ
 | `release/mkinstaller.sh` | build environment / WSL | Build the flashable installer image around a package (`--dry-run`: writes nothing on the device); the FAT is made and filled inside the image file (dosfstools, mtools: no loop device, mount or root). Development builds are named `-dev-<commit>`; `RELEASE=1` (clean tree only) gives the release name |
 | `release/buildenv/`, `release/buildenv.sh` | WSL (Docker Desktop) / GitHub | The pinned build environment of the release files (Debian trixie by digest, every package from one snapshot.debian.org moment) and the wrapper that runs a command in it with the repo at `/src`: the PC and the tag's workflow build in the same image, so the same commit gives the same bytes |
 | `release/ci-build.sh` | GitHub | The tag's release build (`workflows/release.yml`): `RELEASE=1` package and installer image in the build environment, signed with the release key from the protected environment `release` (a test tag: unsigned; the installer image builds in a second run without the key or its passphrase), `SHA256SUMS`, and the files the draft gets (`attach.txt`: the update file only when a card can take it as a drop-in) |
-| `release/build-release.cmd` | Windows (double-click) | The PC's release build in one step, in the build environment: the `RELEASE=1` package unsigned (`UNSIGNED=1`, no key on the PC) and the installer image around it, to test on the mixer and compare with GitHub's build of the same commit; then a dev image of that commit (dev key from `%USERPROFILE%\.dlzmod-keys`, or `DLZMOD_KEYS_WIN`) |
+| `release/build-release.sh`, `release/build-release.cmd` | WSL (root) / Windows (double-click) | The PC's release build in one step, in the build environment: the `RELEASE=1` package unsigned (`UNSIGNED=1`, no key on the PC) and the installer image around it, to test on the mixer and compare with GitHub's build of the same commit; then a dev image of that commit (dev key from `%USERPROFILE%\.dlzmod-keys`, or `DLZMOD_KEYS_WIN`). Each step starts with a `== ` line. Claude Code runs it with the `release-build` skill (`release.sh build`, in the background, its output in `build/release-build.log`); the `.cmd` runs it in a window |
 | `release/vendor.sh`, `release/uboot-safe.py`, `release/mkglyphs.py`, `release/mklogo.py`, `release/fat-fixtimes.py` | WSL | Pinned U-Boot/busybox downloads (Debian sha256); U-Boot's built-in defaults made safe (SD card only, no USB, the Banana Pi's Ethernet switched off in its device tree); font atlas for the installer screens; the MODDED sticker with the version for the installer screens; the installer image's FAT file times set to `SOURCE_DATE_EPOCH` (same package, same image) |
 | `installer/` | device | Installer U-Boot script (`boot.txt`), `/init` (checks, eMMC lock, accept screen, dry run, real install), `install-card.sh` (the write steps: `DLZDATA` first at the full card size, copy and compare with the eMMC backup made from the same read (`DLZDATA/dlzmod-backup/`), new UUID, partition table, `card-core.sh`, bootloader last; on a failure before `DLZDATA` exists, a small `DLZLOG` partition with the log) `ui.py` (screens and touch, stdlib only), busybox applet list, and for a mixer the mod does not support `probe.sh` (hardware report; the backup for analysis on other firmware, eMMC user area only, onto a `DLZDUMP` partition) with `boards.txt` (the bootloaders the backup is offered for) |
 | `card-core.sh` | WSL (root) / device | Finishes a card (shared with the on-device installer): checks that every tool and mod file is there before writing, refuses any target but a loop device or an SD card, and a card whose model differs from the source's (`DLZMOD_MODEL`), then new rootfs UUID, the mixer the card is bound to (`DLZMOD_MIXER_ID`: sha256 of the eMMC's CID from the installer, `any` from `build-sd.sh`), `DLZDATA` partition (or the installer's, `DLZDATA_KEEP=1`), brick guards, boot visuals, UI and server mods (`apply-mod.sh`), optional SSH key for test cards. `DLZMOD_UUID` / `SOURCE_DATE_EPOCH` make builds reproducible |
@@ -447,8 +447,9 @@ issue's technical notes point to the note section instead of copying it.
   ("Releases").
 - **Releases**: a PR `develop` → `main`, **fast-forwarded**, not merged with GitHub's button: its
   merge methods all add commits (a merge commit, or rewritten copies), which would leave `develop`
-  behind `main`. Nothing is merged into `develop` from the release build until the push, so the built
-  commit, `develop`'s tip and the PR's head are one commit. In order:
+  behind `main`. Nothing is merged into `develop` from the release build until the tag, so the built
+  commit, `develop`'s tip and the PR's head are one commit (`release.sh check` and `ready` fetch
+  `origin` and stop, naming the commits, when `develop` moved). In order:
   1. Make the release build from `develop`'s tip and test it (its `package.env` names that commit;
      the build also leaves a dev installer image of that commit in `build/devcard/`, for a new dev
      card: the `release-build` skill). The PC builds unsigned, in the same build environment as
@@ -457,7 +458,9 @@ issue's technical notes point to the note section instead of copying it.
   2. Open the release PR `develop` → `main` and review it: a final `/cr` (or `/code-review`) on
      the PR, findings fixed (a fix PR into `develop`, then back to step 1) or named in the PR as
      accepted, before step 3.
-  3. The maintainer moves `main` to the PR's head commit:
+  3. Right before it, `bash .claude/skills/release-build/release.sh ready`: `READY` with the push
+     command only when the build is still `origin/develop`'s tip and `main` can fast-forward to it.
+     The maintainer moves `main` to the PR's head commit:
      `git fetch origin && git push origin <commit>:main` (no `--force`: git refuses anything that is
      not a fast-forward). GitHub then shows the PR as merged, and `main` and `develop` are the same
      commit. The ruleset on `main` needs the maintainer on its bypass list in mode "Always" (not "Pull
