@@ -222,16 +222,31 @@ fresh() { fixture; rm -f "$U"/*; }
 
 # #180: a package without a file apply-mod.sh puts on the card must be refused before anything
 # changes, by the update (its list + GUARD_SRC) and by the install (card-core.sh's list); a file only
-# missed by apply-mod.sh would make the update fail halfway, where only the rollback catches it
+# missed by apply-mod.sh would make the update fail halfway, where only the rollback catches it.
+# Only apply-mod.sh is read: files card-core.sh or the updater use themselves stay in their lists by hand
 echo "-- the completeness lists hold every file apply-mod.sh takes"
 missing=$(python3 - <<'EOF'
 import re
 am = open('install/apply-mod.sh', encoding='utf-8').read()
 used = {'sd-system/' + n for n in re.findall(r'"\$s/([A-Za-z0-9._/-]+)"', am)}
 used |= {n for n in re.findall(r'"\$TOOLS/([A-Za-z0-9._/-]+)"', am) if not n.startswith('../')}
+loopvars = set()
 for var, items, body in re.findall(r'for (\w+) in ([^;]+); do\n(.*?)\n\s*done', am, re.S):
     for suf in re.findall(r'"\$s/\$' + var + r'([A-Za-z0-9._/-]*)"', body):
         used |= {'sd-system/' + i + suf for i in items.split()}
+        loopvars.add(var)
+# every line that names a package file must be one of the forms above: a new form (unquoted, ${s},
+# a loop on one line, another variable) fails here instead of slipping past the check
+lv = '|'.join(loopvars) or '-'
+for n, line in enumerate(am.split('\n'), 1):
+    code = line.split('#', 1)[0]
+    if not re.search(r'\$\{?(s|TOOLS)\b', code) or re.match(r'\s*local s=\$TOOLS/sd-system\b', code):
+        continue
+    rest = re.sub(r'"\$s/[A-Za-z0-9._/-]+"|"\$TOOLS/[A-Za-z0-9._/-]+"|"\$s/\$(' + lv + r')[A-Za-z0-9._/-]*"', '', code)
+    if re.search(r'\$\{?(s|TOOLS)\b', rest):
+        print('apply-mod.sh:%d: a package file in a form this check does not read: %s' % (n, line.strip()))
+for known in ('sd-system/dlzmod-netlog.service', 'sd-system/dlzmod-cardcheck', 'sd-system/ssh.service.d/dlzmod.conf'):
+    if known not in used: print('apply-mod.sh: %s not found, the parse is broken' % known)
 def listed(path, start):
     s = open(path, encoding='utf-8').read()
     i = s.index(start)
@@ -239,7 +254,7 @@ def listed(path, start):
 upd = listed('install/sd-system/dlzmod-update', 'for f in apply-mod.sh')
 upd |= set(re.search(r'^GUARD_SRC="([^"]*)"', open('install/sd-system/dlzmod-update', encoding='utf-8').read(), re.M).group(1).split())
 core = listed('install/card-core.sh', 'for f in check-rootfs.sh')
-if len(used) < 30: print('apply-mod.sh: only %d files found, the parse is broken' % len(used))
+if len(used) < 32: print('apply-mod.sh: only %d files found, the parse is broken' % len(used))
 for f in sorted(used - upd): print('the update does not check ' + f)
 for f in sorted(used - core): print('the install does not check ' + f)
 EOF
