@@ -66,7 +66,9 @@ GitHub vs PC, 2026-10-26]; not yet seen: a signed release tag, and a draft with 
   slightly different anti-aliased edges than WSL's (same content).
 - **The signing key**: `release.pem` and its passphrase are secrets of the environment `release`,
   which only `v*` tags may use and which waits for the maintainer's approval; `ci-build.sh` writes
-  the key to a temporary folder for the build only. Test tags build in a job without it (unsigned).
+  the key to a temporary folder for the package's build only (the installer image builds in a
+  second container run without the key or its passphrase, #179). Test tags build in a job without
+  it (unsigned).
   The checkout keeps no token in `.git/config` (the repo is mounted into the build). The spare
   `release2` stays offline: a withdrawal release is signed on the PC.
 

@@ -4,8 +4,8 @@
 # land in build/release, attach.txt names the ones the draft gets. A release tag signs with the
 # release key: DLZMOD_RELEASE_KEY holds the key file's text and DLZMOD_SIGNING_PASS its passphrase
 # (the protected environment "release"); the key is written to a temporary folder only for the
-# build and removed after it. A test tag (vX.Y.Z-testN) builds the same files unsigned
-# (UNSIGNED=1): a package no card takes, from whatever branch.
+# package's build and removed before the installer image. A test tag (vX.Y.Z-testN) builds the
+# same files unsigned (UNSIGNED=1): a package no card takes, from whatever branch.
 # The spare key (release2) is never on GitHub: a withdrawal release is signed on the PC.
 #
 # Usage: ci-build.sh <tag>
@@ -36,10 +36,17 @@ esac
 unset DLZMOD_RELEASE_KEY
 
 rm -rf build/release
-# the container builds as root: the files are handed back to the runner's user
+# the container builds as root: the files are handed back to the runner's user. Two runs: only the
+# package is signed, so only its run gets the passphrase and the key folder (#179); the key is
+# removed before the installer image is built.
+owner="$(id -u):$(id -g)"
 bash install/release/buildenv.sh bash -c \
-  'bash install/release/mkpackage.sh && bash install/release/mkinstaller.sh "build/release/dlzmod-$0" && chown -R "$1" build/release' \
-  "$VER" "$(id -u):$(id -g)"
+  'bash install/release/mkpackage.sh && chown -R "$0" build/release' "$owner"
+[ -z "${keys:-}" ] || rm -rf "$keys"
+unset DLZMOD_SIGNING_PASS DLZMOD_SIGNING_KEYS
+bash install/release/buildenv.sh bash -c \
+  'bash install/release/mkinstaller.sh "build/release/dlzmod-$0" && chown -R "$1" build/release' \
+  "$VER" "$owner"
 # the update file only when a card can take it as a drop-in: not when every card must have been
 # installed with this very version (REINSTALL_BELOW, install/release/reinstall-below)
 files=("dlz-installer-$VER.img")
