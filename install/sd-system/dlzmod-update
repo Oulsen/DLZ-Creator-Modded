@@ -613,6 +613,7 @@ for f in apply-mod.sh check-rootfs.sh patch.py modversion.py app-mod/dlzmod.js s
     sd-system/dlzmod-grow-data sd-system/dlzmod-grow-data.service sd-system/dlzmod-bootlog \
     sd-system/dlzmod-bootlog.service sd-system/dlzmod-bootreport sd-system/dlzmod-bootreport.service \
     sd-system/dlzmod-clock sd-system/dlzmod-clock.service \
+    sd-system/dlzmod-netlog sd-system/dlzmod-netlog.service sd-system/dlzmod-glesgui \
     sd-system/dlzmod-wait-hub sd-system/dlzmod-update \
     sd-system/dlzmod-update.service sd-system/90-dlzmod-usb-wifi.rules sd-system/dspserver.service.d/dlzmod.conf \
     sd-system/dlzmod-zerocd-eject sd-system/70-dlzmod-wifi-zerocd.rules \

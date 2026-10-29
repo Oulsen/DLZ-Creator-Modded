@@ -7,6 +7,7 @@
 - (DLZ BUG) The touch screen stops reacting for a while after the clock goes back
 - (DLZ BUG) Recording times are 1-2 hours off (the mixer runs on world time, not local time)
 - (DLZ BUG) Clock jumps back to November 2023 after every power-off
+- (MOD BUG) Update and start-report details from the v0.3.0 review
 
 ## v0.3.0
 

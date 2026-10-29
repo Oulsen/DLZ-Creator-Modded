@@ -1,8 +1,12 @@
 [Unit]
 Description=dlzmod: write a report of this start to the log, once the start is done
 # Type=exec: the start counts as done once the script runs, and the script itself waits for the end
-# of the start, so nothing waits for it. Not After=multi-user.target: a start that hangs before that
-# target still gets its report (the script names the jobs still waiting)
+# of the start, so nothing waits for it. Not After=multi-user.target: a start that hangs between
+# basic.target and that target still gets its report (the script names the jobs still waiting). It
+# starts after basic.target (default dependencies; that waits for the FPGA load since #141) and
+# writes no sooner than 90 s after its own start: a start that hangs before basic.target, or a
+# mixer switched off within those 90 s, gets no report (the boot log keeps the syslog up to ~15 s
+# before a hang)
 
 [Service]
 Type=exec
