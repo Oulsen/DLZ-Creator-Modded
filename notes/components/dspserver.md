@@ -11,6 +11,10 @@
 - **No ALSA** (no libasound). Audio goes through **`/dev/mem` + DMA** (`startDMA`, `dmaLoopThread`,
   "Error: unable to start DMA") [static]. It maps physical `0x01C00000`, 8 MB (the peripherals,
   port I among them: "How it drives the chips" below) [static]
+- **No plugin loading**: it imports `dlopen`/`dlsym`, but names no library to load besides its
+  linked ones, so the 48 DSP blocks ([mixergraph.md](mixergraph.md)) are all built in. A new
+  native block would mean code injection into the binary; anything the existing blocks can do is
+  graph JS [static]
 
 ## Inputs
 
