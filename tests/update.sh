@@ -516,17 +516,22 @@ installed && ok "installed" || bad "unknown key refused"
 APP=$(sha $R/srv/app.js)
 fi
 
-if case_ "31b: the audio graph (for v0.5.0): an update may patch it, with its .orig; a failed one is put back"; then
+if case_ "31b: the audio graph (#131): patched by the install with its .orig; an update re-patches it from the stock .orig; a failed one is put back"; then
 G=$R/usr/local/share/evolve-a1/mixergraph-dlzlite.js
-if [ ! -f $G ]; then bad "no $G on the card"
+if [ ! -f $G ] || [ ! -f $G.orig ]; then bad "no patched $G with its .orig on the card"
 else
-  GS=$(sha $G)
-  GP="printf 'g=\"\$MNT/usr/local/share/evolve-a1/mixergraph-dlzlite.js\"; [ -f \"\$g.orig\" ] || cp -p \"\$g\" \"\$g.orig\"; printf \"\\\\\\\\n// graph test\\\\\\\\n\" >> \"\$g\"\n' >> mod/apply-mod.sh"
+  GS=$(sha $G); GO=$(sha $G.orig)
+  [ "$GS" != "$GO" ] && grep -q "DLZMOD_rtaAnalyser()" $G && ! grep -q DLZMOD $G.orig \
+    && ok "the install patched the graph (EQ spectrum), .orig Mackie's" || bad "graph not patched by the install"
+  # a changed graph mod in the package: patch.py appends it to the graph
+  GP="printf '\n// graph test\n' >> mod/graph-mod/dlzmod-graph.js"
   P=$(craft dlzmod-vgraphfail "$GP; printf 'exit 1\n' >> mod/apply-mod.sh"); put $P; run
-  said "NOT INSTALLED" && [ "$(sha $G)" = "$GS" ] && [ ! -e $G.orig ] && ok "a failed graph patch: graph as before, no .orig" || bad "graph after a failed update: $(tail -c 40 $G)"
+  said "NOT INSTALLED" && [ "$(sha $G)" = "$GS" ] && [ "$(sha $G.orig)" = "$GO" ] \
+    && ok "a failed update: graph and its .orig as before" || bad "graph after a failed update: $(tail -c 40 $G)"
   rm -f $U/dlzmod-vgraphfail.tar $U/dlzmod-vgraphfail.tar.sig
   P=$(craft dlzmod-vgraph "$GP"); put $P; run
-  installed && grep -q "graph test" $G && [ "$(sha $G.orig)" = "$GS" ] && ok "graph patched, .orig the stock file" || bad "graph patch not placed: $(tail -c 40 $G)"
+  installed && grep -q "graph test" $G && grep -q "DLZMOD_rtaAnalyser()" $G && [ "$(sha $G.orig)" = "$GO" ] \
+    && ok "graph re-patched from the stock .orig, which stays" || bad "graph patch not placed: $(tail -c 40 $G)"
 fi
 APP=$(sha $R/srv/app.js)
 fi

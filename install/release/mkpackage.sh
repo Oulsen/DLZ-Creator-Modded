@@ -9,7 +9,7 @@
 #   /pkg/install-card.sh  the real install's write path, sourced by /init
 #   /pkg/probe.sh         the backup of a mixer the mod does not support (analysis only), with a hardware report
 #   /pkg/boards.txt       Mackie bootloaders known to be safe next to the installer's own boot (backup gate)
-#   /pkg/mod/     card-core.sh and what it calls (patch.py, app-mod/, server-mod/, sd-system/, ...)
+#   /pkg/mod/     card-core.sh and what it calls (patch.py, app-mod/, server-mod/, graph-mod/, sd-system/, ...)
 #   /pkg/layers/  our boot-visual layers (mklayers.py, Pillow: rendered here, composed on the device)
 #   /pkg/ui/      ui.py + glyphs.bin (mkglyphs.py)
 #   /pkg/manifest sha256 of every file under /pkg (sha256sum -c format, checked by /init)
@@ -176,7 +176,7 @@ missing=$(grep -v '^#' "$INST/installer/applets.txt" | grep . | grep -vxF -f <(e
 
 root=$work/root
 pkg=$root/pkg
-mkdir -p "$root/bin" "$root/dev" "$pkg/mod/app-mod" "$pkg/mod/server-mod" "$pkg/layers" "$pkg/ui"
+mkdir -p "$root/bin" "$root/dev" "$pkg/mod/app-mod" "$pkg/mod/server-mod" "$pkg/mod/graph-mod" "$pkg/layers" "$pkg/ui"
 install -m 755 "$REPO/vendor/busybox.bin" "$root/bin/busybox"
 install -m 755 "$INST/installer/init" "$root/init"
 mknod -m 600 "$root/dev/console" c 5 1
@@ -187,6 +187,7 @@ install -m 644 "$INST/apply-mod.sh" "$pkg/mod/"
 for f in cpio-replace.py patch.py modversion.py logobbox.py bootsplash.py; do install -m 644 "$INST/$f" "$pkg/mod/"; done
 install -m 644 "$INST/app-mod/dlzmod.js" "$pkg/mod/app-mod/"
 install -m 644 "$INST/server-mod/dlzmod-server.js" "$pkg/mod/server-mod/"
+install -m 644 "$INST/graph-mod/dlzmod-graph.js" "$pkg/mod/graph-mod/"
 cp -r "$INST/sd-system" "$pkg/mod/sd-system"
 # fixed modes, not the source's (a tree on /mnt/d shows every file as 755, a Linux clone git's): the
 # same package from the same commit anywhere; apply-mod.sh places each file with its own mode

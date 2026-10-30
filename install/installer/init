@@ -398,7 +398,7 @@ add_line ok "All tools present on the mixer"
 show_checks
 
 # the mod's patches must fit this firmware before anything is written (they are applied last)
-for t in app:/srv/app.js server:/srv/server.js; do
+for t in app:/srv/app.js server:/srv/server.js graph:/usr/local/share/evolve-a1/mixergraph-dlzlite.js; do
   chroot /emmc /usr/bin/python3 -B -E -s /tmp/pkg/mod/patch.py --check "${t%%:*}" "${t#*:}" >> "$LOG" 2>&1 \
     || fail "The mod does not fit this firmware (${t#*:}, see the log)"
 done

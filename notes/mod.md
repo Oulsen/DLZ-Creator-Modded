@@ -8,8 +8,9 @@ Updates and releases: [updates.md](updates.md). The installer that builds the ca
 
 Where it lives: `install/card-core.sh` builds the card (used by the installer, `build-sd.sh` and the
 update package), `install/apply-mod.sh` places the mod's files (shared with the drop-in update),
-`install/patch.py` patches `server.js` and `app.js` by string anchor (each patch has a label, e.g.
-"firmware:", "files:", "network:"), `install/server-mod/dlzmod-server.js` and `install/app-mod/dlzmod.js`
+`install/patch.py` patches `server.js`, `app.js` and the XS audio graph (`mixergraph-dlzlite.js`) by
+string anchor (each patch has a label, e.g. "firmware:", "files:", "network:", "eq spectrum:"),
+`install/server-mod/dlzmod-server.js`, `install/app-mod/dlzmod.js` and `install/graph-mod/dlzmod-graph.js`
 hold the mod's own code that the patches call, `install/sd-system/` the units and udev rules.
 
 ## Units and rules on the card (`install/sd-system/`)
@@ -143,6 +144,62 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
 - **Recordings go to the SD card by default** (`settings.rec.toUSB` off in the card's state).
 - **About's "Device IP Address"** asks `eth0`, then `wlan0`.
 - **Look and meters** (`app.js`): see "Mod settings" below.
+
+## The sound behind the EQ curve (#131)
+
+The EQ page shows the channel's sound behind the EQ curve, on the XS only: the full-size's graph
+(`mixergraph.js`) is not patched, so its EQ page stays as stock. A **Spectrum** switch on every EQ
+page, under Mackie's EQ switch (which moves up in its box for it, patched `PageEQ.initWidgets` and
+`paint`), turns it on or off for all channels at once: hub key `dlzmod.spectrum`, on by default; off,
+no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) and nothing is drawn
+[sandbox].
+
+- **Graph** (`graph-mod/dlzmod-graph.js`, patched into `mixergraph-dlzlite.js`): the mod's first
+  change to the audio engine. A mono buffer of its own (`dlzmodRta`), cleared at the start of each
+  cycle; a tap (`GainWithLinMixTo`, stereo -6 dB per side) right after each channel's EQ, behind
+  Mackie's "dynin" meter, bypassed unless hub key `dlzmod.rta` names that channel; at the end, before
+  the file's own `compileGraph(graph)`, per octave band (31.5 Hz - 16 kHz, 10 bands) a copy, a
+  high-pass half an octave below the centre and a low-pass half an octave above (`EqBand` `T_HP` and
+  `T_LP`, Q 0.707, bypassed with no channel measured) and a `MaxMeter`, reported as the VU group
+  `dlzmod.rta`. `EqBand`'s own band-pass (`T_BP`, which Mackie never uses) read silence on every band
+  [device]. Each tap is a nested list, so Mackie's next block keeps its buffer.
+  `tests/graph-check.js` (from `tests/patches.sh`) builds both graphs in a stand-in for dspserver's
+  prelude: Mackie's 583 blocks unchanged and in order, the mod's 55 writing only its own two
+  buffers [static; the spectrum follows the EQ on the mixer: device].
+- A channel with **Bypass All Processing** on (its Setup page, `<prefix>procBypass`) skips its EQ,
+  high-pass and dynamics in Mackie's graph: EQ changes are neither heard nor seen in the spectrum
+  there. Stock behaviour, easy to miss: the EQ page does not show it [device: 9/10].
+- **Which channel** (`dlzmod.rta`: 0 none, 1-2 mics, 3-4 players, 5-6 virtual, 7 samples, 8 master;
+  `DLZMOD_rtaCode`): set by the mixer's own screen when its EQ page opens, changes channel or closes
+  (PageEQ `onShow`/`sync`/`onHide`, patched), and 0 at `startGUI`. The server takes it from the
+  screen only (`DLZMOD_keyAllowed`); a browser shows the spectrum when its EQ page has the screen's
+  channel. In `DLZMOD_keys` (so app.js knows it and the card's state has it from the install), not a
+  setting [sandbox: 3 for channel 3/4, 8 for LR, 0 after leaving the page].
+- **Drawing**: every VU message (`parseVuData`, patched) goes to `DLZMOD_rtaVu`: the band bytes
+  (Mackie's VU scale, 1/80 per dB) as 64 points over the curve's 20 Hz - 20 kHz, interpolated in dB
+  between bands (Catmull-Rom, never beyond the two nearest bands), -60 dBFS at the bottom: the
+  target of an animation of the mod's own (`DLZMOD_rtaTick`), which moves the EQ widget's spectrum
+  data (`rtaData`, as Mackie's `setRTA` would set it) 60 % of the way per frame, about 30 frames a
+  second, none while it stands still; on silence (below -60 dBFS everywhere) or no message for
+  300 ms it sinks to the bottom and goes. With `rtaOverlay` off the widget draws it with the curve;
+  Mackie's overlay layer is not used. Drawn by the mod's `DLZMOD_rtaPaint` instead of Mackie's
+  `paintRTA`: the fill from the bottom on a path of its own, then the line on a fresh one (glesgui
+  uses a path up with `stroke()`, so Mackie's fill reached only the middle line) [device]. Held like
+  an analyser's (`DLZMOD_rtaSmooth`: up at once, down at most 20 dB/s), so an EQ change shows as a
+  calm rise or dip. Each frame redraws the whole EQ widget (grid, curve, knobs): one per VU message
+  made the EQ page's knobs and touch lag on the mixer, at most one per 80 ms made the spectrum choppy
+  [device]. So within 250 ms of a redraw for something else (a knob, a dragged dot; `eq.update`
+  wrapped) the animation draws no frames of its own: the picture moves on in `rtaData` and shows with
+  those redraws. In the sandbox ~28 frames a second, no other redraws with nothing touched; on the
+  mixer usable but not smooth, about the most the screen does this way [device]. Tried and dropped:
+  the spectrum alone on Mackie's top sheet (the overlay layer, `rtaOverlay` on): the mod sent 28
+  frames a second, 36 ms apart, yet the screen lagged far more, as on the mixer every clear of the
+  top sheet clears all of it and glesgui lays the whole sheet over the screen for each frame
+  ([components/node-backend.md](components/node-backend.md)) [device]. Colours
+  (`DLZMOD_rtaColors`): the meters' colour of the look on screen (theme or own fader colour, #21),
+  line 85 % / fill 25 %, High contrast 100 % / 35 %, set at each message so a change of look shows
+  at once; Mackie's own greys were too dim [sandbox].
+- Open: the DSP thread's cost of the 14 taps and 20 filters [guess: small; measure on the mixer].
 
 ## Mod settings (Settings → DLZ Creator Modded)
 
