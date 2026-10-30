@@ -130,6 +130,26 @@ test("recName refuses when the folder cannot be read", async () => {
   assert.strictEqual(await recName(file), null);
 });
 
+// #104: samples the sample recorder keeps
+test("sample names: above every RS_ in any case, stock's weak spots", () => {
+  const p = (e) => ctx.DLZMOD_pickNumbered("RS", e, "");
+  assert.strictEqual(p([]), "RS_0001");
+  assert.strictEqual(p(["bank_recorder.wav", "REC_0009_owl.wav"]), "RS_0001", "only RS_ counts");
+  // stock: ls -r lists zzz_RS_0001 first, so it took 0001 + 1 and replaced RS_0002
+  assert.strictEqual(p(["RS_0001.wav", "RS_0002.wav", "zzz_RS_0001.wav"]), "RS_0003");
+  assert.strictEqual(p(["RS_0001.wav", "rs_0005.wav"]), "RS_0006", "lower case counts");
+  assert.strictEqual(p(["RS_9999.wav"]), "RS_10000");
+});
+test("sampleName: the next free name, null when the folder cannot be read", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dlzrs-")) + "/";
+  fs.writeFileSync(path.join(dir, "bank_recorder.wav"), "");
+  assert.strictEqual(await ctx.DLZMOD_sampleName(dir), "RS_0001");
+  fs.writeFileSync(path.join(dir, "RS_0004.wav"), "");
+  assert.strictEqual(await ctx.DLZMOD_sampleName(dir), "RS_0005");
+  assert.strictEqual(await ctx.DLZMOD_sampleName(path.join(dir, "missing") + "/"), null);
+  assert.strictEqual(await ctx.DLZMOD_sampleName("sd:/Recorded_Samples/"), null, "no medium: server.js leaves sd: in the path");
+});
+
 test("update note: nothing installed, or all shown: none", () => {
   assert.strictEqual(noteFrom(files({})), null);
   assert.strictEqual(noteFrom(files({ installed: "v0.1.0 (dev-a)", shown: "v0.1.0 (dev-a)" })), null);

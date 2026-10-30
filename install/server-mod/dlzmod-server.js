@@ -14,21 +14,46 @@
 // entries: names in the folder the recording goes to; others: names in the recordings folders of
 // the other media (only their numbers count); suffix: the animal ("" for none).
 function DLZMOD_pickRecName(entries, suffix, others = []) {
+  return DLZMOD_pickNumbered("REC", entries, suffix, others);
+}
+
+// <kind>_<n> above every <kind>_<n> in entries and others, any case; kind: REC or RS (#104)
+function DLZMOD_pickNumbered(kind, entries, suffix, others = []) {
+  const lower = kind.toLowerCase() + "_";
+  const re = new RegExp("^" + lower + "(\\d{4,})", "i");
   let highest = 0;
   for (const name of entries.concat(others)) {
-    const m = /^rec_(\d{4,})/i.exec(name);
+    const m = re.exec(name);
     if (m) highest = Math.max(highest, Number(m[1]));
   }
   let n = highest + 1;
   // n is above every number in the folder, so this only guards against odd names; no name in the
-  // folder starts with the new REC_<n>, so the full name (any suffix) is free too
+  // folder starts with the new <kind>_<n>, so the full name (any suffix) is free too
   const taken = (num) => {
-    const prefix = "rec_" + String(num).padStart(4, "0");
+    const prefix = lower + String(num).padStart(4, "0");
     return entries.some((e) => e.toLowerCase().startsWith(prefix));
   };
   while (taken(n)) n++;
-  const base = "REC_" + String(n).padStart(4, "0");
+  const base = kind + "_" + String(n).padStart(4, "0");
   return suffix ? base + "_" + suffix : base;
+}
+
+// #104: the base name for a sample the sample recorder keeps (RS_0003), in its folder dir
+// (Recorded_Samples on the recording medium; SAMPLE_REC made it and records the take there). Stock
+// counts it as it once counted recordings: the first RS_NNNN in `ls -r` order plus one, RS_0001 on
+// any error, so a new sample could replace an older one. null when the folder cannot be read: then
+// the take is not stored. A pad refers to its sample by path and the name is not shown, so no animal
+async function DLZMOD_sampleName(dir) {
+  let entries;
+  try {
+    entries = await require("fs").promises.readdir(dir);
+  } catch (e) {
+    console.error("dlzmod: cannot read " + dir + ", sample not stored:", e.message);
+    return null;
+  }
+  const name = DLZMOD_pickNumbered("RS", entries, "");
+  console.log("dlzmod: sample to " + dir + name);
+  return name;
 }
 
 // Short, friendly animals, lower case a-z only (FAT-safe, no look-alike or awkward words)

@@ -274,6 +274,16 @@ SERVER_PATCHES = [
         'let a=await DLZMOD_recName(t,[ce("sd"),ce("usb")].map((m=>m+"/"+(C()?w:x))));if(!a)return void DLZMOD_roLater();y=t+"/"+a+".wav"',
     ),
     (
+        # #104: a kept sample gets RS_<n> above every RS_ in its folder (DLZMOD_sampleName). Folder
+        # unreadable: not stored, the recorder set back as stock's SAMPLE_REC_RESET does (the pad keeps
+        # what it had; DLZMOD_roLater, started at the stop, then sees nothing busy)
+        "samples: free, unique names (DLZMOD_sampleName)",
+        'for(t=t+"RS_"+(await le(t,"RS_[0-9]{4}[._]")).toString().padStart(4,"0")+".wav",',
+        'let a=await DLZMOD_sampleName(t);if(!a)return globalThis.setDataKey("sample.rec.state",ze.READY),'
+        'globalThis.setDataKey("sample.rec.length",0),void globalThis.setDataKey("sample.rec.file","");'
+        'for(t=t+a+".wav",',
+    ),
+    (
         # same round trip as Mackie's firmware popup: sent when a screen has loaded, OK comes back
         "update: popup after a drop-in update (DLZMOD_updateNoteSend)",
         "async GUI_LOADED(e,t,a,i){",

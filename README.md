@@ -14,6 +14,7 @@ below. They all start as stock: turn on what you want.
 
 - Recordings go to the SD card by default
 - Names that never repeat, numbered across SD card and USB: `REC_0003_otter`
+- A sample recorded onto a pad never replaces an older one
 - Optionally the date and time in the name: `REC_0003_otter_2026-10-11_1430`, only when the clock
   was set this start (internet, by hand or a paired device) *(Settings → Recording / Routing,
   Date & Time in Name)*
