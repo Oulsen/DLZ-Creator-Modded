@@ -4,7 +4,7 @@
 # Dev card only, never shipped. Nothing is written to the card: the copy lives on a tmpfs of its own,
 # bind-mounted over /usr/local/bin/dspserver (same path, same unit), so a restart of the mixer, or
 # `off`, brings the stock dspserver back. Each `on` and `off` restarts dspserver: the audio stops for
-# a few seconds.
+# a few seconds (a pop is possible, a recording running then is cut off: not while recording).
 #
 # Usage: bash dev/dsp-headroom.sh on              patch, mount, restart dspserver, check it counts
 #        bash dev/dsp-headroom.sh read [SECONDS]  two readings SECONDS apart (default 10)
@@ -50,6 +50,8 @@ systemctl restart dspserver'
 # the running copy is busy: a lazy unmount, then the restart starts the stock file
 OFF='D=/run/dlzmod-headroom B=/usr/local/bin/dspserver
 grep -q " $B " /proc/self/mountinfo && umount -l $B
+# after a crash loop systemd refuses a restart until the start limit is reset
+systemctl reset-failed dspserver 2>/dev/null
 systemctl restart dspserver
 grep -q " $D " /proc/self/mountinfo && umount -l $D
 rm -f /run/dlzmod-headroom.py
@@ -58,14 +60,20 @@ echo "stock dspserver: $(systemctl is-active dspserver)"'
 case ${1:-} in
   on)
     put
-    mixer "$ON" || die "not switched on"
-    echo "waiting 20 s for dspserver to start"
-    sleep 20
-    if ! mixer 'python3 /run/dlzmod-headroom.py read 5'; then
-      echo "the measuring dspserver does not count: back to the stock one" >&2
+    if ! mixer "$ON"; then
+      echo "not switched on: back to the stock one" >&2
       mixer "$OFF"
       exit 1
-    fi ;;
+    fi
+    # dspserver first waits for the hub (up to 45 s, dlzmod-wait-hub): up to 60 s for the first blocks
+    for i in 1 2 3 4 5 6; do
+      sleep 10
+      mixer 'python3 /run/dlzmod-headroom.py read 5' 2>/dev/null && exit 0
+      echo "not counting yet ($((i * 15)) s)"
+    done
+    echo "the measuring dspserver does not count: back to the stock one" >&2
+    mixer "$OFF"
+    exit 1 ;;
   read)
     s=${2:-10}
     [[ $s =~ ^[0-9]+$ ]] && [ "$s" -ge 1 ] && [ "$s" -le 600 ] || die "SECONDS: 1 to 600"
