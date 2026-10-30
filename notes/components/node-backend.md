@@ -223,6 +223,9 @@ Whether the `HAVE_*` flags unlock anything without native support is unknown [gu
   another Mackie product [guess]. The mod feeds the EQ curve's (#131, [../mod.md](../mod.md)).
   `setRTA` takes an array of 0..1 values (or a string, byte / 255), spread evenly over the curve's
   20 Hz - 20 kHz; with `rtaOverlay` off `paintRTA` draws them in the widget's own paint [sandbox].
+  On the mixer that `paintRTA` fills only down to the middle line (it strokes, then fills the same
+  path, and glesgui uses the path up with `stroke()`) [device]; each `setRTA` redraws the whole
+  widget.
 
 ## Patchability
 

@@ -171,6 +171,19 @@ APP_PATCHES = [
         "sync(t){let e=SELECTED();if(!e)return;let i=e.prefix;DLZMOD_rtaSync(this,i),this.eq.setPrefix(i),",
     ),
     (
+        # PageEQ.initWidgets: the EQ switch moves up in its box, the Spectrum switch goes under it
+        "eq spectrum: the Spectrum switch under the EQ switch",
+        "this.eq.bands[0]._bypass=1,this.onoff=new Switcher(this,{anchors:[116,55],size:[76,48],bgColors:[Color.buttonBg,this.color],knobMargin:2,inverted:!0}),",
+        "this.eq.bands[0]._bypass=1,this.onoff=new Switcher(this,{anchors:[116,DLZMOD_rtaSwitchY()],size:[76,48],bgColors:[Color.buttonBg,this.color],knobMargin:2,inverted:!0}),"
+        "this.dlzmodSpectrum=DLZMOD_rtaSwitch(this),",
+    ),
+    (
+        # PageEQ.paint: the labels next to its switches, directly followed by PageGate
+        "eq spectrum: the Spectrum switch's label",
+        "this.hpf&&t.drawText(lang.HPF,26,this.hpf.geomCenterY())}},PageGate=class",
+        "this.hpf&&t.drawText(lang.HPF,26,this.hpf.geomCenterY()),DLZMOD_rtaLabel(this,t)}},PageGate=class",
+    ),
+    (
         # #45: the server refuses the System Lock PIN and a factory reset from other devices; in a
         # browser Mackie's UI would lock or "reset" only itself, so there the buttons are not shown
         # (DLZMOD_external is known before the pages are built)

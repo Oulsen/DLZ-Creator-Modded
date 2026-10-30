@@ -51,8 +51,9 @@ There is **no analyser** block either: `MaxMeter`/`MinMeter` give a level, and t
 block appears only commented out in the graph. JUCE's `dsp::FFT` is linked into dspserver, but no
 block exposes it (the only "analysis" in the descriptors is a `Vocoder` parameter) [static]. The
 mod's EQ spectrum (#131, [../mod.md](../mod.md)) for app.js's RTA overlay is built from stock
-blocks: band-pass `EqBand`s (`kind: T_BP`), each followed by a `MaxMeter` [static; CPU cost not
-measured yet].
+blocks: per band an `EqBand` high-pass and low-pass (`T_HP`, `T_LP`), followed by a `MaxMeter`
+[device; CPU cost not measured yet]. `T_BP` (band-pass, unused by Mackie) read silence there
+[device].
 Unused blocks are available to mods, but their CPU cost on the A40i is unknown.
 
 ## Hardware I/O map

@@ -47,12 +47,13 @@ function DLZMOD_layoutTabs(page) {
 // Mod settings live in the hub state like Mackie's own keys (saved in srv_data.json, cleared by a
 // factory reset). app.js refuses keys its Data store does not know yet ([NOT IN DATA]), so ours
 // are added with their defaults before use; the hub's INIT then brings the saved values. Plain JSON
-// (apply-mod.sh's set_mod_defaults reads it). dlzmod.rta is no setting: the channel the EQ spectrum
-// measures (#131, DLZMOD_rtaMeasure), none at first.
+// (apply-mod.sh's set_mod_defaults reads it). dlzmod.spectrum: the EQ pages' Spectrum switch (#131),
+// on at first; dlzmod.rta is no setting: the channel the spectrum measures (DLZMOD_rtaMeasure), none
+// at first.
 function DLZMOD_keys() {
   return { "dlzmod.hideHeader": 0, "dlzmod.meterMode": 0, "dlzmod.preColor": 0, "dlzmod.preLevel": 0,
     "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0, "dlzmod.recDate": 0,
-    "dlzmod.rta": 0 };
+    "dlzmod.spectrum": 1, "dlzmod.rta": 0 };
 }
 
 // The owner's own colours on top of the theme (#21): the background, and an accent colour for the
@@ -624,11 +625,51 @@ function DLZMOD_rtaShown(page, on) {
   DLZMOD_rtaMeasure(0);
 }
 
-// PageEQ.sync (patch.py): the channel on the page; also called while the page is hidden
+// PageEQ.sync (patch.py): the channel on the page; also called while the page is hidden. With the
+// Spectrum switch off: none.
 function DLZMOD_rtaSync(page, prefix) {
   if (DLZMOD_rtaShown.page !== page) return;
   DLZMOD_rtaShown.prefix = prefix;
-  DLZMOD_rtaMeasure(DLZMOD_rtaCode(prefix));
+  DLZMOD_rtaMeasure(DLZMOD_rtaOn() ? DLZMOD_rtaCode(prefix) : 0);
+}
+
+// The Spectrum switch: one setting for every channel, on each EQ page under Mackie's EQ switch, which
+// moves up for it in its box (patch.py: DLZMOD_rtaSwitchY, DLZMOD_rtaSwitch, DLZMOD_rtaLabel). Off:
+// nothing measured or drawn, the audio graph's spectrum blocks bypassed. Only on the XS: the
+// full-size's audio graph is not patched.
+function DLZMOD_rtaOn() {
+  return Data.get("dlzmod.spectrum") !== 0;
+}
+
+function DLZMOD_rtaXs() {
+  return typeof LITE_MODE !== "undefined" && !!LITE_MODE;
+}
+
+// the EQ switch's top: Mackie's 55, or higher in its box (14..137) to make room for the Spectrum switch
+function DLZMOD_rtaSwitchY() {
+  return DLZMOD_rtaXs() ? 22 : 55;
+}
+
+// the switch, like Mackie's EQ switch in the page's colour (null on the full-size)
+function DLZMOD_rtaSwitch(page) {
+  if (!DLZMOD_rtaXs()) return null;
+  return new Switcher(page, {
+    anchors: [116, 80], size: [76, 48], bgColors: [Color.buttonBg, page.color], knobMargin: 2,
+    key: "dlzmod.spectrum", onToggleON: DLZMOD_rtaSwitched, onToggleOFF: DLZMOD_rtaSwitched,
+  });
+}
+
+// its label, as PageEQ.paint writes "EQ" next to the EQ switch
+function DLZMOD_rtaLabel(page, t) {
+  if (!page.dlzmodSpectrum) return;
+  t.drawText("Spectrum", 26, page.dlzmodSpectrum.geomCenterY(),
+    { font: Font.font(600, "14pt"), color: Color.editPageLabels, align: "left", valign: "middle" });
+}
+
+// switched, here or from a browser (DLZMOD_settingsPage registers it): the open page measures again
+function DLZMOD_rtaSwitched() {
+  const page = DLZMOD_rtaShown.page;
+  if (page) DLZMOD_rtaSync(page, DLZMOD_rtaShown.prefix);
 }
 
 // the channel the graph mod measures: only the mixer's own screen says
@@ -638,22 +679,38 @@ function DLZMOD_rtaMeasure(code) {
 
 // every VU message (parseVuData, patched): the bands onto the open EQ page, when they are its
 // channel's. Runs before Mackie's meters in the same call: nothing of it may throw into them.
-function DLZMOD_rtaVu(t) {
+// now: ms (tests), else the clock.
+function DLZMOD_rtaVu(t, now) {
   try {
     const page = DLZMOD_rtaShown.page, s = t && t["dlzmod.rta"];
     if (!page || !page.eq || typeof s !== "string") return;
     const code = DLZMOD_rtaCode(DLZMOD_rtaShown.prefix);
     if (!code || Data.get("dlzmod.rta") !== code) return;
-    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    if (typeof now !== "number") now = typeof performance !== "undefined" ? performance.now() : Date.now();
     const levels = DLZMOD_rtaSmooth(Array.from(atob(s), (c) => c.charCodeAt(0) / 240), code, now);
     const pts = DLZMOD_rtaPoints(levels);
-    if (!pts) return;
+    if (!pts || !DLZMOD_rtaDue(page.eq, pts, now)) return;
     // the look's colours each time: a change of look shows at the next message
     [page.eq.rtaStrokeColor, page.eq.rtaFillColor] = DLZMOD_rtaColors();
     page.eq.setRTA(pts);
   } catch (e) {
     console.log("dlzmod: EQ spectrum: " + e);
   }
+}
+
+// Whether a new picture is due: Mackie's EQ widget redraws all of itself (grid, curve, knobs) for
+// each one, and at the VU messages' pace that slowed the EQ page's knobs and touch on the mixer. At
+// most one per 80 ms, and one that looks the same as the last (no point a pixel off) only after
+// 150 ms: Mackie's code clears the spectrum 250 ms after the last one. ms: now.
+function DLZMOD_rtaDue(eq, pts, now) {
+  const st = DLZMOD_rtaDue;
+  const dt = st.at === undefined ? Infinity : now - st.at;
+  if (dt >= 0 && dt < 80) return false;
+  const old = eq.rtaData, px = (eq.h || 0) - 2;
+  const same = old && old.length === pts.length && pts.every((v, k) => Math.abs(v - old[k]) * px < 1);
+  if (same && dt >= 0 && dt < 150) return false;
+  st.at = now;
+  return true;
 }
 
 // The band levels held like an analyser's: a louder level at once, a quieter one falling at most
@@ -1025,6 +1082,7 @@ function DLZMOD_settingsPage(parent, y) {
   Data.regWidget("dlzmod.hideHeader", DLZMOD_applyHeader);   // also when changed from a browser
   Data.regWidget("dlzmod.meterMarks", DLZMOD_applyMeterMarks);
   for (const k of ["dlzmod.theme", "dlzmod.bgColor", "dlzmod.faderColor"]) Data.regWidget(k, DLZMOD_themeChanged);
+  Data.regWidget("dlzmod.spectrum", DLZMOD_rtaSwitched);
   const top = 44 + 8;   // sub-tabs (44) and a gap, then the panels
   return new Widget(parent, {
     anchors: [0, y, null, null, !0, !0],
