@@ -2105,6 +2105,49 @@ test("EQ spectrum: the bands go onto the open page, not without one, another cha
   ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)));
   assert.strictEqual(pg.eq.got.length, 1);
 });
+test("EQ spectrum: the fill reaches the bottom on its own path, the line is drawn on a fresh one", () => {
+  rtaReset();
+  const calls = [];
+  const ctx2 = new Proxy({}, { get: (o, k) => (k in o ? o[k] : (...a) => calls.push([k, ...a])),
+    set: (o, k, v) => (calls.push(["set " + String(k), v]), true) });
+  const pg = eqPage();
+  Object.assign(pg.eq, { w: 101, h: 52, freqToX: (f) => Math.round(100 * Math.log10(f / 20) / 3), rtaFillColor: "F", rtaStrokeColor: "S" });
+  ctx.DLZMOD_rtaShown(pg, true);
+  pg.eq.rtaData = [0, 0.5, 1];
+  pg.eq.paintRTA(ctx2);
+  const names = calls.map((c) => c[0]);
+  const fill = names.indexOf("fill"), stroke = names.indexOf("stroke");
+  assert.ok(fill > 0 && stroke > fill, "fill first, then the line");
+  assert.deepStrictEqual(calls[names.indexOf("moveTo")], ["moveTo", 0, 50], "the fill starts at the bottom left");
+  const beforeFill = calls.slice(0, fill);
+  assert.deepStrictEqual(beforeFill[beforeFill.map((c) => c[0]).lastIndexOf("lineTo")], ["lineTo", 100, 50], "and closes at the bottom right");
+  assert.deepStrictEqual(plain(calls.find((c) => c[0] === "lineToArray")[1]), [[0, 50], [50, 25], [100, 0]], "points on the widget's own frequency scale");
+  assert.strictEqual(names.slice(fill, stroke).filter((n) => n === "beginPath").length, 1, "a fresh path for the line");
+  assert.ok(calls.some((c) => c[0] === "set fillStyle" && c[1] === "F") && calls.some((c) => c[0] === "set strokeStyle" && c[1] === "S"));
+  pg.eq.rtaData = null;
+  calls.length = 0;
+  pg.eq.paintRTA(ctx2);
+  assert.strictEqual(calls.length, 0, "nothing without data");
+});
+test("EQ spectrum: up at once, down at most 20 dB a second; afresh for another channel or after a pause", () => {
+  const S = (lv, code, now) => plain(ctx.DLZMOD_rtaSmooth(lv, code, now));
+  S([0.5, 0.5], 1, 1000);
+  assert.deepStrictEqual(S([0.9, 0.1], 1, 1100), [0.9, 0.5 - 0.025], "a louder band at once, a quieter one 2 dB lower after 0.1 s");
+  assert.deepStrictEqual(S([0.1, 0.1], 2, 1200), [0.1, 0.1], "another channel: afresh");
+  assert.deepStrictEqual(S([0.5, 0.5], 2, 1300), [0.5, 0.5]);
+  assert.deepStrictEqual(S([0, 0], 2, 2800), [0, 0], "after a pause of over a second: afresh");
+});
+test("EQ spectrum: a smooth curve through the bands, never beyond its neighbours", () => {
+  const P = (dbs, n) => plain(ctx.DLZMOD_rtaPoints(dbs.map((db) => (240 + 3 * db) / 240), n));
+  const dbs = [-40, -20, -50, -10, -30, -30, -45, -12, -50, -35];
+  const pts = P(dbs, 200);
+  const show = (db) => Math.max(0, Math.min(1, (80 + db) / 80 * 80 / 60 - 20 / 60));
+  for (let k = 0; k < 200; k++) {
+    const f = 20 * Math.pow(1000, k / 199), x = Math.max(0, Math.min(9, Math.log2(f / 31.5))), j = Math.min(8, Math.floor(x));
+    const lo = Math.min(show(dbs[j]), show(dbs[j + 1])) - 1e-9, hi = Math.max(show(dbs[j]), show(dbs[j + 1])) + 1e-9;
+    assert.ok(pts[k] >= lo && pts[k] <= hi, `point ${k} (${Math.round(f)} Hz) between its bands`);
+  }
+});
 test("EQ spectrum: an error in it never reaches Mackie's meters (same parseVuData call)", () => {
   rtaReset();
   const pg = eqPage();

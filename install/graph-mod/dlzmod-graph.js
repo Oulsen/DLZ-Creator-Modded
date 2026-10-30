@@ -7,7 +7,8 @@
 // #131 the sound behind the EQ curve. The channel whose EQ page the mixer's screen shows (hub key
 // dlzmod.rta, the codes in DLZMOD_rtaTap's callers; 0 = no EQ page open) is mixed into one mono
 // buffer of the mod's own, right after its EQ (where Mackie's "dynin" meter sits); at the end of
-// the graph one band-pass and one meter per octave report it as the VU group "dlzmod.rta". The taps
+// the graph one band-pass (DLZMOD_rtaAnalyser) and one meter per octave report it as the VU group
+// "dlzmod.rta". The taps
 // only read the channel's buffer and write the mod's own, each in a nested list (flattenGraph keeps
 // the current buffer of the list around it), so Mackie's audio path stays as it is. With no EQ page
 // open the taps and the band-passes are bypassed.
@@ -44,7 +45,7 @@ function DLZMOD_rtaTap(code, bufs) {
 // per band an octave wide band-pass and a meter, each on a copy of the tapped buffer. The band-pass
 // is a high-pass half an octave below the centre and a low-pass half an octave above (EqBand's T_HP
 // and T_LP, as Mackie's telephone effect uses them), not EqBand's own T_BP: Mackie never uses that,
-// and with it the mixer showed no spectrum (#131; DLZMOD_rtaDebug tells whether T_BP was the cause).
+// and with it every band read silence on the mixer, with the tap's channel at -10 dB [device].
 function DLZMOD_rtaAnalyser() {
   let band = createBuffer('dlzmodRtaBand')
   let meters = DLZMOD_rtaMeters()
@@ -53,19 +54,5 @@ function DLZMOD_rtaAnalyser() {
     {type: 'EqBand', bypass: `!@dlzmod.rta`, kind: T_HP, freq: f / Math.SQRT2, q: 0.707, gain: 0.0},
     {type: 'EqBand', bypass: `!@dlzmod.rta`, kind: T_LP, freq: Math.min(20000, f * Math.SQRT2), q: 0.707, gain: 0.0},
     {type: 'MaxMeter', vu: meters[k], threshold: VU_THRESHOLD},
-  ]), ...DLZMOD_rtaDebug()]
-}
-
-// TEMPORARY (#131, taken out before the merge): VU group dlzmod.rtadbg = the tapped buffer's full
-// level, and a 1 kHz T_BP band at gain 0 and at gain 6, to see on the mixer whether the taps pass
-// sound and what T_BP does
-function DLZMOD_rtaDebug() {
-  configureVU({'dlzmod.rtadbg': ['dlzmodRtaDbg0', 'dlzmodRtaDbg1', 'dlzmodRtaDbg2']})
-  return [
-    [{type: 'CopyFrom', src: DLZMOD_rtaBuf()}, {type: 'MaxMeter', vu: 'dlzmodRtaDbg0', threshold: VU_THRESHOLD}],
-    [{type: 'CopyFrom', src: DLZMOD_rtaBuf()}, {type: 'EqBand', kind: T_BP, freq: 1000, q: 1.414, gain: 0.0},
-      {type: 'MaxMeter', vu: 'dlzmodRtaDbg1', threshold: VU_THRESHOLD}],
-    [{type: 'CopyFrom', src: DLZMOD_rtaBuf()}, {type: 'EqBand', kind: T_BP, freq: 1000, q: 1.414, gain: 6.0},
-      {type: 'MaxMeter', vu: 'dlzmodRtaDbg2', threshold: VU_THRESHOLD}],
-  ]
+  ])]
 }

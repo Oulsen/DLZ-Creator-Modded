@@ -579,10 +579,11 @@ function DLZMOD_paintDbScale(t, sl, m) {
 // whose EQ page the mixer's screen shows in octave bands and sends them with every VU message as
 // "dlzmod.rta" (one byte per band, Mackie's VU scale: 0..1 over 80 dB). The screen says which channel
 // that is (hub key dlzmod.rta, DLZMOD_rtaCode; the server takes it from the screen only); a browser
-// shows it when its EQ page has the same channel. Drawn by Mackie's own spectrum code in the EQ
-// curve (EQ.setRTA, paintRTA: a filled line over 20 Hz - 20 kHz, cleared 250 ms after the last data,
-// so it goes when the sound stops or the page closes). Mackie's overlay layer for it is not used:
-// drawn with the curve (rtaOverlay off), as the widget does on its own without one.
+// shows it when its EQ page has the same channel. Fed through Mackie's own spectrum code in the EQ
+// widget (EQ.setRTA: cleared 250 ms after the last data, so it goes when the sound stops or the page
+// closes), drawn with the curve (rtaOverlay off: Mackie's overlay layer is not used) by the mod's
+// DLZMOD_rtaPaint instead of Mackie's paintRTA. Smoothed like an analyser: up at once, down slowly
+// (DLZMOD_rtaSmooth), so an EQ change shows as a calm rise or dip instead of drowning in every beat.
 
 // the bands' centres in Hz, as the graph mod has them
 function DLZMOD_rtaFreqs() {
@@ -609,7 +610,12 @@ function DLZMOD_rtaColors() {
 function DLZMOD_rtaShown(page, on) {
   if (on) {
     DLZMOD_rtaShown.page = page;
-    if (page.eq) page.eq.rtaOverlay = !1;
+    if (page.eq) {
+      page.eq.rtaOverlay = !1;
+      page.eq.paintRTA = function (t) {
+        DLZMOD_rtaPaint(this, t);
+      };
+    }
     return;
   }
   if (page && DLZMOD_rtaShown.page !== page) return;
@@ -638,7 +644,9 @@ function DLZMOD_rtaVu(t) {
     if (!page || !page.eq || typeof s !== "string") return;
     const code = DLZMOD_rtaCode(DLZMOD_rtaShown.prefix);
     if (!code || Data.get("dlzmod.rta") !== code) return;
-    const pts = DLZMOD_rtaPoints(Array.from(atob(s), (c) => c.charCodeAt(0) / 240));
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const levels = DLZMOD_rtaSmooth(Array.from(atob(s), (c) => c.charCodeAt(0) / 240), code, now);
+    const pts = DLZMOD_rtaPoints(levels);
     if (!pts) return;
     // the look's colours each time: a change of look shows at the next message
     [page.eq.rtaStrokeColor, page.eq.rtaFillColor] = DLZMOD_rtaColors();
@@ -648,24 +656,75 @@ function DLZMOD_rtaVu(t) {
   }
 }
 
-// The band levels (0..1 over 80 dB, top = 0 dBFS) as the points paintRTA draws: evenly spread over
-// the curve's 20 Hz - 20 kHz (a log scale), each the level at its frequency, interpolated in dB
-// between the two nearest bands (outside them: the outer band's). Shown from -60 dBFS (bottom) to
-// 0 dBFS (top); null when every band is below that (silence: Mackie's code clears the curve).
+// The band levels held like an analyser's: a louder level at once, a quieter one falling at most
+// 20 dB a second (levels are 1/80 per dB), so the picture stays calm between beats. Starts afresh for
+// another channel or after a pause of more than a second (ms: now).
+function DLZMOD_rtaSmooth(levels, code, now) {
+  const st = DLZMOD_rtaSmooth;
+  const dt = (now - (st.at || 0)) / 1000;
+  if (st.code !== code || !st.levels || st.levels.length !== levels.length || !(dt >= 0) || dt > 1) {
+    st.levels = levels.slice();
+  } else {
+    const fall = 20 / 80 * dt;
+    st.levels = levels.map((v, k) => Math.max(v, st.levels[k] - fall));
+  }
+  st.code = code;
+  st.at = now;
+  return st.levels;
+}
+
+// The band levels (0..1 over 80 dB, top = 0 dBFS) as the points DLZMOD_rtaPaint draws: evenly spread
+// over the curve's 20 Hz - 20 kHz (a log scale), each the level at its frequency, on a smooth curve
+// through the bands (Catmull-Rom in dB, never beyond its two nearest bands; outside them: the outer
+// band's). Shown from -60 dBFS (bottom) to 0 dBFS (top); null when every band is below that
+// (silence: Mackie's code clears the curve).
 function DLZMOD_rtaPoints(levels, n = 64) {
-  const freqs = DLZMOD_rtaFreqs();
+  const freqs = DLZMOD_rtaFreqs(), last = freqs.length - 1;
   if (!levels || levels.length < freqs.length) return null;
   const floor = 20 / 80;   // -60 dBFS
   const show = (v) => Math.max(0, Math.min(1, (v - floor) / (1 - floor)));
   if (!levels.slice(0, freqs.length).some((v) => v > floor)) return null;
+  const at = (j) => levels[Math.max(0, Math.min(last, j))];
   const pts = new Array(n);
   for (let k = 0; k < n; k++) {
     const f = 20 * Math.pow(1000, k / (n - 1));
-    const x = Math.max(0, Math.min(freqs.length - 1, Math.log2(f / freqs[0])));
-    const j = Math.min(freqs.length - 2, Math.floor(x));
-    pts[k] = show(levels[j] + (levels[j + 1] - levels[j]) * (x - j));
+    const x = Math.max(0, Math.min(last, Math.log2(f / freqs[0])));
+    const j = Math.min(last - 1, Math.floor(x)), u = x - j;
+    const p0 = at(j - 1), p1 = at(j), p2 = at(j + 1), p3 = at(j + 2);
+    const v = p1 + 0.5 * u * (p2 - p0 + u * (2 * p0 - 5 * p1 + 4 * p2 - p3 + u * (3 * (p1 - p2) + p3 - p0)));
+    pts[k] = show(Math.max(Math.min(p1, p2), Math.min(Math.max(p1, p2), v)));
   }
   return pts;
+}
+
+// EQ.paintRTA on the open page (DLZMOD_rtaShown): the points as a filled area from the bottom of the
+// graph, then its line on top, each on a path of its own. On the mixer the screen program uses a path
+// up with stroke(), so Mackie's paintRTA (line, then fill on the same path) filled only down to the
+// middle there; Mackie's own curve builds its path again for the fill (NODE_DRAW_FIX) for the same
+// reason. x from the widget's own frequency scale (freqToX).
+function DLZMOD_rtaPaint(eq, t) {
+  const d = eq.rtaData;
+  if (!d || !d.length) return;
+  const bottom = eq.h - 2, n = d.length;
+  const pts = d.map((v, k) => [eq.freqToX(20 * Math.pow(1000, k / (n - 1))), Math.round(bottom * (1 - v))]);
+  const line = (ps) => {
+    if (typeof t.lineToArray === "function") t.lineToArray(ps);
+    else ps.forEach((p) => t.lineTo(p[0], p[1]));
+  };
+  t.lineWidth = 1;
+  t.lineJoin = "round";
+  t.beginPath();
+  t.moveTo(pts[0][0], bottom);
+  line(pts);
+  t.lineTo(pts[n - 1][0], bottom);
+  t.closePath();
+  t.fillStyle = eq.rtaFillColor;
+  t.fill();
+  t.beginPath();
+  t.moveTo(pts[0][0], pts[0][1]);
+  line(pts);
+  t.strokeStyle = eq.rtaStrokeColor;
+  t.stroke();
 }
 
 function DLZMOD_initKeys() {
