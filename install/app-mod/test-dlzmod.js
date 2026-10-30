@@ -2105,6 +2105,17 @@ test("EQ spectrum: the bands go onto the open page, not without one, another cha
   ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)));
   assert.strictEqual(pg.eq.got.length, 1);
 });
+test("EQ spectrum: an error in it never reaches Mackie's meters (same parseVuData call)", () => {
+  rtaReset();
+  const pg = eqPage();
+  pg.eq.setRTA = () => {
+    throw new Error("broken widget");
+  };
+  ctx.DLZMOD_rtaShown(pg, true);
+  ctx.DLZMOD_rtaSync(pg, "m.");
+  assert.doesNotThrow(() => ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20))));
+  assert.doesNotThrow(() => ctx.DLZMOD_rtaVu({ "dlzmod.rta": "not base64!" }));
+});
 test("EQ spectrum: in the meters' colour of the look on screen, stronger with High contrast", () => {
   rtaReset();
   const saved = ctx.DLZMOD_applyTheme.look;

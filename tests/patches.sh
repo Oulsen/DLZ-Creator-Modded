@@ -50,6 +50,8 @@ if [ -f "$TMP/graph.js.orig" ]; then
   else
     bad "graph.js: $(grep -v '^ok' "$TMP/graph.check" | head -5)"
   fi
+else
+  bad "graph.js: no patched graph, tests/graph-check.js not run"
 fi
 # the mod's own files parse as they are, before they are appended
 for f in install/app-mod/dlzmod.js install/server-mod/dlzmod-server.js install/graph-mod/dlzmod-graph.js; do

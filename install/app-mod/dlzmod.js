@@ -630,23 +630,22 @@ function DLZMOD_rtaMeasure(code) {
   if (!DLZMOD_external() && Data.get("dlzmod.rta") !== code) Data.set("dlzmod.rta", code);
 }
 
-// every VU message (parseVuData, patched): the bands onto the open EQ page, when they are its channel's
+// every VU message (parseVuData, patched): the bands onto the open EQ page, when they are its
+// channel's. Runs before Mackie's meters in the same call: nothing of it may throw into them.
 function DLZMOD_rtaVu(t) {
-  const page = DLZMOD_rtaShown.page, s = t && t["dlzmod.rta"];
-  if (!page || !page.eq || typeof s !== "string") return;
-  const code = DLZMOD_rtaCode(DLZMOD_rtaShown.prefix);
-  if (!code || Data.get("dlzmod.rta") !== code) return;
-  let raw;
   try {
-    raw = atob(s);
+    const page = DLZMOD_rtaShown.page, s = t && t["dlzmod.rta"];
+    if (!page || !page.eq || typeof s !== "string") return;
+    const code = DLZMOD_rtaCode(DLZMOD_rtaShown.prefix);
+    if (!code || Data.get("dlzmod.rta") !== code) return;
+    const pts = DLZMOD_rtaPoints(Array.from(atob(s), (c) => c.charCodeAt(0) / 240));
+    if (!pts) return;
+    // the look's colours each time: a change of look shows at the next message
+    [page.eq.rtaStrokeColor, page.eq.rtaFillColor] = DLZMOD_rtaColors();
+    page.eq.setRTA(pts);
   } catch (e) {
-    return;
+    console.log("dlzmod: EQ spectrum: " + e);
   }
-  const pts = DLZMOD_rtaPoints(Array.from(raw, (c) => c.charCodeAt(0) / 240));
-  if (!pts) return;
-  // the look's colours each time: a change of look shows at the next message
-  [page.eq.rtaStrokeColor, page.eq.rtaFillColor] = DLZMOD_rtaColors();
-  page.eq.setRTA(pts);
 }
 
 // The band levels (0..1 over 80 dB, top = 0 dBFS) as the points paintRTA draws: evenly spread over

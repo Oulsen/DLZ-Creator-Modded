@@ -36,6 +36,9 @@ The binary embeds a JSON descriptor per plugin (name, description, params with `
 |---|---|
 | Gain/mix | **Gain**, **LinearGain**, **GainWithLin**, **GainWithLinMixTo**, **GainWithLinMixToM2S**, **GainWithLinDownMixS2M**, PreampGain, **PreampHWGain** (THAT preamp chip), **MixWet**, MixToCond, **FadeInOut**, **ResetRampCount** |
 | EQ/filter | **EqBand** (peak, low/high shelf, LP, HP, notch, BP), EqBandStereo, **DCFilter** |
+
+`GainWithLinMixTo` (`src` → `dest`): `gain` in dB (Mackie: `0` plain, `-200` off, `10.0` for
+Bluetooth's +10 dB), `linMul` a linear factor (pan laws), `mute`, `bypass` [static].
 | Dynamics | **EconomyGateCompressor**, **EconomyCompressor**, **EconomyDeesser**, EconomyGate, Compressor, Gate, Deesser |
 | Time/FX | **Delay**, **FeedbackDelay**, SimpleDelay, Delay2, **AsyncReverb**, Reverb, SmallReverb, **BasicPitchShifter**, **Vocoder**, **SineGen** |
 | Automation | **AutoGain**, **AutoMixerPrepare**/**AutoMixerChannel**/**AutoMixer**, **AutoDuckPrepare**/**AutoDuckSource**/**AutoDuck** |
