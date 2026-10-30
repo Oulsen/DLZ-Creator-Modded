@@ -108,8 +108,10 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
   (`DLZMOD_sampleName`, the same picker as the recordings, `DLZMOD_pickNumbered`); no animal, a pad
   refers to its sample by path and the name is not shown. When the folder cannot be read the take is
   not stored: the recorder is set back as stock's `SAMPLE_REC_RESET` does and the pad keeps what it
-  had. [static: unit tests, `zzz_RS_0001` and `rs_0005` next to `RS_0001` give `RS_0006`; not yet
-  tested on the mixer]. Stock's weak spots: [components/node-backend.md](components/node-backend.md),
+  had. [device: with `zzz_RS_0001` and `RS_0002` in the folder a kept take became `RS_0003` (stock:
+  `RS_0002`, overwritten), `RS_0002` untouched, the pad plays the new take, the card read-only again
+  10 s after the store; static: unit tests, `zzz_RS_0001` and `rs_0005` next to `RS_0001` give
+  `RS_0006`; an unreadable folder not tried on the mixer]. Stock's weak spots: [components/node-backend.md](components/node-backend.md),
   "Sample recorder names".
 - **Date and time in recording names** (#14): `REC_0042_otter_2026-10-11_1430`, the start of the
   recording in the mixer's zone, after the animal (the number stays first). A switch on Settings,
