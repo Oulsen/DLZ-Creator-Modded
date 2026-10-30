@@ -417,8 +417,8 @@ issue's technical notes point to the note section instead of copying it.
   in develop").
 - **Branches**: `develop` for work and tests, `main` for releases (and patches to them, below). Nothing is committed to
   either directly: every change gets its own branch from `develop` (`fix/...`, `feature/...`,
-  `docs/...`) and a PR into `develop`, **squash-merged** (one commit per change). The one
-  exception is a patch ("Patches" below).
+  `docs/...`) and a PR into `develop`, **squash-merged** (one commit per change; the `develop`
+  ruleset allows nothing else). The one exception is a patch ("Patches" below).
 - **Review**: every PR into `develop` gets a review before it is merged, also a small one that only
   changes docs. A contributor's PR: the maintainer reviews it (`.github/CODEOWNERS` requests that
   once the repo is public; a ruleset makes it required). The maintainer's own PRs: right after the
@@ -519,12 +519,16 @@ issue's technical notes point to the note section instead of copying it.
   ([notes/updates.md](../notes/updates.md), "Versions and channels").
 - **Patches**: a correction to the released version that should not wait for the next release
   (`develop` already holds the next version's work from the bump on). In order:
-  1. A branch `patch/...` from `main`, a PR into `main`, **squash-merged**, with the review a PR
-     into `develop` gets ("Review", "On the mixer before the merge").
-  2. Right after, a PR `main` → `develop`, merged with **"Create a merge commit"** (the only PR not
-     squashed): `develop` then contains `main`'s commit, so the next release still fast-forwards. A
-     squash would make a copy, leave `main` with a commit `develop` lacks, and the fast-forward
-     would fail. A conflict is resolved on a branch from `develop` that merges `origin/main`.
+  1. A branch `patch/...` from `main`, a PR into `main` with the review a PR into `develop` gets
+     ("Review", "On the mixer before the merge"), merged with a merge commit (the only method the
+     `main` ruleset allows in a PR).
+  2. Right after, `main` back into `develop` as a real merge, not through a PR (the `develop`
+     ruleset only squashes, and a squash would make a copy: `main` keeps commits `develop` lacks
+     and the next release can't fast-forward). On a branch `sync/...` from `origin/develop`:
+     `git merge --no-ff origin/main` (a conflict is resolved there), pushed; then the maintainer
+     moves `develop` to it: `git fetch origin && git push origin <commit>:develop` (a fast-forward,
+     as at a release; the `develop` ruleset needs the maintainer's bypass on "Always"). Then
+     `git merge-base --is-ancestor origin/main origin/develop` succeeds.
 
   A docs-only patch (the README, the install guide) ends there: no version, tag or release files.
   A patch that changes what runs on the mixer is a new version `vX.Y.Z+1`: its branch sets
