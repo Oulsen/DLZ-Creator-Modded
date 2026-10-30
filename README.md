@@ -1,3 +1,5 @@
+<img src="docs/images/brand/modded.png" alt="MODDED" width="170" align="left">
+
 # DLZ Creator Modded
 
 An unofficial mod for the Mackie DLZ Creator and DLZ Creator XS. It runs from a microSD card in the
