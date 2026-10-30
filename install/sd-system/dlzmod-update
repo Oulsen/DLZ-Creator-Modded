@@ -933,7 +933,7 @@ if [ "$rc" = 0 ]; then
   sync
   if writable && rm -f "$SRC" "$SRC.sig"; then del="the update files were deleted"
   else del="the update files could not be deleted (DLZDATA read-only?): remove them on a computer"; fi
-  log "INSTALLED: $NEWV ($(penv BUILD)); $del. The app, the server and udev rules use it now;"
+  log "INSTALLED: $NEWV ($(penv BUILD)); $del. The app, the server, the audio engine and udev rules use it now;"
   log "changed startup units from the next start"
   [ -n "$ROOT" ] || udevadm control --reload 2>/dev/null
 else
