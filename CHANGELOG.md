@@ -8,6 +8,7 @@
 - (DLZ BUG) Recording times are 1-2 hours off (the mixer runs on world time, not local time)
 - (DLZ BUG) Clock jumps back to November 2023 after every power-off
 - (DLZ BUG) The player shows 'DLZ|Creator - ' in front of every recording's name
+- (DLZ BUG) A new sample recording can overwrite an older sample
 - (MOD BUG) Update and start-report details from the v0.3.0 review
 
 ## v0.3.0
