@@ -1,4 +1,4 @@
-# DLZ Creator Modded
+# <img src="docs/images/brand/modded.png" alt="MODDED" height="64" align="middle"> DLZ Creator Modded
 
 An unofficial mod for the Mackie DLZ Creator and DLZ Creator XS. It runs from a microSD card in the
 mixer: the mixer's own software stays as it is, and without the card the mixer starts normally.

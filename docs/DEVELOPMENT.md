@@ -199,6 +199,7 @@ The repo is public, so what goes into it is limited by what the project may publ
 | `ui-sandbox/fake-vu-live.js` | browser | Moving fake meter levels that follow the faders, loaded into the sandbox page by the shim (off with `/?novu`) |
 | `installer-shot.py` | WSL (Pillow) | Render an installer screen (`ui.py`) as a PNG, upright, as it will look on the mixer |
 | `installer-mockup.py` | WSL (Pillow) | Every screen of a real install as PNGs, an animated spinner and one overview sheet (look checks); `--no-sheet docs/images/install` renders the install guide's screens, `--check docs/images/install` says whether they are current, and fails when a progress line does not fit one row |
+| `brand.py` | WSL (Pillow) | The MODDED sticker as the README's image and the repo's social preview (`python3 dev/brand.py docs/images/brand`); the social preview is uploaded by hand under GitHub's Settings → General |
 
 WSL setup: "Getting started" above.
 
