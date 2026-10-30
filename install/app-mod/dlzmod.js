@@ -613,7 +613,9 @@ function DLZMOD_rtaShown(page, on) {
     DLZMOD_rtaShown.page = page;
     const eq = page.eq;
     if (eq) {
-      eq.rtaOverlay = !1;
+      // on the screen's top sheet when there is one (DLZMOD_rtaTop): then the widget's own paint
+      // leaves the spectrum out
+      eq.rtaOverlay = !!DLZMOD_rtaTop(eq);
       eq.paintRTA = function (t) {
         DLZMOD_rtaPaint(this, t);
       };
@@ -671,11 +673,13 @@ function DLZMOD_rtaSwitch(page) {
   });
 }
 
-// its label, as PageEQ.paint writes "EQ" next to the EQ switch
+// its label, as PageEQ.paint writes "EQ" next to the EQ switch, with the mod's mark in front (inside
+// the box)
 function DLZMOD_rtaLabel(page, t) {
   if (!page.dlzmodSpectrum) return;
   t.drawText("Spectrum", 26, page.dlzmodSpectrum.geomCenterY(),
     { font: Font.font(600, "14pt"), color: Color.editPageLabels, align: "left", valign: "middle" });
+  DLZMOD_stockMark(t, page.dlzmodSpectrum, 18);
 }
 
 // switched, here or from a browser (DLZMOD_settingsPage registers it): the open page measures again
@@ -718,22 +722,63 @@ function DLZMOD_rtaNow() {
 }
 
 // The animation: the EQ widget's picture (shown) and where it goes (target, from the last message;
-// at: when it came), its timer (later: setTimeout, tests replace it), and when the widget last
-// redrew for something else (busyAt).
+// at: when it came), its timer (later: setTimeout, tests replace it), when the widget last redrew
+// for something else (busyAt), and the frames counted for the log (stats, DLZMOD_rtaCount).
 function DLZMOD_rtaAnim() {
   if (!DLZMOD_rtaAnim.s) {
     DLZMOD_rtaAnim.s = { eq: null, target: null, shown: null, at: 0, busyAt: -1e9, timer: null, drawing: false,
-      later: (f, ms) => setTimeout(f, ms) };
+      later: (f, ms) => setTimeout(f, ms), stats: null };
   }
   return DLZMOD_rtaAnim.s;
 }
 
+// The screen's top sheet: Mackie's overlay layer (fctx, its popups' layer), shown over everything
+// else. The spectrum drawn there costs one fill and one line per frame instead of a redraw of the
+// whole EQ widget, and Mackie's redraws of the widget leave it alone. Not while a popup is open
+// (mWidgets): on the mixer clearing a part of the top sheet clears all of it (Mackie's clearFgRect).
+// The domain when it has one, else null (the spectrum is then drawn in the widget).
+function DLZMOD_rtaTop(eq) {
+  const d = eq && typeof eq.getDomain === "function" ? eq.getDomain() : null;
+  return d && d.fctx && typeof d.clearFgRect === "function" ? d : null;
+}
+
+// the picture onto the top sheet: the EQ widget's area cleared, then the spectrum at the widget's
+// place; false while a popup is open
+function DLZMOD_rtaDrawTop(eq, d) {
+  if (d.mWidgets && d.mWidgets.length) return false;
+  const x = eq.globalX(), y = eq.globalY();
+  d.clearFgRect(x, y, eq.w, eq.h);
+  if (eq.rtaData && (typeof eq.globalVisible !== "function" || eq.globalVisible())) DLZMOD_rtaPaint(eq, d.fctx, x, y);
+  return true;
+}
+
+// Test version: frames drawn and the time between them, into the log every 5 s while it draws
+// ("dlzmod: EQ spectrum: 5.0 s: 143 frames (28.6/s), 35 ms apart (max 120), on the top sheet").
+function DLZMOD_rtaCount(now, top) {
+  const a = DLZMOD_rtaAnim();
+  if (!a.stats || !(now - a.stats.last >= 0 && now - a.stats.last < 1000)) a.stats ={ from: now, last: now, n: 0, gaps: 0, max: 0 };
+  const st = a.stats;
+  if (st.n) {
+    st.gaps += now - st.last;
+    st.max = Math.max(st.max, now - st.last);
+  }
+  st.n++;
+  st.last = now;
+  const span = now - st.from;
+  if (span < 5000) return;
+  console.log("dlzmod: EQ spectrum: " + (span / 1000).toFixed(1) + " s: " + st.n + " frames ("
+    + (st.n * 1000 / span).toFixed(1) + "/s), " + Math.round(st.gaps / (st.n - 1)) + " ms apart (max "
+    + Math.round(st.max) + "), " + (top ? "on the top sheet" : "in the widget"));
+  a.stats = null;
+}
+
 // One frame, about 30 a second while the picture moves: each point 60 % of the way to the target, so
-// a new message glides in within ~80 ms instead of jumping. Each frame redraws the whole widget (grid,
-// curve, knobs), which is what the screen spends its time on: within 250 ms of a redraw for something
-// else (a knob, a dragged dot) the picture only moves along in the widget's data, drawn with those
-// redraws, so turning and dragging stay quick. Standing still (no point half a pixel off): no frames,
-// a slower check. No message for 300 ms (silence below the bottom, the switch off, another channel
+// a new message glides in within ~80 ms instead of jumping. On the top sheet (DLZMOD_rtaTop) a frame
+// is the spectrum alone. Without one each frame redraws the whole widget (grid, curve, knobs), which
+// is what the screen spends its time on: within 250 ms of a redraw for something else (a knob, a
+// dragged dot) the picture then only moves along in the widget's data, drawn with those redraws, so
+// turning and dragging stay quick. Standing still (no point half a pixel off): no frames, a slower
+// check. No message for 300 ms (silence below the bottom, the switch off, another channel
 // measured) or a silent one: it sinks to the bottom and goes. now: ms (tests), else the clock.
 function DLZMOD_rtaTick(now) {
   const a = DLZMOD_rtaAnim();
@@ -753,13 +798,17 @@ function DLZMOD_rtaTick(now) {
     a.shown = gone ? null : next;
     if (moved || gone) {
       eq.rtaData = a.shown;
-      if (now - a.busyAt >= 250 || gone) {
+      const top = eq.rtaOverlay ? DLZMOD_rtaTop(eq) : null;
+      if (top) {
+        if (DLZMOD_rtaDrawTop(eq, top) && !gone) DLZMOD_rtaCount(now, true);
+      } else if (now - a.busyAt >= 250 || gone) {
         a.drawing = true;
         try {
           eq.update();
         } finally {
           a.drawing = false;
         }
+        if (!gone) DLZMOD_rtaCount(now, false);
       }
     }
     if (!gone) a.timer = a.later(DLZMOD_rtaTick, moved ? 33 : 100);
@@ -773,7 +822,17 @@ function DLZMOD_rtaStop(clear) {
   const a = DLZMOD_rtaAnim();
   if (a.timer) clearTimeout(a.timer);
   a.timer = null;
-  if (clear && a.eq) a.eq.rtaData = null;
+  if (clear && a.eq) {
+    a.eq.rtaData = null;
+    const top = a.eq.rtaOverlay ? DLZMOD_rtaTop(a.eq) : null;
+    if (top) {
+      try {
+        DLZMOD_rtaDrawTop(a.eq, top);
+      } catch (e) {
+        console.log("dlzmod: EQ spectrum: " + e);
+      }
+    }
+  }
   if (clear) a.eq = null;
   a.shown = null;
   a.target = null;
@@ -824,12 +883,13 @@ function DLZMOD_rtaPoints(levels, n = 64) {
 // graph, then its line on top, each on a path of its own. On the mixer the screen program uses a path
 // up with stroke(), so Mackie's paintRTA (line, then fill on the same path) filled only down to the
 // middle there; Mackie's own curve builds its path again for the fill (NODE_DRAW_FIX) for the same
-// reason. x from the widget's own frequency scale (freqToX).
-function DLZMOD_rtaPaint(eq, t) {
+// reason. x from the widget's own frequency scale (freqToX); ox, oy: the widget's place on the top
+// sheet (DLZMOD_rtaDrawTop), which has the screen's coordinates.
+function DLZMOD_rtaPaint(eq, t, ox = 0, oy = 0) {
   const d = eq.rtaData;
   if (!d || !d.length) return;
   const bottom = eq.h - 2, n = d.length;
-  const pts = d.map((v, k) => [eq.freqToX(20 * Math.pow(1000, k / (n - 1))), Math.round(bottom * (1 - v))]);
+  const pts = d.map((v, k) => [ox + eq.freqToX(20 * Math.pow(1000, k / (n - 1))), oy + Math.round(bottom * (1 - v))]);
   const line = (ps) => {
     if (typeof t.lineToArray === "function") t.lineToArray(ps);
     else ps.forEach((p) => t.lineTo(p[0], p[1]));
@@ -837,9 +897,9 @@ function DLZMOD_rtaPaint(eq, t) {
   t.lineWidth = 1;
   t.lineJoin = "round";
   t.beginPath();
-  t.moveTo(pts[0][0], bottom);
+  t.moveTo(pts[0][0], oy + bottom);
   line(pts);
-  t.lineTo(pts[n - 1][0], bottom);
+  t.lineTo(pts[n - 1][0], oy + bottom);
   t.closePath();
   t.fillStyle = eq.rtaFillColor;
   t.fill();
@@ -2436,9 +2496,9 @@ function DLZMOD_trackName(name) {
 }
 
 // the mod's mark on a setting in a stock screen (ground rule 9, for bug reports and support): a short
-// bar in the mod's yellow left of the setting's label, at the height of its control w
-function DLZMOD_stockMark(t, w) {
-  if (w) t.fRect(DLZMOD_yellow(), 10, w.geomCenterY() - 9, 3, 18);
+// bar in the mod's yellow left of the setting's label (at x), at the height of its control w
+function DLZMOD_stockMark(t, w, x = 10) {
+  if (w) t.fRect(DLZMOD_yellow(), x, w.geomCenterY() - 9, 3, 18);
 }
 
 // the Media page's path ("sd:\DLZ_Creator_XS_Recordings") to {medium, dir} when it is a recordings
