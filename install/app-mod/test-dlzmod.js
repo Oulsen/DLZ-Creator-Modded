@@ -548,6 +548,9 @@ test("player: recordings without dspserver's artist, other files unchanged", () 
   assert.strictEqual(ctx.DLZMOD_trackName("Track 1"), "Track 1");
   assert.strictEqual(ctx.DLZMOD_trackName(""), "");
   assert.strictEqual(ctx.DLZMOD_trackName(undefined), undefined);
+  assert.strictEqual(ctx.DLZMOD_trackName(42), 42, "not a string: as stock, never a throw in the paint");
+  assert.strictEqual(ctx.DLZMOD_trackName("Live - DLZ|Creator - Jam"), "Live - DLZ|Creator - Jam", "only in front");
+  assert.strictEqual(ctx.DLZMOD_trackName("dlz|creator - Jam"), "dlz|creator - Jam", "only dspserver's exact artist");
 });
 
 // #58: Mackie's messages (showToast) while the header is hidden. o.shown: the header shown, o.nav false:

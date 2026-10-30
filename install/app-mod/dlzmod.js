@@ -2155,7 +2155,7 @@ function DLZMOD_recRowY(i) {
 // without the artist dspserver writes into every recording of its own; other files keep their artist
 function DLZMOD_trackName(name) {
   const own = "DLZ|Creator - ";
-  return name && name.startsWith(own) ? name.slice(own.length) : name;
+  return typeof name === "string" && name.startsWith(own) ? name.slice(own.length) : name;
 }
 
 // the mod's mark on a setting in a stock screen (ground rule 9, for bug reports and support): a short
