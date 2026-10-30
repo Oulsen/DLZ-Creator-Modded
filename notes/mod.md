@@ -126,7 +126,8 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
   recording, so stock reads `DLZ|Creator - REC_00..bat_2026-10-28_2013` [device; static: the string
   next to `StereoMtkRecorder` in `/usr/local/bin/dspserver`]. The mod drops that one prefix on the
   title line only (`DLZMOD_trackName`, an app.js patch on `trackName`); other files keep their
-  artist, the files themselves are unchanged. [PC sandbox: `REC_10000_hippopotamus_2026-10-28_1430`
+  artist, the files themselves are unchanged. [device: a recording plays with its own name on the
+  title line; PC sandbox: `REC_10000_hippopotamus_2026-10-28_1430`
   fits whole; with the prefix, `REC_0042_hippopotamus` (no date) fits too, a name with the date is
   shortened in the middle]
 - **Recordings go to the SD card by default** (`settings.rec.toUSB` off in the card's state).
