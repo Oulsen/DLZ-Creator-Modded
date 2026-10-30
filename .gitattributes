@@ -4,9 +4,10 @@ install/dumper/*.txt text eol=lf
 *.py text eol=lf
 # Installed onto the device as-is (scripts, systemd units, drop-ins)
 install/sd-system/** text eol=lf
-# Appended to the device's app.js/server.js: LF everywhere keeps package builds identical on any OS
+# Appended to the device's app.js/server.js/audio graph: LF everywhere keeps package builds identical on any OS
 install/app-mod/** text eol=lf
 install/server-mod/** text eol=lf
+install/graph-mod/** text eol=lf
 # Installer initramfs and U-Boot script (/init must be LF to run as PID 1)
 install/installer/** text eol=lf
 install/release/** text eol=lf
