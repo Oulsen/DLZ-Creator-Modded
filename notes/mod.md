@@ -190,7 +190,12 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   made the EQ page's knobs and touch lag on the mixer, at most one per 80 ms made the spectrum choppy
   [device]. So within 250 ms of a redraw for something else (a knob, a dragged dot; `eq.update`
   wrapped) the animation draws no frames of its own: the picture moves on in `rtaData` and shows with
-  those redraws. In the sandbox ~28 frames a second, no other redraws with nothing touched. Colours
+  those redraws. In the sandbox ~28 frames a second, no other redraws with nothing touched; on the
+  mixer usable but not smooth, about the most the screen does this way [device]. Tried and dropped:
+  the spectrum alone on Mackie's top sheet (the overlay layer, `rtaOverlay` on): the mod sent 28
+  frames a second, 36 ms apart, yet the screen lagged far more, as on the mixer every clear of the
+  top sheet clears all of it and glesgui lays the whole sheet over the screen for each frame
+  ([components/node-backend.md](components/node-backend.md)) [device]. Colours
   (`DLZMOD_rtaColors`): the meters' colour of the look on screen (theme or own fader colour, #21),
   line 85 % / fill 25 %, High contrast 100 % / 35 %, set at each message so a change of look shows
   at once; Mackie's own greys were too dim [sandbox].

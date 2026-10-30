@@ -226,6 +226,11 @@ Whether the `HAVE_*` flags unlock anything without native support is unknown [gu
   On the mixer that `paintRTA` fills only down to the middle line (it strokes, then fills the same
   path, and glesgui uses the path up with `stroke()`) [device]; each `setRTA` (and each `update()`) redraws the whole
   widget.
+- **The top sheet** (`fctx`, the overlay canvas popups draw on, `mWidgets`): a widget's `update()`
+  leaves it alone, a full `drawAll` clears it. On the mixer `clearFgRect` clears all of it whatever
+  the rectangle, and its commands go out with the next `ctx.drawFrame` (`needDrawFrame`) [static].
+  Drawing there ~28 times a second (a spectrum: one fill, one line) made the screen lag far more
+  than redrawing the whole EQ widget as often [device]: no faster path for animation.
 
 ## Patchability
 

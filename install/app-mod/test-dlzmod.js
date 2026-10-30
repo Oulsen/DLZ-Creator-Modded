@@ -2045,7 +2045,7 @@ const rtaReset = () => {
   ctx.DLZMOD_rtaShown.page = null;
   ctx.DLZMOD_rtaShown.prefix = "";
   ctx.DLZMOD_rtaStop(true);
-  Object.assign(ctx.DLZMOD_rtaAnim(), { busyAt: -1e9, at: 0, stats: null, later: (f, ms) => (ui.later = ms, 1) });
+  Object.assign(ctx.DLZMOD_rtaAnim(), { busyAt: -1e9, at: 0, later: (f, ms) => (ui.later = ms, 1) });
 };
 test("EQ spectrum: the channels with an EQ page get the graph mod's numbers, others none", () => {
   const codes = ["i.0.", "i.1.", "p.0.", "p.1.", "v.0.", "v.1.", "s.", "m."].map((p) => ctx.DLZMOD_rtaCode(p));
@@ -2175,58 +2175,6 @@ test("EQ spectrum: silence or no message for 300 ms: the picture sinks and goes;
   assert.strictEqual(pg.eq.rtaData, null, "the page closed: cleared");
   ctx.DLZMOD_rtaTick(4033);
   assert.strictEqual(pg.eq.rtaData, null);
-});
-test("EQ spectrum: with a top sheet, a frame is the spectrum alone, at the widget's place; none over a popup", () => {
-  rtaReset();
-  const calls = [];
-  const fctx = new Proxy({}, { get: (o, k) => (k in o ? o[k] : (...a) => calls.push([k, ...a])),
-    set: (o, k, v) => (calls.push(["set " + String(k), v]), true) });
-  const dom = { fctx, mWidgets: [], clearFgRect: (...a) => calls.push(["clearFgRect", ...a]) };
-  const pg = eqPage();
-  Object.assign(pg.eq, { w: 101, h: 52, getDomain: () => dom, globalX: () => 300, globalY: () => 40,
-    freqToX: (f) => Math.round(100 * Math.log10(f / 20) / 3) });
-  ctx.DLZMOD_rtaShown(pg, true);
-  assert.strictEqual(pg.eq.rtaOverlay, true, "the widget's own paint leaves it out");
-  ctx.DLZMOD_rtaSync(pg, "m.");
-  rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
-  assert.strictEqual(pg.eq.got.length, 0, "no redraw of the widget");
-  assert.deepStrictEqual(calls[0], ["clearFgRect", 300, 40, 101, 52], "its area on the top sheet cleared first");
-  const moves = calls.filter((c) => c[0] === "moveTo");
-  assert.deepStrictEqual(moves[0], ["moveTo", 300, 90], "the fill from the widget's bottom, in screen coordinates");
-  assert.ok(calls.some((c) => c[0] === "fill") && calls.some((c) => c[0] === "stroke"));
-  calls.length = 0;
-  dom.mWidgets = [{}];
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-10)), 1033);
-  ctx.DLZMOD_rtaTick(1033);
-  assert.deepStrictEqual(calls, [], "a popup open: the top sheet left alone");
-  dom.mWidgets = [];
-  pg.eq.update();   // a knob turned: no pause on the top sheet
-  ctx.DLZMOD_rtaTick(1066);
-  assert.strictEqual(calls[0][0], "clearFgRect", "frames go on while the curve is changed");
-  calls.length = 0;
-  ctx.DLZMOD_rtaShown(pg, false);
-  assert.deepStrictEqual(calls, [["clearFgRect", 300, 40, 101, 52]], "the page closed: the spectrum off the top sheet");
-});
-test("EQ spectrum: without a top sheet the widget draws it, the frames counted for the log every 5 s", () => {
-  rtaReset();
-  const pg = eqPage();
-  pg.eq.getDomain = () => ({ fctx: null, clearFgRect() {} });
-  ctx.DLZMOD_rtaShown(pg, true);
-  assert.strictEqual(pg.eq.rtaOverlay, false);
-  ctx.DLZMOD_rtaSync(pg, "m.");
-  const logs = [];
-  const log = ctx.console.log;
-  ctx.console.log = (m) => logs.push(m);
-  try {
-    for (let t = 1000; t <= 6100; t += 50) {
-      ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(t % 100 ? -20 : -12)), t);
-      ctx.DLZMOD_rtaTick(t);
-    }
-  } finally {
-    ctx.console.log = log;
-  }
-  assert.strictEqual(logs.length, 1, logs.join("\n"));
-  assert.match(logs[0], /^dlzmod: EQ spectrum: 5\.0 s: 101 frames \(20\.2\/s\), 50 ms apart \(max 50\), in the widget$/);
 });
 test("EQ spectrum: the Spectrum switch off measures and shows nothing; on again, the open page measures", () => {
   rtaReset();
