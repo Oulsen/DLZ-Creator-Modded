@@ -1,5 +1,7 @@
 # Changelog
 
+## v0.5.0
+
 ## v0.4.0
 
 - (DLZ FEATURE) Set the clock by hand or from your phone/computer
