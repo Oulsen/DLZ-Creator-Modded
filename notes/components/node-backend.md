@@ -118,12 +118,6 @@ All [static].
   - `-m1` takes the first match in reverse sort order, not the highest number: a name that sorts
     after `REC_` and contains one (e.g. `old_REC_0002.wav`) wins, and the next name can be taken
   - an empty folder and a failed listing both end in the `catch` (grep exits 1 on no match)
-- **Sample recorder names** (`SAMPLE_REC_STORE`, "keep"): `SAMPLE_REC` remounts the medium
-  read-write, makes `Recorded_Samples/` on it and records the take into `bank_recorder.wav` there;
-  on keep, `SAMPLE_REC_STORE` names it `RS_NNNN.wav` with the same helper as the recording name
-  (pattern `RS_[0-9]{4}[._]`), sets `sample.rec.file` to that path, waits until dspserver clears it
-  and points the pad (`<bank key>file`) at the file. Same weak spots as above, except that
-  `padStart` keeps working after `RS_9999` [static: server.js, search `SAMPLE_REC_STORE`]
   - `A()` does not await `ue()` (the `mkdir -p`), so the listing can run before the folder exists
   Which of these caused a reported overwrite is not known [guess].
   The UI only offers Settings → Recording / Routing → Disk Recording: Stereo / Multitrack + Stereo
@@ -134,6 +128,13 @@ All [static].
   folder listing is the only source of the number.
   The mod's recording names (`REC_0042_otter`, counted across both media): [../mod.md](../mod.md),
   "Recording names".
+- **Sample recorder names** (`SAMPLE_REC_STORE`, "keep"): `SAMPLE_REC` remounts the medium
+  read-write, makes `Recorded_Samples/` on it and records the take into `bank_recorder.wav` there;
+  on keep, `SAMPLE_REC_STORE` names it `RS_NNNN.wav` with the same helper as the recording name
+  (pattern `RS_[0-9]{4}[._]`), sets `sample.rec.file` to that path, waits until dspserver clears it
+  and points the pad (`<bank key>file`) at the file. The recording name's weak spots apply, except
+  that `padStart` keeps working after `RS_9999` [static: server.js, search `SAMPLE_REC_STORE`].
+  The mod's sample names: [../mod.md](../mod.md), "Sample names".
 - The path goes to dspserver as key `recFile`; dspserver writes the WAV itself (see
   [dspserver.md](dspserver.md), split at 2 GB).
 - **Boot mute** [static]: when the state is loaded and the marker `/tmp/init-done` is missing (every
