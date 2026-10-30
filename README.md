@@ -5,6 +5,14 @@ mixer: the mixer's own software stays as it is, and without the card the mixer s
 Alpha, at your own risk, not supported by Mackie, and it could void your mixer's warranty: read
 [Is it safe?](#is-it-safe) and [DISCLAIMER.md](DISCLAIMER.md) first.
 
+## Help and contact
+
+- **Chat, questions, contact:** [Discord](https://discord.gg/Qa2fjzVbGp)
+- **Bugs, feature requests and help with an install:** [GitHub issues](https://github.com/Oulsen/DLZ-Creator-Modded/issues)
+- **A security hole:** privately, not in an issue: [SECURITY.md](SECURITY.md)
+
+Never post dumps, Mackie files, Wi-Fi passwords or keys, in any of these places.
+
 ## What the mod does
 
 The mod's own settings are in Settings → **DLZ Creator Modded**, on the tabs named in brackets
@@ -36,7 +44,7 @@ below. They all start as stock: turn on what you want.
 
 - Wi-Fi from the mixer's screen, with a USB Wi-Fi stick *(Network)*
 - Control the mixer from a computer's web browser, after pairing with a PIN *(Remote)*; phones and
-  tablets not yet ([#52](https://github.com/Oulsen/DLZ-Creator-Modded/issues/52))
+  tablets not yet
 - Remote login (SSH), for support and tinkering *(Network)*
 
 ### Updates and safety
@@ -60,7 +68,9 @@ below. They all start as stock: turn on what you want.
   damage it)
 - The mixer no longer gets stuck while starting, held up by its screen and control software
 - The clock no longer jumps back to November 2023 after every power-off: it goes on from where it
-  was, so new recordings sort after older ones
+  was, so new recordings sort after older ones. The mixer has no clock battery, so after a
+  power-off its clock is behind by the time it was off: online it corrects itself, without internet
+  set it by hand or from a paired phone or computer *(Time)*
 - Recording times are local time, not world time (UTC): pick your time zone under Settings, Time
   (in a browser: the computer's own zone in one tap); summer and winter time follow by themselves
 - The touch screen keeps working when the clock is set back (by hand, or corrected from the
@@ -175,14 +185,6 @@ the mod version and whether Wi-Fi connected.
 | Wi-Fi stick | Mod version | Wi-Fi | Notes |
 |---|---|---|---|
 | TP-Link Archer T3U (AC1300) | v0.1.0 | yes | the mixer's stock software does not recognise it, the mod does |
-
-## Help and contact
-
-- **Chat, questions, contact:** [Discord](https://discord.gg/Qa2fjzVbGp)
-- **Bugs, feature requests and help with an install:** [GitHub issues](https://github.com/Oulsen/DLZ-Creator-Modded/issues)
-- **A security hole:** privately, not in an issue: [SECURITY.md](SECURITY.md)
-
-Never post dumps, Mackie files, Wi-Fi passwords or keys, in any of these places.
 
 ## For developers
 

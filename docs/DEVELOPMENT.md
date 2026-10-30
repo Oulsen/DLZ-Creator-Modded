@@ -415,9 +415,10 @@ issue's technical notes point to the note section instead of copying it.
   on `main`. Work PRs say `Refs #N`: `develop` is not the default branch, so `Fixes #N` would do
   nothing there. The board's "Item closed" workflow is off (it would move a closed card past "Fixed
   in develop").
-- **Branches**: `develop` for work and tests, `main` for releases only. Nothing is committed to
+- **Branches**: `develop` for work and tests, `main` for releases (and patches to them, below). Nothing is committed to
   either directly: every change gets its own branch from `develop` (`fix/...`, `feature/...`,
-  `docs/...`) and a PR into `develop`, **squash-merged** (one commit per change).
+  `docs/...`) and a PR into `develop`, **squash-merged** (one commit per change). The one
+  exception is a patch ("Patches" below).
 - **Review**: every PR into `develop` gets a review before it is merged, also a small one that only
   changes docs. A contributor's PR: the maintainer reviews it (`.github/CODEOWNERS` requests that
   once the repo is public; a ruleset makes it required). The maintainer's own PRs: right after the
@@ -516,6 +517,22 @@ issue's technical notes point to the note section instead of copying it.
   PR (`docs/vX.Y.Z-bump`), before any other change of the new cycle, so every branch builds the same
   version and the dev card takes any of them. Feature and fix branches never bump
   ([notes/updates.md](../notes/updates.md), "Versions and channels").
+- **Patches**: a correction to the released version that should not wait for the next release
+  (`develop` already holds the next version's work from the bump on). In order:
+  1. A branch `patch/...` from `main`, a PR into `main`, **squash-merged**, with the review a PR
+     into `develop` gets ("Review", "On the mixer before the merge").
+  2. Right after, a PR `main` → `develop`, merged with **"Create a merge commit"** (the only PR not
+     squashed): `develop` then contains `main`'s commit, so the next release still fast-forwards. A
+     squash would make a copy, leave `main` with a commit `develop` lacks, and the fast-forward
+     would fail. A conflict is resolved on a branch from `develop` that merges `origin/main`.
+
+  A docs-only patch (the README, the install guide) ends there: no version, tag or release files.
+  A patch that changes what runs on the mixer is a new version `vX.Y.Z+1`: its branch sets
+  `VERSION` and adds a `## vX.Y.Z+1` section to `CHANGELOG.md`; the merge into `develop` keeps
+  `develop`'s `VERSION` and puts that section below `develop`'s own. The tag goes on `main`'s patch
+  commit (the tag's workflow already checks "on `main`" and `VERSION`). Not done yet: `release.sh`
+  (`check`, `ready`) assumes the build is `develop`'s tip; a code patch first needs it to build
+  from `main`'s tip.
 - **`CHANGELOG.md`**: the bump PR opens a `## vX.Y.Z` section (with the milestone's issues already
   in `develop`, if any); every PR that finishes a milestone issue adds its title as a bullet there,
   and the release PR checks the section against the milestone. Bullets ordered `DLZ FEATURE`,
