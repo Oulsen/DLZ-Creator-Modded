@@ -407,13 +407,14 @@ function DLZMOD_cmdAllowed(handlers, cmd, args, send, roots) {
 // path dspserver opens or records to only from the screen; the System Lock PIN (`lock`: setting,
 // changing or removing it) only from the screen (#45: other devices still receive it, Mackie's web
 // UI needs it for its own lock screen); the theme and its colours (#21) only from the screen (the
-// mixer's own look; a browser shows it and follows a change); track names (multitrack file names)
+// mixer's own look; a browser shows it and follows a change); the channel the EQ spectrum measures
+// (#131, dlzmod.rta: the screen's EQ page) only from the screen; track names (multitrack file names)
 // from other devices plain
 function DLZMOD_keyAllowed(key, value, send) {
   if (key === "__proto__" || key === "constructor" || key === "prototype") return false;
   const local = !!(send && send.dlzmodLocal === true);
   if (!local && /(^|\.)(file|recFile|currentFileName)$/i.test(key)) return false;
-  if (!local && (key === "lock" || /^dlzmod\.(theme|bgColor|faderColor)$/.test(key))) return false;
+  if (!local && (key === "lock" || /^dlzmod\.(theme|bgColor|faderColor|rta)$/.test(key))) return false;
   // from other devices only: the screen keeps stock's names ("Mic 1/2" typed on the mixer stays as is)
   if (!local && /^[ip]\.[^.]+\.name$/.test(key) && typeof value === "string" && value !== "" && !DLZMOD_plainName(value)) {
     return false;

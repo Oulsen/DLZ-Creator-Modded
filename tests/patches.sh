@@ -1,10 +1,12 @@
 #!/bin/bash
-# The patches against the dump's own app.js and server.js, without a card (WSL, root, from the repo root,
+# The patches against the dump's own app.js, server.js and XS audio graph, without a card (WSL, root, from the repo root,
 # the dump mounted read-only at /mnt/dlz by install/mount-ro.sh; it is only read):
 # - every anchor occurs exactly once (patch.py --check, as the installer and the updater run it)
 # - the patched files still parse, by the mixer's own node (the dump's, under qemu): the originals
 #   first, as a control that the check can read them at all
 # - the patched server.js keeps the refusals the updater checks for (its SERVER_MARKERS)
+# - the patched audio graph builds Mackie's blocks unchanged, the EQ spectrum's (#131) only on the mod's
+#   own buffers (tests/graph-check.js, by the mixer's node)
 # - the Time tab's zones (#9, DLZMOD_zoneList) are in the mixer's tzdata, and each row's offset is the
 #   zone's winter offset (standard time: the lower of January's and July's, by the mixer's node)
 #   bash tests/patches.sh
@@ -22,11 +24,13 @@ dnode() { QEMU_LD_PREFIX=$DUMP LD_LIBRARY_PATH=$L/blas:$L/lapack:$L qemu-arm "$D
 dnode --version > /dev/null 2>&1 || { echo "the dump's node does not run (qemu-arm?)"; exit 2; }
 echo "node: the dump's $(dnode --version)"
 
-for t in app server; do
-  out=$(python3 install/patch.py --check $t "$DUMP/srv/$t.js" 2>&1) && ok "$t.js: every anchor once" || bad "$t.js anchors: $out"
-  cp "$DUMP/srv/$t.js" "$TMP/$t.js"
+for t in app:srv/app.js server:srv/server.js graph:usr/local/share/evolve-a1/mixergraph-dlzlite.js; do
+  src=$DUMP/${t#*:}
+  t=${t%%:*}
+  out=$(python3 install/patch.py --check $t "$src" 2>&1) && ok "$t.js: every anchor once" || bad "$t.js anchors: $out"
+  cp "$src" "$TMP/$t.js"
   python3 install/patch.py $t "$TMP/$t.js" > "$TMP/$t.out" 2>&1 || { bad "$t.js: patching failed: $(tail -3 "$TMP/$t.out")"; continue; }
-  cmp -s "$TMP/$t.js.orig" "$DUMP/srv/$t.js" && ! cmp -s "$TMP/$t.js" "$DUMP/srv/$t.js" && ok "$t.js patched (original kept as .orig)" || bad "$t.js: not patched"
+  cmp -s "$TMP/$t.js.orig" "$src" && ! cmp -s "$TMP/$t.js" "$src" && ok "$t.js patched (original kept as .orig)" || bad "$t.js: not patched"
   cp "$TMP/$t.js.orig" "$TMP/orig-$t.js"   # node only reads .js/.cjs/.mjs names
   if dnode --check "$TMP/orig-$t.js" > "$TMP/$t.check" 2>&1; then
     dnode --check "$TMP/$t.js" > "$TMP/$t.check" 2>&1 && ok "$t.js: the patched file parses" || bad "$t.js: the patched file does not parse: $(head -5 "$TMP/$t.check")"
@@ -39,8 +43,18 @@ MARKERS=$(sed -n "/^SERVER_MARKERS='/,/'\$/p" install/sd-system/dlzmod-update | 
 while IFS= read -r m; do
   grep -qF -- "$m" "$TMP/server.js" && ok "server.js keeps: ${m:0:60}" || bad "server.js lost a refusal: $m"
 done <<< "$MARKERS"
+# the audio graph as dspserver builds it: Mackie's blocks as they were, the mod's on its own buffers
+if [ -f "$TMP/graph.js.orig" ]; then
+  if dnode tests/graph-check.js "$TMP/graph.js.orig" "$TMP/graph.js" install/app-mod/dlzmod.js > "$TMP/graph.check" 2>&1; then
+    ok "graph.js: $(grep -c '^ok' "$TMP/graph.check") checks of the patched graph (tests/graph-check.js)"
+  else
+    bad "graph.js: $(grep -v '^ok' "$TMP/graph.check" | head -5)"
+  fi
+else
+  bad "graph.js: no patched graph, tests/graph-check.js not run"
+fi
 # the mod's own files parse as they are, before they are appended
-for f in install/app-mod/dlzmod.js install/server-mod/dlzmod-server.js; do
+for f in install/app-mod/dlzmod.js install/server-mod/dlzmod-server.js install/graph-mod/dlzmod-graph.js; do
   dnode --check "$f" > "$TMP/f.check" 2>&1 && ok "$f parses" || bad "$f does not parse: $(head -3 "$TMP/f.check")"
 done
 # the Time tab's list: the function alone, from the app mod (the rest of it needs Mackie's UI)

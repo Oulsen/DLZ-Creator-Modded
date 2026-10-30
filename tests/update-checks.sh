@@ -188,10 +188,11 @@ fixture() {
 setchan() { sed -i "s/^CHANNEL=.*/CHANNEL=$1/" package.env; }
 mkpkg() {
   local b=$TMP/build-$1 top=dlzmod-$VER-dev-test
-  rm -rf "$b"; mkdir -p "$b/r/pkg/mod/app-mod" "$b/r/pkg/mod/server-mod" "$b/r/pkg/mod/keys" "$b/$top"
+  rm -rf "$b"; mkdir -p "$b/r/pkg/mod/app-mod" "$b/r/pkg/mod/server-mod" "$b/r/pkg/mod/graph-mod" "$b/r/pkg/mod/keys" "$b/$top"
   local m=$b/r/pkg/mod
   for f in card-core.sh check-rootfs.sh apply-mod.sh patch.py modversion.py; do cp "install/$f" "$m/"; done
   cp install/app-mod/dlzmod.js "$m/app-mod/"; cp install/server-mod/dlzmod-server.js "$m/server-mod/"
+  cp install/graph-mod/dlzmod-graph.js "$m/graph-mod/"
   cp -r install/sd-system "$m/sd-system"
   cp "$TK/release.pub" "$TK/release2.pub" "$TK/dev.pub" "$m/keys/"
   echo "$VER" > "$b/r/pkg/VERSION"

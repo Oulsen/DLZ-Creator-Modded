@@ -220,7 +220,17 @@ Whether the `HAVE_*` flags unlock anything without native support is unknown [gu
   `putRTA`; the network layer keeps `"RTA"` next to `"VU"` out of its log.
   Nothing calls `setRTA`, `server.js` never mentions RTA and the graph has no analyser block
   ([mixergraph.md](mixergraph.md)), so the overlay never shows [static]. Probably shared code from
-  another Mackie product [guess]. Feeding it is issue #131.
+  another Mackie product [guess]. The mod feeds the EQ curve's (#131, [../mod.md](../mod.md)).
+  `setRTA` takes an array of 0..1 values (or a string, byte / 255), spread evenly over the curve's
+  20 Hz - 20 kHz; with `rtaOverlay` off `paintRTA` draws them in the widget's own paint [sandbox].
+  On the mixer that `paintRTA` fills only down to the middle line (it strokes, then fills the same
+  path, and glesgui uses the path up with `stroke()`) [device]; each `setRTA` (and each `update()`) redraws the whole
+  widget.
+- **The top sheet** (`fctx`, the overlay canvas popups draw on, `mWidgets`): a widget's `update()`
+  leaves it alone, a full `drawAll` clears it. On the mixer `clearFgRect` clears all of it whatever
+  the rectangle, and its commands go out with the next `ctx.drawFrame` (`needDrawFrame`) [static].
+  Drawing there ~28 times a second (a spectrum: one fill, one line) made the screen lag far more
+  than redrawing the whole EQ widget as often [device]: no faster path for animation.
 
 ## Patchability
 

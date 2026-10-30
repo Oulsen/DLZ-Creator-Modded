@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Apply the DLZ Creator Modded patches to Mackie's /srv/app.js or /srv/server.js.
+"""Apply the DLZ Creator Modded patches to Mackie's /srv/app.js, /srv/server.js or the XS audio graph.
 
 Usage: patch.py app <app.js>
        patch.py server <server.js>
-       patch.py --check app|server <file>   (only check the anchors and the mod file, write nothing;
-                                             the installer runs this on the read-only eMMC before
-                                             its accept screen)
+       patch.py graph <mixergraph-dlzlite.js>   (/usr/local/share/evolve-a1/, dspserver's graph)
+       patch.py --check app|server|graph <file>   (only check the anchors and the mod file, write
+                                                   nothing; the installer runs this on the read-only
+                                                   eMMC before its accept screen)
 
 The first run keeps the original as <file>.orig; every run patches from that original, so it can
 be re-run after changing the patches. Each anchor must occur exactly once in the original,
 otherwise nothing is written (a different firmware build needs its anchors checked). Our own code
-is appended afterwards: app-mod/dlzmod.js (with the mod version stamped in) or
-server-mod/dlzmod-server.js.
+is appended afterwards: app-mod/dlzmod.js (with the mod version stamped in),
+server-mod/dlzmod-server.js or graph-mod/dlzmod-graph.js.
 
 The patched server.js only ever runs from the SD card, where the only SD slot holds the boot card
 (FORMAT SD would wipe its bootloader and partition table) and Mackie updates must not be installed
@@ -44,8 +45,9 @@ APP_PATCHES = [
         # startGUI builds the pages once the hub's INIT is in (dlzmod.theme with it); widgets copy
         # their colours when they are made
         "theme: palette set before the pages are built",
+        # #131: and no EQ page open yet (the hub may still have the one of a screen before a restart)
         "function startGUI(t){",
-        "function startGUI(t){DLZMOD_applyTheme();",
+        "function startGUI(t){DLZMOD_applyTheme();DLZMOD_rtaShown(null,!1);",
     ),
     (
         # the mixer's screen: every drawing property set is sent to glesgui from here (in a browser
@@ -148,6 +150,38 @@ APP_PATCHES = [
         "meters: Mackie / both / before the fader (Mod page), right meter of stereo strips",
         "if(e.vu2.setValue(o,a),",
         "if(DLZMOD_vuSet(e.vu2,l,T+1,o,a,e),",
+    ),
+    (
+        # #131 the sound behind the EQ curve: the graph mod's band levels come with every VU message
+        "eq spectrum: the band levels",
+        "function parseVuData(t){function e(e,i){",
+        "function parseVuData(t){DLZMOD_rtaVu(t);function e(e,i){",
+    ),
+    (
+        "eq spectrum: the EQ page shown or hidden",
+        'onShow(){this.syncBandSelection(!0),Data.regWidget("eqBand",this.syncEqBandCall),this.sync()}'
+        'onHide(){Data.unRegWidget("eqBand",this.syncEqBandCall)}',
+        'onShow(){DLZMOD_rtaShown(this,!0),this.syncBandSelection(!0),Data.regWidget("eqBand",this.syncEqBandCall),this.sync()}'
+        'onHide(){DLZMOD_rtaShown(this,!1),Data.unRegWidget("eqBand",this.syncEqBandCall)}',
+    ),
+    (
+        # PageEQ.sync: the selected channel (its key prefix, "i.0.", "m." ...) onto the page
+        "eq spectrum: the EQ page's channel",
+        "sync(t){let e=SELECTED();if(!e)return;let i=e.prefix;this.eq.setPrefix(i),",
+        "sync(t){let e=SELECTED();if(!e)return;let i=e.prefix;DLZMOD_rtaSync(this,i),this.eq.setPrefix(i),",
+    ),
+    (
+        # PageEQ.initWidgets: the EQ switch moves up in its box, the Spectrum switch goes under it
+        "eq spectrum: the Spectrum switch under the EQ switch",
+        "this.eq.bands[0]._bypass=1,this.onoff=new Switcher(this,{anchors:[116,55],size:[76,48],bgColors:[Color.buttonBg,this.color],knobMargin:2,inverted:!0}),",
+        "this.eq.bands[0]._bypass=1,this.onoff=new Switcher(this,{anchors:[116,DLZMOD_rtaSwitchY()],size:[76,48],bgColors:[Color.buttonBg,this.color],knobMargin:2,inverted:!0}),"
+        "this.dlzmodSpectrum=DLZMOD_rtaSwitch(this),",
+    ),
+    (
+        # PageEQ.paint: the labels next to its switches, directly followed by PageGate
+        "eq spectrum: the Spectrum switch's label",
+        "this.hpf&&t.drawText(lang.HPF,26,this.hpf.geomCenterY())}},PageGate=class",
+        "this.hpf&&t.drawText(lang.HPF,26,this.hpf.geomCenterY()),DLZMOD_rtaLabel(this,t)}},PageGate=class",
     ),
     (
         # #45: the server refuses the System Lock PIN and a factory reset from other devices; in a
@@ -440,10 +474,64 @@ SERVER_PATCHES = [
     ),
 ]
 
+# #131 the sound behind the EQ curve (graph-mod/dlzmod-graph.js): its meters, its buffer cleared at
+# the start of each cycle, and a tap right after each channel's EQ (after Mackie's "dynin" meter, on
+# the buffer(s) that meter reads)
+GRAPH_PATCHES = [
+    (
+        "eq spectrum: its meters as the VU group dlzmod.rta",
+        "configureVU({\n",
+        "configureVU({\n    'dlzmod.rta': DLZMOD_rtaMeters(),\n",
+    ),
+    (
+        "eq spectrum: its buffer cleared each cycle",
+        "    {type: 'Clear', buf: masterL}, {type: 'Clear', buf: masterR},\n",
+        "    {type: 'Clear', buf: DLZMOD_rtaBuf()},\n"
+        "    {type: 'Clear', buf: masterL}, {type: 'Clear', buf: masterR},\n",
+    ),
+    (
+        "eq spectrum: mics",
+        "        {type: 'MaxMeter', vu: `vuInDynIn${i}`, threshold: VU_THRESHOLD},\n",
+        "        {type: 'MaxMeter', vu: `vuInDynIn${i}`, threshold: VU_THRESHOLD},\n"
+        "        DLZMOD_rtaTap(1 + i, [workBuf]),\n",
+    ),
+    (
+        "eq spectrum: samples",
+        "    workBufR, {type: 'MaxMeter', vu: `vuSmpDynIn`, threshold: VU_THRESHOLD},\n",
+        "    workBufR, {type: 'MaxMeter', vu: `vuSmpDynIn`, threshold: VU_THRESHOLD},\n"
+        "    DLZMOD_rtaTap(7, [workBuf, workBufR]),\n",
+    ),
+    (
+        "eq spectrum: players",
+        "        workBufR, {type: 'MaxMeter', vu: `vuPlDynIn${i}`, threshold: VU_THRESHOLD},\n",
+        "        workBufR, {type: 'MaxMeter', vu: `vuPlDynIn${i}`, threshold: VU_THRESHOLD},\n"
+        "        DLZMOD_rtaTap(3 + i, [workBuf, workBufR]),\n",
+    ),
+    (
+        "eq spectrum: virtual channels",
+        "        workBufR, {type: 'MaxMeter', vu: `vuViDynIn${i}`, threshold: VU_THRESHOLD},\n",
+        "        workBufR, {type: 'MaxMeter', vu: `vuViDynIn${i}`, threshold: VU_THRESHOLD},\n"
+        "        DLZMOD_rtaTap(5 + i, [workBuf, workBufR]),\n",
+    ),
+    (
+        "eq spectrum: master",
+        "    masterR, {type: 'MaxMeter', vu: `vuMasterDynIn`, threshold: VU_THRESHOLD},\n",
+        "    masterR, {type: 'MaxMeter', vu: `vuMasterDynIn`, threshold: VU_THRESHOLD},\n"
+        "    DLZMOD_rtaTap(8, [masterL, masterR]),\n",
+    ),
+    (
+        # after everything of Mackie's, right before the file compiles its graph
+        "eq spectrum: the analyser",
+        "\ncompileGraph(graph)\n",
+        "\ngraph.push(DLZMOD_rtaAnalyser())\n\ncompileGraph(graph)\n",
+    ),
+]
+
 # target: (patches, appended mod file, stamp the mod version into it)
 TARGETS = {
     "app": (APP_PATCHES, HERE / "app-mod" / "dlzmod.js", True),
     "server": (SERVER_PATCHES, HERE / "server-mod" / "dlzmod-server.js", False),
+    "graph": (GRAPH_PATCHES, HERE / "graph-mod" / "dlzmod-graph.js", False),
 }
 
 

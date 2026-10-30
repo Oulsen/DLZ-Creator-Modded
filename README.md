@@ -36,6 +36,8 @@ below. They all start as stock: turn on what you want.
 - Meters that show the level before the fader, after it, or both *(Display)*
 - Yellow and red zones and a dB scale on the meters *(Display)*
 - Hide the header bar for more room; messages still show for a moment *(Display)*
+- The sound of the channel behind its EQ curve, so you see which frequencies to cut or boost
+  (DLZ Creator XS for now); a Spectrum switch on the EQ page turns it off *(Channel, EQ)*
 - A high-contrast look, your own background and your own color for the faders, meters and what is
   selected *(Colors)*
 - The mod's own startup screens

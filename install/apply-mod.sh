@@ -147,11 +147,13 @@ install_update_unit() {
   sync
 }
 
-# Our UI mods into /srv/app.js and the media/firmware guards into /srv/server.js (patch.py patches
-# from the kept *.orig every time, so it can run again; it writes atomically)
+# Our UI mods into /srv/app.js, the media/firmware guards into /srv/server.js and the EQ spectrum's
+# analyser into the XS audio graph (#131; the full-size's mixergraph.js stays stock). patch.py
+# patches from the kept *.orig every time, so it can run again; it writes atomically.
 apply_patches() {
   python3 "$TOOLS/patch.py" app "$MNT/srv/app.js"
   python3 "$TOOLS/patch.py" server "$MNT/srv/server.js"
+  python3 "$TOOLS/patch.py" graph "$MNT/usr/local/share/evolve-a1/mixergraph-dlzlite.js"
 }
 
 # #188: touch after a clock step back (sd-system/dlzmod-glesgui). A new card only: not in the update's
