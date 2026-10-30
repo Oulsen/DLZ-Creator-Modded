@@ -78,9 +78,11 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   "Review" and "On the mixer before the merge"). The release PR `develop` → `main` too: once the milestone's
   issues are done, one final `/cr` on it before the fast-forward ("Releases", step 2).
 - A patch to the released version (a correction that should not wait for the next release): a
-  `patch/...` branch from `main`, a PR into `main` (squash, same review as into `develop`), then
-  right after a PR `main` → `develop` merged with "Create a merge commit" (never squashed), so
-  `develop` contains `main` and the next release still fast-forwards. Docs-only patches get no
+  `patch/...` branch from `main`, a PR into `main` (merge commit, the only method there; same review
+  as into `develop`), then right after `main` merged into a `sync/...` branch from `develop`
+  (`git merge --no-ff origin/main`, never a squash or a PR: `develop` only squashes), which the user
+  fast-forwards `develop` to with `git push origin <commit>:develop`, so `develop` contains `main`
+  and the next release still fast-forwards. Docs-only patches get no
   version; one that changes what runs on the mixer is `vX.Y.Z+1` (`docs/DEVELOPMENT.md`, "Patches").
 - Right after a release, bump `VERSION` in `develop` as its own PR (`docs/vX.Y.Z-bump`), before any
   other change of the new cycle; a feature or fix branch never bumps (`docs/DEVELOPMENT.md`,
