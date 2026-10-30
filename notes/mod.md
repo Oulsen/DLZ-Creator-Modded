@@ -118,12 +118,17 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
   in sync by then. [device: with the switch on and the clock from the internet, a recording got
   `REC_0005_wombat_2026-10-28_2013.wav` in local time (CET), numbered after the older
   `REC_0004_gorilla`; static: unit tests; PC sandbox: the switch, its reset, and names up to
-  `REC_0007_woodpecker_2026-10-28_1430.wav` whole in the Media list]. The player's title line
-  (`player.name`, set by dspserver, 530 px, shortened in the middle by Mackie's `shortenMid`)
-  shows "artist - name": stock recordings carry an INFO chunk with the artist `DLZ|Creator` (with
-  the `|`) and `ISFT Lavf58.76.100`, no title, so it reads `DLZ|Creator - REC_00..bat_2026-10-28_2013`
-  [device: the same tag in a recording from before the update]; the number and the date stay
-  visible, the animal is cut
+  `REC_0007_woodpecker_2026-10-28_1430.wav` whole in the Media list].
+- **Player title line without `DLZ|Creator - `** (#193): the title line (`player.name`, set by
+  dspserver when a track loads, 530 px, shortened in the middle by Mackie's `shortenMid`) shows
+  "artist - title", the file name when there is no title. dspserver's recorder (`StereoMtkRecorder`,
+  search `DLZ|Creator` in `/usr/local/bin/dspserver`) writes an INFO chunk with the artist
+  `DLZ|Creator` (with the `|`) and `ISFT Lavf58.76.100`, no title, into every recording, so stock
+  reads `DLZ|Creator - REC_00..bat_2026-10-28_2013` [device]. The mod drops that one prefix on the
+  title line only (`DLZMOD_trackName`, an app.js patch on `trackName`); other files keep their
+  artist, the files themselves are unchanged. [PC sandbox: `REC_10000_hippopotamus_2026-10-28_1430`
+  whole on the line; with the prefix, names without the date (`REC_0042_hippopotamus`) fitted
+  already, so only #14's names were cut]
 - **Recordings go to the SD card by default** (`settings.rec.toUSB` off in the card's state).
 - **About's "Device IP Address"** asks `eth0`, then `wlan0`.
 - **Look and meters** (`app.js`): see "Mod settings" below.

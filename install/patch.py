@@ -203,6 +203,12 @@ APP_PATCHES = [
         'let e=Data.get("recState");e&&e!=E_REC_STATE.FULL&&t.drawText(lang.RECORDING_IN_PROGRESS+"*",this.w/2|0,24',
     ),
     (
+        # #193: the player's title line without "DLZ|Creator - " in front of recordings (DLZMOD_trackName)
+        "player: recording names without the artist",
+        'let e=Data.get("player.name");if(e){',
+        'let e=DLZMOD_trackName(Data.get("player.name"));if(e){',
+    ),
+    (
         # #13: at every (re)connect, after the hub's INIT: a browser gives the mixer its time
         # (DLZMOD_connected; the server takes it forward only, without internet)
         "time: a browser's clock when it connects",
