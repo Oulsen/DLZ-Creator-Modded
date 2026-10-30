@@ -46,12 +46,13 @@ function DLZMOD_layoutTabs(page) {
 
 // Mod settings live in the hub state like Mackie's own keys (saved in srv_data.json, cleared by a
 // factory reset). app.js refuses keys its Data store does not know yet ([NOT IN DATA]), so ours
-// are added with their defaults before use; the hub's INIT then brings the saved values. Every
-// default is the stock behaviour: after an install the mixer looks
-// and works like stock until a setting is changed.
+// are added with their defaults before use; the hub's INIT then brings the saved values. Plain JSON
+// (apply-mod.sh's set_mod_defaults reads it). dlzmod.rta is no setting: the channel the EQ spectrum
+// measures (#131, DLZMOD_rtaMeasure), none at first.
 function DLZMOD_keys() {
   return { "dlzmod.hideHeader": 0, "dlzmod.meterMode": 0, "dlzmod.preColor": 0, "dlzmod.preLevel": 0,
-    "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0, "dlzmod.recDate": 0 };
+    "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0, "dlzmod.recDate": 0,
+    "dlzmod.rta": 0 };
 }
 
 // The owner's own colours on top of the theme (#21): the background, and an accent colour for the
@@ -572,6 +573,100 @@ function DLZMOD_paintDbScale(t, sl, m) {
     if (Math.abs(y - knobY) < (sl.knobRadius || 11) + 7) continue;
     t.drawText(String(-db), m.x + m.w + 2 - sl.x, y, { color: "#c8c8c8", font: Font.font(600, "8pt"), align: "left", valign: "middle" });
   }
+}
+
+// #131 the sound behind the EQ curve. The graph mod (graph-mod/dlzmod-graph.js) measures the channel
+// whose EQ page the mixer's screen shows in octave bands and sends them with every VU message as
+// "dlzmod.rta" (one byte per band, Mackie's VU scale: 0..1 over 80 dB). The screen says which channel
+// that is (hub key dlzmod.rta, DLZMOD_rtaCode; the server takes it from the screen only); a browser
+// shows it when its EQ page has the same channel. Drawn by Mackie's own spectrum code in the EQ
+// curve (EQ.setRTA, paintRTA: a filled line over 20 Hz - 20 kHz, cleared 250 ms after the last data,
+// so it goes when the sound stops or the page closes). Mackie's overlay layer for it is not used:
+// drawn with the curve (rtaOverlay off), as the widget does on its own without one.
+
+// the bands' centres in Hz, as the graph mod has them
+function DLZMOD_rtaFreqs() {
+  return [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+}
+
+// a channel's dlzmod.rta value from its key prefix (the graph mod's taps have the same numbers);
+// 0: none (an FX return, no EQ page open)
+function DLZMOD_rtaCode(prefix) {
+  return ["i.0.", "i.1.", "p.0.", "p.1.", "v.0.", "v.1.", "s.", "m."].indexOf(prefix) + 1;
+}
+
+// the spectrum's line and fill in the meters' colour of the look on screen (the theme's or the
+// owner's fader colour, #21), so it follows a change of look; stronger with High contrast. Mackie's
+// greys (rgba(200,200,200,0.5), rgba(100,100,100,0.15)) were too dim behind the curve.
+function DLZMOD_rtaColors() {
+  const c = DLZMOD_lookColor("green", "#9CCC56");
+  const rgb = [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)).join(", ");
+  const high = DLZMOD_lookSel().theme === 1;
+  return [`rgba(${rgb}, ${high ? 1 : 0.85})`, `rgba(${rgb}, ${high ? 0.35 : 0.25})`];
+}
+
+// PageEQ shown or hidden (patch.py; null at startGUI: none open yet). Its channel follows in sync.
+function DLZMOD_rtaShown(page, on) {
+  if (on) {
+    DLZMOD_rtaShown.page = page;
+    if (page.eq) page.eq.rtaOverlay = !1;
+    return;
+  }
+  if (page && DLZMOD_rtaShown.page !== page) return;
+  DLZMOD_rtaShown.page = null;
+  DLZMOD_rtaShown.prefix = "";
+  DLZMOD_rtaMeasure(0);
+}
+
+// PageEQ.sync (patch.py): the channel on the page; also called while the page is hidden
+function DLZMOD_rtaSync(page, prefix) {
+  if (DLZMOD_rtaShown.page !== page) return;
+  DLZMOD_rtaShown.prefix = prefix;
+  DLZMOD_rtaMeasure(DLZMOD_rtaCode(prefix));
+}
+
+// the channel the graph mod measures: only the mixer's own screen says
+function DLZMOD_rtaMeasure(code) {
+  if (!DLZMOD_external() && Data.get("dlzmod.rta") !== code) Data.set("dlzmod.rta", code);
+}
+
+// every VU message (parseVuData, patched): the bands onto the open EQ page, when they are its channel's
+function DLZMOD_rtaVu(t) {
+  const page = DLZMOD_rtaShown.page, s = t && t["dlzmod.rta"];
+  if (!page || !page.eq || typeof s !== "string") return;
+  const code = DLZMOD_rtaCode(DLZMOD_rtaShown.prefix);
+  if (!code || Data.get("dlzmod.rta") !== code) return;
+  let raw;
+  try {
+    raw = atob(s);
+  } catch (e) {
+    return;
+  }
+  const pts = DLZMOD_rtaPoints(Array.from(raw, (c) => c.charCodeAt(0) / 240));
+  if (!pts) return;
+  // the look's colours each time: a change of look shows at the next message
+  [page.eq.rtaStrokeColor, page.eq.rtaFillColor] = DLZMOD_rtaColors();
+  page.eq.setRTA(pts);
+}
+
+// The band levels (0..1 over 80 dB, top = 0 dBFS) as the points paintRTA draws: evenly spread over
+// the curve's 20 Hz - 20 kHz (a log scale), each the level at its frequency, interpolated in dB
+// between the two nearest bands (outside them: the outer band's). Shown from -60 dBFS (bottom) to
+// 0 dBFS (top); null when every band is below that (silence: Mackie's code clears the curve).
+function DLZMOD_rtaPoints(levels, n = 64) {
+  const freqs = DLZMOD_rtaFreqs();
+  if (!levels || levels.length < freqs.length) return null;
+  const floor = 20 / 80;   // -60 dBFS
+  const show = (v) => Math.max(0, Math.min(1, (v - floor) / (1 - floor)));
+  if (!levels.slice(0, freqs.length).some((v) => v > floor)) return null;
+  const pts = new Array(n);
+  for (let k = 0; k < n; k++) {
+    const f = 20 * Math.pow(1000, k / (n - 1));
+    const x = Math.max(0, Math.min(freqs.length - 1, Math.log2(f / freqs[0])));
+    const j = Math.min(freqs.length - 2, Math.floor(x));
+    pts[k] = show(levels[j] + (levels[j + 1] - levels[j]) * (x - j));
+  }
+  return pts;
 }
 
 function DLZMOD_initKeys() {

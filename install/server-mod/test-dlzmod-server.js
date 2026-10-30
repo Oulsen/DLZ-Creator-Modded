@@ -1225,6 +1225,12 @@ test("theme: the theme and its colours only from the mixer's screen", () => {
   }
   assert.ok(keyOk("dlzmod.meterMode", 1, PAIRED), "the other mod settings stay as they were");
 });
+test("EQ spectrum (#131): the channel it measures only from the mixer's screen", () => {
+  assert.ok(!keyOk("dlzmod.rta", 3, PAIRED), "from a paired device");
+  assert.ok(!keyOk("dlzmod.rta", 3, {}), "from another device");
+  assert.ok(keyOk("dlzmod.rta", 3, SCREEN) && keyOk("dlzmod.rta", 0, SCREEN), "from the screen");
+  assert.ok(keyOk("dlzmod.rtaX", 1, PAIRED), "only that key");
+});
 test("files: a paired device changes nothing outside those folders, and no sample paths or formatting", () => {
   for (const p of ["sd:/notes.txt", "sd:/DLZ_Creator_XS_Recordings", "sd:/DLZ_Creator_XS_Recordings/", "sd:/",
     "sd:/DLZ_Creator_XS_Recordings/../dlzmod-update/x.tar", "sd:/DLZ_Creator_XS_Recordings_old/a.wav",

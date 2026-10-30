@@ -2,6 +2,8 @@
 
 ## v0.5.0
 
+- (DLZ FEATURE) See the sound behind the EQ curve
+
 ## v0.4.0
 
 - (DLZ FEATURE) Set the clock from the internet, by hand or from your phone/computer

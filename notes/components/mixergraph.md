@@ -13,7 +13,10 @@ dspserver evaluates a JS prelude (embedded in the binary), then the graph file:
 - **Blocks**: objects `{type: 'EqBand', ...params}`. `type` is a built-in (`Clear`, `CopyTo`,
   `CopyFrom`, `MixTo`, `MixFrom`, `MaxMeter`, `MinMeter`) or a DSP plugin from the catalogue below.
 - **Graph**: a nested array. A buffer in the list makes it the current buffer; each following block
-  works on it (unless it names `buf`/`src`/`dest`). `compileGraph(graph)` flattens and loads it.
+  works on it (unless it names `buf`/`src`/`dest`). A nested list starts with its parent's current
+  buffer and keeps its own changes to itself (the prelude's `flattenGraph`). `compileGraph(graph)`
+  flattens and loads it; the graph file calls it itself (XS: line 1723, before its `ignoreKeys`),
+  so whatever is pushed after that call never runs [static].
 - **Live parameters**: a string param is a JS expression; `@key` means the hub state value
   (`data['key']`). Every key the expression uses gets a handler, so the block parameter is recomputed
   whenever the hub broadcasts that key. A binding only applies once all its keys have a value;
@@ -43,10 +46,10 @@ The binary embeds a JSON descriptor per plugin (name, description, params with `
 There is **no limiter** block. `Compressor` goes up to ratio 20, attack 1-500 ms, with dry/wet.
 There is **no analyser** block either: `MaxMeter`/`MinMeter` give a level, and the debug `Measure`
 block appears only commented out in the graph. JUCE's `dsp::FFT` is linked into dspserver, but no
-block exposes it (the only "analysis" in the descriptors is a `Vocoder` parameter) [static]. A
-spectrum for app.js's unused RTA overlay ([node-backend.md](node-backend.md), "Look and meters")
-would have to be built from stock blocks, e.g. band-pass `EqBand`s each followed by a `MaxMeter`
-(#131) [guess: untested, CPU cost unknown].
+block exposes it (the only "analysis" in the descriptors is a `Vocoder` parameter) [static]. The
+mod's EQ spectrum (#131, [../mod.md](../mod.md)) for app.js's RTA overlay is built from stock
+blocks: band-pass `EqBand`s (`kind: T_BP`), each followed by a `MaxMeter` [static; CPU cost not
+measured yet].
 Unused blocks are available to mods, but their CPU cost on the A40i is unknown.
 
 ## Hardware I/O map
@@ -137,10 +140,15 @@ headphone 1 and 2 mixes.
 
 ## Modding it
 
-- Hook: patch the graph file by anchor in `build-sd.sh` (like `app.js`), keep a `.orig`,
-  restart `dspserver` (audio drops briefly). Overwritten by a `dspserver` package update.
+- Hook: `install/patch.py graph` patches `mixergraph-dlzlite.js` by anchor and appends
+  `graph-mod/dlzmod-graph.js` (function declarations only: hoisted, so the patched lines can call
+  them), keeps a `.orig`; the installer and the update check the anchors first. A changed graph
+  needs a `dspserver` restart (audio drops briefly; an update applies at a start). Overwritten by a
+  `dspserver` package update. First user: the EQ spectrum (#131).
 - Own state keys work: the hub stores and broadcasts any key, the graph binds to it, and an unset
   key leaves the block at its default. A Mod page toggle can thus drive a new block.
+- Own meters work the same way: `configureVU` takes any group name and makes a `VU` per name; the
+  hub relays the VU message as it is, and app.js reads groups by name (#131: `dlzmod.rta`) [static].
 - Unknowns before the first audio mod: CPU headroom of the DSP thread, and whether the full
   (non-"Economy") dynamics blocks fit. Test on the device.
 - Candidates that are issues: limiter and gate on the main output (#59), headphone 2 solo and its own computer send (#60), robot voice (#61), a 4th EQ band (#25), a spectrum behind the EQ curve (#131), more sources per strip (#24), reassigning faders (#23).

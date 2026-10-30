@@ -102,7 +102,7 @@ preflight() {
     command -v "$c" >/dev/null || missing="$missing $c"
   done
   for f in check-rootfs.sh mkvisuals.sh logobbox.py bootsplash.py patch.py modversion.py \
-      cpio-replace.py apply-mod.sh app-mod/dlzmod.js server-mod/dlzmod-server.js \
+      cpio-replace.py apply-mod.sh app-mod/dlzmod.js server-mod/dlzmod-server.js graph-mod/dlzmod-graph.js \
       sd-system/dlzmod-emmc-ro sd-system/dlzmod-grow-data sd-system/dlzmod-bootlog \
       sd-system/dlzmod-bootreport sd-system/dlzmod-bootreport.service \
       sd-system/dlzmod-netlog sd-system/dlzmod-netlog.service sd-system/dlzmod-glesgui \

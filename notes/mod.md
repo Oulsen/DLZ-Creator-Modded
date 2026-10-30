@@ -8,8 +8,9 @@ Updates and releases: [updates.md](updates.md). The installer that builds the ca
 
 Where it lives: `install/card-core.sh` builds the card (used by the installer, `build-sd.sh` and the
 update package), `install/apply-mod.sh` places the mod's files (shared with the drop-in update),
-`install/patch.py` patches `server.js` and `app.js` by string anchor (each patch has a label, e.g.
-"firmware:", "files:", "network:"), `install/server-mod/dlzmod-server.js` and `install/app-mod/dlzmod.js`
+`install/patch.py` patches `server.js`, `app.js` and the XS audio graph (`mixergraph-dlzlite.js`) by
+string anchor (each patch has a label, e.g. "firmware:", "files:", "network:", "eq spectrum:"),
+`install/server-mod/dlzmod-server.js`, `install/app-mod/dlzmod.js` and `install/graph-mod/dlzmod-graph.js`
 hold the mod's own code that the patches call, `install/sd-system/` the units and udev rules.
 
 ## Units and rules on the card (`install/sd-system/`)
@@ -143,6 +144,38 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
 - **Recordings go to the SD card by default** (`settings.rec.toUSB` off in the card's state).
 - **About's "Device IP Address"** asks `eth0`, then `wlan0`.
 - **Look and meters** (`app.js`): see "Mod settings" below.
+
+## The sound behind the EQ curve (#131)
+
+The EQ page shows the channel's sound behind the EQ curve, always (no setting), on the XS only: the
+full-size's graph (`mixergraph.js`) is not patched, so its EQ page stays as stock.
+
+- **Graph** (`graph-mod/dlzmod-graph.js`, patched into `mixergraph-dlzlite.js`): the mod's first
+  change to the audio engine. A mono buffer of its own (`dlzmodRta`), cleared at the start of each
+  cycle; a tap (`GainWithLinMixTo`, stereo -6 dB per side) right after each channel's EQ, behind
+  Mackie's "dynin" meter, bypassed unless hub key `dlzmod.rta` names that channel; at the end, before
+  the file's own `compileGraph(graph)`, per octave band (31.5 Hz - 16 kHz, 10 bands) a copy, a
+  band-pass `EqBand` (Q 1.414, bypassed with no EQ page open) and a `MaxMeter`, reported as the VU
+  group `dlzmod.rta`. Each tap is a nested list, so Mackie's next block keeps its buffer.
+  `tests/graph-check.js` (from `tests/patches.sh`) builds both graphs in a stand-in for dspserver's
+  prelude: Mackie's 583 blocks unchanged and in order, the mod's 45 writing only its own two
+  buffers [static].
+- **Which channel** (`dlzmod.rta`: 0 none, 1-2 mics, 3-4 players, 5-6 virtual, 7 samples, 8 master;
+  `DLZMOD_rtaCode`): set by the mixer's own screen when its EQ page opens, changes channel or closes
+  (PageEQ `onShow`/`sync`/`onHide`, patched), and 0 at `startGUI`. The server takes it from the
+  screen only (`DLZMOD_keyAllowed`); a browser shows the spectrum when its EQ page has the screen's
+  channel. In `DLZMOD_keys` (so app.js knows it and the card's state has it from the install), not a
+  setting [sandbox: 3 for channel 3/4, 8 for LR, 0 after leaving the page].
+- **Drawing**: every VU message (`parseVuData`, patched) goes to `DLZMOD_rtaVu`: the band bytes
+  (Mackie's VU scale, 1/80 per dB) as 64 points over the curve's 20 Hz - 20 kHz, interpolated in dB
+  between bands, -60 dBFS at the bottom, into Mackie's own `EQ.setRTA` (a line with a fill, cleared
+  250 ms after the last data: when the sound stops, below -60 dBFS everywhere, it goes). With
+  `rtaOverlay` off the widget draws it with the curve; Mackie's overlay layer is not used. Colours
+  (`DLZMOD_rtaColors`): the meters' colour of the look on screen (theme or own fader colour, #21),
+  line 85 % / fill 25 %, High contrast 100 % / 35 %, set at each message so a change of look shows
+  at once; Mackie's own greys were too dim [sandbox].
+- Open: the DSP thread's cost of the 14 taps and 10 band-passes, and app.js redrawing the EQ widget
+  on every VU message [guess: small; measure on the mixer].
 
 ## Mod settings (Settings → DLZ Creator Modded)
 

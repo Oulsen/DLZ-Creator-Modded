@@ -43,6 +43,16 @@
       msg[type + ".post"] = bytes(post);
       msg[type + ".pre"] = bytes(pre);
     }
+    // the EQ spectrum (#131): with an EQ page open (dlzmod.rta), its channel's octave bands as the
+    // graph mod sends them (one byte per band, 240 = 0 dBFS): falling towards the highs like music,
+    // each band swinging on its own
+    if (Data.data["dlzmod.rta"]) {
+      const bands = Array.from({ length: 10 }, (_, k) => {
+        const c = chans[k + 3];
+        return (0.74 - 0.03 * k + 0.07 * Math.sin(now * c.speed * 1.5 + c.phase) + 0.02 * (Math.random() - 0.5)) * 240 / 254;
+      });
+      msg["dlzmod.rta"] = bytes(bands);
+    }
     parseVuData(msg);
   }
   const start = setInterval(() => {
