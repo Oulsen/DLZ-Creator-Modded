@@ -2151,6 +2151,13 @@ function DLZMOD_recRowY(i) {
   return 178 + 52 * i;
 }
 
+// #193: the player's title line (dspserver's "artist - title", the file name when there is no title)
+// without the artist dspserver writes into every recording of its own; other files keep their artist
+function DLZMOD_trackName(name) {
+  const own = "DLZ|Creator - ";
+  return typeof name === "string" && name.startsWith(own) ? name.slice(own.length) : name;
+}
+
 // the mod's mark on a setting in a stock screen (ground rule 9, for bug reports and support): a short
 // bar in the mod's yellow left of the setting's label, at the height of its control w
 function DLZMOD_stockMark(t, w) {

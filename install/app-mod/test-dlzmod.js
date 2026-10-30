@@ -541,6 +541,18 @@ test("recording date: a row like the panel's own, its key known before the panel
   assert.strictEqual(t.calls.length, 1, "no row: no mark");
 });
 
+// #193: the player's title line
+test("player: recordings without dspserver's artist, other files unchanged", () => {
+  assert.strictEqual(ctx.DLZMOD_trackName("DLZ|Creator - REC_0005_wombat_2026-10-28_2013"), "REC_0005_wombat_2026-10-28_2013");
+  assert.strictEqual(ctx.DLZMOD_trackName("Some Band - Some Song"), "Some Band - Some Song");
+  assert.strictEqual(ctx.DLZMOD_trackName("Track 1"), "Track 1");
+  assert.strictEqual(ctx.DLZMOD_trackName(""), "");
+  assert.strictEqual(ctx.DLZMOD_trackName(undefined), undefined);
+  assert.strictEqual(ctx.DLZMOD_trackName(42), 42, "not a string: as stock, never a throw in the paint");
+  assert.strictEqual(ctx.DLZMOD_trackName("Live - DLZ|Creator - Jam"), "Live - DLZ|Creator - Jam", "only in front");
+  assert.strictEqual(ctx.DLZMOD_trackName("dlz|creator - Jam"), "dlz|creator - Jam", "only dspserver's exact artist");
+});
+
 // #58: Mackie's messages (showToast) while the header is hidden. o.shown: the header shown, o.nav false:
 // a full-screen page (no tab bar)
 // a full-screen page (no tab bar). closeModals as Mackie's (app.setPage and Escape run it): a forEach
