@@ -2026,18 +2026,24 @@ test("Meters panel: the before-fader colour is named after the own colour, also 
 });
 
 // #131 the sound behind the EQ curve
-// Mackie's PageEQ as the hooks see it: its EQ widget records what setRTA gets
-const eqPage = () => ({ eq: { rtaOverlay: true, got: [], setRTA(p) {
-  this.got.push(p);
+// Mackie's PageEQ as the hooks see it: its EQ widget records the spectrum at each redraw
+const eqPage = () => ({ eq: { rtaOverlay: true, h: 202, got: [], update() {
+  this.got.push(this.rtaData && this.rtaData.slice());
 } } });
+// a message, then the animation's frame at the same moment
+const rtaAt = (msg, now) => {
+  ctx.DLZMOD_rtaVu(msg, now);
+  ctx.DLZMOD_rtaTick(now);
+};
 // a VU message's dlzmod.rta group: one byte per band, Mackie's VU scale (240 = 0 dBFS, 3 per dB)
 const rtaMsg = (dbs) => ({ "dlzmod.rta": Buffer.from(dbs.map((db) => Math.round(240 + 3 * db))).toString("base64") });
 const rtaReset = () => {
   reset();
   settings({ "dlzmod.rta": 0 });
-  ctx.DLZMOD_rtaDue.at = undefined;
   ctx.DLZMOD_rtaShown.page = null;
   ctx.DLZMOD_rtaShown.prefix = "";
+  ctx.DLZMOD_rtaStop(true);
+  Object.assign(ctx.DLZMOD_rtaAnim(), { busyAt: -1e9, at: 0, later: (f, ms) => (ui.later = ms, 1) });
 };
 test("EQ spectrum: the channels with an EQ page get the graph mod's numbers, others none", () => {
   const codes = ["i.0.", "i.1.", "p.0.", "p.1.", "v.0.", "v.1.", "s.", "m."].map((p) => ctx.DLZMOD_rtaCode(p));
@@ -2081,10 +2087,10 @@ test("EQ spectrum: a browser shows the screen's channel but never chooses it", (
     assert.deepStrictEqual(ui.sets, []);
     ctx.DLZMOD_rtaShown(pg, true);
     ctx.DLZMOD_rtaSync(pg, "i.0.");
-    ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)));
+    rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
     assert.strictEqual(pg.eq.got.length, 0, "the screen measures another channel (none)");
     ctx.Data.data["dlzmod.rta"] = 1;
-    ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)));
+    rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
     assert.strictEqual(pg.eq.got.length, 1, "the same channel as the screen's");
   } finally {
     ctx.EXTERNAL = false;
@@ -2093,44 +2099,80 @@ test("EQ spectrum: a browser shows the screen's channel but never chooses it", (
 test("EQ spectrum: the bands go onto the open page, not without one, another channel's or a broken message", () => {
   rtaReset();
   const pg = eqPage();
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)));
+  rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
   ctx.DLZMOD_rtaShown(pg, true);
   ctx.DLZMOD_rtaSync(pg, "s.");
-  ctx.DLZMOD_rtaVu({ "in.post": "AAA=" });
-  ctx.DLZMOD_rtaVu({ "dlzmod.rta": "not base64!" });
-  ctx.DLZMOD_rtaVu(undefined);
+  rtaAt({ "in.post": "AAA=" }, 1000);
+  rtaAt({ "dlzmod.rta": "not base64!" }, 1000);
+  rtaAt(undefined, 1000);
   assert.strictEqual(pg.eq.got.length, 0);
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)));
+  rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
   assert.strictEqual(pg.eq.got.length, 1);
   ctx.Data.data["dlzmod.rta"] = 3;   // the hub has another channel (a moment after a switch)
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)));
-  assert.strictEqual(pg.eq.got.length, 1);
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-10)), 1033);
+  assert.strictEqual(ctx.DLZMOD_rtaAnim().at, 1000, "not taken");
 });
-test("EQ spectrum: at most one picture per 80 ms, one that looks the same only after 150 ms", () => {
+test("EQ spectrum: each message's picture glides in, about 30 frames a second, none while it stands still", () => {
   rtaReset();
   const pg = eqPage();
-  pg.eq.h = 202;
-  pg.eq.setRTA = function (p) {
-    this.got.push(p);
-    this.rtaData = p;
-  };
   ctx.DLZMOD_rtaShown(pg, true);
   ctx.DLZMOD_rtaSync(pg, "m.");
-  const at = (db, now) => ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(db)), now);
-  at(-20, 1000);
-  at(-10, 1030);
-  at(-5, 1060);
-  assert.strictEqual(pg.eq.got.length, 1, "not within 80 ms, however loud");
-  at(-5, 1080);
-  assert.strictEqual(pg.eq.got.length, 2, "80 ms later");
-  at(-5, 1180);
-  assert.strictEqual(pg.eq.got.length, 2, "the same picture: not yet");
-  at(-5, 1230);
-  assert.strictEqual(pg.eq.got.length, 3, "the same picture after 150 ms, before Mackie's code clears it");
-  at(-20, 1300);
-  assert.strictEqual(pg.eq.got.length, 3, "a quieter one: not within 80 ms either");
-  at(-20, 1330);
-  assert.strictEqual(pg.eq.got.length, 4, "then shown, fallen slowly");
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1000);
+  const goal = plain(ctx.DLZMOD_rtaAnim().target);
+  ctx.DLZMOD_rtaTick(1000);
+  const first = pg.eq.got[0];
+  assert.ok(first.every((v, k) => Math.abs(v - 0.6 * goal[k]) < 1e-9), "from the bottom, 60 % of the way");
+  assert.strictEqual(ui.later, 33, "the next frame in 33 ms");
+  for (let t = 1033; t < 1300; t += 33) ctx.DLZMOD_rtaTick(t);
+  const n = pg.eq.got.length;
+  assert.deepStrictEqual(plain(pg.eq.got[n - 1]), goal, "there, exactly");
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1290);
+  ctx.DLZMOD_rtaTick(1300);
+  assert.strictEqual(pg.eq.got.length, n, "standing still: no frame");
+  assert.strictEqual(ui.later, 100, "a slower check");
+});
+test("EQ spectrum: while the widget redraws for a knob or a dragged dot, the picture moves without frames of its own", () => {
+  rtaReset();
+  const pg = eqPage();
+  ctx.DLZMOD_rtaShown(pg, true);
+  ctx.DLZMOD_rtaSync(pg, "m.");
+  rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
+  assert.strictEqual(pg.eq.got.length, 1);
+  pg.eq.update();   // Mackie's own redraw: a knob turned
+  assert.strictEqual(pg.eq.got.length, 2);
+  ctx.DLZMOD_rtaAnim().busyAt = 1010;   // the wrapper takes the clock; here: at 1010
+  const before = plain(pg.eq.rtaData);
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1030);
+  ctx.DLZMOD_rtaTick(1033);
+  assert.strictEqual(pg.eq.got.length, 2, "no frame of its own");
+  assert.notDeepStrictEqual(plain(pg.eq.rtaData), before, "but the picture moved on, for Mackie's next redraw");
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1250);
+  ctx.DLZMOD_rtaTick(1260);
+  assert.strictEqual(pg.eq.got.length, 3, "250 ms after the last one: frames again");
+});
+test("EQ spectrum: silence or no message for 300 ms: the picture sinks and goes; a closed page clears it", () => {
+  rtaReset();
+  const pg = eqPage();
+  ctx.DLZMOD_rtaShown(pg, true);
+  ctx.DLZMOD_rtaSync(pg, "m.");
+  rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-80)), 1033);
+  let t = 1033;
+  for (; t < 2000 && pg.eq.got[pg.eq.got.length - 1] !== null; t += 33) ctx.DLZMOD_rtaTick(t);
+  const g = pg.eq.got;
+  assert.ok(g.length > 3 && g[g.length - 1] === null, "sank, then gone");
+  assert.ok(g[g.length - 2].every((v, k) => v <= g[1][k]), "downwards");
+  ui.later = undefined;
+  ctx.DLZMOD_rtaTick(t);
+  assert.strictEqual(ui.later, undefined, "and the timer stops");
+  rtaAt(rtaMsg(Array(10).fill(-20)), 3000);
+  for (t = 3033; t < 3600; t += 33) ctx.DLZMOD_rtaTick(t);
+  assert.strictEqual(pg.eq.got[pg.eq.got.length - 1], null, "no message for 300 ms: gone too");
+  rtaAt(rtaMsg(Array(10).fill(-20)), 4000);
+  ctx.DLZMOD_rtaShown(pg, false);
+  assert.strictEqual(pg.eq.rtaData, null, "the page closed: cleared");
+  ctx.DLZMOD_rtaTick(4033);
+  assert.strictEqual(pg.eq.rtaData, null);
 });
 test("EQ spectrum: the Spectrum switch off measures and shows nothing; on again, the open page measures", () => {
   rtaReset();
@@ -2138,19 +2180,19 @@ test("EQ spectrum: the Spectrum switch off measures and shows nothing; on again,
   ctx.Data.data["dlzmod.spectrum"] = 0;
   ctx.DLZMOD_rtaShown(pg, true);
   ctx.DLZMOD_rtaSync(pg, "v.0.");
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1000);
+  rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
   assert.deepStrictEqual(ui.sets, [], "off: no channel measured");
   assert.strictEqual(pg.eq.got.length, 0, "and nothing drawn");
   ctx.Data.data["dlzmod.spectrum"] = 1;
   ctx.DLZMOD_rtaSwitched();
   assert.deepStrictEqual(ui.sets, [["dlzmod.rta", 5]], "on: the open page's channel");
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1100);
+  rtaAt(rtaMsg(Array(10).fill(-20)), 1100);
   assert.strictEqual(pg.eq.got.length, 1);
   ctx.Data.data["dlzmod.spectrum"] = 0;
   ctx.DLZMOD_rtaSwitched();
   assert.deepStrictEqual(ui.sets[1], ["dlzmod.rta", 0], "off again: none");
   ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1300);
-  assert.strictEqual(pg.eq.got.length, 1);
+  assert.strictEqual(ctx.DLZMOD_rtaAnim().at, 1100, "its messages no longer taken: the picture goes after 300 ms");
   ctx.DLZMOD_rtaShown(pg, false);
   ctx.Data.data["dlzmod.spectrum"] = 1;
   ctx.DLZMOD_rtaSwitched();
@@ -2219,12 +2261,13 @@ test("EQ spectrum: a smooth curve through the bands, never beyond its neighbours
 test("EQ spectrum: an error in it never reaches Mackie's meters (same parseVuData call)", () => {
   rtaReset();
   const pg = eqPage();
-  pg.eq.setRTA = () => {
+  pg.eq.update = () => {
     throw new Error("broken widget");
   };
   ctx.DLZMOD_rtaShown(pg, true);
   ctx.DLZMOD_rtaSync(pg, "m.");
   assert.doesNotThrow(() => ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20))));
+  assert.doesNotThrow(() => ctx.DLZMOD_rtaTick(), "nor the animation's timer");
   assert.doesNotThrow(() => ctx.DLZMOD_rtaVu({ "dlzmod.rta": "not base64!" }));
 });
 test("EQ spectrum: in the meters' colour of the look on screen, stronger with High contrast", () => {

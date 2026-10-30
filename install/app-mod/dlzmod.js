@@ -580,11 +580,11 @@ function DLZMOD_paintDbScale(t, sl, m) {
 // whose EQ page the mixer's screen shows in octave bands and sends them with every VU message as
 // "dlzmod.rta" (one byte per band, Mackie's VU scale: 0..1 over 80 dB). The screen says which channel
 // that is (hub key dlzmod.rta, DLZMOD_rtaCode; the server takes it from the screen only); a browser
-// shows it when its EQ page has the same channel. Fed through Mackie's own spectrum code in the EQ
-// widget (EQ.setRTA: cleared 250 ms after the last data, so it goes when the sound stops or the page
-// closes), drawn with the curve (rtaOverlay off: Mackie's overlay layer is not used) by the mod's
+// shows it when its EQ page has the same channel. Shown in the EQ widget's own spectrum data (rtaData),
+// drawn with the curve (rtaOverlay off: Mackie's overlay layer is not used) by the mod's
 // DLZMOD_rtaPaint instead of Mackie's paintRTA. Smoothed like an analyser: up at once, down slowly
-// (DLZMOD_rtaSmooth), so an EQ change shows as a calm rise or dip instead of drowning in every beat.
+// (DLZMOD_rtaSmooth), so an EQ change shows as a calm rise or dip instead of drowning in every beat;
+// animated towards each message's picture by a timer of its own (DLZMOD_rtaTick).
 
 // the bands' centres in Hz, as the graph mod has them
 function DLZMOD_rtaFreqs() {
@@ -611,11 +611,22 @@ function DLZMOD_rtaColors() {
 function DLZMOD_rtaShown(page, on) {
   if (on) {
     DLZMOD_rtaShown.page = page;
-    if (page.eq) {
-      page.eq.rtaOverlay = !1;
-      page.eq.paintRTA = function (t) {
+    const eq = page.eq;
+    if (eq) {
+      eq.rtaOverlay = !1;
+      eq.paintRTA = function (t) {
         DLZMOD_rtaPaint(this, t);
       };
+      // every redraw of the widget that is not the spectrum's own (a knob turned, a dot dragged, a
+      // change from a browser) pauses the animation for a moment (DLZMOD_rtaTick)
+      if (!eq.dlzmodUpdate) {
+        const own = eq.dlzmodUpdate = eq.update;
+        eq.update = function () {
+          const a = DLZMOD_rtaAnim();
+          if (!a.drawing) a.busyAt = DLZMOD_rtaNow();
+          return own.apply(this, arguments);
+        };
+      }
     }
     return;
   }
@@ -623,6 +634,7 @@ function DLZMOD_rtaShown(page, on) {
   DLZMOD_rtaShown.page = null;
   DLZMOD_rtaShown.prefix = "";
   DLZMOD_rtaMeasure(0);
+  DLZMOD_rtaStop(true);
 }
 
 // PageEQ.sync (patch.py): the channel on the page; also called while the page is hidden. With the
@@ -686,31 +698,85 @@ function DLZMOD_rtaVu(t, now) {
     if (!page || !page.eq || typeof s !== "string") return;
     const code = DLZMOD_rtaCode(DLZMOD_rtaShown.prefix);
     if (!code || Data.get("dlzmod.rta") !== code) return;
-    if (typeof now !== "number") now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    if (typeof now !== "number") now = DLZMOD_rtaNow();
     const levels = DLZMOD_rtaSmooth(Array.from(atob(s), (c) => c.charCodeAt(0) / 240), code, now);
-    const pts = DLZMOD_rtaPoints(levels);
-    if (!pts || !DLZMOD_rtaDue(page.eq, pts, now)) return;
+    const a = DLZMOD_rtaAnim();
+    if (a.eq !== page.eq) DLZMOD_rtaStop(true);
+    a.eq = page.eq;
+    a.target = DLZMOD_rtaPoints(levels);   // null: silence, the picture sinks and goes
+    a.at = now;
     // the look's colours each time: a change of look shows at the next message
     [page.eq.rtaStrokeColor, page.eq.rtaFillColor] = DLZMOD_rtaColors();
-    page.eq.setRTA(pts);
+    if (!a.timer) a.timer = a.later(DLZMOD_rtaTick, 0);
   } catch (e) {
     console.log("dlzmod: EQ spectrum: " + e);
   }
 }
 
-// Whether a new picture is due: Mackie's EQ widget redraws all of itself (grid, curve, knobs) for
-// each one, and at the VU messages' pace that slowed the EQ page's knobs and touch on the mixer. At
-// most one per 80 ms, and one that looks the same as the last (no point a pixel off) only after
-// 150 ms: Mackie's code clears the spectrum 250 ms after the last one. ms: now.
-function DLZMOD_rtaDue(eq, pts, now) {
-  const st = DLZMOD_rtaDue;
-  const dt = st.at === undefined ? Infinity : now - st.at;
-  if (dt >= 0 && dt < 80) return false;
-  const old = eq.rtaData, px = (eq.h || 0) - 2;
-  const same = old && old.length === pts.length && pts.every((v, k) => Math.abs(v - old[k]) * px < 1);
-  if (same && dt >= 0 && dt < 150) return false;
-  st.at = now;
-  return true;
+function DLZMOD_rtaNow() {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+// The animation: the EQ widget's picture (shown) and where it goes (target, from the last message;
+// at: when it came), its timer (later: setTimeout, tests replace it), and when the widget last
+// redrew for something else (busyAt).
+function DLZMOD_rtaAnim() {
+  if (!DLZMOD_rtaAnim.s) {
+    DLZMOD_rtaAnim.s = { eq: null, target: null, shown: null, at: 0, busyAt: -1e9, timer: null, drawing: false,
+      later: (f, ms) => setTimeout(f, ms) };
+  }
+  return DLZMOD_rtaAnim.s;
+}
+
+// One frame, about 30 a second while the picture moves: each point 60 % of the way to the target, so
+// a new message glides in within ~80 ms instead of jumping. Each frame redraws the whole widget (grid,
+// curve, knobs), which is what the screen spends its time on: within 250 ms of a redraw for something
+// else (a knob, a dragged dot) the picture only moves along in the widget's data, drawn with those
+// redraws, so turning and dragging stay quick. Standing still (no point half a pixel off): no frames,
+// a slower check. No message for 300 ms (silence below the bottom, the switch off, another channel
+// measured) or a silent one: it sinks to the bottom and goes. now: ms (tests), else the clock.
+function DLZMOD_rtaTick(now) {
+  const a = DLZMOD_rtaAnim();
+  a.timer = null;
+  try {
+    if (typeof now !== "number") now = DLZMOD_rtaNow();
+    const eq = a.eq, page = DLZMOD_rtaShown.page;
+    if (!eq || !page || page.eq !== eq) return DLZMOD_rtaStop(true);
+    const target = now - a.at < 300 ? a.target : null;
+    if (!target && !a.shown) return DLZMOD_rtaStop(false);
+    const goal = target || a.shown.map(() => 0);
+    const from = a.shown || goal.map(() => 0);   // a new picture rises from the bottom
+    const px = Math.max(1, (eq.h || 0) - 2);
+    const next = from.map((v, k) => (Math.abs(goal[k] - v) * px < 0.5 ? goal[k] : v + 0.6 * (goal[k] - v)));
+    const moved = next.some((v, k) => v !== from[k]) || !a.shown;
+    const gone = !target && next.every((v) => v * px < 0.5);
+    a.shown = gone ? null : next;
+    if (moved || gone) {
+      eq.rtaData = a.shown;
+      if (now - a.busyAt >= 250 || gone) {
+        a.drawing = true;
+        try {
+          eq.update();
+        } finally {
+          a.drawing = false;
+        }
+      }
+    }
+    if (!gone) a.timer = a.later(DLZMOD_rtaTick, moved ? 33 : 100);
+  } catch (e) {
+    console.log("dlzmod: EQ spectrum: " + e);
+  }
+}
+
+// the animation stopped; clear: the picture off the widget too (the page closed or another one shown)
+function DLZMOD_rtaStop(clear) {
+  const a = DLZMOD_rtaAnim();
+  if (a.timer) clearTimeout(a.timer);
+  a.timer = null;
+  if (clear && a.eq) a.eq.rtaData = null;
+  if (clear) a.eq = null;
+  a.shown = null;
+  a.target = null;
 }
 
 // The band levels held like an analyser's: a louder level at once, a quieter one falling at most
