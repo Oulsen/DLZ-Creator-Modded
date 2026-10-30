@@ -144,21 +144,25 @@ check(taps.length === 14, `taps: 14 (${taps.length})`);
 const clear = patched.blocks.findIndex((b) => b.type === "Clear" && b.buf === "dlzmodRta");
 check(clear >= 0 && clear < Math.min(...taps.map((t) => t.i)), "the mod's buffer cleared before the first tap");
 
-// the analyser: per band a copy, a band-pass and a meter, after the last tap, at the end
+// the analyser: per band a copy, a high-pass half an octave below, a low-pass half an octave above
+// (at most 20 kHz, EqBand's top) and a meter, after the last tap, at the end
 const an = patched.blocks.filter((b) => b.buf === "dlzmodRtaBand");
 const firstAn = patched.blocks.findIndex((b) => b.buf === "dlzmodRtaBand");
 check(firstAn > Math.max(...taps.map((t) => t.i)) && firstAn === patched.blocks.length - an.length,
   "analyser: after the last tap, at the end of the graph");
-const bandsOk = an.length === 3 * freqs.length && freqs.every((f, k) => {
-  const [c, eq, m] = an.slice(3 * k, 3 * k + 3);
-  return c.type === "CopyFrom" && c.p.src === "buffer:dlzmodRta" && eq.type === "EqBand" && eq.p.kind === 6
-    && eq.p.freq === f && m.type === "MaxMeter" && m.p.vu === "dlzmodRta" + k;
+const near = (a, b) => Math.abs(a - b) < 1e-6;
+const bandsOk = an.length >= 4 * freqs.length && freqs.every((f, k) => {
+  const [c, hp, lp, m] = an.slice(4 * k, 4 * k + 4);
+  return c.type === "CopyFrom" && c.p.src === "buffer:dlzmodRta" && hp.type === "EqBand" && hp.p.kind === 4
+    && near(hp.p.freq, f / Math.SQRT2) && lp.type === "EqBand" && lp.p.kind === 3 && near(lp.p.freq, Math.min(20000, f * Math.SQRT2))
+    && m.type === "MaxMeter" && m.p.vu === "dlzmodRta" + k;
 });
-check(bandsOk, `analyser: ${freqs.length} bands (copy, band-pass, meter): ${freqs.join(" ")} Hz`);
+check(bandsOk, `analyser: ${freqs.length} bands (copy, high-pass, low-pass, meter): ${freqs.join(" ")} Hz`);
 const vuOk = JSON.stringify(patched.vus["dlzmod.rta"]) === JSON.stringify(freqs.map((f, k) => "dlzmodRta" + k));
 check(vuOk, "VU group dlzmod.rta: one meter per band");
 const rest = Object.assign({}, patched.vus);
 delete rest["dlzmod.rta"];
+delete rest["dlzmod.rtadbg"];   // TEMPORARY (#131): the graph mod's diagnostics, out before the merge
 check(JSON.stringify(rest) === JSON.stringify(stock.vus), `Mackie's ${Object.keys(stock.vus).length} VU groups as they were`);
 
 process.exit(fail);
