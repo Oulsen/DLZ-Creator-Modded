@@ -24,7 +24,12 @@ How to make a mod without rediscovering the system. Read [architecture.md](archi
 5. **FORMAT SD would wipe the boot card**: it targets `/dev/mmcblk0` hardcoded (MBR, bootloader,
    partitions) [static]. On the mod card server.js refuses it and the button is hidden (`patch.py`).
    Never re-enable it.
-6. Leave the UART devices (ttyS1 Bluetooth, ttyS2 GD32) to faderlink.
+6. Leave the UART devices (ttyS1 Bluetooth, ttyS2 GD32) to faderlink. Never send the GD32 or the
+   Bluetooth module a command that is not fully understood: both have their own flash, and their
+   protocols most likely have update commands. Only replay what stock itself sends, with our own
+   values. To find out what Mackie's own programs do (faderlink, dspserver, glesgui), read them
+   with Ghidra through REA: [dev/re/README.md](../dev/re/README.md) has the setup and the routine
+   per question.
 7. Every mod must be reproducible from a clean dump via `install/build-sd.sh`.
 8. **Power off before pulling the card.** The system writes to it all the time (`srv_data.json`
    every 3 s, logs); pulling it while running can corrupt the SD's ext4 (the eMMC is never at risk).

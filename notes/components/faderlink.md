@@ -5,7 +5,7 @@ Owned by package `faderlink` 521 (binary, flash scripts, firmware, bitstreams). 
 ## faderlink (`/usr/local/bin/faderlink`, 856 KB)
 
 - C++, libhv + nlohmann::json; log tags `<< FADER`, `<< WS`
-- **GD32** over UART `$GD32_TTY` (unit sets `/dev/ttyS2` = uart5). Protocol/baud unknown
+- **GD32** over UART `$GD32_TTY` (unit sets `/dev/ttyS2` = uart5), 115200 baud, one JSON line per event (see Knobs)
 - **Bluetooth module** over `/dev/ttyS1` (uart3)
 - Opens `/dev/mem` ("Unable to map memory"), probably GPIO/PWM [guess]
 - Backlight: writes `/sys/devices/platform/backlight/backlight/backlight/brightness`
@@ -22,12 +22,29 @@ Owned by package `faderlink` 521 (binary, flash scripts, firmware, bitstreams). 
   [static]. Which entries the XS faders use, and whether faderlink also *reads* these keys back
   (e.g. fader pickup), needs a capture (open question 3).
 - **Knobs**: app.js's knob panel writes `K.N.key` (the hub key knob N drives), `K.N.color` (LED ring
-  colour) and `K.N.blink` for N = 0-3, plus `K.4`. The panel only sends the key name; faderlink picks
-  a value transform itself (`keyDataTransform`, strings `eqBand`, `log`; logs
-  "keyDataTransform not found: %s" otherwise) and writes the key [static]. So knobs can drive any key
-  faderlink has a transform for; whether an own `dlzmod.*` key works is open (question 29).
+  colour) and `K.N.blink` for N = 0-3, plus `K.4`. The panel only sends the key name; faderlink does
+  the rest [static, read with REA/Ghidra, #201]:
+  - The GD32 reader (`0x60fa0`, anchor `"FADER >> %s"`, `$GD32_TTY` at 115200 baud) gets one JSON
+    line per event. `{"slider.…` goes to the fader handler (`0x602d0`), `{"enc.N":delta}` to the knob
+    handler (`0x5f0b8`, anchor "keyDataTransform not found: %s"). Neither is passed on to the hub;
+    every other line except the GD32's `INIT` is. So the hub never sees a raw knob turn, only the key it changes.
+  - The knob handler takes N (clamped 0-4), reads `K.N.key` from its own copy of the hub state, and
+    skips an empty name or one starting with `enc.`. A name starting with `-` turns the direction
+    round (the `-` is stripped). Quotes around the name are stripped too.
+  - It looks the name up in a fixed table of about 1,280 keys (`0x62440`, hash map over the 64-byte
+    entries at `0xf0e50`-`0x104dd0`, filled at start-up by the static initialiser, most likely from the
+    per-channel parameter table below [guess]). A name not in the table
+    is logged as "keyDataTransform not found" and the turn is dropped; `eqBand` is the one name
+    allowed without an entry.
+  - The key also needs a current value in faderlink's copy of the state, or the turn is dropped.
+  - New value: a stepped entry (type 2) adds `delta × 0.5` to the value, keeping the fraction per
+    knob, clamped to the entry's min and max; a continuous entry converts the value to 0-1 with the
+    entry's own functions, adds `delta × 0.0125` and converts back; `eqBand` adds `delta × 0.1833`,
+    clamped to 0.1333-0.8667. It writes the value into its state and sends `{"key":%f}` to the hub.
+  - **So a knob can only drive a key in that table** (Q29): an own `dlzmod.*` key, or any other
+    unlisted key, is ignored with "keyDataTransform not found". Not checked on the mixer yet.
 - A per-channel parameter table (`i.N.pan gain eq.b1-3.* eq.hp.* gate.* comp.* ds.* aux.N.* fx.N.value`),
-  probably the transform lookup for those keys [guess].
+  probably the source of the knob table above [guess].
 - **Brightness**: `settings.brightness.screen` (PWM backlight; app.js default 1), `.dim` (0.25),
   `.lit` (0.8), `.k`, `.pad`, `.button` [static]. Whether 0 means fully dark is untested.
 - **Pad LEDs**: `B.%d.%d.colorhex` / `.blink` → `P.%d.color` / `P.%d.blink` to the GD32.
