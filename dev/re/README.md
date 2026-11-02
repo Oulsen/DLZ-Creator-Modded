@@ -83,5 +83,5 @@ as good as the check in step 5.
   own flash, and their protocols most likely have update commands. Only replay what stock itself
   sends, with our own values.
 - Analyse in place on the dump mount, or write to it (`analyze.sh` copies first).
-- Patch a program beyond the smallest change, on its stock hash, on the card's copy only, with a
-  device review at the sensitive-path tier at least (like #188).
+- Patch a program beyond the smallest change, or anything but the card's copy with the stock hash,
+  or without a device review at the sensitive-path tier at least (like #188).

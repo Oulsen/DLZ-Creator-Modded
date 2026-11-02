@@ -5,7 +5,7 @@
 # Private: build/ is git-ignored, never commit any of it.
 # Analysis runs on WSL's own disk (/root/re) with 2 decompiler workers and a 4 GB heap (1 and 3 GB
 # when WSL has less than 12 GB): 12 workers ran WSL out of memory (each can take 2.5 GB on a large
-# function). glesgui takes longest.
+# function). dspserver takes longest (about 41 minutes, the others under 2).
 #
 # Usage (repo root): wsl -d Ubuntu -u root -e bash dev/re/analyze.sh [program...]
 #   default: all three; a program already in the project is analysed again (-overwrite)
