@@ -1021,6 +1021,7 @@ function DLZMOD_updateRow() {
   if (r.state === "checking") return ["Looking for a new version on GitHub...", null];
   if (r.state === "downloading") return ["Downloading " + (r.version || "the update") + "...", DLZMOD_accent()];
   if (r.state === "copying") return ["Copying " + (r.version || "the update") + " from the USB stick...", DLZMOD_accent()];
+  if (DLZMOD_relOffline()) return ["No internet: connect the mixer to a network to check for updates", null];
   if (r.state === "newer") return [r.version + " is available (" + DLZMOD_size(r.size) + ")", DLZMOD_accent()];
   if (r.state === "full") return [r.version + " is out: it needs a full install with the installer image", DLZMOD_accent()];
   const failed = DLZMOD_updateFailed();
@@ -1058,6 +1059,11 @@ function DLZMOD_release() {
 function DLZMOD_releaseNew() {
   const r = DLZMOD_release();
   return (r.state === "newer" || r.state === "full") && !!r.version;
+}
+
+// the mixer has no way out (dlzmod-server.js, DLZMOD_relOnline): Check and Download greyed out
+function DLZMOD_relOffline() {
+  return DLZMOD_release().online === false;
 }
 
 // Check for Updates... / Download Update... on the Mod page
@@ -1125,16 +1131,25 @@ function DLZMOD_releaseAnswer(op, r) {
   }
 }
 
-// #220: From USB Stick... (the mixer's own screen): with a FAT32 stick in, the server copies the
-// update from it (dlzmod-server.js, DLZMOD_relUsb); else how to make one. The XS has one USB port,
-// the Wi-Fi stick's: the USB stick goes in its place while copying
+// #220: From USB Stick... (the mixer's own screen): the server copies the update from a FAT32 stick
+// (dlzmod-server.js, DLZMOD_relUsb). Greyed out without one (hub key usb: 0 none, 1 FAT, 2 another
+// file system); the line under the buttons says what it needs (DLZMOD_usbHint)
+function DLZMOD_usbReady() {
+  return Data.get("usb") === 1;
+}
+
 function DLZMOD_usbPress() {
+  if (DLZMOD_usbReady()) DLZMOD_releaseSend("usb");
+}
+
+// the line under the Mod page's buttons; the XS has one USB port, the Wi-Fi stick's: the USB stick
+// goes in its place while copying
+function DLZMOD_usbHint() {
+  const xs = DLZMOD_rtaXs();
   const usb = Data.get("usb");
-  if (usb === 1) return DLZMOD_releaseSend("usb");
-  const xs = DLZMOD_rtaXs() ? "\nThe XS has one USB port: take out the Wi-Fi stick while copying,\nand put it back afterwards." : "";
-  showMessage((usb === 2 ? "The mixer cannot read this USB stick: it needs FAT32.\n\n" : "") +
-    "Put the update's dlzmod-vX.Y.Z.tar and .tar.sig in a folder\ndlzmod-update on a FAT32 USB stick and plug it into the mixer.\nThen tap From USB Stick... again." + xs,
-  { title: "From USB Stick" });
+  if (usb === 1) return xs ? "Put the Wi-Fi stick back after the copy" : "";
+  if (usb === 2) return "This USB stick is not FAT32: the mixer cannot read it";
+  return "USB stick: FAT32, the update in a folder dlzmod-update" + (xs ? "; in the Wi-Fi stick's port" : "");
 }
 
 // Download's question, laid out as the Install question (DLZMOD_askUpdate): the installed and the new
@@ -1694,6 +1709,9 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
       this.check = new E1Button(this, {
         anchors: [0, 252], size: [300, 56], text: "Check for Updates...",
         onPress: () => DLZMOD_releasePress(),
+        getState: function () {
+          this.enabled = !DLZMOD_relOffline();
+        },
       });
       this.install = new E1Button(this, {
         anchors: [0, 252], size: [300, 56], text: "Install Update...",
@@ -1703,7 +1721,12 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
       this.usb = new E1Button(this, {
         anchors: [0, 252], size: [300, 56], text: "From USB Stick...",
         visible: !DLZMOD_external(), onPress: () => DLZMOD_usbPress(),
+        getState: function () {
+          this.enabled = DLZMOD_usbReady();
+        },
       });
+      // a stick in or out: the button and the line under it
+      Data.regWidget("usb", () => this.update());
       this.upload = new E1Button(this, {
         anchors: [0, 252], size: [300, 56], text: "Upload Update...",
         visible: DLZMOD_external(), onPress: () => DLZMOD_uploadPick(),
@@ -1741,6 +1764,11 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
         { color: Color.white, font: Font.font(500, "14pt"), align: "right", valign: "middle" });
       const [text, color] = DLZMOD_updateRow();
       DLZMOD_paintRow(t, 28, 206, "Updates", text, max, color);
+      // (between the buttons and the footer)
+      if (this.usb.visible) {
+        t.drawText(DLZMOD_usbHint(), this.w / 2 | 0, (308 + this.h - 24) / 2 | 0,
+          { color: "#888888", font: Font.font(500, "12pt"), align: "center", valign: "middle", max: max });
+      }
       t.drawText("by Oulsen · github.com/Oulsen/DLZ-Creator-Modded", this.w / 2 | 0, this.h - 24,
         { color: "#666666", font: Font.font(500, "12pt"), align: "center", max: max });
     },

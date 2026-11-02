@@ -509,7 +509,10 @@ Install question on the mixer's screen, then one switch off and on: #65, #207)
   version is out that the Mod page has not shown yet (`dlzmod.updateSeen`, a hub key: it survives a
   restart). Opening the Mod page clears it until the next version. Never a popup by itself.
 - **Mod page**: the Updates row says what the check found; Check for Updates... (Download Update...
-  once a newer version is found) next to Install Update... or Upload Update.... A check or download
+  once a newer version is found) next to Install Update... or Upload Update.... Without a way out
+  (no default route in `/proc/net/route`, `DLZMOD_relOnline`; sent as `online` with the state, and
+  to the screen within a minute when it changes) the button is greyed out and the row says "No
+  internet: connect the mixer to a network to check for updates" [static, sandbox]. A check or download
   this page asked for shows Mackie's spinner popup ("Checking for updates…", "Downloading vX.Y.Z…";
   `DLZMOD_relBusy`, closed by the answer, or after 60 s / 10 min without one: "No answer from the
   mixer"). It answers with Download's question (laid out as the Install question: the installed and
@@ -540,9 +543,12 @@ mixer]:
   to Check for Updates..., hidden while an update waits for Install. With a FAT32 stick in (hub key
   `usb` 1) it sends `DLZMOD_RELEASE {op: "usb"}` and shows the spinner ("Copying the update from the
   USB stick…"); the state is "copying", then "done" (the screen gets the Install question, #207) or
-  "error" with a popup. Without one (`usb` 0, or 2: not FAT) a popup says how: both files in a folder
-  `dlzmod-update` on a FAT32 stick; on the XS (`LITE_MODE`) the stick goes in the Wi-Fi stick's port
-  (the only one, [hardware.md](hardware.md)) and the Wi-Fi stick back afterwards.
+  "error" with a popup. Without one (`usb` 0, or 2: not FAT) the button is greyed out; a grey line
+  under the buttons says what it needs (`DLZMOD_usbHint`): both files in a folder `dlzmod-update` on a
+  FAT32 stick, on the XS (`LITE_MODE`) in the Wi-Fi stick's port (the only one,
+  [hardware.md](hardware.md)); with the stick in, on the XS: put the Wi-Fi stick back after the copy.
+  [device, 2026-11-02, dev-cffbde8: the copy from a FAT32 stick on the XS went in and the screen
+  asked Install; a stick without the `.sig`: "No mod update", nothing copied]
 - **Server** (`DLZMOD_relUsb`; the stick's mount point from `ce("usb")`, passed in by the
   `DLZMOD_releaseWatch` patch): the stick must be a FAT medium in `/proc/mounts` (stock mounts it
   read-only, `ro,noatime,flush`; the copy never remounts it) and not the card itself. It looks in

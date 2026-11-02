@@ -1053,18 +1053,26 @@ test("usb stick: From USB Stick... copies with a stick in, else says how; not in
     ctx.DLZMOD_relIdle();
     relDone();
   }
-  // no stick: how to make one, on the XS with the Wi-Fi stick's port
-  for (const [usb, xs, start, wifi] of [[0, true, "Put the update's", true], [2, false, "The mixer cannot read this USB stick: it needs FAT32.", false]]) {
-    relPage({ data: { usb: usb } });
+  // no FAT stick: greyed out, nothing sent, no popup; the line under the buttons says what it needs
+  for (const [usb, xs, hint] of [
+    [0, true, "USB stick: FAT32, the update in a folder dlzmod-update; in the Wi-Fi stick's port"],
+    [0, false, "USB stick: FAT32, the update in a folder dlzmod-update"],
+    [2, true, "This USB stick is not FAT32: the mixer cannot read it"],
+    [1, true, "Put the Wi-Fi stick back after the copy"],
+    [1, false, ""],
+  ]) {
+    const p = relPage({ data: { usb: usb } });
     if (xs) ctx.LITE_MODE = 1;
     try {
-      ui.cmds.length = 0;
-      ui.popups.length = 0;
-      ctx.DLZMOD_usbPress();
-      assert.deepStrictEqual(ui.cmds, [], "nothing sent");
-      assert.ok(ui.popups[0].text.startsWith(start), ui.popups[0].text);
-      assert.ok(ui.popups[0].text.includes("folder\ndlzmod-update on a FAT32 USB stick"));
-      assert.strictEqual(ui.popups[0].text.includes("take out the Wi-Fi stick"), wifi);
+      p.about.usb.getState();
+      assert.strictEqual(p.about.usb.enabled, usb === 1);
+      assert.strictEqual(ctx.DLZMOD_usbHint(), hint);
+      if (usb !== 1) {
+        ui.cmds.length = 0;
+        ui.popups.length = 0;
+        ctx.DLZMOD_usbPress();
+        assert.deepStrictEqual([ui.cmds, ui.popups.length], [[], 0], "nothing sent, no popup");
+      }
     } finally {
       delete ctx.LITE_MODE;
       relDone();
@@ -1073,6 +1081,27 @@ test("usb stick: From USB Stick... copies with a stick in, else says how; not in
   pg = relPage({ external: true, data: { usb: 1 } });
   try {
     assert.ok(!pg.about.usb.visible, "a browser has Upload Update... instead");
+  } finally {
+    relDone();
+  }
+});
+test("release: without internet Check for Updates is greyed out and the Updates row says why", () => {
+  const pg = relPage();
+  try {
+    ctx.DLZMOD_setRelease({ state: "", online: false });
+    pg.about.check.getState();
+    assert.strictEqual(pg.about.check.enabled, false);
+    assert.deepStrictEqual(plain(ctx.DLZMOD_updateRow()), ["No internet: connect the mixer to a network to check for updates", null]);
+    assert.ok(pg.about.usb.visible, "From USB Stick... still there");
+    ctx.DLZMOD_setRelease(Object.assign({}, REL, { online: false }));
+    pg.about.check.getState();
+    assert.strictEqual(pg.about.check.enabled, false, "no Download either");
+    ctx.DLZMOD_setRelease({ state: "", online: true });
+    pg.about.check.getState();
+    assert.strictEqual(pg.about.check.enabled, true);
+    ctx.DLZMOD_setRelease({ state: "" });
+    pg.about.check.getState();
+    assert.strictEqual(pg.about.check.enabled, true, "an older server that does not say: not greyed out");
   } finally {
     relDone();
   }

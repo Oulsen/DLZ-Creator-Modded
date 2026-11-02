@@ -2111,7 +2111,7 @@ relTest("release: newer, current, a release without update files, none yet, GitH
   assert.deepStrictEqual(s.map((m) => m.data.state), ["checking", "newer"]);
   assert.deepStrictEqual(relLast(s), { state: "newer", installed: "v0.5.0 (dev-fa646fa)", version: "v0.5.1", size: REL_TAR.length,
     summary: "Recordings can now be merged.", notes: "Recordings can now be merged. More in the notes.\n\nNew\n\n• one\n• two",
-    error: "" });
+    error: "", online: true });
   assert.ok(!("tarUrl" in relLast(s)), "the addresses stay on the mixer");
   relStub(relGitHub("v0.5.0"));
   await relCall({ op: "check" }, sendTo(s), up);
@@ -2368,6 +2368,40 @@ relTest("usb stick: the update's two files from its dlzmod-update folder to the 
   await usbCall(sendTo(s2), top);
   assert.deepStrictEqual([relLast(s2).state, relLast(s2).version], ["done", "v0.5.1 (dev-abc1234)"]);
   assert.deepStrictEqual(ls(top.dir), ["dlzmod-v0.5.1-dev-abc1234.tar", "dlzmod-v0.5.1-dev-abc1234.tar.sig"]);
+});
+relTest("release: online from the kernel's default route; the screen hears within a minute when it changes", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dlzroute-"));
+  const file = path.join(dir, "route");
+  const HEAD = "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n";
+  const LAN = "eth0\t0001A8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n";
+  const write = (rows) => fs.writeFileSync(file, HEAD + rows);
+  write("wlan0\t00000000\t0101A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0\n" + LAN);
+  assert.strictEqual(ctx.DLZMOD_relOnline(file), true, "a default route that is up");
+  write(LAN);
+  assert.strictEqual(ctx.DLZMOD_relOnline(file), false, "only the local network");
+  write("wlan0\t00000000\t0101A8C0\t0002\t0\t0\t600\t00000000\t0\t0\t0\n");
+  assert.strictEqual(ctx.DLZMOD_relOnline(file), false, "a default route that is not up");
+  assert.strictEqual(ctx.DLZMOD_relOnline(path.join(dir, "none")), true, "cannot tell: not greyed out");
+  // the tick tells the screen when it changes, not otherwise
+  ctx.DLZMOD_relOnline.file = file;
+  const screen = [];
+  ctx.DLZMOD_updateNoteSend.screen = sendTo(screen);
+  ctx.getDataKey = (k) => (k === "dlzmod.updateAuto" ? 0 : undefined);
+  try {
+    delete ctx.DLZMOD_releaseWatch.net;
+    write(LAN);
+    await ctx.DLZMOD_releaseTick({ now: () => 1 });
+    assert.deepStrictEqual(screen, [], "the first look only remembers");
+    write("eth0\t00000000\t0101A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0\n");
+    await ctx.DLZMOD_releaseTick({ now: () => 2 });
+    assert.strictEqual(screen.length, 1);
+    assert.strictEqual(relLast(screen).online, true);
+    await ctx.DLZMOD_releaseTick({ now: () => 3 });
+    assert.strictEqual(screen.length, 1, "no change: nothing sent");
+  } finally {
+    delete ctx.DLZMOD_relOnline.file;
+    delete ctx.DLZMOD_releaseWatch.net;
+  }
 });
 test("usb stick, download: the stream stopped early and destroyed does not end the server (no unheard error)", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dlzup-sig-"));

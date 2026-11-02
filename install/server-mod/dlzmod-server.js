@@ -1275,10 +1275,26 @@ function DLZMOD_relRunning(r) {
   return r.state === "checking" || r.state === "downloading" || r.state === "copying";
 }
 
+// online: whether the mixer has a way out (a default route, from the kernel's routing table: no
+// shell), so the Mod page can grey out Check for Updates without one; true when it cannot tell
 function DLZMOD_relPublic() {
   const r = DLZMOD_rel();
   return { state: r.state, installed: r.installed, version: r.version, size: r.size, summary: r.summary,
-    notes: r.notes, error: r.error };
+    notes: r.notes, error: r.error, online: DLZMOD_relOnline() };
+}
+
+// a default route that is up (Destination 0 and the RTF_UP flag) in /proc/net/route
+function DLZMOD_relOnline(file = DLZMOD_relOnline.file || "/proc/net/route") {
+  let text;
+  try {
+    text = require("fs").readFileSync(file, "utf8");
+  } catch (e) {
+    return true;
+  }
+  return String(text).split("\n").slice(1).some((line) => {
+    const f = line.trim().split(/\s+/);
+    return f.length >= 4 && f[1] === "00000000" && (parseInt(f[3], 16) & 1) === 1;
+  });
 }
 
 // https GET to GitHub's hosts only, redirects followed (at most 5, each checked the same); resolves
@@ -1655,6 +1671,14 @@ function DLZMOD_releaseWatch(root, every = 60000, usb) {
 async function DLZMOD_releaseTick(o = {}) {
   const s = DLZMOD_releaseWatch;
   const now = (o.now || DLZMOD_monoNow)();
+  // the network came or went (a Wi-Fi stick, a cable): the Mod page hears it within a minute
+  const net = DLZMOD_relOnline();
+  if (s.net !== undefined && s.net !== net && DLZMOD_updateNoteSend.screen) {
+    try {
+      DLZMOD_updateNoteSend.screen({ cmd: "DLZMOD_RELEASE_STATE", id: 0, data: DLZMOD_relPublic() });
+    } catch (e) {}
+  }
+  s.net = net;
   const get = globalThis.getDataKey;
   const auto = typeof get === "function" ? get("dlzmod.updateAuto") : undefined;
   if (auto === 0 || auto === false) return "off";
