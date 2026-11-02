@@ -218,7 +218,13 @@ rehearsal: `tests/update.sh` case 3a]:
   before (`failed` holds their record) get no question: the updater never tries them again ("failed
   before, not tried again"), and the answer says so. A question that cannot be
   saved: the start after the switch asks, as before. Files copied with a card reader are asked about
-  at the start after it, as before [static; unit tests].
+  at the start after it, as before [static; unit tests]. On the dev card [device, 2026-11-02]: the
+  upload of a dev build from a paired browser put the question on the mixer's screen at once,
+  `pending` held the same record as `cat tar sig | sha256sum` on the PC and the version from the name
+  (`v0.5.0 (dev-fd96f37)`); after Install and one switch off and on the updater installed it
+  ("INSTALLED", the update files deleted). The same build as the one installed gives no "installed"
+  popup afterwards: that popup comes only when `installed` differs from `shown`, as for a drop-in of
+  the same build.
 - **Install** sends `DLZMOD_UPDATE_APPROVE {sum}`, a screen-only command (`DLZMOD_SCREEN_ONLY` and its
   own check). The server writes the pending record to `approved` (temp file, fsync, rename, folder
   fsync: the next thing the user does is cut the power) and answers "Ready to install vX.Y.Z. Switch
