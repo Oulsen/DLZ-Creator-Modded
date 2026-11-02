@@ -6,6 +6,7 @@
 - (MOD FEATURE) An update sent from a computer installs with one switch off and on
 - (MOD FEATURE) Check for mod updates on the Mod page and download them
 - (MOD FEATURE) Install mod updates from a USB stick
+- (MOD FEATURE) See what changed after an update
 - (MOD BUG) After a restart of the mixer software, the date can drop out of recording names
 
 ## v0.4.0

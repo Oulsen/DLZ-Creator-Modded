@@ -11,7 +11,7 @@ Usage: patch.py app <app.js>
 The first run keeps the original as <file>.orig; every run patches from that original, so it can
 be re-run after changing the patches. Each anchor must occur exactly once in the original,
 otherwise nothing is written (a different firmware build needs its anchors checked). Our own code
-is appended afterwards: app-mod/dlzmod.js (with the mod version stamped in),
+is appended afterwards: app-mod/dlzmod.js (with the mod version and its CHANGELOG.md section stamped in),
 server-mod/dlzmod-server.js or graph-mod/dlzmod-graph.js.
 
 The patched server.js only ever runs from the SD card, where the only SD slot holds the boot card
@@ -19,6 +19,7 @@ The patched server.js only ever runs from the SD card, where the only SD slot ho
 (they can bring new GD32 firmware and overwrite the mod; see notes/modding-guide.md, Brick risks).
 Recordings get free, unique names (server-mod/dlzmod-server.js).
 """
+import json
 import os
 import sys
 from pathlib import Path
@@ -38,6 +39,52 @@ def write_atomic(path, data):
         os.fsync(f.fileno())
     os.replace(tmp, path)
 VERSION_PLACEHOLDER = "%%DLZMOD_VERSION%%"
+# with its quotes: replaced by a JS string literal
+NOTES_PLACEHOLDER = '"%%DLZMOD_NOTES%%"'
+# next to VERSION: the repo's, or the package's own copy (release/mkpackage.sh)
+CHANGELOG_FILE = HERE.parent / "CHANGELOG.md"
+# the release notes' groups (release/release-notes.sh), in their order
+NOTES_GROUPS = (("DLZ FEATURE", "DLZ features"), ("DLZ BUG", "DLZ bugs fixed"),
+                ("MOD FEATURE", "Mod features"), ("MOD BUG", "Mod bugs fixed"))
+NOTES_MAX = 8000
+
+
+def version_notes(version, path=CHANGELOG_FILE):
+    """What changed in this version, for the popup after an update (#224): the version's `## vX.Y.Z`
+    section of CHANGELOG.md grouped as the release notes, without the title prefixes and issue
+    numbers. Empty without the file or the section; a file it cannot read never stops the patch."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+    except (OSError, ValueError) as e:
+        print(f"note: {path.name} not read ({e}): no notes for What's New", file=sys.stderr)
+        return ""
+    groups = {head: [] for _, head in NOTES_GROUPS}
+    other = []
+    on = False
+    for line in text.replace("\r\n", "\n").split("\n"):
+        if line.startswith("## "):
+            on = line[3:].strip() == version
+            continue
+        if not on or not line.startswith("- "):
+            continue
+        item = line[2:].strip()
+        for pre, head in NOTES_GROUPS:
+            if item.startswith(f"({pre}) "):
+                groups[head].append(item[len(pre) + 3:])
+                break
+        else:
+            other.append(item)
+    parts = [head + "\n" + "\n".join("• " + i for i in items) for head, items in groups.items() if items]
+    if other:
+        parts.append("\n".join("• " + i for i in other))
+    notes = "\n\n".join(parts)
+    if not notes:
+        print(f"note: {path.name} has no items for {version}: no notes for What's New", file=sys.stderr)
+    elif len(notes) > NOTES_MAX:   # whole lines only
+        notes = notes[:notes.rfind("\n", 0, NOTES_MAX)].rstrip()
+    return notes
 
 # (what, anchor in Mackie's code, replacement)
 APP_PATCHES = [
@@ -582,7 +629,11 @@ def main():
         if mod.count(VERSION_PLACEHOLDER) != 1:
             sys.exit(f"{mod_js.name}: expected one {VERSION_PLACEHOLDER}; nothing written")
         mod = mod.replace(VERSION_PLACEHOLDER, version)
-        note = f" ({version})"
+        if mod.count(NOTES_PLACEHOLDER) != 1:
+            sys.exit(f"{mod_js.name}: expected one {NOTES_PLACEHOLDER}; nothing written")
+        notes = version_notes(version)
+        mod = mod.replace(NOTES_PLACEHOLDER, json.dumps(notes))
+        note = f" ({version}, notes: {notes.count(chr(8226))} items)"
     if check:
         print(f"check ok: {len(patches)} anchors in {orig}, {mod_js.name}{note}")
         return

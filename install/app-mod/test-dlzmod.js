@@ -820,6 +820,77 @@ test("update popups: the result after the start, green or red; OK tells the serv
   assert.deepStrictEqual(ui.cmds, []);
   ok.opts.func();
   assert.deepStrictEqual(ui.cmds, [["DLZMOD_UPDATE_NOTE_OK", undefined]]);
+  assert.strictEqual(ok.opts.buttons, undefined, "no notes stamped in (an unpatched copy): Mackie's one OK");
+  assert.strictEqual(ctx.DLZMOD_versionNotes(), "");
+});
+test("update popups: after an update, What's New shows the notes the app was stamped with (#224)", () => {
+  reset();
+  const version = ctx.DLZMOD_version, notes = ctx.DLZMOD_versionNotes;
+  ctx.DLZMOD_version = () => "v0.5.0";
+  ctx.DLZMOD_versionNotes = () => "Mod features\n• See what changed after an update";
+  try {
+    ctx.DLZMOD_showUpdateNote({ ok: true, version: "v0.5.0 (dev-fa646fa)" });
+    ctx.DLZMOD_showUpdateNote({ ok: true, version: "v0.4.0" });
+    ctx.DLZMOD_showUpdateNote({ ok: false, report: "update-report.txt" });
+    const [ok, other, bad] = ui.popups;
+    assert.deepStrictEqual(plain(ok.opts.buttons.map((b) => b.text)), ["check", "What's New"]);
+    assert.strictEqual(ok.opts.buttons[0].onPress, undefined, "OK stays Mackie's: it calls func");
+    assert.strictEqual(other.opts.buttons, undefined, "another version than the app's: no notes of its own");
+    assert.strictEqual(bad.opts.buttons, undefined, "not installed: nothing new");
+    const fake = { parent: { destroy() {
+      this.gone = true;
+    } } };
+    ok.opts.buttons[1].onPress.call(fake);
+    assert.ok(fake.parent.gone);
+    assert.deepStrictEqual(ui.cmds, [["DLZMOD_UPDATE_NOTE_OK", undefined]], "What's New counts as seen too");
+    const w = ui.windows.at(-1);
+    const lines = [];
+    w.paint({ drawText: (s) => lines.push(s), measureText: (s) => ({ width: s.length }) });
+    assert.ok(lines.includes("What's New in v0.5.0 (dev-fa646fa)"), lines.join("|"));
+    assert.ok(lines.includes("• See what changed after an update"), lines.join("|"));
+    assert.ok(!ui.buttons.some((b) => b.parent === w && b.text === "Download" && b.visible !== false), "no Download here");
+    w.close();
+  } finally {
+    ctx.DLZMOD_version = version;
+    ctx.DLZMOD_versionNotes = notes;
+  }
+});
+test("Mod page: What's New next to the version opens the installed version's notes; none stamped in: no button", () => {
+  const notes = ctx.DLZMOD_versionNotes;
+  try {
+    let pg = relPage();
+    assert.strictEqual(pg.about.notes.visible, false, "an unpatched copy has no notes");
+    relDone();
+    ctx.DLZMOD_versionNotes = () => "Mod features\n• See what changed after an update";
+    pg = relPage();
+    assert.notStrictEqual(pg.about.notes.visible, false);
+    pg.about.notes.onPress();
+    const w = ui.windows.at(-1), lines = [];
+    w.paint({ drawText: (s) => lines.push(s), measureText: (s) => ({ width: s.length }) });
+    assert.ok(lines.includes("• See what changed after an update"), lines.join("|"));
+    assert.ok(lines.some((l) => l.startsWith("What's New in ")), lines.join("|"));
+    w.close();
+  } finally {
+    ctx.DLZMOD_versionNotes = notes;
+    relDone();
+  }
+});
+test("notes pages: on the mixer lines are wrapped by length, as Mackie's popups do; in a browser by width", () => {
+  const text = "Mod bugs fixed\n• After a restart of the mixer software, the date can drop out of recording names" +
+    " and this goes on a bit";
+  const useless = { measureText: () => ({ width: 1e9 }) };   // what one word per line on the mixer looked like
+  ctx.$ENV = { isNode: true };
+  try {
+    const lines = ctx.DLZMOD_wrap(useless, text, "500 13pt", 836);
+    assert.deepStrictEqual(plain(lines), ["Mod bugs fixed",
+      "• After a restart of the mixer software, the date can drop out of recording names",
+      "and this goes on a bit"]);
+    assert.ok(lines.every((l) => l.length <= 83), "836 px: at most 83 characters a line");
+  } finally {
+    delete ctx.$ENV;
+  }
+  const byWidth = ctx.DLZMOD_wrap({ measureText: (s) => ({ width: s.length * 20 }) }, "aa bb cc", "f", 100);
+  assert.deepStrictEqual(plain(byWidth), ["aa bb", "cc"]);
 });
 test("update popups: an update waiting asks Install or Later with both versions; only Install approves it", () => {
   reset();

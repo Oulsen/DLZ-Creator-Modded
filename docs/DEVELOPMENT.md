@@ -545,7 +545,11 @@ issue's technical notes point to the note section instead of copying it.
   `DLZ BUG`, `MOD FEATURE`, `MOD BUG` (no `ANALYSIS`, `DEV` or `release`; one line each, nothing else in the section: the release notes are made from it, and `release-notes.sh` stops on anything else): what changes on the mixer first,
   then the mod itself. The release PR (`#N: <title>` lines) and the release notes use the same
   order, as sections ("DLZ features", "DLZ bugs fixed", "Mod features", "Mod bugs fixed"; empty
-  ones left out). The README's "What the mod does" follows: it describes the current mod, so the PR
+  ones left out). The section also goes onto the mixer: the package carries `CHANGELOG.md`, and the
+  popup after an update shows the version's bullets under What's New (#224; `notes/updates.md`), so
+  a changed `CHANGELOG.md` makes a package build `+dirty` like a change under `install/` (its
+  parser in `patch.py` puts a bullet without a prefix last instead of stopping, as a popup should).
+  The README's "What the mod does" follows: it describes the current mod, so the PR
   that brings a new feature or stock fix puts it into its section there: one bullet per feature,
   what the owner gets first, then where it is in italics (the Settings → DLZ Creator Modded tab);
   a stock fix as what no longer happens; no versions or internals (a new area gets a new section).

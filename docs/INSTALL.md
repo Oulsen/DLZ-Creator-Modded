@@ -149,7 +149,7 @@ mixer has no other way to switch off; this is normal.
   **From USB Stick...**; the screen then asks to install it. The mixer also looks by itself every few hours
   and shows a small red dot on the cogwheel when a new version is out (only a request for the latest
   release goes to GitHub; turn it off with **Automatic Update Check** on the Mod page). The update installs while the logo shows (about 15 seconds), then a message
-  says whether it worked. **Later** keeps it on the card; the question comes back at the next start,
+  says whether it worked (from v0.5.0 on with **What's New**: what changed in that version; the Mod page has it too). **Later** keeps it on the card; the question comes back at the next start,
   and Settings → DLZ Creator Modded → **Mod** has an **Install Update...** button meanwhile. (An
   update from v0.1.0 installs at the first start without asking: the question comes with the update.
   A card installed with v0.1.0 keeps "v0.1.0" on its start-up screens after an update; the version

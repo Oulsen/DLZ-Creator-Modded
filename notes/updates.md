@@ -283,6 +283,24 @@ shown: `later` and "more than one update file".
 Accepted: any hub client can send the OK (a few small writes in fixed files); the fsync pauses the
 hub for one card flush per tap (audio is dspserver).
 
+**What's New after an update (#224)** [device: the popup and its pages on the dev card]: the green
+popup has a second button, What's New, and the Mod page one next to the Version row (shown only
+when there are notes), with what changed in the version: `CHANGELOG.md`'s `## vX.Y.Z` section, grouped as the release
+notes (`release-notes.sh`: DLZ features, DLZ bugs fixed, Mod features, Mod bugs fixed; no issue
+numbers), on the same pages as Download's What's New (`DLZMOD_releaseNotes`, no Download button).
+Either button counts as the OK. The notes are in the app itself: `mkpackage.sh` puts the repo's
+`CHANGELOG.md` (CR dropped) next to `VERSION` in the package (`/pkg/CHANGELOG.md`, in the manifest
+and under the signature), and `patch.py app` stamps the version's section into `dlzmod.js`
+(`DLZMOD_versionNotes`) as it stamps the version. So it is what the signed package says, the same for
+every way an update comes in (download, USB stick, upload, a copy to the card) and for the installer
+and `build-sd.sh` (the repo's file), and it needs no new file on the card: an updater from before
+#224 refuses any path outside its allowlist (`var/lib/dlzmod-update/` takes only `version` and
+`installed`), while `srv/app.js` is the update's own. The button shows only when the popup's
+version is the running app's (`installed` "v0.5.0 (dev-…)" → "v0.5.0") and the section has items;
+a dev build carries its version's section as it stood at its commit (`mkpackage.sh` counts a changed
+`CHANGELOG.md` as `+dirty`, unsigned). A `CHANGELOG.md` that cannot be read gives no notes, never a
+failed patch. `tests/patches.sh` checks the patched app against `patch.py`'s own grouping.
+
 ## The sandbox and the trust boundary
 
 **The signature is the trust boundary.** A signed package may place `dlzmod-*` scripts, units and the
@@ -521,7 +539,10 @@ Install question on the mixer's screen, then one switch off and on: #65, #207)
   GitHub asks to wait, needs a full install); on the mixer's screen a finished download goes on to
   the Install question (#207). [static, sandbox] What's New: the release notes as plain text (`DLZMOD_relText`: headings and
   list items kept, links as their text, emphasis, code marks, images and HTML left out; at most
-  20000 characters) on pages with < and >, since the screen has no scrolling text.
+  20000 characters) on pages with < and >, since the screen has no scrolling text. On the mixer the
+  lines are cut by length (`DLZMOD_wrap`, 10 px a character), as Mackie's own popups do there
+  (`Util.wrapText` with `$ENV.isNode`): glesgui's `measureText` gives no usable width, and measuring
+  put one word on each line [device, #224's drop-in; the sandbox's browser measures fine].
 - **Download** (`DLZMOD_relDownload`): the release is fetched again (the addresses never come from
   a client), the signature (exactly 64 bytes) and then the package (its `Content-Length` must be
   the size the release lists) go through the upload's write path (`DLZMOD_uploadRun`: temp files,

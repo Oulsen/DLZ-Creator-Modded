@@ -22,6 +22,13 @@ function DLZMOD_version() {
   return "%%DLZMOD_VERSION%%";
 }
 
+// #224: what changed in this version, from the CHANGELOG.md the signed package carries (patch.py,
+// grouped as the release notes); "" when the file had no section for it (or in an unpatched copy)
+function DLZMOD_versionNotes() {
+  const notes = "%%DLZMOD_NOTES%%";
+  return notes.indexOf("%%DLZMOD_") === 0 ? "" : notes;
+}
+
 function DLZMOD_tabLabel() {
   return "DLZ Creator Modded";
 }
@@ -934,16 +941,32 @@ function DLZMOD_paintSdNote(t, panel) {
 
 // The drop-in update's result, once after the start that installed it (or refused it), in the style
 // of Mackie's firmware popups (green / red text, showMessage); OK tells the server it was seen
-// (dlzmod-server.js, DLZMOD_updateNoteSend). n: {ok, version} or {ok: false, report}.
+// (dlzmod-server.js, DLZMOD_updateNoteSend). n: {ok, version} or {ok: false, report}. After an
+// update that went in, What's New shows this version's notes (#224): the running app is the one the
+// update brought, so its notes are the installed version's
 function DLZMOD_showUpdateNote(n) {
   if (!n) return;
   const text = n.ok
     ? "Updated to " + n.version + "."
     : "The update was not installed.\nSee " + (n.report ? "dlzmod-logs/" + n.report : "dlzmod-logs") + " on the card.";
-  showMessage(text, {
+  const seen = () => $NET.cmd("DLZMOD_UPDATE_NOTE_OK");
+  const opts = {
     title: DLZMOD_tabLabel() + " update", textColor: n.ok ? Color.green : Color.red2,
-    font: Font.font(500, "17pt"), textDY: 32, func: () => $NET.cmd("DLZMOD_UPDATE_NOTE_OK"),
-  });
+    font: Font.font(500, "17pt"), textDY: 32, func: seen,
+  };
+  // ("v0.5.0 (dev-fa646fa)": the version before the build)
+  const notes = n.ok && String(n.version || "").split(" ")[0] === DLZMOD_version() ? DLZMOD_versionNotes() : "";
+  if (notes) {
+    opts.buttons = [
+      { text: $FA.check, textStyle: { font: Font.fa("36px") }, textColors: [Color.main, Color.white], colors: [Color.confirm, Color.main] },
+      { text: "What's New", textStyle: { font: Font.font(600, "16pt") }, onPress: function () {
+        this.parent.destroy();
+        seen();
+        DLZMOD_releaseNotes({ version: n.version, notes: notes });
+      } },
+    ];
+  }
+  showMessage(text, opts);
 }
 
 // #65: an update file on the card passed the updater's checks and waits for Install (dlzmod-server.js,
@@ -1185,15 +1208,20 @@ function DLZMOD_askRelease(r) {
   });
 }
 
-// text cut into lines that fit max px in the font (words kept whole; a word longer than a line is cut)
+// text cut into lines that fit max px in the font (words kept whole; a word longer than a line gets
+// a line of its own). On the mixer (glesgui, $ENV.isNode) measureText gives no usable width (one word
+// per line [device]): Mackie's own popups wrap by a character count there (Util.wrapText), and so
+// does this, at 10 px a character (13pt: about 9 [static, Mackie's 45 characters at 15pt])
 function DLZMOD_wrap(t, text, font, max) {
-  t.font = font;
+  const byLength = typeof $ENV !== "undefined" && $ENV && $ENV.isNode;
+  if (!byLength) t.font = font;
+  const fits = byLength ? (s) => s.length <= (max / 10 | 0) : (s) => t.measureText(s).width <= max;
   const out = [];
   for (const para of String(text).split("\n")) {
     let line = "";
     for (const word of para.split(" ")) {
       const next = line ? line + " " + word : word;
-      if (!line || t.measureText(next).width <= max) {
+      if (!line || fits(next)) {
         line = next;
         continue;
       }
@@ -1730,6 +1758,12 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
         visible: DLZMOD_external(), onPress: () => DLZMOD_uploadPick(),
       });
       this.auto = DLZMOD_switch(this, w, 112, "dlzmod.updateAuto", () => this.update());
+      // #224: the installed version's notes again, as after its update (none stamped in: no button)
+      this.notes = new E1Button(this, {
+        anchors: [240, 112], size: [170, 46], text: "What's New",
+        visible: !!DLZMOD_versionNotes(),
+        onPress: () => DLZMOD_releaseNotes({ version: DLZMOD_version(), notes: DLZMOD_versionNotes() }),
+      });
       this.syncInstall();
     },
     syncInstall: function () {
