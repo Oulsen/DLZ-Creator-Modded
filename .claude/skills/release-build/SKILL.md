@@ -99,8 +99,9 @@ and attaches the files (`docs/DEVELOPMENT.md`, "Releases" step 5). `compare vX.Y
 the draft, runs `sha256sum -c SHA256SUMS`, checks that the draft holds exactly the files
 `SHA256SUMS` names (the image always; the update `.tar` + `.tar.sig` only for a drop-in release),
 that its image and tar are this PC's build byte for byte, and that the `.sig` verifies with
-`install/keys/release.pub` over the PC's tar. It refuses a build that is not of the tagged commit
-and a release that is not a draft. `DIFFERENT` or a failed signature: never publish; the build
+`install/keys/release.pub` over the PC's tar (with WSL Ubuntu's OpenSSL 3: Git Bash's 1.1.1 cannot
+check Ed25519; without one it says `SIGNATURE NOT CHECKED`: never publish then). It refuses a build
+that is not of the tagged commit and a release that is not a draft. `DIFFERENT` or a failed signature: never publish; the build
 environment differs between the two sides, find out why. A drop-in release: test the update from
 the draft's `.tar` + `.tar.sig` on the mixer before publishing. The notes' first line, the
 highlights (posted in Discord on publishing) and publishing stay with the maintainer, on GitHub. On

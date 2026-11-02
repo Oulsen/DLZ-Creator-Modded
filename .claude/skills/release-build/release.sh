@@ -150,8 +150,17 @@ compare)
   done
   if [ -f "$t/dlzmod-$VER.tar.sig" ]; then
     tr -d '\r' < install/keys/release.pub > "$t/pub.pem"
-    if openssl pkeyutl -verify -pubin -inkey "$t/pub.pem" -rawin -in "$REL/dlzmod-$VER.tar" -sigfile "$t/dlzmod-$VER.tar.sig" >/dev/null; then
-      echo "signature: verifies with install/keys/release.pub over this PC's tar"
+    # Ed25519 needs -rawin, which takes OpenSSL 3: Git Bash's is 1.1.1 (#210), so WSL's, as dev/push.sh
+    wsl_path() { wsl -d Ubuntu -e wslpath -a "$(cygpath -aw "$1")" 2>/dev/null | tr -d '\r\0'; }
+    t_w=$(wsl_path "$t"); tar_w=$(wsl_path "$REL/dlzmod-$VER.tar")
+    ossl=$(wsl -d Ubuntu -e openssl version 2>/dev/null | tr -d '\r\0' | head -n 1)
+    case $ossl in OpenSSL*) ;; *) ossl= ;; esac   # without the distro wsl.exe prints its error on stdout
+    case $ossl in "OpenSSL "[3-9]*) new=1 ;; *) new=0 ;; esac
+    if [ $new = 0 ] || [ "${t_w:0:1}" != / ] || [ "${tar_w:0:1}" != / ]; then
+      echo "SIGNATURE NOT CHECKED: no OpenSSL 3 in WSL Ubuntu, or no WSL Ubuntu (found: ${ossl:-none}); the check needs one"; ok=0
+    elif MSYS_NO_PATHCONV=1 wsl -d Ubuntu -e openssl pkeyutl -verify -pubin -inkey "$t_w/pub.pem" -rawin \
+      -in "$tar_w" -sigfile "$t_w/dlzmod-$VER.tar.sig" > /dev/null; then
+      echo "signature: verifies with install/keys/release.pub over this PC's tar (${ossl%% (*} in WSL)"
     else
       echo "SIGNATURE DOES NOT VERIFY with install/keys/release.pub"; ok=0
     fi
