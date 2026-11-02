@@ -1987,9 +1987,32 @@ function DLZMOD_clockYearOk(ms) {
 // how the clock was set this start: "internet" (chrony in sync: stays so), "hand", "device" (a
 // paired browser's time) or "" (the saved time). chronyc is asked at most every 10 s (uptime, which a
 // clock change does not move); its CSV's last field is the leap status, "Not synchronised" before
-// the first sync
+// the first sync. hand and device are kept in DLZMOD_clockFile (#208): /run is a tmpfs, so they
+// outlast a restart of the mixer software, not a power-off ("this start"); internet is asked again
+function DLZMOD_clockFile() {
+  return "/run/dlzmod-clock-how";
+}
+
 function DLZMOD_clock() {
-  return DLZMOD_time.clock || (DLZMOD_time.clock = { how: "", asked: -Infinity });
+  if (DLZMOD_time.clock) return DLZMOD_time.clock;
+  let how = "";
+  try {
+    how = require("fs").readFileSync(DLZMOD_clockFile(), "utf8").trim();
+  } catch (e) {}
+  if (!["hand", "device"].includes(how)) how = "";
+  return (DLZMOD_time.clock = { how: how, asked: -Infinity });
+}
+
+// (temp file, rename: a crash in between leaves the last one whole; RAM, so no fsync)
+function DLZMOD_clockKeep(how) {
+  const fs = require("fs");
+  const file = DLZMOD_clockFile();
+  try {
+    fs.writeFileSync(file + ".dlzmod-new", how + "\n");
+    fs.renameSync(file + ".dlzmod-new", file);
+  } catch (e) {
+    console.error("dlzmod: clock source:", e.message);
+  }
 }
 
 async function DLZMOD_clockSource(run) {
@@ -2019,6 +2042,7 @@ async function DLZMOD_clockSet(ms, how, run, result, zone) {
     return result(false, "The clock could not be set");
   }
   DLZMOD_clock().how = how;
+  DLZMOD_clockKeep(how);
   const s = await run("/usr/local/sbin/dlzmod-clock", ["save"]);
   if (!s.ok) console.error("dlzmod: dlzmod-clock save:", (s.err || s.out).trim());
   const l = DLZMOD_tzLocal(zone, ms) || DLZMOD_tzLocal("Etc/UTC", ms);
