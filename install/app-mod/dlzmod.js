@@ -1217,6 +1217,7 @@ function DLZMOD_releaseNotes(r) {
 // version is out that the Mod page has not shown yet (dlzmod.updateSeen); on the mixer's own screen
 // only, never a popup. Opening the Mod page clears it until the next version
 function DLZMOD_dot(button) {
+  if (!button) return null;   // (a tab not there: no dot, never a broken Settings page)
   const d = new Widget(button, {
     anchors: [null, 6, 6], size: [12, 12], opaque: !1, visible: !1,
     paint: function (t) {

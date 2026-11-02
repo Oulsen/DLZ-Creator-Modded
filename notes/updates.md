@@ -495,11 +495,13 @@ Install question on the mixer's screen, then one switch off and on: #65, #207)
   Older or the same: "Up to date". A release whose `dlzmod-vX.Y.Z.tar` and `.tar.sig` are missing
   (only the installer image), or not at the release's own download address, or not 64 bytes /
   at most 64 MiB: "needs a full install", never downloaded. Downgrades stay a choice of the owner (an
-  old package is still validly signed): the check never offers one.
+  old package is still validly signed): the check never offers one. A card without `installed` and
+  `version` gets an error ("does not say which mod version it has"), never "Up to date".
 - **By itself** (`DLZMOD_releaseWatch`, `DLZMOD_releaseTick`, once a minute): 5 minutes after the
   clock first came from the internet this start (`DLZMOD_clockSource`: a TLS check needs a right
   clock), then every 6 hours (1 hour after a failed check); not while recording, uploading,
-  downloading or checking. Off with "Automatic Update Check" on the Mod page
+  downloading or checking, and not once a download is on the card ("done": it waits for Install and
+  the switch, and is not offered again). Off with "Automatic Update Check" on the Mod page
   (`dlzmod.updateAuto`, on by default); Check for Updates... still works then. The result is kept in
   the server's memory only: nothing of a check is written to the card.
 - **On the screen** (the mixer's own only): a small red dot on the cogwheel (a patch on Mackie's
@@ -518,8 +520,10 @@ Install question on the mixer's screen, then one switch off and on: #65, #207)
   a client), the signature (exactly 64 bytes) and then the package (its `Content-Length` must be
   the size the release lists) go through the upload's write path (`DLZMOD_uploadRun`: temp files,
   sync, renames, read-only again; the same refusals: recording, an upload running, an unfinished
-  update, no SD card), then `DLZMOD_uploadAsk` writes `pending` and the screen asks Install. A cut
-  or failed download keeps nothing. The updater's checks (signature, version) decide at the start
+  update, no SD card), then `DLZMOD_uploadAsk` writes `pending` and the screen asks Install (state
+  "done"). While it runs the state stays "downloading", also after its own re-check of the release:
+  a second Download or a Check meanwhile only gets that state. A cut or failed download keeps nothing,
+  and both responses are closed. The updater's checks (signature, version) decide at the start
   after Install, as for every update.
 - **Who**: the mixer's own screen and paired devices (as the upload); others get a refusal. Install
   stays the mixer's own screen's.

@@ -1387,6 +1387,10 @@ async function DLZMOD_relFetch(state) {
   // that version's release (notes/updates.md)
   const f = DLZMOD_updateFile(state);
   const installed = f("installed") || f("version");
+  // (no version on the card: nothing is offered as newer or "up to date")
+  if (isNaN(DLZMOD_relCmp(installed, installed))) {
+    throw Object.assign(new Error("This card does not say which mod version it has.\nCopy the update to the card by hand."), { show: true });
+  }
   const asset = (name) => (Array.isArray(j.assets) ? j.assets : []).find((x) => x && x.name === name &&
     x.browser_download_url === DLZMOD_REL_DOWNLOAD + tag + "/" + name);
   const tar = asset("dlzmod-" + tag + ".tar");
@@ -1403,7 +1407,8 @@ async function DLZMOD_relFetch(state) {
 // a check (op "check", or the automatic one), its result in DLZMOD_rel; tell: who to answer
 async function DLZMOD_relCheck(state, tell, now = DLZMOD_monoNow) {
   const r = DLZMOD_rel();
-  if (r.state === "checking" || r.state === "downloading") return tell();
+  // (an upload or download running: its state stays)
+  if (r.state === "checking" || r.state === "downloading" || DLZMOD_updateUpload.running) return tell();
   r.state = "checking";
   r.error = "";
   tell();
@@ -1439,15 +1444,14 @@ async function DLZMOD_relDownload(root, state, mounts, tell) {
   r.error = "";
   tell();
   DLZMOD_updateUpload.running = true;
+  let sigRes = null;
   let tarRes = null;
   try {
     const got = await DLZMOD_relFetch(state);
-    Object.assign(r, got);
-    if (got.state !== "newer") {
-      r.state = got.state;
-      return tell();
-    }
-    const sigRes = await DLZMOD_relGet(got.sigUrl);
+    // (still downloading: a second Download or a Check meanwhile only gets this state)
+    Object.assign(r, got, { state: got.state === "newer" ? "downloading" : got.state });
+    if (got.state !== "newer") return tell();
+    sigRes = await DLZMOD_relGet(got.sigUrl);
     if (sigRes.statusCode !== 200) throw new Error("the signature: GitHub answered " + sigRes.statusCode);
     const sig = await DLZMOD_relBody(sigRes, 64);
     if (sig.length !== 64) throw new Error("the signature is not 64 bytes");
@@ -1474,6 +1478,7 @@ async function DLZMOD_relDownload(root, state, mounts, tell) {
       : /recording/.test(e.message) && e.cut ? e.message.replace("upload", "download")
         : "The download did not finish. Nothing was kept.");
   } finally {
+    if (sigRes) sigRes.destroy();
     if (tarRes) tarRes.destroy();
     DLZMOD_updateUpload.running = false;
     DLZMOD_roLater();
@@ -1538,6 +1543,8 @@ async function DLZMOD_releaseTick(o = {}) {
   const auto = typeof get === "function" ? get("dlzmod.updateAuto") : undefined;
   if (auto === 0 || auto === false) return "off";
   const r = DLZMOD_rel();
+  // ("done": the update is on the card, waiting for Install and the switch; not offered again)
+  if (r.state === "done") return "done";
   if (r.state === "checking" || r.state === "downloading" || DLZMOD_updateUpload.running || DLZMOD_recNoRead()) return "busy";
   if (await DLZMOD_clockSource(o.run || DLZMOD_run) !== "internet") return "offline";
   if (!s.online) s.online = now;

@@ -2274,6 +2274,53 @@ relTest("release: the check by itself: on unless turned off, 5 minutes after the
   assert.strictEqual(await tickAt(online), "busy");
   clockReset();
 });
+relTest("release: while it downloads it stays \"downloading\"; a second Download or a Check only gets that", async () => {
+  const up = relMedia();
+  let release;
+  const held = new Promise((r) => (release = r));
+  // the package comes in only when released
+  const table = relGitHub("v0.5.1");
+  table[REL_DL + "v0.5.1/dlzmod-v0.5.1.tar"] = () => Object.assign(require("stream").Readable.from((async function* () {
+    await held;
+    yield REL_TAR;
+  })()), { statusCode: 200, headers: { "content-length": String(REL_TAR.length) } });
+  const asked = relStub(table);
+  const s = [];
+  const first = ctx.DLZMOD_release({ op: "download" }, sendTo(s), { state: up.state, root: () => up.root, mounts: up.mounts });
+  try {
+    await tick(30);
+    assert.deepStrictEqual(s.map((m) => m.data.state), ["downloading"]);
+    assert.strictEqual(ctx.DLZMOD_rel().state, "downloading", "also after its own re-check of the release");
+    const s2 = [];
+    await ctx.DLZMOD_release({ op: "download" }, paired(s2), { state: up.state, root: () => up.root, mounts: up.mounts });
+    await ctx.DLZMOD_release({ op: "check" }, paired(s2), { state: up.state });
+    assert.deepStrictEqual(s2.map((m) => m.data.state), ["downloading", "downloading"]);
+    assert.strictEqual(asked.filter((u) => u === API).length, 1, "no second request to GitHub");
+  } finally {
+    // (the download always ends here: its timers must not outlive the test)
+    release();
+    await first;
+    await tick(20);
+    clearTimeout(ctx.DLZMOD_roLater.timer);
+  }
+  assert.strictEqual(relLast(s).state, "done");
+  assert.deepStrictEqual(ls(up.dir), ["dlzmod-v0.5.1.tar", "dlzmod-v0.5.1.tar.sig"]);
+  // on the card, waiting for Install: the check by itself leaves it alone
+  const online = clockRun({ leap: "Normal" });
+  clockReset();
+  ctx.DLZMOD_releaseWatch.online = 1;
+  assert.strictEqual(await ctx.DLZMOD_releaseTick({ now: () => 1e9, run: online.run, state: up.state }), "done");
+  assert.strictEqual(ctx.DLZMOD_rel().state, "done");
+  clockReset();
+});
+relTest("release: a card that does not say its version is never told \"up to date\"", async () => {
+  const up = upMedia();   // no version, no installed
+  relStub(relGitHub("v0.5.1"));
+  const s = [];
+  await relCall({ op: "check" }, sendTo(s), up);
+  assert.deepStrictEqual([relLast(s).state, relLast(s).error],
+    ["error", "This card does not say which mod version it has.\nCopy the update to the card by hand."]);
+});
 test("update upload: a failure after the old update files are removed leaves no update files at all", async () => {
   const up = upMedia();
   fs.mkdirSync(up.dir);
