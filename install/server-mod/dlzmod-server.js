@@ -1174,7 +1174,7 @@ function DLZMOD_updateUpload(root, state = "/var/lib/dlzmod-update", mounts = "/
     try {
       unfinished = require("fs").readFileSync(state + "/inprogress", "utf8").trim();
     } catch (e) {}
-    if (unfinished) return refuse(409, "The last update did not finish. Switch the mixer off and on first.");
+    if (unfinished) return refuse(409, "The last update did not finish.\nSwitch the mixer off and on first.");
     const r = root();
     if (!r || r === "-") return refuse(503, "The mixer does not see its SD card's DLZDATA partition.");
     s.running = true;
@@ -1185,8 +1185,8 @@ function DLZMOD_updateUpload(root, state = "/var/lib/dlzmod-update", mounts = "/
         DLZMOD_uploadAnswer(res, 200, name + " is on the mixer's card.\n" + (asked === "asked"
           ? "Tap Install on the mixer's screen, then switch the mixer off and on."
           : asked === "failed"
-            ? "This same update failed on this mixer before and is not tried again:\nsee dlzmod-logs on the card."
-            : "Switch the mixer off and on: its screen then asks whether to install it."));
+            ? "This same update failed on this mixer before\nand is not tried again: see dlzmod-logs on the card."
+            : "Switch the mixer off and on:\nits screen then asks whether to install it."));
       },
       (e) => {
         console.error("dlzmod: update upload:", e.message);
@@ -1441,9 +1441,9 @@ async function DLZMOD_relDownload(root, state, mounts, tell) {
     tell();
   };
   if (DLZMOD_relRunning(r)) return tell();
-  if (DLZMOD_updateUpload.running) return fail("An update is being sent to the mixer. Try again when it has finished.");
+  if (DLZMOD_updateUpload.running) return fail("An update is being sent to the mixer.\nTry again when it has finished.");
   if (DLZMOD_recNoRead()) return fail("The mixer is busy with a recording.\nDownload the update when it has finished.");
-  if (DLZMOD_updateFile(state)("inprogress")) return fail("The last update did not finish. Switch the mixer off and on first.");
+  if (DLZMOD_updateFile(state)("inprogress")) return fail("The last update did not finish.\nSwitch the mixer off and on first.");
   const sd = root ? root() : "-";
   if (!sd || sd === "-") return fail("The mixer does not see its SD card's DLZDATA partition.");
   r.state = "downloading";
@@ -1473,8 +1473,8 @@ async function DLZMOD_relDownload(root, state, mounts, tell) {
     const asked = DLZMOD_uploadAsk(state, sum, name);
     r.state = "done";
     r.error = asked === "asked" ? "" : asked === "failed"
-      ? "This same update failed on this mixer before and is not tried again:\nsee dlzmod-logs on the card."
-      : "Switch the mixer off and on: its screen then asks whether to install it.";
+      ? "This same update failed on this mixer before\nand is not tried again: see dlzmod-logs on the card."
+      : "Switch the mixer off and on:\nits screen then asks whether to install it.";
     tell();
   } catch (e) {
     console.error("dlzmod: update download:", e.message);
@@ -1520,9 +1520,9 @@ async function DLZMOD_relUsb(root, usb, state, mounts, tell) {
     tell();
   };
   if (DLZMOD_relRunning(r)) return tell();
-  if (DLZMOD_updateUpload.running) return fail("An update is being sent to the mixer. Try again when it has finished.");
+  if (DLZMOD_updateUpload.running) return fail("An update is being sent to the mixer.\nTry again when it has finished.");
   if (DLZMOD_recNoRead()) return fail("The mixer is busy with a recording.\nCopy the update when it has finished.");
-  if (DLZMOD_updateFile(state)("inprogress")) return fail("The last update did not finish. Switch the mixer off and on first.");
+  if (DLZMOD_updateFile(state)("inprogress")) return fail("The last update did not finish.\nSwitch the mixer off and on first.");
   const sd = root ? root() : "-";
   if (!sd || sd === "-") return fail("The mixer does not see its SD card's DLZDATA partition.");
   const stick = usb ? usb() : "-";
@@ -1553,7 +1553,7 @@ async function DLZMOD_relUsb(root, usb, state, mounts, tell) {
       }
     }
     if (!found.length) {
-      return fail("No mod update on the USB stick.\nPut dlzmod-vX.Y.Z.tar and its .tar.sig in a folder dlzmod-update on it.");
+      return fail("No mod update on the USB stick.\nPut the update's .tar and .tar.sig\nin a folder dlzmod-update on it.");
     }
     if (found.length > 1) return fail("More than one mod update on the USB stick.\nKeep only the one to install.");
     const f = found[0];
@@ -1570,8 +1570,8 @@ async function DLZMOD_relUsb(root, usb, state, mounts, tell) {
     const asked = DLZMOD_uploadAsk(state, sum, f.name);
     r.state = "done";
     r.error = asked === "asked" ? "" : asked === "failed"
-      ? "This same update failed on this mixer before and is not tried again:\nsee dlzmod-logs on the card."
-      : "Switch the mixer off and on: its screen then asks whether to install it.";
+      ? "This same update failed on this mixer before\nand is not tried again: see dlzmod-logs on the card."
+      : "Switch the mixer off and on:\nits screen then asks whether to install it.";
     tell();
   } catch (e) {
     console.error("dlzmod: update from the USB stick:", e.message);
@@ -1620,7 +1620,7 @@ async function DLZMOD_release(args, send, opts = {}) {
       if (!local || DLZMOD_relRunning(DLZMOD_rel())) {
         try {
           send(msg(Object.assign(DLZMOD_relPublic(), { state: "error", error: local
-            ? "The mixer is looking for or fetching an update. Try again when it has finished."
+            ? "The mixer is looking for or fetching an update.\nTry again when it has finished."
             : "Only on the mixer's own screen." })));
         } catch (e) {}
         return;

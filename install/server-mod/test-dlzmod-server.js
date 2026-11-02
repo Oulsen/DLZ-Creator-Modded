@@ -1986,7 +1986,7 @@ test("update upload: the mixer's screen asks Install right after it (#207), for 
     fs.writeFileSync(stateFile, "");
     const r2 = await upCall(Object.assign({}, broken, { state: stateFile }), upReq([SIG, PKG]));
     assert.strictEqual(r2.status, 200);
-    assert.match(r2.body, /\nSwitch the mixer off and on: its screen then asks whether to install it\.$/);
+    assert.match(r2.body, /\nSwitch the mixer off and on:\nits screen then asks whether to install it\.$/);
     assert.deepStrictEqual(ls(broken.dir), ["dlzmod-v0.2.0.tar", "dlzmod-v0.2.0.tar.sig"]);
     // these very files failed before: the updater never tries them again, so no question that would
     // install nothing (dlzmod-update: "failed before, not tried again")
@@ -1996,7 +1996,7 @@ test("update upload: the mixer's screen asks Install right after it (#207), for 
     ctx.DLZMOD_updateNoteSend.screen = local((m) => failedScreen.push(plain(m)));
     const r3 = await upCall(failedUp, upReq([SIG, PKG]));
     assert.strictEqual(r3.status, 200);
-    assert.match(r3.body, /\nThis same update failed on this mixer before and is not tried again:\nsee dlzmod-logs on the card\.$/);
+    assert.match(r3.body, /\nThis same update failed on this mixer before\nand is not tried again: see dlzmod-logs on the card\.$/);
     assert.ok(!fs.existsSync(path.join(failedUp.state, "pending")));
     assert.deepStrictEqual(failedScreen, []);
     // another file than the one that failed is asked about
@@ -2220,7 +2220,7 @@ relTest("release: a download that does not fit leaves nothing; refused while bus
   relStub(relGitHub("v0.5.1"));
   const cases = [
     [() => (ctx.getDataKey = (k) => (k === "recState" ? 2 : undefined)), /busy with a recording/],
-    [() => fs.writeFileSync(path.join(busy.state, "inprogress"), "abc\n"), /did not finish\. Switch the mixer off and on first/],
+    [() => fs.writeFileSync(path.join(busy.state, "inprogress"), "abc\n"), /did not finish\.\sSwitch the mixer off and on first/],
     [() => (ctx.DLZMOD_updateUpload.running = true), /being sent to the mixer/],
   ];
   for (const [set, text] of cases) {
@@ -2451,7 +2451,7 @@ relTest("usb stick: refused with a text, nothing copied: no stick, not FAT, no u
   busy.put("dlzmod-update", "dlzmod-v0.5.1.tar");
   const cases = [
     [() => (ctx.getDataKey = (k) => (k === "recState" ? 2 : undefined)), /busy with a recording/],
-    [() => fs.writeFileSync(path.join(busy.state, "inprogress"), "abc\n"), /did not finish\. Switch the mixer off and on first/],
+    [() => fs.writeFileSync(path.join(busy.state, "inprogress"), "abc\n"), /did not finish\.\sSwitch the mixer off and on first/],
   ];
   for (const [set, text] of cases) {
     set();
