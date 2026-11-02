@@ -1280,7 +1280,7 @@ function DLZMOD_relRunning(r) {
 function DLZMOD_relPublic() {
   const r = DLZMOD_rel();
   return { state: r.state, installed: r.installed, version: r.version, size: r.size, summary: r.summary,
-    notes: r.notes, error: r.error, online: DLZMOD_relOnline() };
+    notes: r.notes, error: r.error, online: (DLZMOD_relPublic.online = DLZMOD_relOnline()) };
 }
 
 // a default route that is up (Destination 0 and the RTF_UP flag) in /proc/net/route
@@ -1666,19 +1666,26 @@ function DLZMOD_releaseWatch(root, every = 60000, usb) {
   if (s.timer) return;
   s.timer = setInterval(() => DLZMOD_releaseTick().catch((e) => console.error("dlzmod: update check:", e.message)), every);
   if (s.timer.unref) s.timer.unref();
+  s.netTimer = setInterval(DLZMOD_relNetTick, 5000);
+  if (s.netTimer.unref) s.netTimer.unref();
+}
+
+// the network came or went (a Wi-Fi stick, a cable): the mixer's screen hears it within 5 s, when
+// it differs from what a screen was last told (DLZMOD_relPublic.online), so also a change before the
+// first look. Only reads the kernel's routing table. "sent", "same" or "" (nothing told yet / no screen)
+function DLZMOD_relNetTick() {
+  const told = DLZMOD_relPublic.online;
+  const screen = DLZMOD_updateNoteSend.screen;
+  if (told === undefined || !screen || DLZMOD_relOnline() === told) return told === undefined || !screen ? "" : "same";
+  try {
+    screen({ cmd: "DLZMOD_RELEASE_STATE", id: 0, data: DLZMOD_relPublic() });
+  } catch (e) {}
+  return "sent";
 }
 
 async function DLZMOD_releaseTick(o = {}) {
   const s = DLZMOD_releaseWatch;
   const now = (o.now || DLZMOD_monoNow)();
-  // the network came or went (a Wi-Fi stick, a cable): the Mod page hears it within a minute
-  const net = DLZMOD_relOnline();
-  if (s.net !== undefined && s.net !== net && DLZMOD_updateNoteSend.screen) {
-    try {
-      DLZMOD_updateNoteSend.screen({ cmd: "DLZMOD_RELEASE_STATE", id: 0, data: DLZMOD_relPublic() });
-    } catch (e) {}
-  }
-  s.net = net;
   const get = globalThis.getDataKey;
   const auto = typeof get === "function" ? get("dlzmod.updateAuto") : undefined;
   if (auto === 0 || auto === false) return "off";

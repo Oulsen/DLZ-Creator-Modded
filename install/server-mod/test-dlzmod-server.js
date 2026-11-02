@@ -2382,25 +2382,30 @@ relTest("release: online from the kernel's default route; the screen hears withi
   write("wlan0\t00000000\t0101A8C0\t0002\t0\t0\t600\t00000000\t0\t0\t0\n");
   assert.strictEqual(ctx.DLZMOD_relOnline(file), false, "a default route that is not up");
   assert.strictEqual(ctx.DLZMOD_relOnline(path.join(dir, "none")), true, "cannot tell: not greyed out");
-  // the tick tells the screen when it changes, not otherwise
+  // the 5 s look tells the screen when it differs from what a screen was last told, not otherwise
   ctx.DLZMOD_relOnline.file = file;
   const screen = [];
   ctx.DLZMOD_updateNoteSend.screen = sendTo(screen);
-  ctx.getDataKey = (k) => (k === "dlzmod.updateAuto" ? 0 : undefined);
   try {
-    delete ctx.DLZMOD_releaseWatch.net;
+    delete ctx.DLZMOD_relPublic.online;
+    assert.strictEqual(ctx.DLZMOD_relNetTick(), "", "nothing told yet");
+    // the screen loads while the mixer is offline; the Wi-Fi stick comes back before any look
     write(LAN);
-    await ctx.DLZMOD_releaseTick({ now: () => 1 });
-    assert.deepStrictEqual(screen, [], "the first look only remembers");
+    assert.strictEqual(ctx.DLZMOD_relPublic().online, false);
     write("eth0\t00000000\t0101A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0\n");
-    await ctx.DLZMOD_releaseTick({ now: () => 2 });
-    assert.strictEqual(screen.length, 1);
+    assert.strictEqual(ctx.DLZMOD_relNetTick(), "sent");
     assert.strictEqual(relLast(screen).online, true);
-    await ctx.DLZMOD_releaseTick({ now: () => 3 });
-    assert.strictEqual(screen.length, 1, "no change: nothing sent");
+    assert.strictEqual(ctx.DLZMOD_relNetTick(), "same", "no change: nothing sent");
+    assert.strictEqual(screen.length, 1);
+    write(LAN);
+    assert.strictEqual(ctx.DLZMOD_relNetTick(), "sent", "and gone again");
+    assert.strictEqual(relLast(screen).online, false);
+    ctx.DLZMOD_updateNoteSend.screen = null;
+    write("eth0\t00000000\t0101A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0\n");
+    assert.strictEqual(ctx.DLZMOD_relNetTick(), "", "no screen up");
   } finally {
     delete ctx.DLZMOD_relOnline.file;
-    delete ctx.DLZMOD_releaseWatch.net;
+    delete ctx.DLZMOD_relPublic.online;
   }
 });
 test("usb stick, download: the stream stopped early and destroyed does not end the server (no unheard error)", async () => {

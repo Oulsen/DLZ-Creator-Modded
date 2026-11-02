@@ -511,7 +511,7 @@ Install question on the mixer's screen, then one switch off and on: #65, #207)
 - **Mod page**: the Updates row says what the check found; Check for Updates... (Download Update...
   once a newer version is found) next to Install Update... or Upload Update.... Without a way out
   (no default route in `/proc/net/route`, `DLZMOD_relOnline`; sent as `online` with the state, and
-  to the screen within a minute when it changes) the button is greyed out and the row says "No
+  to the screen within 5 s when it differs from what the screen was last told, `DLZMOD_relNetTick`) the button is greyed out and the row says "No
   internet: connect the mixer to a network to check for updates" [static, sandbox]. A check or download
   this page asked for shows Mackie's spinner popup ("Checking for updates…", "Downloading vX.Y.Z…";
   `DLZMOD_relBusy`, closed by the answer, or after 60 s / 10 min without one: "No answer from the
@@ -548,7 +548,8 @@ mixer]:
   FAT32 stick, on the XS (`LITE_MODE`) in the Wi-Fi stick's port (the only one,
   [hardware.md](hardware.md)); with the stick in, on the XS: put the Wi-Fi stick back after the copy.
   [device, 2026-11-02, dev-cffbde8: the copy from a FAT32 stick on the XS went in and the screen
-  asked Install; a stick without the `.sig`: "No mod update", nothing copied]
+  asked Install; a stick without the `.sig`: "No mod update", nothing copied; e53e6d7 installed from
+  the stick; the Wi-Fi stick back in: `wlan0` got its default route again by itself]
 - **Server** (`DLZMOD_relUsb`; the stick's mount point from `ce("usb")`, passed in by the
   `DLZMOD_releaseWatch` patch): the stick must be a FAT medium in `/proc/mounts` (stock mounts it
   read-only, `ro,noatime,flush`; the copy never remounts it) and not the card itself. It looks in
