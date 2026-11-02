@@ -7,6 +7,7 @@
 # - the patched server.js keeps the refusals the updater checks for (its SERVER_MARKERS)
 # - the patched audio graph builds Mackie's blocks unchanged, the EQ spectrum's (#131) only on the mod's
 #   own buffers (tests/graph-check.js, by the mixer's node)
+# - the patched app.js carries the version's CHANGELOG.md section (What's New after an update, #224)
 # - the Time tab's zones (#9, DLZMOD_zoneList) are in the mixer's tzdata, and each row's offset is the
 #   zone's winter offset (standard time: the lower of January's and July's, by the mixer's node)
 #   bash tests/patches.sh
@@ -52,6 +53,16 @@ if [ -f "$TMP/graph.js.orig" ]; then
   fi
 else
   bad "graph.js: no patched graph, tests/graph-check.js not run"
+fi
+# #224: the patched app carries VERSION's CHANGELOG.md section, as patch.py groups it (not empty:
+# every version's section gets a bullet per finished issue)
+if [ -f "$TMP/app.js" ]; then
+  sed -n '/^function DLZMOD_versionNotes() {$/,/^}$/p' "$TMP/app.js" > "$TMP/notes.js"
+  echo 'process.stdout.write(DLZMOD_versionNotes())' >> "$TMP/notes.js"
+  want=$(python3 -c 'import sys; sys.path.insert(0, "install"); import patch, modversion; sys.stdout.write(patch.version_notes(modversion.read_version()))')
+  got=$(dnode "$TMP/notes.js" 2>&1)
+  if [ -n "$want" ] && [ "$got" = "$want" ]; then ok "app.js: What's New after an update has $(grep -c '^•' <<< "$got") items of $(tr -d '\r\n' < VERSION)"
+  else bad "app.js: the version's notes: '${got:0:80}', expected '${want:0:80}'"; fi
 fi
 # the mod's own files parse as they are, before they are appended
 for f in install/app-mod/dlzmod.js install/server-mod/dlzmod-server.js install/graph-mod/dlzmod-graph.js; do

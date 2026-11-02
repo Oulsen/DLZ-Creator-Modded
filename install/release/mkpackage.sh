@@ -6,6 +6,7 @@
 # single file and it is all in RAM before the card is touched (notes/installer.md):
 #   /init, /bin/busybox, /dev/console
 #   /pkg/VERSION, /pkg/package.env
+#   /pkg/CHANGELOG.md     the repo's, its CR dropped: patch.py stamps this version's section into the app (#224)
 #   /pkg/install-card.sh  the real install's write path, sourced by /init
 #   /pkg/probe.sh         the backup of a mixer the mod does not support (analysis only), with a hardware report
 #   /pkg/boards.txt       Mackie bootloaders known to be safe next to the installer's own boot (backup gate)
@@ -48,12 +49,12 @@ VERSION=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); from modversi
 export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(git -C "$REPO" -c safe.directory="$REPO" -c core.autocrlf=true log -1 --format=%ct)}
 [[ $SOURCE_DATE_EPOCH =~ ^[0-9]+$ ]] || { echo "SOURCE_DATE_EPOCH must be seconds since 1970" >&2; exit 1; }
 COMMIT=$(git -C "$REPO" -c safe.directory="$REPO" -c core.autocrlf=true rev-parse --short HEAD)
-git -C "$REPO" -c safe.directory="$REPO" -c core.autocrlf=true diff --quiet HEAD -- install VERSION || COMMIT="$COMMIT+dirty"
+git -C "$REPO" -c safe.directory="$REPO" -c core.autocrlf=true diff --quiet HEAD -- install VERSION CHANGELOG.md || COMMIT="$COMMIT+dirty"
 # new files count too (git diff does not see them): a release must be rebuildable from its commit
-untracked=$(git -C "$REPO" -c safe.directory="$REPO" ls-files --others --exclude-standard -- install VERSION)
+untracked=$(git -C "$REPO" -c safe.directory="$REPO" ls-files --others --exclude-standard -- install VERSION CHANGELOG.md)
 [ -z "$untracked" ] || COMMIT="${COMMIT%+dirty}+dirty"
 if [ "${RELEASE:-}" = 1 ]; then
-  case $COMMIT in *+dirty) echo "RELEASE=1 needs a clean tree (install/ or VERSION has changes or new files)" >&2; exit 1 ;; esac
+  case $COMMIT in *+dirty) echo "RELEASE=1 needs a clean tree (install/, VERSION or CHANGELOG.md has changes or new files)" >&2; exit 1 ;; esac
   BUILD=release
   CHANNEL=release
   NAME=dlzmod-$VERSION
@@ -196,6 +197,8 @@ mkdir "$pkg/mod/keys"
 for k in release release2; do tr -d '\r' < "$INST/keys/$k.pub" > "$pkg/mod/keys/$k.pub"; done
 tr -d '\r' < "$DEVPUB" > "$pkg/mod/keys/dev.pub"
 install -m 644 "$REPO/VERSION" "$pkg/VERSION"
+tr -d '\r' < "$REPO/CHANGELOG.md" > "$pkg/CHANGELOG.md"
+chmod 644 "$pkg/CHANGELOG.md"
 install -m 644 "$INST/installer/install-card.sh" "$pkg/install-card.sh"
 install -m 644 "$INST/installer/boards.txt" "$pkg/boards.txt"
 install -m 644 "$INST/installer/probe.sh" "$pkg/probe.sh"
