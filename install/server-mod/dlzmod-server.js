@@ -259,6 +259,8 @@ function DLZMOD_updateNoteSend(send, dir = "/var/lib/dlzmod-update", cardNote = 
     if (local && status.pending && !status.pending.approved) {
       send({ cmd: "DLZMOD_UPDATE_ASK", id: 0, data: status.pending });
     }
+    // #55: what the last check for a new release found (the screen's dot on the cogwheel)
+    if (local) send({ cmd: "DLZMOD_RELEASE_STATE", id: 0, data: DLZMOD_relPublic() });
   } catch (e) {
     console.error("dlzmod: update note:", e.message);
   }
@@ -1240,6 +1242,316 @@ function DLZMOD_uploadLabel(name) {
   const stem = String(name).replace(/^dlzmod-/, "").replace(/\.tar$/, "");
   const m = /^(v[0-9]+\.[0-9]+\.[0-9]+)-(dev-[0-9a-f]+)$/.exec(stem);
   return (m ? m[1] + " (" + m[2] + ")" : stem).replace(/[^A-Za-z0-9._+() -]/g, "").slice(0, 60) || "a new version";
+}
+
+// #55: Check for Updates on the Mod page, and by itself (DLZMOD_releaseTick): the latest release on
+// GitHub (the API's /releases/latest: never a draft, a pre-release or main), offered only when newer
+// than the card's version. Only that request goes out (no serial, device ID or usage data; the
+// User-Agent is the project's name, which GitHub's API requires). Download Update... fetches that
+// release's dlzmod-vX.Y.Z.tar and .tar.sig and writes them the way an upload does (DLZMOD_uploadRun:
+// temp files, sync, renames, read-only again; not while recording, while an upload runs or while an
+// update's try is unfinished), then the screen asks Install (DLZMOD_uploadAsk, #207): the updater's
+// own checks (signature, version) decide at the start after it, as for every update. HTTPS only, to
+// GitHub's hosts only (DLZMOD_relHosts), also after redirects; sizes as the release lists them. From
+// the mixer's own screen and paired devices; answers to the sender and the mixer's screen. The state
+// is in memory only: nothing of a check is written to the card
+const DLZMOD_REL_API = "https://api.github.com/repos/Oulsen/DLZ-Creator-Modded/releases/latest";
+const DLZMOD_REL_DOWNLOAD = "https://github.com/Oulsen/DLZ-Creator-Modded/releases/download/";
+
+function DLZMOD_relHosts() {
+  return ["api.github.com", "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"];
+}
+
+// what the Mod page shows: state "" (not checked), "checking", "error", "none" (no release yet),
+// "current", "newer", "full" (newer, but only an installer image: a full install), "downloading",
+// "done" (on the card, the screen asks Install); installed, version, size, summary, notes, error
+function DLZMOD_rel() {
+  return DLZMOD_rel.s || (DLZMOD_rel.s = { state: "", installed: "", version: "", size: 0, summary: "", notes: "", error: "" });
+}
+
+function DLZMOD_relPublic() {
+  const r = DLZMOD_rel();
+  return { state: r.state, installed: r.installed, version: r.version, size: r.size, summary: r.summary,
+    notes: r.notes, error: r.error };
+}
+
+// https GET to GitHub's hosts only, redirects followed (at most 5, each checked the same); resolves
+// with the response (a stream: statusCode, headers). A socket quiet for `timeout` ms ends it with an
+// error, also while a body comes in
+function DLZMOD_relGet(url, o = {}) {
+  return new Promise((resolve, reject) => {
+    let u;
+    try {
+      u = new URL(url);
+    } catch (e) {
+      return reject(new Error("not an address: " + url));
+    }
+    if (u.protocol !== "https:" || !DLZMOD_relHosts().includes(u.hostname)) {
+      return reject(new Error("not one of GitHub's addresses: " + u.hostname));
+    }
+    const req = require("https").get(u, { headers: { "User-Agent": "DLZ-Creator-Modded", Accept: o.accept || "*/*" },
+      timeout: o.timeout || 20000 }, (res) => {
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+        res.resume();
+        if ((o.hops || 0) >= 5) return reject(new Error("too many redirects"));
+        let next;
+        try {
+          next = new URL(res.headers.location, u).href;
+        } catch (e) {
+          return reject(new Error("a redirect to no address"));
+        }
+        return resolve(DLZMOD_relGet(next, Object.assign({}, o, { hops: (o.hops || 0) + 1 })));
+      }
+      resolve(res);
+    });
+    req.on("timeout", () => req.destroy(new Error("GitHub did not answer")));
+    req.on("error", reject);
+  });
+}
+
+// a response's whole body, at most max bytes (more: an error, the rest not read)
+async function DLZMOD_relBody(res, max) {
+  const parts = [];
+  let n = 0;
+  for await (const c of res) {
+    n += c.length;
+    if (n > max) {
+      res.destroy();
+      throw new Error("more than " + max + " bytes");
+    }
+    parts.push(c);
+  }
+  return Buffer.concat(parts);
+}
+
+// "v0.5.1" > "v0.5.0 (dev-...)": 1, equal 0, older -1; NaN when either is no version
+function DLZMOD_relCmp(a, b) {
+  const p = (v) => /^v([0-9]+)\.([0-9]+)\.([0-9]+)/.exec(String(v || ""));
+  const x = p(a);
+  const y = p(b);
+  if (!x || !y) return NaN;
+  for (let i = 1; i <= 3; i++) if (+x[i] !== +y[i]) return +x[i] > +y[i] ? 1 : -1;
+  return 0;
+}
+
+// the release notes (Markdown) as plain text for the mixer's screen: headings and list items kept as
+// lines, links as their text, emphasis, code marks, images and HTML left out; at most 20000 characters.
+// summary: the first sentence of the first plain paragraph, at most 180 characters
+function DLZMOD_relText(md) {
+  const lines = String(md || "").slice(0, 20000).replace(/\r\n?/g, "\n").split("\n").map((l) => l
+    .replace(/<[^>]*>/g, "")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/(\*\*|__|`)/g, "")
+    .replace(/^\s*#+\s*/, "")
+    .replace(/^(\s*)[-*+]\s+/, "$1• ")
+    .replace(/\s+$/, ""));
+  const notes = lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const raw = String(md || "").replace(/\r\n?/g, "\n").split(/\n\s*\n/);
+  let summary = "";
+  for (let i = 0; i < raw.length && !summary; i++) {
+    const para = raw[i].trim();
+    if (!para || /^(#|[-*+]\s|\||<|!\[)/.test(para)) continue;
+    summary = DLZMOD_relText1(para);
+  }
+  const dot = summary.search(/[.!?](\s|$)/);
+  if (dot >= 0) summary = summary.slice(0, dot + 1);
+  if (summary.length > 180) summary = summary.slice(0, 179).replace(/\s+\S*$/, "") + "…";
+  return { notes: notes, summary: summary };
+}
+
+function DLZMOD_relText1(para) {
+  return para.replace(/\s*\n\s*/g, " ").replace(/<[^>]*>/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/(\*\*|__|`)/g, "").trim();
+}
+
+// the latest release and how it stands to the card's version (state dir: the card's "version" file)
+async function DLZMOD_relFetch(state) {
+  const res = await DLZMOD_relGet(DLZMOD_REL_API, { accept: "application/vnd.github+json" });
+  if (res.statusCode === 404) {
+    res.resume();
+    return { state: "none" };
+  }
+  if (res.statusCode === 403 || res.statusCode === 429) {
+    res.resume();
+    throw Object.assign(new Error("GitHub asks to wait (too many checks from this network)"), { show: true });
+  }
+  if (res.statusCode !== 200) {
+    res.resume();
+    throw new Error("GitHub answered " + res.statusCode);
+  }
+  const j = JSON.parse((await DLZMOD_relBody(res, 2 * 1024 * 1024)).toString("utf8"));
+  const tag = String((j && j.tag_name) || "");
+  if (!/^v[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$/.test(tag)) throw new Error("the latest release has no version: " + tag.slice(0, 40));
+  // "v0.5.0", or the build ("v0.5.0 (dev-fa646fa)"): a card on a dev build of a version is offered
+  // that version's release (notes/updates.md)
+  const f = DLZMOD_updateFile(state);
+  const installed = f("installed") || f("version");
+  const asset = (name) => (Array.isArray(j.assets) ? j.assets : []).find((x) => x && x.name === name &&
+    x.browser_download_url === DLZMOD_REL_DOWNLOAD + tag + "/" + name);
+  const tar = asset("dlzmod-" + tag + ".tar");
+  const sig = asset("dlzmod-" + tag + ".tar.sig");
+  const text = DLZMOD_relText(j.body);
+  const r = { version: tag, installed: installed, summary: text.summary, notes: text.notes,
+    size: tar ? Number(tar.size) || 0 : 0 };
+  const cmp = DLZMOD_relCmp(tag, installed);
+  if (!(cmp > 0 || (cmp === 0 && /\(dev-/.test(installed)))) return Object.assign(r, { state: "current" });
+  if (!tar || !sig || sig.size !== 64 || !(r.size > 0 && r.size <= DLZMOD_UPLOAD_MAX)) return Object.assign(r, { state: "full" });
+  return Object.assign(r, { state: "newer", tarUrl: tar.browser_download_url, sigUrl: sig.browser_download_url });
+}
+
+// a check (op "check", or the automatic one), its result in DLZMOD_rel; tell: who to answer
+async function DLZMOD_relCheck(state, tell, now = DLZMOD_monoNow) {
+  const r = DLZMOD_rel();
+  if (r.state === "checking" || r.state === "downloading") return tell();
+  r.state = "checking";
+  r.error = "";
+  tell();
+  try {
+    const got = await DLZMOD_relFetch(state);
+    Object.assign(r, { installed: "", version: "", size: 0, summary: "", notes: "", tarUrl: "", sigUrl: "" }, got);
+    if (got.state === "newer" || got.state === "full") console.log("dlzmod: update check: " + got.version + " is out");
+  } catch (e) {
+    console.error("dlzmod: update check:", e.message);
+    r.state = "error";
+    r.error = e.show ? e.message : "No answer from GitHub. Is the mixer online?";
+  }
+  r.at = now();
+  tell();
+}
+
+// Download Update...: the release checked again (its addresses never come from a client), its two
+// files to the card, then the question on the screen
+async function DLZMOD_relDownload(root, state, mounts, tell) {
+  const r = DLZMOD_rel();
+  const fail = (text) => {
+    r.state = "error";
+    r.error = text;
+    tell();
+  };
+  if (r.state === "checking" || r.state === "downloading") return tell();
+  if (DLZMOD_updateUpload.running) return fail("An update is being sent to the mixer. Try again when it has finished.");
+  if (DLZMOD_recNoRead()) return fail("The mixer is busy with a recording.\nDownload the update when it has finished.");
+  if (DLZMOD_updateFile(state)("inprogress")) return fail("The last update did not finish. Switch the mixer off and on first.");
+  const sd = root ? root() : "-";
+  if (!sd || sd === "-") return fail("The mixer does not see its SD card's DLZDATA partition.");
+  r.state = "downloading";
+  r.error = "";
+  tell();
+  DLZMOD_updateUpload.running = true;
+  let tarRes = null;
+  try {
+    const got = await DLZMOD_relFetch(state);
+    Object.assign(r, got);
+    if (got.state !== "newer") {
+      r.state = got.state;
+      return tell();
+    }
+    const sigRes = await DLZMOD_relGet(got.sigUrl);
+    if (sigRes.statusCode !== 200) throw new Error("the signature: GitHub answered " + sigRes.statusCode);
+    const sig = await DLZMOD_relBody(sigRes, 64);
+    if (sig.length !== 64) throw new Error("the signature is not 64 bytes");
+    tarRes = await DLZMOD_relGet(got.tarUrl, { timeout: 30000 });
+    if (tarRes.statusCode !== 200) throw new Error("the package: GitHub answered " + tarRes.statusCode);
+    const len = Number(tarRes.headers["content-length"]);
+    if (len !== got.size) throw new Error("the package is not the size the release lists");
+    const body = require("stream").Readable.from((async function* () {
+      yield sig;
+      for await (const c of tarRes) yield c;
+    })());
+    const name = "dlzmod-" + got.version + ".tar";
+    const sum = await DLZMOD_uploadRun(body, sd + "/dlzmod-update", name, 64 + len, mounts);
+    console.log("dlzmod: update download: " + name + " in place");
+    const asked = DLZMOD_uploadAsk(state, sum, name);
+    r.state = "done";
+    r.error = asked === "asked" ? "" : asked === "failed"
+      ? "This same update failed on this mixer before and is not tried again:\nsee dlzmod-logs on the card."
+      : "Switch the mixer off and on: its screen then asks whether to install it.";
+    tell();
+  } catch (e) {
+    console.error("dlzmod: update download:", e.message);
+    fail(e.code === "ENOSPC" ? "The SD card is full. Nothing was kept."
+      : /recording/.test(e.message) && e.cut ? e.message.replace("upload", "download")
+        : "The download did not finish. Nothing was kept.");
+  } finally {
+    if (tarRes) tarRes.destroy();
+    DLZMOD_updateUpload.running = false;
+    DLZMOD_roLater();
+  }
+}
+
+// the command from the Mod page: status, check, download; from the mixer's own screen and paired
+// devices; the state to the sender and to the mixer's screen (its dot on the cogwheel)
+async function DLZMOD_release(args, send, opts = {}) {
+  const state = opts.state || "/var/lib/dlzmod-update";
+  const a = args && typeof args === "object" ? args : {};
+  const local = !!(send && send.dlzmodLocal === true);
+  const paired = !local && !!(send && send.dlzmodPaired === true);
+  const msg = (data) => ({ cmd: "DLZMOD_RELEASE_STATE", id: 0, data: data });
+  const tell = () => {
+    const data = DLZMOD_relPublic();
+    for (const to of new Set([local || paired ? send : null, DLZMOD_updateNoteSend.screen])) {
+      if (!to) continue;
+      try {
+        to(msg(data));
+      } catch (e) {}
+    }
+  };
+  try {
+    if (!local && !paired) {
+      try {
+        send(msg(Object.assign(DLZMOD_relPublic(), { state: "error", error: "Only from the mixer's own screen or a paired device." })));
+      } catch (e) {}
+      return;
+    }
+    if (a.op === "check") return await DLZMOD_relCheck(state, tell);
+    if (a.op === "download") {
+      return await DLZMOD_relDownload(opts.root || DLZMOD_releaseWatch.root, state, opts.mounts || "/proc/mounts", tell);
+    }
+    send(msg(DLZMOD_relPublic()));
+  } catch (e) {
+    console.error("dlzmod: release " + a.op + ":", e.message);
+    const r = DLZMOD_rel();
+    if (r.state === "checking" || r.state === "downloading") r.state = "error";
+    try {
+      send(msg(Object.assign(DLZMOD_relPublic(), { state: "error", error: "That did not work (" + String(a.op).slice(0, 20) + ")" })));
+    } catch (e2) {}
+  }
+}
+
+// the check by itself (dlzmod.updateAuto, on unless turned off on the Mod page): 5 minutes after the
+// clock first came from the internet this start, then every 6 hours (1 hour after a failed one); not
+// while recording or while an update is sent or checked. Looked at once a minute (by DLZMOD_monoNow,
+// which a clock change does not move). root: () => the SD card's mount point, kept for Download
+function DLZMOD_releaseWatch(root, every = 60000) {
+  const s = DLZMOD_releaseWatch;
+  s.root = root;
+  if (s.timer) return;
+  s.timer = setInterval(() => DLZMOD_releaseTick().catch((e) => console.error("dlzmod: update check:", e.message)), every);
+  if (s.timer.unref) s.timer.unref();
+}
+
+async function DLZMOD_releaseTick(o = {}) {
+  const s = DLZMOD_releaseWatch;
+  const now = (o.now || DLZMOD_monoNow)();
+  const get = globalThis.getDataKey;
+  const auto = typeof get === "function" ? get("dlzmod.updateAuto") : undefined;
+  if (auto === 0 || auto === false) return "off";
+  const r = DLZMOD_rel();
+  if (r.state === "checking" || r.state === "downloading" || DLZMOD_updateUpload.running || DLZMOD_recNoRead()) return "busy";
+  if (await DLZMOD_clockSource(o.run || DLZMOD_run) !== "internet") return "offline";
+  if (!s.online) s.online = now;
+  if (now - s.online < 5 * 60000) return "soon";
+  if (r.at && now - r.at < (r.state === "error" ? 3600000 : 6 * 3600000)) return "later";
+  await DLZMOD_relCheck(o.state || "/var/lib/dlzmod-update", () => {
+    const screen = DLZMOD_updateNoteSend.screen;
+    if (screen) {
+      try {
+        screen({ cmd: "DLZMOD_RELEASE_STATE", id: 0, data: DLZMOD_relPublic() });
+      } catch (e) {}
+    }
+  }, o.now || DLZMOD_monoNow);
+  return "checked";
 }
 
 // the name the drop-in update looks for (dlzmod-*.tar), a plain one the browser would send
