@@ -1142,14 +1142,12 @@ function DLZMOD_usbPress() {
   if (DLZMOD_usbReady()) DLZMOD_releaseSend("usb");
 }
 
-// the line under the Mod page's buttons; the XS has one USB port, the Wi-Fi stick's: the USB stick
-// goes in its place while copying
+// the line under the Mod page's buttons: what a stick needs, nothing once a FAT one is in
 function DLZMOD_usbHint() {
-  const xs = DLZMOD_rtaXs();
   const usb = Data.get("usb");
-  if (usb === 1) return xs ? "Put the Wi-Fi stick back after the copy" : "";
+  if (usb === 1) return "";
   if (usb === 2) return "This USB stick is not FAT32: the mixer cannot read it";
-  return "USB stick: FAT32, the update in a folder dlzmod-update" + (xs ? "; in the Wi-Fi stick's port" : "");
+  return "USB stick: FAT32, the update in a folder dlzmod-update";
 }
 
 // Download's question, laid out as the Install question (DLZMOD_askUpdate): the installed and the new

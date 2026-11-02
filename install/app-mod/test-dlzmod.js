@@ -1055,10 +1055,10 @@ test("usb stick: From USB Stick... copies with a stick in, else says how; not in
   }
   // no FAT stick: greyed out, nothing sent, no popup; the line under the buttons says what it needs
   for (const [usb, xs, hint] of [
-    [0, true, "USB stick: FAT32, the update in a folder dlzmod-update; in the Wi-Fi stick's port"],
+    [0, true, "USB stick: FAT32, the update in a folder dlzmod-update"],
     [0, false, "USB stick: FAT32, the update in a folder dlzmod-update"],
     [2, true, "This USB stick is not FAT32: the mixer cannot read it"],
-    [1, true, "Put the Wi-Fi stick back after the copy"],
+    [1, true, ""],
     [1, false, ""],
   ]) {
     const p = relPage({ data: { usb: usb } });

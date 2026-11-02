@@ -545,8 +545,8 @@ mixer]:
   USB stick…"); the state is "copying", then "done" (the screen gets the Install question, #207) or
   "error" with a popup. Without one (`usb` 0, or 2: not FAT) the button is greyed out; a grey line
   under the buttons says what it needs (`DLZMOD_usbHint`): both files in a folder `dlzmod-update` on a
-  FAT32 stick, on the XS (`LITE_MODE`) in the Wi-Fi stick's port (the only one,
-  [hardware.md](hardware.md)); with the stick in, on the XS: put the Wi-Fi stick back after the copy.
+  FAT32 stick; nothing once a FAT stick is in. It names no Wi-Fi stick: the XS's one USB port
+  ([hardware.md](hardware.md)) is just a USB port, and a mixer on Ethernet needs no Wi-Fi stick.
   [device, 2026-11-02, dev-cffbde8: the copy from a FAT32 stick on the XS went in and the screen
   asked Install; a stick without the `.sig`: "No mod update", nothing copied; e53e6d7 installed from
   the stick; the Wi-Fi stick back in: `wlan0` got its default route again by itself]
