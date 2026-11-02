@@ -73,15 +73,16 @@ def patch(stock, out):
     print('patched: %s (sha256 %s)' % (out, hashlib.sha256(b).hexdigest()))
 
 
-def pid_of(name):
+def pid_of(path):
+    # by the command line: dspserver renames its main thread (comm is "dspMainLoop") [device]
     for p in os.listdir('/proc'):
         if p.isdigit():
             try:
-                if open('/proc/%s/comm' % p).read().strip() == name:
+                if open('/proc/%s/cmdline' % p, 'rb').read().split(b'\0')[0] == path.encode():
                     return int(p)
             except OSError:
                 pass
-    die(name + ' is not running')
+    die(path + ' is not running')
 
 
 def sample(pid):
@@ -100,7 +101,7 @@ def shortest(a, b):
 
 
 def read(seconds):
-    pid = pid_of('dspserver')
+    pid = pid_of('/usr/local/bin/dspserver')
     w0, (end0, waited0, blocks0, _, _, _, changes0) = sample(pid)
     time.sleep(seconds)
     w1, (end1, waited1, blocks1, mincur, minprev, _, changes1) = sample(pid)

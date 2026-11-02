@@ -68,8 +68,8 @@ case ${1:-} in
     # dspserver first waits for the hub (up to 45 s, dlzmod-wait-hub): up to 60 s for the first blocks
     for i in 1 2 3 4 5 6; do
       sleep 10
-      mixer 'python3 /run/dlzmod-headroom.py read 5' 2>/dev/null && exit 0
-      echo "not counting yet ($((i * 15)) s)"
+      err=$(mixer 'python3 /run/dlzmod-headroom.py read 5' 2>&1) && { echo "$err"; exit 0; }
+      echo "not counting yet ($((i * 15)) s): $err"
     done
     echo "the measuring dspserver does not count: back to the stock one" >&2
     mixer "$OFF"
