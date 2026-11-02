@@ -250,6 +250,8 @@ function DLZMOD_updateNoteSend(send, dir = "/var/lib/dlzmod-update", cardNote = 
   try {
     const f = DLZMOD_updateFile(dir);
     const local = !!(send && send.dlzmodLocal === true);
+    // the mixer's own screen, for the question right after an upload (#207, DLZMOD_uploadAsk)
+    if (local) DLZMOD_updateNoteSend.screen = send;
     const status = DLZMOD_updateStatusFrom(f, local);
     send({ cmd: "DLZMOD_UPDATE_STATUS", id: 0, data: status });
     const note = DLZMOD_updateNoteFrom(f);
@@ -1125,7 +1127,8 @@ function DLZMOD_recWatch(res) {
 // /dlzmod-update-upload, the body the update's 64-byte signature and then its package, the package's
 // name in X-Dlzmod-Name. It only puts the two files into DLZDATA/dlzmod-update/ (the boot card's
 // medium, server.js's "sd"), where the drop-in update finds them at the next start: its own checks
-// (signature, version) still decide, and Install stays on the mixer's own screen (#65). Other devices
+// (signature, version) still decide, and Install stays on the mixer's own screen (#65), which asks
+// right after the upload (#207, DLZMOD_uploadAsk). Other devices
 // only paired (DLZMOD_remoteHttp runs first) and from the mixer's own page (DLZMOD_originOk). Streamed
 // to the card (about 120 MB free RAM) under hidden temp names the update does not look at; only once
 // complete and synced are the update files there replaced: the old ones removed, the signature
@@ -1174,10 +1177,14 @@ function DLZMOD_updateUpload(root, state = "/var/lib/dlzmod-update", mounts = "/
     if (!r || r === "-") return refuse(503, "The mixer does not see its SD card's DLZDATA partition.");
     s.running = true;
     DLZMOD_uploadRun(req, r + "/dlzmod-update", name, len, mounts).then(
-      () => {
+      (sum) => {
         console.log("dlzmod: update upload: " + name + " in place");
-        DLZMOD_uploadAnswer(res, 200, name + " is on the mixer's card.\nSwitch the mixer off and on: " +
-          "its screen then asks whether to install it.");
+        const asked = DLZMOD_uploadAsk(state, sum, name);
+        DLZMOD_uploadAnswer(res, 200, name + " is on the mixer's card.\n" + (asked === "asked"
+          ? "Tap Install on the mixer's screen, then switch the mixer off and on."
+          : asked === "failed"
+            ? "This same update failed on this mixer before and is not tried again:\nsee dlzmod-logs on the card."
+            : "Switch the mixer off and on: its screen then asks whether to install it."));
       },
       (e) => {
         console.error("dlzmod: update upload:", e.message);
@@ -1189,6 +1196,50 @@ function DLZMOD_updateUpload(root, state = "/var/lib/dlzmod-update", mounts = "/
       DLZMOD_roLater();
     });
   };
+}
+
+// #207: the mixer's own screen asks Install right after an upload, as it does for a drop-in at the
+// start after it, so Install and one switch off and on install it (before: a start to find the
+// files, then Install, then a second start). Once both files are in place and synced, "pending" gets
+// the updater's record of exactly those two files (sha256 of the tar and then its .sig) and their
+// version from the file's name (the updater's own checks, signature and version, come at the start
+// after Install: a refused file gets its red popup then, as a copied one); the question goes to the
+// mixer's screen if one is up (DLZMOD_updateNoteSend.screen), else it comes when the screen loads.
+// The pending it replaces was about the files the upload replaced. Install stays the screen's
+// (DLZMOD_updateApprove). Flushed (DLZMOD_writeDurable): the switch may come right after. "asked";
+// "failed": these very files failed before, which the updater never tries again (its "failed"
+// record), so no question that would install nothing; "": not saved, the start after the switch asks
+// as before
+function DLZMOD_uploadAsk(state, sum, name) {
+  try {
+    if (!/^[0-9a-f]{64}$/.test(String(sum))) throw new Error("no record of the upload");
+    if (DLZMOD_updateFile(state)("failed") === sum) return "failed";
+    require("fs").mkdirSync(state, { recursive: true });
+    DLZMOD_writeDurable(state + "/pending", sum + " " + DLZMOD_uploadLabel(name) + "\n", 0o644);
+  } catch (e) {
+    console.error("dlzmod: update upload: the question not saved:", e.message);
+    return "";
+  }
+  const screen = DLZMOD_updateNoteSend.screen;
+  if (screen) {
+    try {
+      const status = DLZMOD_updateStatusFrom(DLZMOD_updateFile(state), true);
+      screen({ cmd: "DLZMOD_UPDATE_STATUS", id: 0, data: status });
+      if (status.pending && !status.pending.approved) screen({ cmd: "DLZMOD_UPDATE_ASK", id: 0, data: status.pending });
+    } catch (e) {
+      // (a screen that went away: the next one asks when it loads)
+      console.error("dlzmod: update upload: the question not sent:", e.message);
+    }
+  }
+  return "asked";
+}
+
+// the version as the updater names it ("v0.5.0 (dev-fa646fa)", a release "v0.5.0"), from the
+// package's name (dlzmod-v0.5.0-dev-fa646fa.tar); other names as they are, without dlzmod- and .tar
+function DLZMOD_uploadLabel(name) {
+  const stem = String(name).replace(/^dlzmod-/, "").replace(/\.tar$/, "");
+  const m = /^(v[0-9]+\.[0-9]+\.[0-9]+)-(dev-[0-9a-f]+)$/.exec(stem);
+  return (m ? m[1] + " (" + m[2] + ")" : stem).replace(/[^A-Za-z0-9._+() -]/g, "").slice(0, 60) || "a new version";
 }
 
 // the name the drop-in update looks for (dlzmod-*.tar), a plain one the browser would send
@@ -1284,6 +1335,8 @@ async function DLZMOD_uploadRun(req, dir, name, len, mounts) {
     let got = 0;
     let headLen = 0;
     let writeErr = null;
+    // the updater's record of the two files (sha256 of the tar and then its .sig), for the approval
+    const sum = require("crypto").createHash("sha256");
     try {
       // a break leaves the request as it is (DLZMOD_uploadDrain reads the rest)
       for await (const c of req.iterator({ destroyOnReturn: false })) {
@@ -1297,7 +1350,10 @@ async function DLZMOD_uploadRun(req, dir, name, len, mounts) {
           headLen += part.length;
           rest = c.subarray(part.length);
         }
-        if (rest.length) await DLZMOD_writeAll(fh, rest).catch((e) => Promise.reject((writeErr = e)));
+        if (rest.length) {
+          await DLZMOD_writeAll(fh, rest).catch((e) => Promise.reject((writeErr = e)));
+          sum.update(rest);
+        }
       }
     } catch (e) {
       // the card (a full one) throws on; the computer that went away: below
@@ -1336,6 +1392,7 @@ async function DLZMOD_uploadRun(req, dir, name, len, mounts) {
     placed = true;
     await DLZMOD_syncFile(dir + "/" + name);
     DLZMOD_syncDir(dir);
+    return sum.update(Buffer.concat(head)).digest("hex");
   } catch (e) {
     if (fh) await fh.close().catch(() => {});
     if (!placed) {

@@ -572,7 +572,7 @@ recording starts, the 503 while `wavfinalizer` runs, linked folders and files, t
 
 A paired computer sends a mod update to the card; installing it stays the drop-in update's
 ([updates.md](updates.md), "Drop-in update"): its signature and version checks, and Install on the
-mixer's own screen (#65). Nothing is checked or installed live: the next start finds the files [PC:
+mixer's own screen (#65), which since #207 asks right after the upload. Nothing is checked or installed live: the next start finds the files [PC:
 unit tests on node 18 (the dump's, under qemu) and `tests/upload.sh` (real FAT image, full card, cut-off,
 power cuts); the mixer still to come]:
 
@@ -635,9 +635,17 @@ power cuts); the mixer still to come]:
   that takes longer (a 64 MiB one below about 1.7 Mbit/s; a real package is about 1 MB), which also
   bounds how long a stalled client keeps the card writable. No free-space check first: a full card is
   `ENOSPC`, cleaned up.
-- **Then**: switch off and on; the start finds the package (pending), the screen asks Install, and
-  the start after that installs it. The upload changes nothing about an approval: that is bound to
-  the package's and signature's sha256, so an Install given for an earlier file does not carry over.
+- **Then** (#207): once both files are in place and synced, the server writes their question to
+  `pending` (`DLZMOD_uploadAsk`, `DLZMOD_writeDurable` on the card's ext4 system: their record, the
+  updater's `SUM`, hashed as they stream in, and the version from the package's name) and sends it to
+  the mixer's screen; the answer says "Tap Install on the mixer's screen, then switch the mixer off
+  and on." Install and one switch off and on install it. Before #207 the first start only asked, and
+  the start after the Install installed it. The record names exactly these two files: changed or
+  replaced on the card since, they are asked about again. The very files that failed before
+  (`failed`) get no question, which would install nothing; the answer says they are not tried again.
+  A power cut between the files and the
+  question leaves the files without it: the start asks. A question that cannot be saved: logged, the
+  answer says the start asks [static; unit tests].
 
 ## The card gate (`dlzmod-cardcheck`)
 

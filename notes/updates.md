@@ -99,7 +99,7 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    (a fixed folder with a README, made by the installer; never the card root, so a stray file among
    the recordings cannot trigger anything), or sends both from a paired computer's browser (Upload
    Update... on the Mod page, #114: [mod.md](mod.md), "An update from a computer"), which puts the
-   same two files there and nothing else.
+   same two files there and, since #207, their question for the screen at once (below).
 2. **Find** (`dlzmod-update`, before evolve-node, evolve-app and dspserver; with DLZDATA mounted
    read-only it first runs the clock floor, `dlzmod-clock floor`, since #1: [mod.md](mod.md)): exactly one
    `dlzmod-v*.tar` with its `.sig` next to it. Without a `.sig`: reported once, not marked failed, so
@@ -205,6 +205,26 @@ rehearsal: `tests/update.sh` case 3a]:
   version) with **Install** and **Later**. Later closes it; it comes back at every start, and the Mod
   page's Updates row keeps an "Install Update..." button. Other devices see the row with "install it
   on the mixer's own screen" and no button.
+- **Right after an upload** (#207): files sent from a paired computer (Upload Update...) get the
+  question at once, without a start first. Once both are in place the server writes `pending` itself
+  (`DLZMOD_uploadAsk`): the same record the updater would (sha256 of the tar and then the `.sig`,
+  hashed as they stream in) and the version from the package's name (`DLZMOD_uploadLabel`,
+  `dlzmod-v0.5.0-dev-fa646fa.tar` → `v0.5.0 (dev-fa646fa)`), and sends the question to the mixer's
+  screen (the one that last loaded, `DLZMOD_updateNoteSend.screen`; none up: it asks when it
+  loads). Install then writes `approved` as above, and one switch off and on installs it (before: a
+  start to find the files, Install, a second start). The updater's checks (signature, version) only
+  come at that start: a refused file gets its red popup then, as a copied one, and an Install on the
+  question for files the upload replaced is refused (the record differs). The very files that failed
+  before (`failed` holds their record) get no question: the updater never tries them again ("failed
+  before, not tried again"), and the answer says so. A question that cannot be
+  saved: the start after the switch asks, as before. Files copied with a card reader are asked about
+  at the start after it, as before [static; unit tests]. On the dev card [device, 2026-11-02]: the
+  upload of a dev build from a paired browser put the question on the mixer's screen at once,
+  `pending` held the same record as `cat tar sig | sha256sum` on the PC and the version from the name
+  (`v0.5.0 (dev-fd96f37)`); after Install and one switch off and on the updater installed it
+  ("INSTALLED", the update files deleted). The same build as the one installed gives no "installed"
+  popup afterwards: that popup comes only when `installed` differs from `shown`, as for a drop-in of
+  the same build.
 - **Install** sends `DLZMOD_UPDATE_APPROVE {sum}`, a screen-only command (`DLZMOD_SCREEN_ONLY` and its
   own check). The server writes the pending record to `approved` (temp file, fsync, rename, folder
   fsync: the next thing the user does is cut the power) and answers "Ready to install vX.Y.Z. Switch

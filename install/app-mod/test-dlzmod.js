@@ -913,7 +913,7 @@ test("update upload: the Mod page's Upload Update... in a browser opens a picker
     p2.onchange();
     assert.deepStrictEqual(ui.attached, [], "answered: out of the page");
     assert.strictEqual(ui.popups.length, 1, "the two files chosen: asks first");
-    assert.match(ui.popups[0].text, /^Send dlzmod-v0\.2\.0\.tar \(1\.\d MB\) to the mixer\?\nIt is installed only after Install/);
+    assert.match(ui.popups[0].text, /^Send dlzmod-v0\.2\.0\.tar \(1\.\d MB\) to the mixer\?\nThe mixer's screen then asks to install it\.$/);
   } finally {
     ctx.EXTERNAL = false;
   }

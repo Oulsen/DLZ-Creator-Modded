@@ -1071,7 +1071,7 @@ function DLZMOD_uploadFiles(files) {
   const f = DLZMOD_uploadCheck(files);
   if (typeof f === "string") return showMessage(f, { title: title });
   askConfirm("Send " + f.tar.name + " (" + DLZMOD_size(f.tar.size) + ") to the mixer?\n" +
-    "It is installed only after Install on the mixer's own screen.", { title: title }, () => {
+    "The mixer's screen then asks to install it.", { title: title }, () => {
     if (s.busy) return;
     s.busy = !0;
     showToast("Sending: " + f.tar.name);

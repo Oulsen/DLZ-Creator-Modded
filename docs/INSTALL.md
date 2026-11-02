@@ -137,10 +137,11 @@ mixer has no other way to switch off; this is normal.
 - Again: when the card is in your computer, **never click Format** in a Windows prompt.
 - **Updates keep your recordings**: when a release has update files, copy both
   (`dlzmod-vX.Y.Z.tar` and `dlzmod-vX.Y.Z.tar.sig`) into `DLZDATA/dlzmod-update/` and switch on.
-  (From v0.2.0 on, a computer paired with the mixer can send both instead, without taking the card
-  out: Settings → DLZ Creator Modded → **Mod** → **Upload Update...** in its web browser, then
-  switch the mixer off and on.) The screen asks whether to install it: tap **Install**, then switch the mixer off and on with the
-  switch on the back. The update installs while the logo shows (about 15 seconds), then a message
+  The screen asks whether to install it: tap **Install**, then switch the mixer off and on with the
+  switch on the back. (From v0.2.0 on, a computer paired with the mixer can send both instead, without
+  taking the card out: Settings → DLZ Creator Modded → **Mod** → **Upload Update...** in its web
+  browser. From v0.5.0 on the mixer's screen asks right after it has arrived: tap **Install**, then
+  switch the mixer off and on once.) The update installs while the logo shows (about 15 seconds), then a message
   says whether it worked. **Later** keeps it on the card; the question comes back at the next start,
   and Settings → DLZ Creator Modded → **Mod** has an **Install Update...** button meanwhile. (An
   update from v0.1.0 installs at the first start without asking: the question comes with the update.
