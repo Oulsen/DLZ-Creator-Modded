@@ -337,6 +337,14 @@ that choice and the whole screen shows it at once: the screen is the preview, no
   gives a leap status other than `Not synchronised` (then it stays so and chronyc is not asked
   again), else `hand` or `device` after a set below, else nothing ("Not checked since the start");
   chronyc at most every 10 s (by uptime, which a clock change does not move) [static; unit tests].
+  `hand` and `device` are also written to `/run/dlzmod-clock-how` (`DLZMOD_clockKeep`: temp file,
+  rename) and read back when the server starts (#208): `/run` is a tmpfs, so a restart of the mixer
+  software keeps them (the date in recording names, no browser's time over a time set by hand) and a
+  power-off clears them; `internet` is not written, chronyc is asked again. A file that cannot be
+  written only logs: the clock is set all the same [static; unit test]. On the dev card [device,
+  2026-11-02]: `/run` is a tmpfs (`findmnt`, 100 MB); with chrony stopped, the clock set by hand
+  wrote `hand`, and after `systemctl restart evolve-node` the file was still there and the next
+  recording got the date (`REC_0006_penguin_2026-11-02_0952`).
 - **By hand** (`DLZMOD_TIME {op: "clock"}`, the screen and paired devices): the picker's date and
   time in the mixer's zone (`DLZMOD_tzEpoch`, the offset of that moment; a time skipped in spring
   comes out an hour later), or a browser's own time (Use This Computer's Time). It may go back: the

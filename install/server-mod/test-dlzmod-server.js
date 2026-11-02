@@ -16,6 +16,9 @@ const pairIn = (name) => {
   return dir;
 };
 pairIn("start");
+// how the clock was set (#208) in a file of its own, never this PC's /run; clockReset() removes it
+const CLOCK_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "dlzclock-")), "dlzmod-clock-how");
+ctx.DLZMOD_clockFile = () => CLOCK_FILE;
 const { DLZMOD_pickRecName: pick, DLZMOD_recAnimal: animal, DLZMOD_animals: animals,
   DLZMOD_recName: recName, DLZMOD_updateNoteFrom: noteFrom, DLZMOD_updateStatusFrom: statusFrom,
   DLZMOD_updateNoteSend: noteSend, DLZMOD_updateNoteSeen: noteSeen } = ctx;
@@ -2304,6 +2307,7 @@ const paired = (sent) => Object.assign((m) => sent.push(plain(m)), { dlzmodPaire
 const clockReset = () => {
   ctx.DLZMOD_time.clock = null;
   ctx.DLZMOD_time.busy = false;
+  fs.rmSync(CLOCK_FILE, { force: true });
 };
 const amsterdam = () => {
   const t = tzIn();
@@ -2471,6 +2475,48 @@ test("clock: a browser's time and a time set by hand meanwhile do not both run (
   ctx.DLZMOD_clock().how = "hand";
   await ctx.DLZMOD_time({ op: "sync", now: NOW + 3600000 }, paired([]), clockOpts(t, r));
   assert.strictEqual(ctx.DLZMOD_time.busy, false, "a refused sync lets go too");
+});
+test("clock: hand and device outlast a restart of the mixer software (#208); internet is asked again", async () => {
+  const t = amsterdam();
+  const restart = () => {
+    ctx.DLZMOD_time.clock = null;   // a new server process: only the file is left
+    ctx.DLZMOD_time.busy = false;
+  };
+  clockReset();
+  await ctx.DLZMOD_time({ op: "clock", time: { y: 2026, mo: 1, d: 1, h: 0, mi: 0 } }, sendTo([]), clockOpts(t, clockRun()));
+  assert.strictEqual(fs.readFileSync(CLOCK_FILE, "utf8"), "hand\n");
+  restart();
+  const r = clockRun();
+  assert.strictEqual(await ctx.DLZMOD_clockSource(r.run), "hand", "by hand, after the restart");
+  await ctx.DLZMOD_time({ op: "sync", now: NOW + 3600000 }, paired([]), clockOpts(t, r));
+  assert.deepStrictEqual(r.sets(), [], "a browser's time still does not move it");
+  ctx.DLZMOD_clock().asked = process.uptime() * 1000;
+  assert.strictEqual(await ctx.DLZMOD_recStamp(Object.assign({ on: 1, run: r.run, now: () => NOW }, t.opts)), "2026-01-31_2358", "and the date in names");
+  clockReset();
+  await ctx.DLZMOD_time({ op: "sync", now: NOW + 3600000 }, paired([]), clockOpts(t, clockRun()));
+  restart();
+  assert.strictEqual(await ctx.DLZMOD_clockSource(clockRun().run), "device", "a browser's time, after the restart");
+  ctx.DLZMOD_clock().asked -= 10000;
+  assert.strictEqual(await ctx.DLZMOD_clockSource(clockRun({ leap: "Normal" }).run), "internet");
+  restart();
+  assert.strictEqual(await ctx.DLZMOD_clockSource(clockRun().run), "device", "internet is not kept: asked again");
+  for (const junk of ["internet\n", "", "hand device", "x"]) {
+    fs.writeFileSync(CLOCK_FILE, junk);
+    restart();
+    assert.strictEqual(await ctx.DLZMOD_clockSource(clockRun().run), "", JSON.stringify(junk) + ": not set");
+  }
+  clockReset();
+  assert.strictEqual(await ctx.DLZMOD_clockSource(clockRun().run), "", "no file (a power-off): not set");
+  ctx.DLZMOD_clockFile = () => path.join(CLOCK_FILE, "no-such-dir", "f");
+  try {
+    clockReset();
+    const s = [];
+    await ctx.DLZMOD_time({ op: "clock", time: { y: 2026, mo: 1, d: 1, h: 0, mi: 0 } }, sendTo(s), clockOpts(t, clockRun()));
+    assert.strictEqual(timeOf(s, "DLZMOD_TIME_RESULT")[0].ok, true, "a file that cannot be written: the clock is set all the same");
+  } finally {
+    ctx.DLZMOD_clockFile = () => CLOCK_FILE;
+    clockReset();
+  }
 });
 test("clock by hand: the picker's years are the zone's (1 Jan 2025 00:30 in Amsterdam is 2024 in UTC)", async () => {
   const t = amsterdam();

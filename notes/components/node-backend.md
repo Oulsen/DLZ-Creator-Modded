@@ -237,5 +237,7 @@ Whether the `HAVE_*` flags unlock anything without native support is unknown [gu
 - No source maps, mangled locals, one-line app.js. Patching by **string anchor** (state keys,
   command names, flag names) is practical; offsets are not stable across builds.
 - Reload: browser = refresh; on-device UI = `systemctl restart evolve-app` (DSP keeps running);
-  hub = `systemctl restart evolve-node`.
+  hub = `systemctl restart evolve-node`. A restart of the hub leaves the screen running (app.js
+  reconnects) but the knob lights blink once, as during an update [device, 2026-11-02]; likely
+  faderlink reconnecting and getting the whole state again [guess].
 - The `/app.js` route already prepends code: a natural injection point for flags.
