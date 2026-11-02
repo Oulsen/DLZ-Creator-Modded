@@ -283,8 +283,9 @@ shown: `later` and "more than one update file".
 Accepted: any hub client can send the OK (a few small writes in fixed files); the fsync pauses the
 hub for one card flush per tap (audio is dspserver).
 
-**What's New after an update (#224)** [static, sandbox]: the green popup has a second button, What's
-New, with what changed in the version: `CHANGELOG.md`'s `## vX.Y.Z` section, grouped as the release
+**What's New after an update (#224)** [device: the popup and its pages on the dev card]: the green
+popup has a second button, What's New, and the Mod page one next to the Version row (shown only
+when there are notes), with what changed in the version: `CHANGELOG.md`'s `## vX.Y.Z` section, grouped as the release
 notes (`release-notes.sh`: DLZ features, DLZ bugs fixed, Mod features, Mod bugs fixed; no issue
 numbers), on the same pages as Download's What's New (`DLZMOD_releaseNotes`, no Download button).
 Either button counts as the OK. The notes are in the app itself: `mkpackage.sh` puts the repo's
@@ -538,7 +539,10 @@ Install question on the mixer's screen, then one switch off and on: #65, #207)
   GitHub asks to wait, needs a full install); on the mixer's screen a finished download goes on to
   the Install question (#207). [static, sandbox] What's New: the release notes as plain text (`DLZMOD_relText`: headings and
   list items kept, links as their text, emphasis, code marks, images and HTML left out; at most
-  20000 characters) on pages with < and >, since the screen has no scrolling text.
+  20000 characters) on pages with < and >, since the screen has no scrolling text. On the mixer the
+  lines are cut by length (`DLZMOD_wrap`, 10 px a character), as Mackie's own popups do there
+  (`Util.wrapText` with `$ENV.isNode`): glesgui's `measureText` gives no usable width, and measuring
+  put one word on each line [device, #224's drop-in; the sandbox's browser measures fine].
 - **Download** (`DLZMOD_relDownload`): the release is fetched again (the addresses never come from
   a client), the signature (exactly 64 bytes) and then the package (its `Content-Length` must be
   the size the release lists) go through the upload's write path (`DLZMOD_uploadRun`: temp files,

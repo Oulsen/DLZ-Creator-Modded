@@ -1208,15 +1208,20 @@ function DLZMOD_askRelease(r) {
   });
 }
 
-// text cut into lines that fit max px in the font (words kept whole; a word longer than a line is cut)
+// text cut into lines that fit max px in the font (words kept whole; a word longer than a line gets
+// a line of its own). On the mixer (glesgui, $ENV.isNode) measureText gives no usable width (one word
+// per line [device]): Mackie's own popups wrap by a character count there (Util.wrapText), and so
+// does this, at 10 px a character (13pt: about 9 [static, Mackie's 45 characters at 15pt])
 function DLZMOD_wrap(t, text, font, max) {
-  t.font = font;
+  const byLength = typeof $ENV !== "undefined" && $ENV && $ENV.isNode;
+  if (!byLength) t.font = font;
+  const fits = byLength ? (s) => s.length <= (max / 10 | 0) : (s) => t.measureText(s).width <= max;
   const out = [];
   for (const para of String(text).split("\n")) {
     let line = "";
     for (const word of para.split(" ")) {
       const next = line ? line + " " + word : word;
-      if (!line || t.measureText(next).width <= max) {
+      if (!line || fits(next)) {
         line = next;
         continue;
       }
@@ -1753,6 +1758,12 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
         visible: DLZMOD_external(), onPress: () => DLZMOD_uploadPick(),
       });
       this.auto = DLZMOD_switch(this, w, 112, "dlzmod.updateAuto", () => this.update());
+      // #224: the installed version's notes again, as after its update (none stamped in: no button)
+      this.notes = new E1Button(this, {
+        anchors: [240, 112], size: [170, 46], text: "What's New",
+        visible: !!DLZMOD_versionNotes(),
+        onPress: () => DLZMOD_releaseNotes({ version: DLZMOD_version(), notes: DLZMOD_versionNotes() }),
+      });
       this.syncInstall();
     },
     syncInstall: function () {

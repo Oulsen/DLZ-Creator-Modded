@@ -855,6 +855,43 @@ test("update popups: after an update, What's New shows the notes the app was sta
     ctx.DLZMOD_versionNotes = notes;
   }
 });
+test("Mod page: What's New next to the version opens the installed version's notes; none stamped in: no button", () => {
+  const notes = ctx.DLZMOD_versionNotes;
+  try {
+    let pg = relPage();
+    assert.strictEqual(pg.about.notes.visible, false, "an unpatched copy has no notes");
+    relDone();
+    ctx.DLZMOD_versionNotes = () => "Mod features\n• See what changed after an update";
+    pg = relPage();
+    assert.notStrictEqual(pg.about.notes.visible, false);
+    pg.about.notes.onPress();
+    const w = ui.windows.at(-1), lines = [];
+    w.paint({ drawText: (s) => lines.push(s), measureText: (s) => ({ width: s.length }) });
+    assert.ok(lines.includes("• See what changed after an update"), lines.join("|"));
+    assert.ok(lines.some((l) => l.startsWith("What's New in ")), lines.join("|"));
+    w.close();
+  } finally {
+    ctx.DLZMOD_versionNotes = notes;
+    relDone();
+  }
+});
+test("notes pages: on the mixer lines are wrapped by length, as Mackie's popups do; in a browser by width", () => {
+  const text = "Mod bugs fixed\n• After a restart of the mixer software, the date can drop out of recording names" +
+    " and this goes on a bit";
+  const useless = { measureText: () => ({ width: 1e9 }) };   // what one word per line on the mixer looked like
+  ctx.$ENV = { isNode: true };
+  try {
+    const lines = ctx.DLZMOD_wrap(useless, text, "500 13pt", 836);
+    assert.deepStrictEqual(plain(lines), ["Mod bugs fixed",
+      "• After a restart of the mixer software, the date can drop out of recording names",
+      "and this goes on a bit"]);
+    assert.ok(lines.every((l) => l.length <= 83), "836 px: at most 83 characters a line");
+  } finally {
+    delete ctx.$ENV;
+  }
+  const byWidth = ctx.DLZMOD_wrap({ measureText: (s) => ({ width: s.length * 20 }) }, "aa bb cc", "f", 100);
+  assert.deepStrictEqual(plain(byWidth), ["aa bb", "cc"]);
+});
 test("update popups: an update waiting asks Install or Later with both versions; only Install approves it", () => {
   reset();
   ctx.DLZMOD_setUpdateStatus({ installed: "v0.1.0" });
