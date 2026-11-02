@@ -214,7 +214,9 @@ rehearsal: `tests/update.sh` case 3a]:
   loads). Install then writes `approved` as above, and one switch off and on installs it (before: a
   start to find the files, Install, a second start). The updater's checks (signature, version) only
   come at that start: a refused file gets its red popup then, as a copied one, and an Install on the
-  question for files the upload replaced is refused (the record differs). A question that cannot be
+  question for files the upload replaced is refused (the record differs). The very files that failed
+  before (`failed` holds their record) get no question: the updater never tries them again ("failed
+  before, not tried again"), and the answer says so. A question that cannot be
   saved: the start after the switch asks, as before. Files copied with a card reader are asked about
   at the start after it, as before [static; unit tests].
 - **Install** sends `DLZMOD_UPDATE_APPROVE {sum}`, a screen-only command (`DLZMOD_SCREEN_ONLY` and its

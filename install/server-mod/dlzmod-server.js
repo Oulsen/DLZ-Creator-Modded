@@ -1179,9 +1179,12 @@ function DLZMOD_updateUpload(root, state = "/var/lib/dlzmod-update", mounts = "/
     DLZMOD_uploadRun(req, r + "/dlzmod-update", name, len, mounts).then(
       (sum) => {
         console.log("dlzmod: update upload: " + name + " in place");
-        DLZMOD_uploadAnswer(res, 200, name + " is on the mixer's card.\n" + (DLZMOD_uploadAsk(state, sum, name)
+        const asked = DLZMOD_uploadAsk(state, sum, name);
+        DLZMOD_uploadAnswer(res, 200, name + " is on the mixer's card.\n" + (asked === "asked"
           ? "Tap Install on the mixer's screen, then switch the mixer off and on."
-          : "Switch the mixer off and on: its screen then asks whether to install it."));
+          : asked === "failed"
+            ? "This same update failed on this mixer before and is not tried again:\nsee dlzmod-logs on the card."
+            : "Switch the mixer off and on: its screen then asks whether to install it."));
       },
       (e) => {
         console.error("dlzmod: update upload:", e.message);
@@ -1203,16 +1206,19 @@ function DLZMOD_updateUpload(root, state = "/var/lib/dlzmod-update", mounts = "/
 // after Install: a refused file gets its red popup then, as a copied one); the question goes to the
 // mixer's screen if one is up (DLZMOD_updateNoteSend.screen), else it comes when the screen loads.
 // The pending it replaces was about the files the upload replaced. Install stays the screen's
-// (DLZMOD_updateApprove). Flushed (DLZMOD_writeDurable): the switch may come right after. false: not
-// saved, the start after the switch asks as before
+// (DLZMOD_updateApprove). Flushed (DLZMOD_writeDurable): the switch may come right after. "asked";
+// "failed": these very files failed before, which the updater never tries again (its "failed"
+// record), so no question that would install nothing; "": not saved, the start after the switch asks
+// as before
 function DLZMOD_uploadAsk(state, sum, name) {
   try {
     if (!/^[0-9a-f]{64}$/.test(String(sum))) throw new Error("no record of the upload");
+    if (DLZMOD_updateFile(state)("failed") === sum) return "failed";
     require("fs").mkdirSync(state, { recursive: true });
     DLZMOD_writeDurable(state + "/pending", sum + " " + DLZMOD_uploadLabel(name) + "\n", 0o644);
   } catch (e) {
     console.error("dlzmod: update upload: the question not saved:", e.message);
-    return false;
+    return "";
   }
   const screen = DLZMOD_updateNoteSend.screen;
   if (screen) {
@@ -1225,7 +1231,7 @@ function DLZMOD_uploadAsk(state, sum, name) {
       console.error("dlzmod: update upload: the question not sent:", e.message);
     }
   }
-  return true;
+  return "asked";
 }
 
 // the version as the updater names it ("v0.5.0 (dev-fa646fa)", a release "v0.5.0"), from the

@@ -641,7 +641,9 @@ power cuts); the mixer still to come]:
   the mixer's screen; the answer says "Tap Install on the mixer's screen, then switch the mixer off
   and on." Install and one switch off and on install it. Before #207 the first start only asked, and
   the start after the Install installed it. The record names exactly these two files: changed or
-  replaced on the card since, they are asked about again. A power cut between the files and the
+  replaced on the card since, they are asked about again. The very files that failed before
+  (`failed`) get no question, which would install nothing; the answer says they are not tried again.
+  A power cut between the files and the
   question leaves the files without it: the start asks. A question that cannot be saved: logged, the
   answer says the start asks [static; unit tests].
 

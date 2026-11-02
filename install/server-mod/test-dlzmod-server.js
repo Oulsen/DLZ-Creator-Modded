@@ -1935,6 +1935,7 @@ test("update upload: refused before anything is written, with a text for the bro
 test("update upload: the mixer's screen asks Install right after it (#207), for exactly these two files", async () => {
   const record = (tar, sig) => require("crypto").createHash("sha256").update(Buffer.concat([tar, sig])).digest("hex");
   const sum = record(PKG, SIG);
+  ctx.DLZMOD_updateNoteSend.screen = null;   // (earlier tests' screens)
   try {
     const up = upMedia();
     // the screen has loaded (GUI_LOADED) and gets the question; a paired device's load is not the screen
@@ -1987,6 +1988,20 @@ test("update upload: the mixer's screen asks Install right after it (#207), for 
     assert.strictEqual(r2.status, 200);
     assert.match(r2.body, /\nSwitch the mixer off and on: its screen then asks whether to install it\.$/);
     assert.deepStrictEqual(ls(broken.dir), ["dlzmod-v0.2.0.tar", "dlzmod-v0.2.0.tar.sig"]);
+    // these very files failed before: the updater never tries them again, so no question that would
+    // install nothing (dlzmod-update: "failed before, not tried again")
+    const failedUp = upMedia();
+    fs.writeFileSync(path.join(failedUp.state, "failed"), sum + "\n");
+    const failedScreen = [];
+    ctx.DLZMOD_updateNoteSend.screen = local((m) => failedScreen.push(plain(m)));
+    const r3 = await upCall(failedUp, upReq([SIG, PKG]));
+    assert.strictEqual(r3.status, 200);
+    assert.match(r3.body, /\nThis same update failed on this mixer before and is not tried again:\nsee dlzmod-logs on the card\.$/);
+    assert.ok(!fs.existsSync(path.join(failedUp.state, "pending")));
+    assert.deepStrictEqual(failedScreen, []);
+    // another file than the one that failed is asked about
+    fs.writeFileSync(path.join(failedUp.state, "failed"), "c".repeat(64) + "\n");
+    assert.match((await upCall(failedUp, upReq([SIG, PKG]))).body, /Tap Install on the mixer's screen/);
     // an upload that did not finish asks nothing and leaves the question as it was
     const cutUp = upMedia();
     fs.writeFileSync(path.join(cutUp.state, "pending"), "a".repeat(64) + " v0.1.0\n");
