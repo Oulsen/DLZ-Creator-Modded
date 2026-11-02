@@ -3,6 +3,7 @@
 ## v0.5.0
 
 - (DLZ FEATURE) See the sound behind the EQ curve
+- (MOD FEATURE) An update sent from a computer installs with one switch off and on
 - (MOD BUG) After a restart of the mixer software, the date can drop out of recording names
 
 ## v0.4.0

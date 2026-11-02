@@ -1837,7 +1837,7 @@ test("update upload: both files in place, older update files replaced, other fil
   // the 64-byte signature split over chunks
   const res = await upCall(up, upReq([SIG.subarray(0, 40), Buffer.concat([SIG.subarray(40), PKG.subarray(0, 100)]), PKG.subarray(100)]));
   assert.strictEqual(res.status, 200, res.body);
-  assert.match(res.body, /^dlzmod-v0\.2\.0\.tar is on the mixer's card\.\nSwitch the mixer off and on/);
+  assert.match(res.body, /^dlzmod-v0\.2\.0\.tar is on the mixer's card\.\nTap Install on the mixer's screen, then switch/);
   assert.deepStrictEqual(ls(up.dir), ["dlzmod-v0.2.0.tar", "dlzmod-v0.2.0.tar.sig", "previous", "readme.txt"]);
   assert.ok(fs.readFileSync(path.join(up.dir, "dlzmod-v0.2.0.tar")).equals(PKG), "the package");
   assert.ok(fs.readFileSync(path.join(up.dir, "dlzmod-v0.2.0.tar.sig")).equals(SIG), "its signature");
@@ -1931,6 +1931,79 @@ test("update upload: refused before anything is written, with a text for the bro
   // the mixer itself: no Origin check (its own page has none to give here); an empty inprogress goes ahead
   const local = await upCall(up, upReq([SIG, PKG], { address: "127.0.0.1", headers: { origin: "http://evil.example" } }));
   assert.strictEqual(local.status, 200, local.body);
+});
+test("update upload: the mixer's screen asks Install right after it (#207), for exactly these two files", async () => {
+  const record = (tar, sig) => require("crypto").createHash("sha256").update(Buffer.concat([tar, sig])).digest("hex");
+  const sum = record(PKG, SIG);
+  try {
+    const up = upMedia();
+    // the screen has loaded (GUI_LOADED) and gets the question; a paired device's load is not the screen
+    const screen = [];
+    ctx.DLZMOD_updateNoteSend(sendTo(screen), up.state, path.join(up.state, "no-card-note"));
+    ctx.DLZMOD_updateNoteSend(remoteTo([]), up.state, path.join(up.state, "no-card-note"));
+    screen.length = 0;
+    // the question about the update files the upload replaces, and an Install for another file
+    fs.writeFileSync(path.join(up.state, "pending"), "a".repeat(64) + " v0.1.0\n");
+    fs.writeFileSync(path.join(up.state, "approved"), "b".repeat(64) + "\n");
+    const res = await upCall(up, upReq([SIG.subarray(0, 10), Buffer.concat([SIG.subarray(10), PKG.subarray(0, 7)]), PKG.subarray(7)],
+      { headers: { "x-dlzmod-name": "dlzmod-v0.5.0-dev-fa646fa.tar" } }));
+    assert.strictEqual(res.status, 200, res.body);
+    assert.strictEqual(res.body, "dlzmod-v0.5.0-dev-fa646fa.tar is on the mixer's card.\n" +
+      "Tap Install on the mixer's screen, then switch the mixer off and on.");
+    // dlzmod-update: SUM=$(cat "$PKG" "$SIGF" | sha256sum); the version named as the updater names it
+    assert.strictEqual(fs.readFileSync(path.join(up.state, "pending"), "utf8"), sum + " v0.5.0 (dev-fa646fa)\n");
+    assert.strictEqual(fs.readFileSync(path.join(up.state, "approved"), "utf8"), "b".repeat(64) + "\n", "not approved by the upload");
+    const ask = { sum: sum, version: "v0.5.0 (dev-fa646fa)", approved: false };
+    assert.deepStrictEqual(screen.map((m) => m.cmd), ["DLZMOD_UPDATE_STATUS", "DLZMOD_UPDATE_ASK"]);
+    assert.deepStrictEqual(screen[0].data.pending, ask);
+    assert.deepStrictEqual(screen[1].data, ask);
+    // an Install tapped on the old question is refused; Install on this one approves exactly these files
+    const s = [];
+    ctx.DLZMOD_updateApprove({ sum: "a".repeat(64) }, sendTo(s), up.state);
+    assert.strictEqual(fs.readFileSync(path.join(up.state, "approved"), "utf8"), "b".repeat(64) + "\n");
+    ctx.DLZMOD_updateApprove({ sum: sum }, sendTo(s), up.state);
+    assert.strictEqual(fs.readFileSync(path.join(up.state, "approved"), "utf8"), sum + "\n");
+    assert.deepStrictEqual(ls(up.state).filter((f) => f !== "mounts"), ["approved", "pending"], "no temp file left");
+    // no screen up (or one that went away): the question is saved, the screen asks when it loads
+    const none = upMedia();
+    ctx.DLZMOD_updateNoteSend.screen = () => {
+      throw new Error("gone");
+    };
+    assert.strictEqual((await upCall(none, upReq([SIG, PKG]))).status, 200);
+    assert.strictEqual(fs.readFileSync(path.join(none.state, "pending"), "utf8"), sum + " v0.2.0\n");
+    const later = [];
+    ctx.DLZMOD_updateNoteSend(sendTo(later), none.state, path.join(none.state, "no-card-note"));
+    assert.deepStrictEqual(later.find((m) => m.cmd === "DLZMOD_UPDATE_ASK").data, { sum: sum, version: "v0.2.0", approved: false });
+    // a state folder that is not there yet is made (a card that never had an update)
+    const fresh = upMedia();
+    const deeper = path.join(fresh.state, "lib", "dlzmod-update");
+    assert.strictEqual((await upCall(Object.assign({}, fresh, { state: deeper }), upReq([SIG, PKG]))).status, 200);
+    assert.strictEqual(fs.readFileSync(path.join(deeper, "pending"), "utf8"), sum + " v0.2.0\n");
+    // the question cannot be saved (the state folder is a file): the files are in place, the start asks
+    const broken = upMedia();
+    const stateFile = path.join(broken.state, "not-a-folder");
+    fs.writeFileSync(stateFile, "");
+    const r2 = await upCall(Object.assign({}, broken, { state: stateFile }), upReq([SIG, PKG]));
+    assert.strictEqual(r2.status, 200);
+    assert.match(r2.body, /\nSwitch the mixer off and on: its screen then asks whether to install it\.$/);
+    assert.deepStrictEqual(ls(broken.dir), ["dlzmod-v0.2.0.tar", "dlzmod-v0.2.0.tar.sig"]);
+    // an upload that did not finish asks nothing and leaves the question as it was
+    const cutUp = upMedia();
+    fs.writeFileSync(path.join(cutUp.state, "pending"), "a".repeat(64) + " v0.1.0\n");
+    const cutScreen = [];
+    ctx.DLZMOD_updateNoteSend.screen = local((m) => cutScreen.push(plain(m)));
+    assert.strictEqual((await upCall(cutUp, upReq([SIG, PKG.subarray(0, 10)], { len: 64 + PKG.length }))).status, 500);
+    assert.strictEqual(fs.readFileSync(path.join(cutUp.state, "pending"), "utf8"), "a".repeat(64) + " v0.1.0\n");
+    assert.deepStrictEqual(cutScreen, []);
+  } finally {
+    ctx.DLZMOD_updateNoteSend.screen = null;
+  }
+});
+test("update upload: the version for the question from the package's name, as the updater names it", () => {
+  for (const [name, label] of [["dlzmod-v0.5.0.tar", "v0.5.0"], ["dlzmod-v0.5.0-dev-fa646fa.tar", "v0.5.0 (dev-fa646fa)"],
+    ["dlzmod-v10.0.1_rc1.tar", "v10.0.1_rc1"], ["dlzmod-test+3.tar", "test+3"], ["dlzmod-" + "a".repeat(80) + ".tar", "a".repeat(60)]]) {
+    assert.strictEqual(ctx.DLZMOD_uploadLabel(name), label, name);
+  }
 });
 test("update upload: a failure after the old update files are removed leaves no update files at all", async () => {
   const up = upMedia();
