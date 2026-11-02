@@ -445,10 +445,11 @@ SERVER_PATCHES = [
         # (DLZMOD_recHttp); ce() is a medium's mount point, "-" when empty. #114: a mod update sent
         # to the SD card's dlzmod-update/ (DLZMOD_updateUpload). #136: the boot log copied to the SD
         # card once a start has finished (DLZMOD_bootlogCopy; this setup runs once, at the start).
-        # #55: the check for a new release by itself, and where Download Update puts it (DLZMOD_releaseWatch)
+        # #55: the check for a new release by itself, and where Download Update puts it (DLZMOD_releaseWatch);
+        # #220: the USB stick From USB Stick... copies from
         'a=e();a.use(DLZMOD_noOrig);a.use(DLZMOD_remoteHttp);'
         'a.use(DLZMOD_recHttp((()=>[ce("sd"),ce("usb")])));a.use(DLZMOD_updateUpload((()=>ce("sd"))));'
-        'DLZMOD_bootlogCopy((()=>ce("sd")));DLZMOD_releaseWatch((()=>ce("sd")));'
+        'DLZMOD_bootlogCopy((()=>ce("sd")));DLZMOD_releaseWatch((()=>ce("sd")),6e4,(()=>ce("usb")));'
         'return a.get("/app.js",',
     ),
     (

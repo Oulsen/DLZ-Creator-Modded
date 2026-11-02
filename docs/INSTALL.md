@@ -143,7 +143,10 @@ mixer has no other way to switch off; this is normal.
   browser. From v0.5.0 on the mixer's screen asks right after it has arrived: tap **Install**, then
   switch the mixer off and on once.) With the mixer online, from v0.5.0 on it can also fetch the
   update itself: Settings → DLZ Creator Modded → **Mod** → **Check for Updates...**, then
-  **Download**; the screen then asks to install it. The mixer also looks by itself every few hours
+  **Download**; the screen then asks to install it. Without a network, from v0.5.0 on: put both
+  files in a folder `dlzmod-update` on a FAT32 USB stick, plug it into the mixer (on the XS in place
+  of the Wi-Fi stick: it has one USB port) and tap Settings → DLZ Creator Modded → **Mod** →
+  **From USB Stick...**; the screen then asks to install it. The mixer also looks by itself every few hours
   and shows a small red dot on the cogwheel when a new version is out (only a request for the latest
   release goes to GitHub; turn it off with **Automatic Update Check** on the Mod page). The update installs while the logo shows (about 15 seconds), then a message
   says whether it worked. **Later** keeps it on the card; the question comes back at the next start,

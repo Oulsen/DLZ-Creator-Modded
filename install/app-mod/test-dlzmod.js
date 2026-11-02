@@ -941,7 +941,9 @@ test("release: the Updates row and the left button follow what the check found",
     // the buttons shown side by side in the middle: Check and Install here
     assert.deepStrictEqual([pg.about.check.x, pg.about.install.x], [(914 - 616) / 2 | 0, ((914 - 616) / 2 | 0) + 316]);
     ctx.DLZMOD_setUpdateStatus({});
-    assert.strictEqual(pg.about.check.x, (914 - 300) / 2 | 0, "Check alone: in the middle");
+    // no update waiting: Check and From USB Stick (#220)
+    assert.deepStrictEqual([pg.about.check.x, pg.about.usb.x, pg.about.install.visible],
+      [(914 - 616) / 2 | 0, ((914 - 616) / 2 | 0) + 316, false]);
     assert.ok(pg.about.auto, "the switch for the check by itself");
     assert.strictEqual(pg.about.auto.key, "dlzmod.updateAuto");
   } finally {
@@ -1022,6 +1024,56 @@ test("release: a spinner while this page's check or download runs, closed by its
     assert.ok(ui.progress[1].closed);
   } finally {
     ctx.DLZMOD_relIdle();
+    relDone();
+  }
+});
+test("usb stick: From USB Stick... copies with a stick in, else says how; not in a browser, not while an update waits", () => {
+  let pg = relPage({ data: { usb: 1 } });
+  try {
+    assert.ok(pg.about.usb.visible, "on the mixer's own screen");
+    ui.cmds.length = 0;
+    ui.progress.length = 0;
+    ui.popups.length = 0;
+    ctx.DLZMOD_usbPress();
+    assert.deepStrictEqual(ui.cmds, [["DLZMOD_RELEASE", { op: "usb" }]]);
+    assert.strictEqual(ui.progress[0].text, "Copying the update from the USB stick…");
+    ctx.DLZMOD_setRelease({ state: "copying", version: "v0.5.1" });
+    assert.ok(!ui.progress[0].closed, "still copying: the spinner stays");
+    assert.strictEqual(ctx.DLZMOD_updateRow()[0], "Copying v0.5.1 from the USB stick...");
+    ctx.DLZMOD_setRelease({ state: "done", version: "v0.5.1", error: "" });
+    assert.ok(ui.progress[0].closed);
+    assert.strictEqual(ui.popups.length, 0, "the Install question comes from the server");
+    ctx.DLZMOD_usbPress();
+    ctx.DLZMOD_setRelease({ state: "error", error: "More than one mod update on the USB stick." });
+    assert.deepStrictEqual(ui.popups.map((p) => p.text), ["More than one mod update on the USB stick."]);
+    // an update waiting for Install: Install in its place
+    ctx.DLZMOD_setUpdateStatus({ local: true, pending: { sum: "a".repeat(64), version: "v0.5.1" } });
+    assert.ok(!pg.about.usb.visible && pg.about.install.visible);
+  } finally {
+    ctx.DLZMOD_relIdle();
+    relDone();
+  }
+  // no stick: how to make one, on the XS with the Wi-Fi stick's port
+  for (const [usb, xs, start, wifi] of [[0, true, "Put the update's", true], [2, false, "The mixer cannot read this USB stick: it needs FAT32.", false]]) {
+    relPage({ data: { usb: usb } });
+    if (xs) ctx.LITE_MODE = 1;
+    try {
+      ui.cmds.length = 0;
+      ui.popups.length = 0;
+      ctx.DLZMOD_usbPress();
+      assert.deepStrictEqual(ui.cmds, [], "nothing sent");
+      assert.ok(ui.popups[0].text.startsWith(start), ui.popups[0].text);
+      assert.ok(ui.popups[0].text.includes("folder\ndlzmod-update on a FAT32 USB stick"));
+      assert.strictEqual(ui.popups[0].text.includes("take out the Wi-Fi stick"), wifi);
+    } finally {
+      delete ctx.LITE_MODE;
+      relDone();
+    }
+  }
+  pg = relPage({ external: true, data: { usb: 1 } });
+  try {
+    assert.ok(!pg.about.usb.visible, "a browser has Upload Update... instead");
+  } finally {
     relDone();
   }
 });

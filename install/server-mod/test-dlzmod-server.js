@@ -2321,6 +2321,124 @@ relTest("release: a card that does not say its version is never told \"up to dat
   assert.deepStrictEqual([relLast(s).state, relLast(s).error],
     ["error", "This card does not say which mod version it has.\nCopy the update to the card by hand."]);
 });
+// #220: a USB stick (read-only FAT in the mount table, as stock mounts it) next to the card
+const usbMedia = (o = {}) => {
+  const up = relMedia();
+  const stick = fs.mkdtempSync(path.join(os.tmpdir(), "dlzup-usb-"));
+  fs.appendFileSync(up.mounts, "/dev/sda1 " + stick.replace(/ /g, "\\040") + " " + (o.fs || "vfat") +
+    " ro,noatime,flush 0 0\n");
+  const put = (dir, name, tar = REL_TAR, sig = REL_SIG) => {
+    fs.mkdirSync(path.join(stick, dir), { recursive: true });
+    fs.writeFileSync(path.join(stick, dir, name), tar);
+    if (sig) fs.writeFileSync(path.join(stick, dir, name + ".sig"), sig);
+  };
+  return Object.assign(up, { stick, put });
+};
+const usbCall = async (send, up, usb) => {
+  await ctx.DLZMOD_release({ op: "usb" }, send, { state: up.state, root: () => up.root,
+    usb: () => (usb !== undefined ? usb : up.stick), mounts: up.mounts });
+  await tick(20);
+  clearTimeout(ctx.DLZMOD_roLater.timer);
+};
+relTest("usb stick: the update's two files from its dlzmod-update folder to the card, then the screen asks Install", async () => {
+  const up = usbMedia();
+  up.put("dlzmod-update", "dlzmod-v0.5.1.tar");
+  fs.writeFileSync(path.join(up.stick, "song.wav"), "x");
+  const s = [];
+  ctx.DLZMOD_updateNoteSend.screen = sendTo(s);
+  await usbCall(sendTo(s), up);
+  const states = s.filter((m) => m.cmd === "DLZMOD_RELEASE_STATE").map((m) => m.data.state);
+  assert.deepStrictEqual([states[0], states.pop()], ["copying", "done"]);
+  assert.strictEqual(relLast(s).version, "v0.5.1");
+  assert.strictEqual(relLast(s).error, "");
+  assert.deepStrictEqual(ls(up.dir), ["dlzmod-v0.5.1.tar", "dlzmod-v0.5.1.tar.sig"]);
+  assert.ok(fs.readFileSync(path.join(up.dir, "dlzmod-v0.5.1.tar")).equals(REL_TAR));
+  assert.ok(fs.readFileSync(path.join(up.dir, "dlzmod-v0.5.1.tar.sig")).equals(REL_SIG));
+  const sum = require("crypto").createHash("sha256").update(REL_TAR).update(REL_SIG).digest("hex");
+  assert.strictEqual(fs.readFileSync(path.join(up.state, "pending"), "utf8"), sum + " v0.5.1\n");
+  assert.ok(s.some((m) => m.cmd === "DLZMOD_UPDATE_ASK"), "the Install question on the screen");
+  // the stick only read: the same files on it, never remounted
+  assert.deepStrictEqual(ls(path.join(up.stick, "dlzmod-update")), ["dlzmod-v0.5.1.tar", "dlzmod-v0.5.1.tar.sig"]);
+  assert.ok(!up.remounts.some((r) => r.includes(up.stick)), "the stick is not remounted");
+  assert.ok(!ctx.DLZMOD_updateUpload.running);
+  // also from the stick's top folder; a dev build's name as the updater names it
+  const top = usbMedia();
+  top.put(".", "dlzmod-v0.5.1-dev-abc1234.tar");
+  const s2 = [];
+  await usbCall(sendTo(s2), top);
+  assert.deepStrictEqual([relLast(s2).state, relLast(s2).version], ["done", "v0.5.1 (dev-abc1234)"]);
+  assert.deepStrictEqual(ls(top.dir), ["dlzmod-v0.5.1-dev-abc1234.tar", "dlzmod-v0.5.1-dev-abc1234.tar.sig"]);
+});
+relTest("usb stick: refused with a text, nothing copied: no stick, not FAT, no update, two, no .sig, links, busy", async () => {
+  const last = async (up, usb) => {
+    const s = [];
+    await usbCall(sendTo(s), up, usb);
+    assert.ok(!ctx.DLZMOD_updateUpload.running);
+    assert.deepStrictEqual(ls(up.dir), [], "nothing on the card");
+    return relLast(s);
+  };
+  const none = usbMedia();
+  assert.match((await last(none, "-")).error, /does not see a USB stick/);
+  assert.match((await last(none, none.root)).error, /does not see a USB stick/, "never the card itself");
+  assert.match((await last(none)).error, /^No mod update on the USB stick/);
+  const ntfs = usbMedia({ fs: "ntfs" });
+  ntfs.put("dlzmod-update", "dlzmod-v0.5.1.tar");
+  assert.match((await last(ntfs)).error, /not FAT32/);
+  // a folder that only looks like a mounted stick (not in the mount table)
+  const gone = usbMedia();
+  gone.put("dlzmod-update", "dlzmod-v0.5.1.tar");
+  fs.writeFileSync(gone.mounts, fs.readFileSync(gone.mounts, "utf8").split("\n").filter((l) => !l.startsWith("/dev/sda1")).join("\n"));
+  assert.match((await last(gone)).error, /not FAT32/);
+  const two = usbMedia();
+  two.put("dlzmod-update", "dlzmod-v0.5.1.tar");
+  two.put(".", "dlzmod-v0.5.2.tar");
+  assert.match((await last(two)).error, /More than one mod update/);
+  const nosig = usbMedia();
+  nosig.put("dlzmod-update", "dlzmod-v0.5.1.tar", REL_TAR, null);
+  nosig.put("dlzmod-update", "dlzmod-v0.5.2.tar", REL_TAR, Buffer.alloc(10));
+  nosig.put("dlzmod-update", "evolveupdate-1800.upd");
+  nosig.put("dlzmod-update", "notes.tar");
+  assert.match((await last(nosig)).error, /^No mod update/, "no .sig, a short .sig, a .upd, another name");
+  const empty = usbMedia();
+  empty.put("dlzmod-update", "dlzmod-v0.5.1.tar", Buffer.alloc(0));
+  assert.match((await last(empty)).error, /^No mod update/, "an empty package");
+  // links are not followed (lstat): skipped when the platform lets the test make one
+  const link = usbMedia();
+  link.put("elsewhere", "dlzmod-v0.5.1.tar");
+  fs.mkdirSync(path.join(link.stick, "dlzmod-update"));
+  let linked = true;
+  try {
+    fs.symlinkSync(path.join(link.stick, "elsewhere", "dlzmod-v0.5.1.tar"), path.join(link.stick, "dlzmod-update", "dlzmod-v0.5.1.tar"));
+    fs.copyFileSync(path.join(link.stick, "elsewhere", "dlzmod-v0.5.1.tar.sig"), path.join(link.stick, "dlzmod-update", "dlzmod-v0.5.1.tar.sig"));
+    fs.rmSync(path.join(link.stick, "elsewhere"), { recursive: true });
+  } catch (e) {
+    linked = false;
+  }
+  if (linked) assert.match((await last(link)).error, /^No mod update/, "a link is not a package");
+  // busy: a recording, an unfinished update, an upload; from a paired device
+  const busy = usbMedia();
+  busy.put("dlzmod-update", "dlzmod-v0.5.1.tar");
+  const cases = [
+    [() => (ctx.getDataKey = (k) => (k === "recState" ? 2 : undefined)), /busy with a recording/],
+    [() => fs.writeFileSync(path.join(busy.state, "inprogress"), "abc\n"), /did not finish\. Switch the mixer off and on first/],
+  ];
+  for (const [set, text] of cases) {
+    set();
+    assert.match((await last(busy)).error, text);
+    ctx.getDataKey = () => undefined;
+    fs.rmSync(path.join(busy.state, "inprogress"), { force: true });
+  }
+  ctx.DLZMOD_updateUpload.running = true;
+  const s = [];
+  await usbCall(sendTo(s), busy);
+  assert.match(relLast(s).error, /being sent to the mixer/);
+  assert.ok(ctx.DLZMOD_updateUpload.running, "the other upload's mark stays");
+  ctx.DLZMOD_updateUpload.running = false;
+  const p = [];
+  await usbCall(paired(p), busy);
+  assert.strictEqual(relLast(p).error, "Only on the mixer's own screen.");
+  assert.deepStrictEqual(ls(busy.dir), []);
+});
 test("update upload: a failure after the old update files are removed leaves no update files at all", async () => {
   const up = upMedia();
   fs.mkdirSync(up.dir);

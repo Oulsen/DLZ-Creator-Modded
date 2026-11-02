@@ -5,6 +5,7 @@
 - (DLZ FEATURE) See the sound behind the EQ curve
 - (MOD FEATURE) An update sent from a computer installs with one switch off and on
 - (MOD FEATURE) Check for mod updates on the Mod page and download them
+- (MOD FEATURE) Install mod updates from a USB stick
 - (MOD BUG) After a restart of the mixer software, the date can drop out of recording names
 
 ## v0.4.0
