@@ -978,9 +978,9 @@ test("release: Check asks the server; its answer: the question, a message or a s
     assert.deepStrictEqual(ui.cmds, []);
     // other answers to a check
     for (const [s, kind, text] of [
-      [{ state: "current", installed: "v0.5.0", version: "v0.5.0" }, "toast", "Up to date: v0.5.0 (latest release v0.5.0)"],
-      [{ state: "current", installed: "", version: "v0.4.0" }, "toast", "Up to date (latest release v0.4.0)"],
-      [{ state: "none" }, "toast", "No release on GitHub yet"],
+      [{ state: "current", installed: "v0.5.0", version: "v0.5.0" }, "message", "Up to date: v0.5.0\nThe latest release is v0.5.0."],
+      [{ state: "current", installed: "", version: "v0.4.0" }, "message", "Up to date\nThe latest release is v0.4.0."],
+      [{ state: "none" }, "message", "There is no release on GitHub yet."],
       [{ state: "error", error: "GitHub asks to wait (too many checks from this network)" }, "message",
         "GitHub asks to wait (too many checks from this network)"],
       [Object.assign({}, REL, { state: "full" }), "message",
@@ -999,6 +999,29 @@ test("release: Check asks the server; its answer: the question, a message or a s
     ctx.DLZMOD_setRelease(REL);
     assert.strictEqual(ui.popups.length, 0);
   } finally {
+    relDone();
+  }
+});
+test("release: a spinner while this page's check or download runs, closed by its answer", () => {
+  relPage();
+  try {
+    ui.progress.length = 0;
+    ui.popups.length = 0;
+    ctx.DLZMOD_setRelease({});
+    ctx.DLZMOD_releaseSend("check");
+    assert.strictEqual(ui.progress.length, 1);
+    assert.strictEqual(ui.progress[0].text, "Checking for updates…");
+    ctx.DLZMOD_setRelease({ state: "checking" });
+    assert.ok(!ui.progress[0].closed, "still checking: the spinner stays");
+    ctx.DLZMOD_setRelease(REL);
+    assert.ok(ui.progress[0].closed);
+    assert.strictEqual(ui.popups.length, 1, "the answer: the question");
+    ctx.DLZMOD_releaseSend("download");
+    assert.strictEqual(ui.progress[1].text, "Downloading v0.5.1…");
+    ctx.DLZMOD_setRelease(Object.assign({}, REL, { state: "done" }));
+    assert.ok(ui.progress[1].closed);
+  } finally {
+    ctx.DLZMOD_relIdle();
     relDone();
   }
 });

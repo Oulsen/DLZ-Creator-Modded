@@ -1039,6 +1039,7 @@ function DLZMOD_setRelease(s) {
   const asked = DLZMOD_setRelease.asked;
   if (asked && r.state !== "checking" && r.state !== "downloading") {
     DLZMOD_setRelease.asked = "";
+    DLZMOD_relIdle();
     DLZMOD_releaseAnswer(asked, r);
   }
   DLZMOD_releaseSeen();
@@ -1066,7 +1067,31 @@ function DLZMOD_releasePress() {
 
 function DLZMOD_releaseSend(op) {
   DLZMOD_setRelease.asked = op;
+  DLZMOD_relBusy(op);
   $NET.cmd("DLZMOD_RELEASE", { op: op });
+}
+
+// Mackie's spinner popup while a check or a download asked from this page runs; closed by its answer
+// (DLZMOD_setRelease), or after a while without one (the server restarted, the connection dropped)
+function DLZMOD_relBusy(op) {
+  DLZMOD_relIdle();
+  const v = DLZMOD_release().version;
+  DLZMOD_relBusy.popup = new PopupShowProgress(app, {
+    title: "", icon: $FA.download,
+    text: op === "download" ? "Downloading " + (v || "the update") + "…" : "Checking for updates…",
+  });
+  DLZMOD_relBusy.timer = setTimeout(() => {
+    DLZMOD_setRelease.asked = "";
+    DLZMOD_relIdle();
+    showMessage("No answer from the mixer.\nTry again.", { title: "Updates" });
+  }, (op === "download" ? 600 : 60) * 1000);
+}
+
+function DLZMOD_relIdle() {
+  const p = DLZMOD_relBusy.popup;
+  clearTimeout(DLZMOD_relBusy.timer);
+  DLZMOD_relBusy.popup = null;
+  if (p) p.close();
 }
 
 // what this page's check or download came to
@@ -1078,9 +1103,10 @@ function DLZMOD_releaseAnswer(op, r) {
       "see its release notes on GitHub.", { title: title });
   }
   if (r.state === "current") {
-    return showToast("Up to date" + (r.installed ? ": " + r.installed : "") + (r.version ? " (latest release " + r.version + ")" : ""));
+    return showMessage("Up to date" + (r.installed ? ": " + r.installed : "") +
+      (r.version ? "\nThe latest release is " + r.version + "." : ""), { title: title });
   }
-  if (r.state === "none") return showToast("No release on GitHub yet");
+  if (r.state === "none") return showMessage("There is no release on GitHub yet.", { title: title });
   if (op === "check" && r.state === "newer") return DLZMOD_askRelease(r);
   if (op === "download" && r.state === "done") {
     // the mixer's own screen gets the Install question from the server; a browser is told where it is

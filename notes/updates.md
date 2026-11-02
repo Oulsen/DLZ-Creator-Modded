@@ -509,11 +509,14 @@ Install question on the mixer's screen, then one switch off and on: #65, #207)
   version is out that the Mod page has not shown yet (`dlzmod.updateSeen`, a hub key: it survives a
   restart). Opening the Mod page clears it until the next version. Never a popup by itself.
 - **Mod page**: the Updates row says what the check found; Check for Updates... (Download Update...
-  once a newer version is found) next to Install Update... or Upload Update.... A check this page
-  asked for answers with Download's question (laid out as the Install question: the installed and
+  once a newer version is found) next to Install Update... or Upload Update.... A check or download
+  this page asked for shows Mackie's spinner popup ("Checking for updates…", "Downloading vX.Y.Z…";
+  `DLZMOD_relBusy`, closed by the answer, or after 60 s / 10 min without one: "No answer from the
+  mixer"). It answers with Download's question (laid out as the Install question: the installed and
   the new version, the size, the first sentence of the release notes; Download, What's New, Later),
-  or a note ("Up to date", "No release on GitHub yet"), or a message (no answer, GitHub asks to wait,
-  needs a full install). What's New: the release notes as plain text (`DLZMOD_relText`: headings and
+  or a popup ("Up to date" with the latest release, "There is no release on GitHub yet", no answer,
+  GitHub asks to wait, needs a full install); on the mixer's screen a finished download goes on to
+  the Install question (#207). [static, sandbox] What's New: the release notes as plain text (`DLZMOD_relText`: headings and
   list items kept, links as their text, emphasis, code marks, images and HTML left out; at most
   20000 characters) on pages with < and >, since the screen has no scrolling text.
 - **Download** (`DLZMOD_relDownload`): the release is fetched again (the addresses never come from
