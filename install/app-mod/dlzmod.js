@@ -1020,6 +1020,8 @@ function DLZMOD_updateRow() {
   const r = DLZMOD_release();
   if (r.state === "checking") return ["Looking for a new version on GitHub...", null];
   if (r.state === "downloading") return ["Downloading " + (r.version || "the update") + "...", DLZMOD_accent()];
+  if (r.state === "copying") return ["Copying " + (r.version || "the update") + " from the USB stick...", DLZMOD_accent()];
+  if (DLZMOD_relOffline()) return ["No internet: connect the mixer to a network to check for updates", null];
   if (r.state === "newer") return [r.version + " is available (" + DLZMOD_size(r.size) + ")", DLZMOD_accent()];
   if (r.state === "full") return [r.version + " is out: it needs a full install with the installer image", DLZMOD_accent()];
   const failed = DLZMOD_updateFailed();
@@ -1037,7 +1039,7 @@ function DLZMOD_setRelease(s) {
   DLZMOD_setRelease.s = s && typeof s === "object" ? s : {};
   const r = DLZMOD_setRelease.s;
   const asked = DLZMOD_setRelease.asked;
-  if (asked && r.state !== "checking" && r.state !== "downloading") {
+  if (asked && r.state !== "checking" && r.state !== "downloading" && r.state !== "copying") {
     DLZMOD_setRelease.asked = "";
     DLZMOD_relIdle();
     DLZMOD_releaseAnswer(asked, r);
@@ -1059,6 +1061,11 @@ function DLZMOD_releaseNew() {
   return (r.state === "newer" || r.state === "full") && !!r.version;
 }
 
+// the mixer has no way out (dlzmod-server.js, DLZMOD_relOnline): Check and Download greyed out
+function DLZMOD_relOffline() {
+  return DLZMOD_release().online === false;
+}
+
 // Check for Updates... / Download Update... on the Mod page
 function DLZMOD_releasePress() {
   if (DLZMOD_release().state === "newer" && !DLZMOD_updatePending()) return DLZMOD_askRelease(DLZMOD_release());
@@ -1078,13 +1085,14 @@ function DLZMOD_relBusy(op) {
   const v = DLZMOD_release().version;
   DLZMOD_relBusy.popup = new PopupShowProgress(app, {
     title: "", icon: $FA.download,
-    text: op === "download" ? "Downloading " + (v || "the update") + "…" : "Checking for updates…",
+    text: op === "download" ? "Downloading " + (v || "the update") + "…"
+      : op === "usb" ? "Copying the update from the USB stick…" : "Checking for updates…",
   });
   DLZMOD_relBusy.timer = setTimeout(() => {
     DLZMOD_setRelease.asked = "";
     DLZMOD_relIdle();
     showMessage("No answer from the mixer.\nTry again.", { title: "Updates" });
-  }, (op === "download" ? 600 : 60) * 1000);
+  }, (op === "check" ? 60 : 600) * 1000);
 }
 
 function DLZMOD_relIdle() {
@@ -1108,6 +1116,11 @@ function DLZMOD_releaseAnswer(op, r) {
   }
   if (r.state === "none") return showMessage("There is no release on GitHub yet.", { title: title });
   if (op === "check" && r.state === "newer") return DLZMOD_askRelease(r);
+  if (op === "usb" && r.state === "done") {
+    // (the Install question comes from the server)
+    if (r.error) return showMessage(r.error, { title: title });
+    return;
+  }
   if (op === "download" && r.state === "done") {
     // the mixer's own screen gets the Install question from the server; a browser is told where it is
     if (r.error) return showMessage(r.error, { title: title });
@@ -1116,6 +1129,25 @@ function DLZMOD_releaseAnswer(op, r) {
         { title: title });
     }
   }
+}
+
+// #220: From USB Stick... (the mixer's own screen): the server copies the update from a FAT32 stick
+// (dlzmod-server.js, DLZMOD_relUsb). Greyed out without one (hub key usb: 0 none, 1 FAT, 2 another
+// file system); the line under the buttons says what it needs (DLZMOD_usbHint)
+function DLZMOD_usbReady() {
+  return Data.get("usb") === 1;
+}
+
+function DLZMOD_usbPress() {
+  if (DLZMOD_usbReady()) DLZMOD_releaseSend("usb");
+}
+
+// the line under the Mod page's buttons: what a stick needs, nothing once a FAT one is in
+function DLZMOD_usbHint() {
+  const usb = Data.get("usb");
+  if (usb === 1) return "";
+  if (usb === 2) return "This USB stick is not FAT32: the mixer cannot read it";
+  return "USB stick: FAT32, the update in a folder dlzmod-update";
 }
 
 // Download's question, laid out as the Install question (DLZMOD_askUpdate): the installed and the new
@@ -1675,11 +1707,24 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
       this.check = new E1Button(this, {
         anchors: [0, 252], size: [300, 56], text: "Check for Updates...",
         onPress: () => DLZMOD_releasePress(),
+        getState: function () {
+          this.enabled = !DLZMOD_relOffline();
+        },
       });
       this.install = new E1Button(this, {
         anchors: [0, 252], size: [300, 56], text: "Install Update...",
         onPress: () => DLZMOD_askUpdate(DLZMOD_updatePending()),
       });
+      // #220: From USB Stick... (the mixer's own screen; not while an update waits for Install)
+      this.usb = new E1Button(this, {
+        anchors: [0, 252], size: [300, 56], text: "From USB Stick...",
+        visible: !DLZMOD_external(), onPress: () => DLZMOD_usbPress(),
+        getState: function () {
+          this.enabled = DLZMOD_usbReady();
+        },
+      });
+      // a stick in or out: the button and the line under it
+      Data.regWidget("usb", () => this.update());
       this.upload = new E1Button(this, {
         anchors: [0, 252], size: [300, 56], text: "Upload Update...",
         visible: DLZMOD_external(), onPress: () => DLZMOD_uploadPick(),
@@ -1690,6 +1735,7 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
     syncInstall: function () {
       const p = DLZMOD_updatePending();
       this.install.setVisible(!!p && !p.approved && !!(DLZMOD_setUpdateStatus.s || {}).local);
+      this.usb.setVisible(!DLZMOD_external() && !p);
       const r = DLZMOD_release();
       const text = r.state === "newer" && !p ? "Download Update..." : "Check for Updates...";
       if (this.check.text !== text) {
@@ -1697,7 +1743,7 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
         this.check.update();
       }
       // the buttons shown, side by side in the middle
-      const shown = [this.check, this.install, this.upload].filter((b) => b.visible);
+      const shown = [this.check, this.install, this.usb, this.upload].filter((b) => b.visible);
       const gap = 16;
       let x = (w - shown.length * 300 - (shown.length - 1) * gap) / 2 | 0;   // (w: this.w may not be set yet)
       // (anchors: Mackie's layout places a widget by them again later)
@@ -1716,6 +1762,11 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
         { color: Color.white, font: Font.font(500, "14pt"), align: "right", valign: "middle" });
       const [text, color] = DLZMOD_updateRow();
       DLZMOD_paintRow(t, 28, 206, "Updates", text, max, color);
+      // (between the buttons and the footer)
+      if (this.usb.visible) {
+        t.drawText(DLZMOD_usbHint(), this.w / 2 | 0, (308 + this.h - 24) / 2 | 0,
+          { color: "#888888", font: Font.font(500, "12pt"), align: "center", valign: "middle", max: max });
+      }
       t.drawText("by Oulsen · github.com/Oulsen/DLZ-Creator-Modded", this.w / 2 | 0, this.h - 24,
         { color: "#666666", font: Font.font(500, "12pt"), align: "center", max: max });
     },

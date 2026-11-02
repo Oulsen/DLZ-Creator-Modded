@@ -1174,7 +1174,7 @@ function DLZMOD_updateUpload(root, state = "/var/lib/dlzmod-update", mounts = "/
     try {
       unfinished = require("fs").readFileSync(state + "/inprogress", "utf8").trim();
     } catch (e) {}
-    if (unfinished) return refuse(409, "The last update did not finish. Switch the mixer off and on first.");
+    if (unfinished) return refuse(409, "The last update did not finish.\nSwitch the mixer off and on first.");
     const r = root();
     if (!r || r === "-") return refuse(503, "The mixer does not see its SD card's DLZDATA partition.");
     s.running = true;
@@ -1185,8 +1185,8 @@ function DLZMOD_updateUpload(root, state = "/var/lib/dlzmod-update", mounts = "/
         DLZMOD_uploadAnswer(res, 200, name + " is on the mixer's card.\n" + (asked === "asked"
           ? "Tap Install on the mixer's screen, then switch the mixer off and on."
           : asked === "failed"
-            ? "This same update failed on this mixer before and is not tried again:\nsee dlzmod-logs on the card."
-            : "Switch the mixer off and on: its screen then asks whether to install it."));
+            ? "This same update failed on this mixer before\nand is not tried again: see dlzmod-logs on the card."
+            : "Switch the mixer off and on:\nits screen then asks whether to install it."));
       },
       (e) => {
         console.error("dlzmod: update upload:", e.message);
@@ -1264,15 +1264,37 @@ function DLZMOD_relHosts() {
 
 // what the Mod page shows: state "" (not checked), "checking", "error", "none" (no release yet),
 // "current", "newer", "full" (newer, but only an installer image: a full install), "downloading",
-// "done" (on the card, the screen asks Install); installed, version, size, summary, notes, error
+// "copying" (from a USB stick, #220), "done" (on the card, the screen asks Install); installed,
+// version, size, summary, notes, error
 function DLZMOD_rel() {
   return DLZMOD_rel.s || (DLZMOD_rel.s = { state: "", installed: "", version: "", size: 0, summary: "", notes: "", error: "" });
 }
 
+// a check, a download or a copy from a USB stick under way
+function DLZMOD_relRunning(r) {
+  return r.state === "checking" || r.state === "downloading" || r.state === "copying";
+}
+
+// online: whether the mixer has a way out (a default route, from the kernel's routing table: no
+// shell), so the Mod page can grey out Check for Updates without one; true when it cannot tell
 function DLZMOD_relPublic() {
   const r = DLZMOD_rel();
   return { state: r.state, installed: r.installed, version: r.version, size: r.size, summary: r.summary,
-    notes: r.notes, error: r.error };
+    notes: r.notes, error: r.error, online: (DLZMOD_relPublic.online = DLZMOD_relOnline()) };
+}
+
+// a default route that is up (Destination 0 and the RTF_UP flag) in /proc/net/route
+function DLZMOD_relOnline(file = DLZMOD_relOnline.file || "/proc/net/route") {
+  let text;
+  try {
+    text = require("fs").readFileSync(file, "utf8");
+  } catch (e) {
+    return true;
+  }
+  return String(text).split("\n").slice(1).some((line) => {
+    const f = line.trim().split(/\s+/);
+    return f.length >= 4 && f[1] === "00000000" && (parseInt(f[3], 16) & 1) === 1;
+  });
 }
 
 // https GET to GitHub's hosts only, redirects followed (at most 5, each checked the same); resolves
@@ -1408,7 +1430,7 @@ async function DLZMOD_relFetch(state) {
 async function DLZMOD_relCheck(state, tell, now = DLZMOD_monoNow) {
   const r = DLZMOD_rel();
   // (an upload or download running: its state stays)
-  if (r.state === "checking" || r.state === "downloading" || DLZMOD_updateUpload.running) return tell();
+  if (DLZMOD_relRunning(r) || DLZMOD_updateUpload.running) return tell();
   r.state = "checking";
   r.error = "";
   tell();
@@ -1434,10 +1456,10 @@ async function DLZMOD_relDownload(root, state, mounts, tell) {
     r.error = text;
     tell();
   };
-  if (r.state === "checking" || r.state === "downloading") return tell();
-  if (DLZMOD_updateUpload.running) return fail("An update is being sent to the mixer. Try again when it has finished.");
+  if (DLZMOD_relRunning(r)) return tell();
+  if (DLZMOD_updateUpload.running) return fail("An update is being sent to the mixer.\nTry again when it has finished.");
   if (DLZMOD_recNoRead()) return fail("The mixer is busy with a recording.\nDownload the update when it has finished.");
-  if (DLZMOD_updateFile(state)("inprogress")) return fail("The last update did not finish. Switch the mixer off and on first.");
+  if (DLZMOD_updateFile(state)("inprogress")) return fail("The last update did not finish.\nSwitch the mixer off and on first.");
   const sd = root ? root() : "-";
   if (!sd || sd === "-") return fail("The mixer does not see its SD card's DLZDATA partition.");
   r.state = "downloading";
@@ -1446,6 +1468,7 @@ async function DLZMOD_relDownload(root, state, mounts, tell) {
   DLZMOD_updateUpload.running = true;
   let sigRes = null;
   let tarRes = null;
+  let body = null;
   try {
     const got = await DLZMOD_relFetch(state);
     // (still downloading: a second Download or a Check meanwhile only gets this state)
@@ -1459,18 +1482,15 @@ async function DLZMOD_relDownload(root, state, mounts, tell) {
     if (tarRes.statusCode !== 200) throw new Error("the package: GitHub answered " + tarRes.statusCode);
     const len = Number(tarRes.headers["content-length"]);
     if (len !== got.size) throw new Error("the package is not the size the release lists");
-    const body = require("stream").Readable.from((async function* () {
-      yield sig;
-      for await (const c of tarRes) yield c;
-    })());
+    body = DLZMOD_sigThen(sig, tarRes);
     const name = "dlzmod-" + got.version + ".tar";
     const sum = await DLZMOD_uploadRun(body, sd + "/dlzmod-update", name, 64 + len, mounts);
     console.log("dlzmod: update download: " + name + " in place");
     const asked = DLZMOD_uploadAsk(state, sum, name);
     r.state = "done";
     r.error = asked === "asked" ? "" : asked === "failed"
-      ? "This same update failed on this mixer before and is not tried again:\nsee dlzmod-logs on the card."
-      : "Switch the mixer off and on: its screen then asks whether to install it.";
+      ? "This same update failed on this mixer before\nand is not tried again: see dlzmod-logs on the card."
+      : "Switch the mixer off and on:\nits screen then asks whether to install it.";
     tell();
   } catch (e) {
     console.error("dlzmod: update download:", e.message);
@@ -1478,8 +1498,105 @@ async function DLZMOD_relDownload(root, state, mounts, tell) {
       : /recording/.test(e.message) && e.cut ? e.message.replace("upload", "download")
         : "The download did not finish. Nothing was kept.");
   } finally {
+    if (body) body.destroy();
     if (sigRes) sigRes.destroy();
     if (tarRes) tarRes.destroy();
+    DLZMOD_updateUpload.running = false;
+    DLZMOD_roLater();
+  }
+}
+
+// the signature and then the package as one stream, the way an upload sends them (DLZMOD_uploadRun).
+// Its error is caught here: DLZMOD_uploadRun stops reading early (a recording that starts) and the
+// caller then destroys the package's stream, which ends this one with an error; with no one
+// listening that error would end the whole server (node 18)
+function DLZMOD_sigThen(sig, src) {
+  const body = require("stream").Readable.from((async function* () {
+    yield sig;
+    for await (const c of src) yield c;
+  })());
+  body.on("error", () => {});
+  return body;
+}
+
+// #220: From USB Stick... on the Mod page (the mixer's own screen): the update's two files from a FAT
+// USB stick (its dlzmod-update folder, or its top folder) to the card, the way a download goes
+// (DLZMOD_uploadRun), then the screen asks Install (DLZMOD_uploadAsk). The stick is only read: stock
+// mounts it read-only and the copy never remounts it. Exactly one package with its 64-byte .sig, plain
+// files (no links), as the drop-in update names them; never a .upd (stock's firmware search, which
+// the mod turns off: patch.py "firmware: never offer an update file"). The updater's own checks
+// decide at the start after Install, as for every update. usb: () => the stick's mount point, "-"
+// when none (server.js's ce("usb"))
+async function DLZMOD_relUsb(root, usb, state, mounts, tell) {
+  const fsp = require("fs").promises;
+  const r = DLZMOD_rel();
+  const fail = (text) => {
+    r.state = "error";
+    r.error = text;
+    tell();
+  };
+  if (DLZMOD_relRunning(r)) return tell();
+  if (DLZMOD_updateUpload.running) return fail("An update is being sent to the mixer.\nTry again when it has finished.");
+  if (DLZMOD_recNoRead()) return fail("The mixer is busy with a recording.\nCopy the update when it has finished.");
+  if (DLZMOD_updateFile(state)("inprogress")) return fail("The last update did not finish.\nSwitch the mixer off and on first.");
+  const sd = root ? root() : "-";
+  if (!sd || sd === "-") return fail("The mixer does not see its SD card's DLZDATA partition.");
+  const stick = usb ? usb() : "-";
+  if (!stick || stick === "-" || stick === sd) return fail("The mixer does not see a USB stick.");
+  DLZMOD_updateUpload.running = true;
+  Object.assign(r, { state: "copying", error: "", version: "", size: 0, summary: "", notes: "", tarUrl: "", sigUrl: "" });
+  let tarIn = null;
+  let body = null;
+  try {
+    if (!DLZMOD_uploadMounted(await fsp.readFile(mounts, "utf8"), stick, true)) {
+      return fail("The USB stick is not FAT32: the mixer cannot read it.");
+    }
+    const found = [];
+    for (const dir of [stick + "/dlzmod-update", stick]) {
+      let names = [];
+      try {
+        if (await DLZMOD_recReal(dir)) names = await fsp.readdir(dir);
+      } catch (e) {}
+      for (const name of names) {
+        if (!DLZMOD_uploadName(name)) continue;
+        try {
+          const st = await fsp.lstat(dir + "/" + name);
+          const sg = await fsp.lstat(dir + "/" + name + ".sig");
+          if (st.isFile() && st.size > 0 && sg.isFile() && sg.size === 64 && !found.some((x) => x.name === name)) {
+            found.push({ dir: dir, name: name, size: st.size });
+          }
+        } catch (e) {}
+      }
+    }
+    if (!found.length) {
+      return fail("No mod update on the USB stick.\nPut the update's .tar and .tar.sig\nin a folder dlzmod-update on it.");
+    }
+    if (found.length > 1) return fail("More than one mod update on the USB stick.\nKeep only the one to install.");
+    const f = found[0];
+    if (f.size > DLZMOD_UPLOAD_MAX) return fail("This file is too big for a mod update.");
+    r.version = DLZMOD_uploadLabel(f.name);
+    r.size = f.size;
+    tell();
+    const sig = await fsp.readFile(f.dir + "/" + f.name + ".sig");
+    if (sig.length !== 64) throw new Error("the signature is not 64 bytes");
+    tarIn = require("fs").createReadStream(f.dir + "/" + f.name);
+    body = DLZMOD_sigThen(sig, tarIn);
+    const sum = await DLZMOD_uploadRun(body, sd + "/dlzmod-update", f.name, 64 + f.size, mounts);
+    console.log("dlzmod: update from the USB stick: " + f.name + " in place");
+    const asked = DLZMOD_uploadAsk(state, sum, f.name);
+    r.state = "done";
+    r.error = asked === "asked" ? "" : asked === "failed"
+      ? "This same update failed on this mixer before\nand is not tried again: see dlzmod-logs on the card."
+      : "Switch the mixer off and on:\nits screen then asks whether to install it.";
+    tell();
+  } catch (e) {
+    console.error("dlzmod: update from the USB stick:", e.message);
+    fail(e.code === "ENOSPC" ? "The SD card is full. Nothing was kept."
+      : e.cut ? e.message.replace("upload", "copy")
+        : "The copy from the USB stick did not finish. Nothing was kept.");
+  } finally {
+    if (body) body.destroy();
+    if (tarIn) tarIn.destroy();
     DLZMOD_updateUpload.running = false;
     DLZMOD_roLater();
   }
@@ -1513,11 +1630,25 @@ async function DLZMOD_release(args, send, opts = {}) {
     if (a.op === "download") {
       return await DLZMOD_relDownload(opts.root || DLZMOD_releaseWatch.root, state, opts.mounts || "/proc/mounts", tell);
     }
+    if (a.op === "usb") {
+      // (the stick is in the mixer: its own screen only; while a check or download runs, its state
+      // stays and only this screen hears why not)
+      if (!local || DLZMOD_relRunning(DLZMOD_rel())) {
+        try {
+          send(msg(Object.assign(DLZMOD_relPublic(), { state: "error", error: local
+            ? "The mixer is looking for or fetching an update.\nTry again when it has finished."
+            : "Only on the mixer's own screen." })));
+        } catch (e) {}
+        return;
+      }
+      return await DLZMOD_relUsb(opts.root || DLZMOD_releaseWatch.root, opts.usb || DLZMOD_releaseWatch.usb, state,
+        opts.mounts || "/proc/mounts", tell);
+    }
     send(msg(DLZMOD_relPublic()));
   } catch (e) {
     console.error("dlzmod: release " + a.op + ":", e.message);
     const r = DLZMOD_rel();
-    if (r.state === "checking" || r.state === "downloading") r.state = "error";
+    if (DLZMOD_relRunning(r)) r.state = "error";
     try {
       send(msg(Object.assign(DLZMOD_relPublic(), { state: "error", error: "That did not work (" + String(a.op).slice(0, 20) + ")" })));
     } catch (e2) {}
@@ -1528,12 +1659,28 @@ async function DLZMOD_release(args, send, opts = {}) {
 // clock first came from the internet this start, then every 6 hours (1 hour after a failed one); not
 // while recording or while an update is sent or checked. Looked at once a minute (by DLZMOD_monoNow,
 // which a clock change does not move). root: () => the SD card's mount point, kept for Download
-function DLZMOD_releaseWatch(root, every = 60000) {
+function DLZMOD_releaseWatch(root, every = 60000, usb) {
   const s = DLZMOD_releaseWatch;
   s.root = root;
+  if (usb) s.usb = usb;
   if (s.timer) return;
   s.timer = setInterval(() => DLZMOD_releaseTick().catch((e) => console.error("dlzmod: update check:", e.message)), every);
   if (s.timer.unref) s.timer.unref();
+  s.netTimer = setInterval(DLZMOD_relNetTick, 5000);
+  if (s.netTimer.unref) s.netTimer.unref();
+}
+
+// the network came or went (a Wi-Fi stick, a cable): the mixer's screen hears it within 5 s, when
+// it differs from what a screen was last told (DLZMOD_relPublic.online), so also a change before the
+// first look. Only reads the kernel's routing table. "sent", "same" or "" (nothing told yet / no screen)
+function DLZMOD_relNetTick() {
+  const told = DLZMOD_relPublic.online;
+  const screen = DLZMOD_updateNoteSend.screen;
+  if (told === undefined || !screen || DLZMOD_relOnline() === told) return told === undefined || !screen ? "" : "same";
+  try {
+    screen({ cmd: "DLZMOD_RELEASE_STATE", id: 0, data: DLZMOD_relPublic() });
+  } catch (e) {}
+  return "sent";
 }
 
 async function DLZMOD_releaseTick(o = {}) {
@@ -1545,7 +1692,7 @@ async function DLZMOD_releaseTick(o = {}) {
   const r = DLZMOD_rel();
   // ("done": the update is on the card, waiting for Install and the switch; not offered again)
   if (r.state === "done") return "done";
-  if (r.state === "checking" || r.state === "downloading" || DLZMOD_updateUpload.running || DLZMOD_recNoRead()) return "busy";
+  if (DLZMOD_relRunning(r) || DLZMOD_updateUpload.running || DLZMOD_recNoRead()) return "busy";
   if (await DLZMOD_clockSource(o.run || DLZMOD_run) !== "internet") return "offline";
   if (!s.online) s.online = now;
   if (now - s.online < 5 * 60000) return "soon";
@@ -1597,12 +1744,13 @@ async function DLZMOD_syncFile(file) {
   }
 }
 
-// root is a FAT medium mounted read-write in the kernel's mount table (text): never a folder that
-// only looks like one (a medium gone, its mount point left on /tmp's tmpfs, which is RAM)
-function DLZMOD_uploadMounted(text, root) {
+// root is a FAT medium mounted read-write (anyRw: also read-only) in the kernel's mount table (text):
+// never a folder that only looks like one (a medium gone, its mount point left on /tmp's tmpfs, which
+// is RAM)
+function DLZMOD_uploadMounted(text, root, anyRw) {
   return String(text).split("\n").some((line) => {
     const f = line.split(" ");
-    return f.length >= 4 && f[2] === "vfat" && f[3].split(",").includes("rw") &&
+    return f.length >= 4 && f[2] === "vfat" && (anyRw || f[3].split(",").includes("rw")) &&
       f[1].replace(/\\([0-7]{3})/g, (x, o) => String.fromCharCode(parseInt(o, 8))) === root;
   });
 }

@@ -34,7 +34,9 @@ All [static].
 - Shell-outs (`promisify(exec)`): `systemctl stop|restart dspserver`, `systemctl start upgraderun`,
   `systemctl restart evolve-app` (RESTART_GUI), `lsblk -OJ`, mount/umount under `/tmp/mnt/<dev>`,
   `parted`/`mkfs.vfat`/`dd` (FORMAT_*), `ip addr show eth0` every 5 s → key `ip`.
-- Watches `/dev/disk/by-id` for media hot-plug; offers any `*evolveupdate*.upd` found on media.
+- Watches `/dev/disk/by-id` for media hot-plug; offers any `*.upd` found on media (a `find` for that
+  ending; the version is read from the text after `evolveupdate`), and any chosen track ending in
+  `.upd` (`MEDIA_SWITCH_TRACK`) [static]. The mod turns both off (`ca()`, [../updates.md](../updates.md) "From a USB stick").
 - Commands: `pa[cmd](args, id, msg, send)`; `send` answers that client only; a returned
   `{rootResponse}` goes to that client, `{broadcastResponse}` to all. `la()` logs every incoming
   command with its args through `g()`, which prints only at `VERBOSITY >= 2` (unset on the mixer,

@@ -941,7 +941,9 @@ test("release: the Updates row and the left button follow what the check found",
     // the buttons shown side by side in the middle: Check and Install here
     assert.deepStrictEqual([pg.about.check.x, pg.about.install.x], [(914 - 616) / 2 | 0, ((914 - 616) / 2 | 0) + 316]);
     ctx.DLZMOD_setUpdateStatus({});
-    assert.strictEqual(pg.about.check.x, (914 - 300) / 2 | 0, "Check alone: in the middle");
+    // no update waiting: Check and From USB Stick (#220)
+    assert.deepStrictEqual([pg.about.check.x, pg.about.usb.x, pg.about.install.visible],
+      [(914 - 616) / 2 | 0, ((914 - 616) / 2 | 0) + 316, false]);
     assert.ok(pg.about.auto, "the switch for the check by itself");
     assert.strictEqual(pg.about.auto.key, "dlzmod.updateAuto");
   } finally {
@@ -1022,6 +1024,85 @@ test("release: a spinner while this page's check or download runs, closed by its
     assert.ok(ui.progress[1].closed);
   } finally {
     ctx.DLZMOD_relIdle();
+    relDone();
+  }
+});
+test("usb stick: From USB Stick... copies with a stick in, else says how; not in a browser, not while an update waits", () => {
+  let pg = relPage({ data: { usb: 1 } });
+  try {
+    assert.ok(pg.about.usb.visible, "on the mixer's own screen");
+    ui.cmds.length = 0;
+    ui.progress.length = 0;
+    ui.popups.length = 0;
+    ctx.DLZMOD_usbPress();
+    assert.deepStrictEqual(ui.cmds, [["DLZMOD_RELEASE", { op: "usb" }]]);
+    assert.strictEqual(ui.progress[0].text, "Copying the update from the USB stick…");
+    ctx.DLZMOD_setRelease({ state: "copying", version: "v0.5.1" });
+    assert.ok(!ui.progress[0].closed, "still copying: the spinner stays");
+    assert.strictEqual(ctx.DLZMOD_updateRow()[0], "Copying v0.5.1 from the USB stick...");
+    ctx.DLZMOD_setRelease({ state: "done", version: "v0.5.1", error: "" });
+    assert.ok(ui.progress[0].closed);
+    assert.strictEqual(ui.popups.length, 0, "the Install question comes from the server");
+    ctx.DLZMOD_usbPress();
+    ctx.DLZMOD_setRelease({ state: "error", error: "More than one mod update on the USB stick." });
+    assert.deepStrictEqual(ui.popups.map((p) => p.text), ["More than one mod update on the USB stick."]);
+    // an update waiting for Install: Install in its place
+    ctx.DLZMOD_setUpdateStatus({ local: true, pending: { sum: "a".repeat(64), version: "v0.5.1" } });
+    assert.ok(!pg.about.usb.visible && pg.about.install.visible);
+  } finally {
+    ctx.DLZMOD_relIdle();
+    relDone();
+  }
+  // no FAT stick: greyed out, nothing sent, no popup; the line under the buttons says what it needs
+  for (const [usb, xs, hint] of [
+    [0, true, "USB stick: FAT32, the update in a folder dlzmod-update"],
+    [0, false, "USB stick: FAT32, the update in a folder dlzmod-update"],
+    [2, true, "This USB stick is not FAT32: the mixer cannot read it"],
+    [1, true, ""],
+    [1, false, ""],
+  ]) {
+    const p = relPage({ data: { usb: usb } });
+    if (xs) ctx.LITE_MODE = 1;
+    try {
+      p.about.usb.getState();
+      assert.strictEqual(p.about.usb.enabled, usb === 1);
+      assert.strictEqual(ctx.DLZMOD_usbHint(), hint);
+      if (usb !== 1) {
+        ui.cmds.length = 0;
+        ui.popups.length = 0;
+        ctx.DLZMOD_usbPress();
+        assert.deepStrictEqual([ui.cmds, ui.popups.length], [[], 0], "nothing sent, no popup");
+      }
+    } finally {
+      delete ctx.LITE_MODE;
+      relDone();
+    }
+  }
+  pg = relPage({ external: true, data: { usb: 1 } });
+  try {
+    assert.ok(!pg.about.usb.visible, "a browser has Upload Update... instead");
+  } finally {
+    relDone();
+  }
+});
+test("release: without internet Check for Updates is greyed out and the Updates row says why", () => {
+  const pg = relPage();
+  try {
+    ctx.DLZMOD_setRelease({ state: "", online: false });
+    pg.about.check.getState();
+    assert.strictEqual(pg.about.check.enabled, false);
+    assert.deepStrictEqual(plain(ctx.DLZMOD_updateRow()), ["No internet: connect the mixer to a network to check for updates", null]);
+    assert.ok(pg.about.usb.visible, "From USB Stick... still there");
+    ctx.DLZMOD_setRelease(Object.assign({}, REL, { online: false }));
+    pg.about.check.getState();
+    assert.strictEqual(pg.about.check.enabled, false, "no Download either");
+    ctx.DLZMOD_setRelease({ state: "", online: true });
+    pg.about.check.getState();
+    assert.strictEqual(pg.about.check.enabled, true);
+    ctx.DLZMOD_setRelease({ state: "" });
+    pg.about.check.getState();
+    assert.strictEqual(pg.about.check.enabled, true, "an older server that does not say: not greyed out");
+  } finally {
     relDone();
   }
 });

@@ -509,7 +509,10 @@ Install question on the mixer's screen, then one switch off and on: #65, #207)
   version is out that the Mod page has not shown yet (`dlzmod.updateSeen`, a hub key: it survives a
   restart). Opening the Mod page clears it until the next version. Never a popup by itself.
 - **Mod page**: the Updates row says what the check found; Check for Updates... (Download Update...
-  once a newer version is found) next to Install Update... or Upload Update.... A check or download
+  once a newer version is found) next to Install Update... or Upload Update.... Without a way out
+  (no default route in `/proc/net/route`, `DLZMOD_relOnline`; sent as `online` with the state, and
+  to the screen within 5 s when it differs from what the screen was last told, `DLZMOD_relNetTick`) the button is greyed out and the row says "No
+  internet: connect the mixer to a network to check for updates" [static, sandbox]. A check or download
   this page asked for shows Mackie's spinner popup ("Checking for updates…", "Downloading vX.Y.Z…";
   `DLZMOD_relBusy`, closed by the answer, or after 60 s / 10 min without one: "No answer from the
   mixer"). It answers with Download's question (laid out as the Install question: the installed and
@@ -531,12 +534,45 @@ Install question on the mixer's screen, then one switch off and on: #65, #207)
 - **Who**: the mixer's own screen and paired devices (as the upload); others get a refusal. Install
   stays the mixer's own screen's.
 
+## From a USB stick (#220)
+
+For a mixer without a network or a paired computer [static; unit tests, sandbox; not yet on the
+mixer]:
+
+- **Mod page** (the mixer's own screen only; a browser has Upload Update...): From USB Stick... next
+  to Check for Updates..., hidden while an update waits for Install. With a FAT32 stick in (hub key
+  `usb` 1) it sends `DLZMOD_RELEASE {op: "usb"}` and shows the spinner ("Copying the update from the
+  USB stick…"); the state is "copying", then "done" (the screen gets the Install question, #207) or
+  "error" with a popup. Without one (`usb` 0, or 2: not FAT) the button is greyed out; a grey line
+  under the buttons says what it needs (`DLZMOD_usbHint`): both files in a folder `dlzmod-update` on a
+  FAT32 stick; nothing once a FAT stick is in. It names no Wi-Fi stick: the XS's one USB port
+  ([hardware.md](hardware.md)) is just a USB port, and a mixer on Ethernet needs no Wi-Fi stick.
+  [device, 2026-11-02, dev-cffbde8: the copy from a FAT32 stick on the XS went in and the screen
+  asked Install; a stick without the `.sig`: "No mod update", nothing copied; e53e6d7 installed from
+  the stick; the Wi-Fi stick back in: `wlan0` got its default route again by itself]
+- **Server** (`DLZMOD_relUsb`; the stick's mount point from `ce("usb")`, passed in by the
+  `DLZMOD_releaseWatch` patch): the stick must be a FAT medium in `/proc/mounts` (stock mounts it
+  read-only, `ro,noatime,flush`; the copy never remounts it) and not the card itself. It looks in
+  the stick's `dlzmod-update/` and its top folder for exactly one `dlzmod-*.tar` (the drop-in's name
+  rule, `DLZMOD_uploadName`) with a 64-byte `.sig`, both plain files (`lstat`: no links), the
+  package not empty and at most 64 MiB (the same name in both folders counts once, the one in
+  `dlzmod-update/`). None, or two different ones: a refusal with a text, nothing copied. The same
+  refusals as a download (recording, an upload or download running, an unfinished update, no SD
+  card); while a check or download runs only this screen hears why, and that state stays. The copy is
+  the download's: signature and package as one stream into `DLZMOD_uploadRun` (`DLZMOD_sigThen`: its
+  error caught, so a copy that stops early cannot end the server)
+  (temp files, sync, renames, the card read-only again), then `DLZMOD_uploadAsk`. The updater's own
+  checks (signature, version) decide at the start after Install, as for every update.
+- **Stock and USB sticks** [static: server.js of build 1731]: when a FAT stick comes in, server.js
+  finishes `*wav.unfinished` recordings on it, reloads sample pads from it, and searches it for
+  `*.upd` (any name with that ending, not only `evolveupdate`) to offer as a firmware update; a track
+  ending in `.upd` chosen on the Media page goes the same way. Both end in `ca()`, which the mod
+  replaces with a log line (patch.py "firmware: never offer an update file"); `FIRMWARE_UPDATE` and
+  `upgraderun` are refused as well. The mod's files never end in `.upd`. No udev rule, automounter or
+  Mackie updater acts on a stick by itself.
+
 ## Not built yet
 
-- **Updates from a USB stick** (#220): "Copy update from USB stick" on the Mod page puts the same
-  two files into `DLZDATA/dlzmod-update/` (the upload from a paired computer exists: #114, #207; the
-  download from GitHub: #55, "Check for Updates" above). Check what server.js does with files on USB
-  media before using a stick (our files never look like a Mackie `.upd`).
 - **Full update and undo** (#56), for what the drop-in cannot do (boot visuals, card layout):
   "Install" on the Mod page sets a one-shot flag on DLZDATA and restarts; the card's `boot.scr` (one
   that comes with a full install: an update cannot change it) sees it and boots the installer path (Mackie's kernel from the eMMC + the package's initramfs) in update
