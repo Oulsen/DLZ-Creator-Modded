@@ -548,9 +548,12 @@ mixer]:
   read-only, `ro,noatime,flush`; the copy never remounts it) and not the card itself. It looks in
   the stick's `dlzmod-update/` and its top folder for exactly one `dlzmod-*.tar` (the drop-in's name
   rule, `DLZMOD_uploadName`) with a 64-byte `.sig`, both plain files (`lstat`: no links), the
-  package not empty and at most 64 MiB. None, two or more: a refusal with a text, nothing copied. The
-  same refusals as a download (recording, an upload or download running, an unfinished update, no SD
-  card). The copy is the download's: signature and package as one stream into `DLZMOD_uploadRun`
+  package not empty and at most 64 MiB (the same name in both folders counts once, the one in
+  `dlzmod-update/`). None, or two different ones: a refusal with a text, nothing copied. The same
+  refusals as a download (recording, an upload or download running, an unfinished update, no SD
+  card); while a check or download runs only this screen hears why, and that state stays. The copy is
+  the download's: signature and package as one stream into `DLZMOD_uploadRun` (`DLZMOD_sigThen`: its
+  error caught, so a copy that stops early cannot end the server)
   (temp files, sync, renames, the card read-only again), then `DLZMOD_uploadAsk`. The updater's own
   checks (signature, version) decide at the start after Install, as for every update.
 - **Stock and USB sticks** [static: server.js of build 1731]: when a FAT stick comes in, server.js

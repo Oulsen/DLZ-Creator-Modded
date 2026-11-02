@@ -2369,6 +2369,37 @@ relTest("usb stick: the update's two files from its dlzmod-update folder to the 
   assert.deepStrictEqual([relLast(s2).state, relLast(s2).version], ["done", "v0.5.1 (dev-abc1234)"]);
   assert.deepStrictEqual(ls(top.dir), ["dlzmod-v0.5.1-dev-abc1234.tar", "dlzmod-v0.5.1-dev-abc1234.tar.sig"]);
 });
+test("usb stick, download: the stream stopped early and destroyed does not end the server (no unheard error)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dlzup-sig-"));
+  fs.writeFileSync(path.join(dir, "big.tar"), Buffer.alloc(4 * 1024 * 1024, 1));
+  const src = fs.createReadStream(path.join(dir, "big.tar"));
+  const body = ctx.DLZMOD_sigThen(REL_SIG, src);
+  let n = 0;
+  // as DLZMOD_uploadRun reads it, and stops (a recording that starts)
+  for await (const c of body.iterator({ destroyOnReturn: false })) if (++n > 3) break;
+  // the package's stream ends first (a stick pulled, or destroyed before the body)
+  src.destroy();
+  await tick(100);
+  assert.ok(body.destroyed);
+});
+relTest("usb stick: the same package in both folders counts once (dlzmod-update's); while a check runs it waits", async () => {
+  const up = usbMedia();
+  up.put("dlzmod-update", "dlzmod-v0.5.1.tar");
+  up.put(".", "dlzmod-v0.5.1.tar", Buffer.from("other"));
+  const s = [];
+  await usbCall(sendTo(s), up);
+  assert.strictEqual(relLast(s).state, "done");
+  assert.ok(fs.readFileSync(path.join(up.dir, "dlzmod-v0.5.1.tar")).equals(REL_TAR), "from dlzmod-update/");
+  // a check running: only this screen hears why not, the check's state stays
+  const busy = usbMedia();
+  busy.put("dlzmod-update", "dlzmod-v0.5.1.tar");
+  Object.assign(ctx.DLZMOD_rel(), { state: "checking", error: "" });
+  const s2 = [];
+  await usbCall(sendTo(s2), busy);
+  assert.match(relLast(s2).error, /looking for or fetching an update/);
+  assert.strictEqual(ctx.DLZMOD_rel().state, "checking");
+  assert.deepStrictEqual(ls(busy.dir), []);
+});
 relTest("usb stick: refused with a text, nothing copied: no stick, not FAT, no update, two, no .sig, links, busy", async () => {
   const last = async (up, usb) => {
     const s = [];

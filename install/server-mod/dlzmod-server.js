@@ -1452,6 +1452,7 @@ async function DLZMOD_relDownload(root, state, mounts, tell) {
   DLZMOD_updateUpload.running = true;
   let sigRes = null;
   let tarRes = null;
+  let body = null;
   try {
     const got = await DLZMOD_relFetch(state);
     // (still downloading: a second Download or a Check meanwhile only gets this state)
@@ -1465,10 +1466,7 @@ async function DLZMOD_relDownload(root, state, mounts, tell) {
     if (tarRes.statusCode !== 200) throw new Error("the package: GitHub answered " + tarRes.statusCode);
     const len = Number(tarRes.headers["content-length"]);
     if (len !== got.size) throw new Error("the package is not the size the release lists");
-    const body = require("stream").Readable.from((async function* () {
-      yield sig;
-      for await (const c of tarRes) yield c;
-    })());
+    body = DLZMOD_sigThen(sig, tarRes);
     const name = "dlzmod-" + got.version + ".tar";
     const sum = await DLZMOD_uploadRun(body, sd + "/dlzmod-update", name, 64 + len, mounts);
     console.log("dlzmod: update download: " + name + " in place");
@@ -1484,11 +1482,25 @@ async function DLZMOD_relDownload(root, state, mounts, tell) {
       : /recording/.test(e.message) && e.cut ? e.message.replace("upload", "download")
         : "The download did not finish. Nothing was kept.");
   } finally {
+    if (body) body.destroy();
     if (sigRes) sigRes.destroy();
     if (tarRes) tarRes.destroy();
     DLZMOD_updateUpload.running = false;
     DLZMOD_roLater();
   }
+}
+
+// the signature and then the package as one stream, the way an upload sends them (DLZMOD_uploadRun).
+// Its error is caught here: DLZMOD_uploadRun stops reading early (a recording that starts) and the
+// caller then destroys the package's stream, which ends this one with an error; with no one
+// listening that error would end the whole server (node 18)
+function DLZMOD_sigThen(sig, src) {
+  const body = require("stream").Readable.from((async function* () {
+    yield sig;
+    for await (const c of src) yield c;
+  })());
+  body.on("error", () => {});
+  return body;
 }
 
 // #220: From USB Stick... on the Mod page (the mixer's own screen): the update's two files from a FAT
@@ -1518,6 +1530,7 @@ async function DLZMOD_relUsb(root, usb, state, mounts, tell) {
   DLZMOD_updateUpload.running = true;
   Object.assign(r, { state: "copying", error: "", version: "", size: 0, summary: "", notes: "", tarUrl: "", sigUrl: "" });
   let tarIn = null;
+  let body = null;
   try {
     if (!DLZMOD_uploadMounted(await fsp.readFile(mounts, "utf8"), stick, true)) {
       return fail("The USB stick is not FAT32: the mixer cannot read it.");
@@ -1533,7 +1546,9 @@ async function DLZMOD_relUsb(root, usb, state, mounts, tell) {
         try {
           const st = await fsp.lstat(dir + "/" + name);
           const sg = await fsp.lstat(dir + "/" + name + ".sig");
-          if (st.isFile() && st.size > 0 && sg.isFile() && sg.size === 64) found.push({ dir: dir, name: name, size: st.size });
+          if (st.isFile() && st.size > 0 && sg.isFile() && sg.size === 64 && !found.some((x) => x.name === name)) {
+            found.push({ dir: dir, name: name, size: st.size });
+          }
         } catch (e) {}
       }
     }
@@ -1549,11 +1564,7 @@ async function DLZMOD_relUsb(root, usb, state, mounts, tell) {
     const sig = await fsp.readFile(f.dir + "/" + f.name + ".sig");
     if (sig.length !== 64) throw new Error("the signature is not 64 bytes");
     tarIn = require("fs").createReadStream(f.dir + "/" + f.name);
-    const tar = tarIn;
-    const body = require("stream").Readable.from((async function* () {
-      yield sig;
-      for await (const c of tar) yield c;
-    })());
+    body = DLZMOD_sigThen(sig, tarIn);
     const sum = await DLZMOD_uploadRun(body, sd + "/dlzmod-update", f.name, 64 + f.size, mounts);
     console.log("dlzmod: update from the USB stick: " + f.name + " in place");
     const asked = DLZMOD_uploadAsk(state, sum, f.name);
@@ -1568,6 +1579,7 @@ async function DLZMOD_relUsb(root, usb, state, mounts, tell) {
       : e.cut ? e.message.replace("upload", "copy")
         : "The copy from the USB stick did not finish. Nothing was kept.");
   } finally {
+    if (body) body.destroy();
     if (tarIn) tarIn.destroy();
     DLZMOD_updateUpload.running = false;
     DLZMOD_roLater();
@@ -1603,10 +1615,13 @@ async function DLZMOD_release(args, send, opts = {}) {
       return await DLZMOD_relDownload(opts.root || DLZMOD_releaseWatch.root, state, opts.mounts || "/proc/mounts", tell);
     }
     if (a.op === "usb") {
-      // (the stick is in the mixer: its own screen only)
-      if (!local) {
+      // (the stick is in the mixer: its own screen only; while a check or download runs, its state
+      // stays and only this screen hears why not)
+      if (!local || DLZMOD_relRunning(DLZMOD_rel())) {
         try {
-          send(msg(Object.assign(DLZMOD_relPublic(), { state: "error", error: "Only on the mixer's own screen." })));
+          send(msg(Object.assign(DLZMOD_relPublic(), { state: "error", error: local
+            ? "The mixer is looking for or fetching an update. Try again when it has finished."
+            : "Only on the mixer's own screen." })));
         } catch (e) {}
         return;
       }
