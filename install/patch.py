@@ -55,7 +55,10 @@ def version_notes(version, path=CHANGELOG_FILE):
     numbers. Empty without the file or the section; a file it cannot read never stops the patch."""
     try:
         text = path.read_text(encoding="utf-8")
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        return ""
+    except (OSError, ValueError) as e:
+        print(f"note: {path.name} not read ({e}): no notes for What's New", file=sys.stderr)
         return ""
     groups = {head: [] for _, head in NOTES_GROUPS}
     other = []
@@ -76,7 +79,12 @@ def version_notes(version, path=CHANGELOG_FILE):
     parts = [head + "\n" + "\n".join("• " + i for i in items) for head, items in groups.items() if items]
     if other:
         parts.append("\n".join("• " + i for i in other))
-    return "\n\n".join(parts)[:NOTES_MAX]
+    notes = "\n\n".join(parts)
+    if not notes:
+        print(f"note: {path.name} has no items for {version}: no notes for What's New", file=sys.stderr)
+    elif len(notes) > NOTES_MAX:   # whole lines only
+        notes = notes[:notes.rfind("\n", 0, NOTES_MAX)].rstrip()
+    return notes
 
 # (what, anchor in Mackie's code, replacement)
 APP_PATCHES = [

@@ -61,9 +61,18 @@ if [ -f "$TMP/app.js" ]; then
   echo 'process.stdout.write(DLZMOD_versionNotes())' >> "$TMP/notes.js"
   want=$(python3 -c 'import sys; sys.path.insert(0, "install"); import patch, modversion; sys.stdout.write(patch.version_notes(modversion.read_version()))')
   got=$(dnode "$TMP/notes.js" 2>&1)
-  if [ -n "$want" ] && [ "$got" = "$want" ]; then ok "app.js: What's New after an update has $(grep -c '^•' <<< "$got") items of $(tr -d '\r\n' < VERSION)"
-  else bad "app.js: the version's notes: '${got:0:80}', expected '${want:0:80}'"; fi
+  if [ "$got" != "$want" ]; then bad "app.js: the version's notes: '${got:0:80}', expected '${want:0:80}'"
+  elif [ -n "$want" ]; then ok "app.js: What's New after an update has $(grep -c '^•' <<< "$got") items of $(tr -d '\r\n' < VERSION)"
+  else ok "app.js: no notes ($(tr -d '\r\n' < VERSION)'s CHANGELOG.md section has no items yet: right after a version bump)"; fi
 fi
+# patch.py's grouping on a fixed changelog: release-notes.sh's groups and order, CRLF, another
+# version's items left out, an unprefixed bullet last, no section and no file: no notes
+printf '# Changelog\r\n\r\n## v9.1.0\r\n\r\n- (MOD BUG) M bug\r\n- (DLZ FEATURE) D feat\r\n- odd one\r\n- (MOD FEATURE) M feat\r\n\r\n## v9.0.0\r\n\r\n- (DLZ BUG) old\r\n' > "$TMP/CHANGELOG.md"
+got=$(python3 -c 'import sys; sys.path.insert(0, "install"); import patch; from pathlib import Path
+p = Path(sys.argv[1])
+print(repr([patch.version_notes("v9.1.0", p), patch.version_notes("v9.2.0", p), patch.version_notes("v9.1.0", p.with_name("none.md"))]))' "$TMP/CHANGELOG.md" 2>/dev/null)
+want="['DLZ features\\n• D feat\\n\\nMod features\\n• M feat\\n\\nMod bugs fixed\\n• M bug\\n\\n• odd one', '', '']"
+[ "$got" = "$want" ] && ok "patch.py: the notes grouped as the release notes (fixed changelog)" || bad "patch.py notes: $got"
 # the mod's own files parse as they are, before they are appended
 for f in install/app-mod/dlzmod.js install/server-mod/dlzmod-server.js install/graph-mod/dlzmod-graph.js; do
   dnode --check "$f" > "$TMP/f.check" 2>&1 && ok "$f parses" || bad "$f does not parse: $(head -3 "$TMP/f.check")"
