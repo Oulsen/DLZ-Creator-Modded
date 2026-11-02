@@ -2,8 +2,9 @@
 @ of their wait loop. It waits exactly as the stock loop does (spin on bit 9 of the audio register
 @ until the other buffer half is ready; r2 = the half done last, r3 = the register base, the half
 @ ready comes back in r6), and times the wait with the CPU's virtual counter (CNTVCT, 24 MHz).
-@ Registers: only r0, r1, r4, r5, r8 besides r6; the callers set all of them after the loop before
-@ reading them, and read no flags before setting them again [static].
+@ Registers: only r0, r1, r4, r5, r8 besides r6. In both block functions the loop is the first work
+@ after they push r4-r11; right after it they write r0, r1, r4, r5 and r8 before reading them, and
+@ read no flags before setting them again [static].
 @
 @ Counters at G (past the end of .bss; dsp-headroom.py grows the data segment to cover them):
 @   +0  u64  counter at the end of the last wait

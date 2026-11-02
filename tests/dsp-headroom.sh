@@ -58,12 +58,13 @@ python3 -I $P patch "$TMP/other" "$TMP/dsp2" > "$TMP/out" 2>&1 || true
 [ ! -e "$TMP/dsp2" ] && grep -q 'not the stock dspserver' "$TMP/out" && ok "another binary is refused" || bad "another binary: $(cat "$TMP/out")"
 
 # qemu's 32-bit user mode does not let a program read the counter (mrrc CNTVCT traps, the mixer's
-# kernel allows it): the harness's copy of the stub reads 100 at the start and 250 at the end instead
+# kernel allows it): the harness's copy of the stub reads r10 & 63 at the start (r10 counts the
+# blocks down) and 250 at the end instead, so each wait is 187-250 ticks
 python3 -I - "$TMP/cave.bin" > "$TMP/cave-q.S" <<'EOF'
 import struct, sys
 w = list(struct.unpack('<35I', open(sys.argv[1], 'rb').read()))
 assert w[0] == 0xec510f1e and w[6] == 0xec554f1e, 'the counter reads moved: update the harness'
-w[0], w[6] = 0xe3a00064, 0xe3a040fa   # mov r0, #100 / mov r4, #250 (r5: 0 from the harness)
+w[0], w[6] = 0xe20a003f, 0xe3a040fa   # and r0, r10, #63 / mov r4, #250 (r5: 0 from the harness)
 print('\t.section .cave, "ax"\n\t.global cave\ncave:')
 print('\n'.join('\t.word 0x%08x' % x for x in w))
 EOF
@@ -110,8 +111,10 @@ raw, rc = open(sys.argv[1], 'rb').read(), int(sys.argv[2])
 if rc != 0 or len(raw) != 36:
     print('exit %d, %d bytes (3: the stub gave the wrong half)' % (rc, len(raw))); sys.exit(1)
 end, waited, blocks, mincur, minprev, tls, changes = struct.unpack('<QQIIIII', raw)
-inv = ~150 & 0xffffffff
-ok = (end, waited, blocks, mincur, minprev, changes) == (250, 150 * 4097, 4097, inv, inv, 1) and tls == 0x1234
+# blocks 1-4096 (r10 4097..2) fill the window before, block 4097 (r10 1) starts a new one
+inv = lambda t: ~t & 0xffffffff
+want = (250, sum(250 - (r & 63) for r in range(1, 4098)), 4097, inv(249), inv(187), 1)
+ok = (end, waited, blocks, mincur, minprev, changes) == want and tls == 0x1234
 print('%d blocks, %d ticks waited, last end %d, shortest wait %d and %d, %d thread change'
       % (blocks, waited, end, ~mincur & 0xffffffff, ~minprev & 0xffffffff, changes))
 sys.exit(0 if ok else 1)

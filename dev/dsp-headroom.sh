@@ -48,15 +48,22 @@ python3 /run/dlzmod-headroom.py patch $B $D/dspserver
 mount --bind $D/dspserver $B
 systemctl restart dspserver'
 
-# the running copy is busy: a lazy unmount, then the restart starts the stock file
+# the running copy is busy: a lazy unmount, then the restart starts the stock file. Without the bind
+# mount (on failed before it, or off twice) the stock one runs untouched: no restart, which would
+# silence it
 OFF='D=/run/dlzmod-headroom B=/usr/local/bin/dspserver
-grep -q " $B " /proc/self/mountinfo && umount -l $B
-# after a crash loop systemd refuses a restart until the start limit is reset
-systemctl reset-failed dspserver 2>/dev/null
-systemctl restart dspserver
+if grep -q " $B " /proc/self/mountinfo; then
+  umount -l $B
+  # after a crash loop systemd refuses a restart until the start limit is reset
+  systemctl reset-failed dspserver 2>/dev/null
+  systemctl restart dspserver
+  echo "stock dspserver: $(systemctl is-active dspserver) (no sound until the mixer is switched off and on)"
+else
+  echo "stock dspserver, not restarted: $(systemctl is-active dspserver)"
+fi
 grep -q " $D " /proc/self/mountinfo && umount -l $D
 rm -f /run/dlzmod-headroom.py
-echo "stock dspserver: $(systemctl is-active dspserver) (no sound until the mixer is switched off and on)"'
+true'
 
 case ${1:-} in
   on)

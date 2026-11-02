@@ -172,7 +172,7 @@ Confidence tags: see [architecture.md](architecture.md). Hardware and boot chain
   per-core `/proc/stat`, not `uptime`/`top`'s load average. `dspLoopThreadC3` (SCHED_FIFO 99)
   shows 99.3% in `ps`/`top -H` and core 3 is busy ~99.6% in normal use; it never gives the core up,
   so `top -H` cannot tell its audio work from its waiting and cannot show the DSP's headroom
-  [device]: it waits by spinning (headroom measured from inside the loop: `components/dspserver.md`,
+  [device]: it waits by spinning [static + device] (headroom measured from inside the loop: `components/dspserver.md`,
   "Audio loop and headroom"). dspLoopThreadC2 (core 2)
   1.2%, each AsyncReverb thread 0.7%; cores 0-2 7-13% busy over a few seconds of normal use
   [device].

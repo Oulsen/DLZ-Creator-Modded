@@ -31,7 +31,7 @@ CAVE = bytes.fromhex(                            # dev/dsp-headroom.S, assembled
     '040050e114008885101098e5011081e2101088e5011ab0e11eff2f11144098e5184088e5141088e51eff2fe1')
 G = 0x303a80                                     # the counters: the stock end of .bss
 G_SIZE = 0x40
-TICKS_PER_S = 24_000_000                         # CNTVCT runs from the 24 MHz oscillator [guess]
+TICKS_PER_S = 24_000_000                         # CNTVCT: 24.00 MHz against the wall clock [device]
 
 
 def die(msg):
