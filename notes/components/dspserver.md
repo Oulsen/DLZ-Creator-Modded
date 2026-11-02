@@ -51,6 +51,11 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   `dspserver.service.d/dlzmod.conf` runs `dlzmod-wait-hub` first (waits until something listens on
   port 80, max 45 s, then starts anyway). A crash-restart of evolve-node alone might still leave
   dspserver without its state [guess].
+- **No restart while the mixer runs** [device]: after `systemctl restart dspserver` (stock binary,
+  server.js up) the new one connects and loads the pad samples, the meters move, but every output
+  stays silent (main L/R, both headphones); `systemctl restart evolve-node` afterwards does not
+  bring it back; only a reboot does. What is set up once per boot is open: likely faderlink's side
+  (`Requires=faderlink`, it talks to the GD32), not restarted for that reason [guess].
 - Harmless at every boot: kernel stack dumps `set_cpus_allowed_ptr: core 4 is set in the mask`
   (from the kernel's own workqueue code, `worker_attach_to_pool`, once dspserver has set the
   workqueue cpumask; not from an affinity call of dspserver [static]), and
@@ -98,6 +103,36 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   exiting` ends it [static]. So a chip that fails at start gives moving meters and a silent output
   until the next start [guess on the effect]. AKM DAC = I2C `0x22`, AKM ADC = `0x26` [device].
 - The FPGA loaded on the first try in all 769 starts of that syslog [device].
+
+## Audio loop and headroom
+
+- **Block** [device]: 128 frames at 48 kHz, 2.667 ms, 375 blocks/s, timed with the CPU counter
+  (CNTVCT, 24.00 MHz against the wall clock; user-space reads allowed, clocksource
+  `arch_sys_counter`).
+- **The wait is a spin** [static + device]: each block function spins on bit 9 of an audio register
+  until the next half of the buffer is ready (the loop sits in the two block functions that
+  `dspLoopThreadC2` and `dspLoopThreadC3` call; anchors in `dev/dsp-headroom.py`). The work passes
+  between the two threads ~20 times per 30 s. So `top` shows core 3 busy ~99% whatever the load
+  (`system.md`, "Load average").
+- **Headroom** [device, XS, `dev/dsp-headroom.sh`]: the share of each block spent waiting, 30 s each,
+  one mic channel with EQ, gate, compressor and de-esser. Measured after a restart of dspserver, so
+  with the outputs silent (above) but the meters moving; that the load equals a normal run is a
+  guess.
+
+  | State | Mean waiting | Worst block left |
+  |---|---|---|
+  | Mixer page, mic muted | 60.4 % | 31.1 % |
+  | EQ page, Spectrum on, mic muted | 58.2 % | 34.8 % |
+  | EQ page, mic muted | 65.5 % | 43.9 % |
+  | EQ page, mic open | 58.9 % | 32.3 % |
+  | EQ page, mic open, its processing bypassed | 59.8 % | 32.7 % |
+
+  "Worst block" is the shortest wait in the last 4096-8192 blocks (11-22 s). A muted channel is
+  skipped: opening the mic costs ~6.6 points, its processing ~1. The screen's data costs as much:
+  Spectrum ~7 points, the mixer page's meters ~5 more than the EQ page. Normal use leaves ~59 %
+  on average and ≥31 % in the worst block: no case for overclocking (#5), and extra graph blocks
+  (limiter, a fuller compressor or de-esser) cost little next to that [guess, from the ~1 point of
+  a processed channel].
 
 ## Recordings
 

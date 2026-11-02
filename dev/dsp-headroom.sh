@@ -2,13 +2,14 @@
 # The audio headroom on a dev card (#5, Q19), from the PC (Git Bash): runs a measuring copy of
 # dspserver (dev/dsp-headroom.py) and reads how much of each audio block its thread spends waiting.
 # Dev card only, never shipped. Nothing is written to the card: the copy lives on a tmpfs of its own,
-# bind-mounted over /usr/local/bin/dspserver (same path, same unit), so a restart of the mixer, or
-# `off`, brings the stock dspserver back. Each `on` and `off` restarts dspserver: the audio stops for
-# a few seconds (a pop is possible, a recording running then is cut off: not while recording).
+# bind-mounted over /usr/local/bin/dspserver (same path, same unit), so a restart of the mixer brings
+# the stock dspserver back. `on` restarts dspserver, and after a restart while the mixer runs every
+# output stays silent until the next reboot (the meters still move; notes/components/dspserver.md):
+# not while recording or playing, and switch the mixer off and on when done.
 #
 # Usage: bash dev/dsp-headroom.sh on              patch, mount, restart dspserver, check it counts
 #        bash dev/dsp-headroom.sh read [SECONDS]  two readings SECONDS apart (default 10)
-#        bash dev/dsp-headroom.sh off             the stock dspserver again (or switch the mixer off and on)
+#        bash dev/dsp-headroom.sh off             the stock dspserver again, still silent: then reboot
 #
 # Settings: MIXER_HOST and SSH_KEY in dev/push.env, as for dev/push.sh.
 set -euo pipefail
@@ -55,7 +56,7 @@ systemctl reset-failed dspserver 2>/dev/null
 systemctl restart dspserver
 grep -q " $D " /proc/self/mountinfo && umount -l $D
 rm -f /run/dlzmod-headroom.py
-echo "stock dspserver: $(systemctl is-active dspserver)"'
+echo "stock dspserver: $(systemctl is-active dspserver) (no sound until the mixer is switched off and on)"'
 
 case ${1:-} in
   on)
