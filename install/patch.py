@@ -192,6 +192,15 @@ APP_PATCHES = [
         "text:lang.SYSTEM_LOCK,visible:!DLZMOD_external(),",
     ),
     (
+        # #55: a red dot on the cogwheel while a new version is out that the Mod page has not shown
+        # yet (DLZMOD_dot; the mixer's own screen only)
+        "updates: a dot on the cogwheel for a new version",
+        "getVal:()=>app.curPage===E_PAGE.SETTINGS,onToggleON:()=>app.setPage(E_PAGE.SETTINGS),"
+        "onToggleOFF:()=>app.setPage(E_PAGE.OVERVIEW)}),this.sync()}",
+        "getVal:()=>app.curPage===E_PAGE.SETTINGS,onToggleON:()=>app.setPage(E_PAGE.SETTINGS),"
+        "onToggleOFF:()=>app.setPage(E_PAGE.OVERVIEW)}),DLZMOD_dot(this.settings),this.sync()}",
+    ),
+    (
         # a mixer locked on its screen shows the lock in the browser too: tapping it says where to unlock
         "remote: unlocking only on the mixer's own screen",
         'ondown(){Data.get("lock")&&new PopupLock(app)}',
@@ -277,7 +286,9 @@ APP_PATCHES = [
         '$NET.addCallback("DLZMOD_NET_RESULT",(t=>DLZMOD_netResult(t))),'
         # Time tab (#9): the zone set, the outcome of a change
         '$NET.addCallback("DLZMOD_TIME_STATE",(t=>DLZMOD_setTimeState(t))),'
-        '$NET.addCallback("DLZMOD_TIME_RESULT",(t=>DLZMOD_timeResult(t))),',
+        '$NET.addCallback("DLZMOD_TIME_RESULT",(t=>DLZMOD_timeResult(t))),'
+        # #55: Check for Updates on the Mod page, and the check by itself: the latest release
+        '$NET.addCallback("DLZMOD_RELEASE_STATE",(t=>DLZMOD_setRelease(t))),',
     ),
 ]
 
@@ -433,10 +444,11 @@ SERVER_PATCHES = [
         # UI's own files (not srv_data.json or the presets). #26: then the recordings, read only
         # (DLZMOD_recHttp); ce() is a medium's mount point, "-" when empty. #114: a mod update sent
         # to the SD card's dlzmod-update/ (DLZMOD_updateUpload). #136: the boot log copied to the SD
-        # card once a start has finished (DLZMOD_bootlogCopy; this setup runs once, at the start)
+        # card once a start has finished (DLZMOD_bootlogCopy; this setup runs once, at the start).
+        # #55: the check for a new release by itself, and where Download Update puts it (DLZMOD_releaseWatch)
         'a=e();a.use(DLZMOD_noOrig);a.use(DLZMOD_remoteHttp);'
         'a.use(DLZMOD_recHttp((()=>[ce("sd"),ce("usb")])));a.use(DLZMOD_updateUpload((()=>ce("sd"))));'
-        'DLZMOD_bootlogCopy((()=>ce("sd")));'
+        'DLZMOD_bootlogCopy((()=>ce("sd")));DLZMOD_releaseWatch((()=>ce("sd")));'
         'return a.get("/app.js",',
     ),
     (
@@ -470,6 +482,9 @@ SERVER_PATCHES = [
         # Time tab (#9): the time zone; answers to the sender only (i), changes from the screen and
         # paired devices (DLZMOD_time)
         "DLZMOD_TIME(e,t,a,i){DLZMOD_time(e,i)},"
+        # #55: Check for Updates / Download Update on the Mod page, from the screen and paired
+        # devices (DLZMOD_release); not awaited, a download takes a while
+        "DLZMOD_RELEASE(e,t,a,i){DLZMOD_release(e,i)},"
         "async FIRMWARE_UPDATE_SUCCESS_OK(){",
     ),
 ]

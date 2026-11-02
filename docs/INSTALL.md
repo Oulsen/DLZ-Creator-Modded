@@ -141,7 +141,11 @@ mixer has no other way to switch off; this is normal.
   switch on the back. (From v0.2.0 on, a computer paired with the mixer can send both instead, without
   taking the card out: Settings → DLZ Creator Modded → **Mod** → **Upload Update...** in its web
   browser. From v0.5.0 on the mixer's screen asks right after it has arrived: tap **Install**, then
-  switch the mixer off and on once.) The update installs while the logo shows (about 15 seconds), then a message
+  switch the mixer off and on once.) With the mixer online, from v0.5.0 on it can also fetch the
+  update itself: Settings → DLZ Creator Modded → **Mod** → **Check for Updates...**, then
+  **Download**; the screen then asks to install it. The mixer also looks by itself every few hours
+  and shows a small red dot on the cogwheel when a new version is out (only a request for the latest
+  release goes to GitHub; turn it off with **Automatic Update Check** on the Mod page). The update installs while the logo shows (about 15 seconds), then a message
   says whether it worked. **Later** keeps it on the card; the question comes back at the next start,
   and Settings → DLZ Creator Modded → **Mod** has an **Install Update...** button meanwhile. (An
   update from v0.1.0 installs at the first start without asking: the question comes with the update.

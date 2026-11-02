@@ -477,19 +477,66 @@ internal storage.
 Accepted: an older signed build of the same version installs again (equal stays allowed); a large
 refused file is copied and hashed at every start until it is removed (a few seconds).
 
+## Check for Updates (#55)
+
+The mixer finds and downloads a new release itself; installing stays the drop-in update's (the
+Install question on the mixer's screen, then one switch off and on: #65, #207)
+[static; unit tests, the sandbox (a real check against GitHub from the PC)]:
+
+- **What leaves the mixer**: only GitHub's API request for the latest release
+  (`/repos/Oulsen/DLZ-Creator-Modded/releases/latest`: never a draft, a pre-release or `main`; no
+  pre-release opt-in yet), and the two files of a release when someone downloads it. No device ID,
+  serial or usage data; the User-Agent is the project's name (GitHub's API requires one). HTTPS
+  only, to GitHub's own hosts only, also after redirects (`DLZMOD_relHosts`: `api.github.com`,
+  `github.com`, `release-assets.githubusercontent.com`, `objects.githubusercontent.com`); node's
+  own HTTPS (`DLZMOD_relGet`), not `curl`.
+- **Newer only**: offered when the release's `vX.Y.Z` is above the card's (`installed`, else
+  `version`; `DLZMOD_relCmp` by number), or the same version while the card runs a dev build of it.
+  Older or the same: "Up to date". A release whose `dlzmod-vX.Y.Z.tar` and `.tar.sig` are missing
+  (only the installer image), or not at the release's own download address, or not 64 bytes /
+  at most 64 MiB: "needs a full install", never downloaded. Downgrades stay a choice of the owner (an
+  old package is still validly signed): the check never offers one. A card without `installed` and
+  `version` gets an error ("does not say which mod version it has"), never "Up to date".
+- **By itself** (`DLZMOD_releaseWatch`, `DLZMOD_releaseTick`, once a minute): 5 minutes after the
+  clock first came from the internet this start (`DLZMOD_clockSource`: a TLS check needs a right
+  clock), then every 6 hours (1 hour after a failed check); not while recording, uploading,
+  downloading or checking, and not once a download is on the card ("done": it waits for Install and
+  the switch, and is not offered again). Off with "Automatic Update Check" on the Mod page
+  (`dlzmod.updateAuto`, on by default); Check for Updates... still works then. The result is kept in
+  the server's memory only: nothing of a check is written to the card.
+- **On the screen** (the mixer's own only): a small red dot on the cogwheel (a patch on Mackie's
+  Settings button, `DLZMOD_dot`), on the mod's Settings tab and on its Mod sub-tab while a new
+  version is out that the Mod page has not shown yet (`dlzmod.updateSeen`, a hub key: it survives a
+  restart). Opening the Mod page clears it until the next version. Never a popup by itself.
+- **Mod page**: the Updates row says what the check found; Check for Updates... (Download Update...
+  once a newer version is found) next to Install Update... or Upload Update.... A check or download
+  this page asked for shows Mackie's spinner popup ("Checking for updates…", "Downloading vX.Y.Z…";
+  `DLZMOD_relBusy`, closed by the answer, or after 60 s / 10 min without one: "No answer from the
+  mixer"). It answers with Download's question (laid out as the Install question: the installed and
+  the new version, the size, the first sentence of the release notes; Download, What's New, Later),
+  or a popup ("Up to date" with the latest release, "There is no release on GitHub yet", no answer,
+  GitHub asks to wait, needs a full install); on the mixer's screen a finished download goes on to
+  the Install question (#207). [static, sandbox] What's New: the release notes as plain text (`DLZMOD_relText`: headings and
+  list items kept, links as their text, emphasis, code marks, images and HTML left out; at most
+  20000 characters) on pages with < and >, since the screen has no scrolling text.
+- **Download** (`DLZMOD_relDownload`): the release is fetched again (the addresses never come from
+  a client), the signature (exactly 64 bytes) and then the package (its `Content-Length` must be
+  the size the release lists) go through the upload's write path (`DLZMOD_uploadRun`: temp files,
+  sync, renames, read-only again; the same refusals: recording, an upload running, an unfinished
+  update, no SD card), then `DLZMOD_uploadAsk` writes `pending` and the screen asks Install (state
+  "done"). While it runs the state stays "downloading", also after its own re-check of the release:
+  a second Download or a Check meanwhile only gets that state. A cut or failed download keeps nothing,
+  and both responses are closed. The updater's checks (signature, version) decide at the start
+  after Install, as for every update.
+- **Who**: the mixer's own screen and paired devices (as the upload); others get a refusal. Install
+  stays the mixer's own screen's.
+
 ## Not built yet
 
-- **Updates without the card reader** (#55): "Check for updates" on the Mod page (the latest GitHub
-  release only, never `main`; downloaded with `curl`, which the stock system has) or a USB stick (the
-  upload from a paired computer exists: #114).
-  Each only puts the same two files into `DLZDATA/dlzmod-update/`; a release without update files
-  (image only, "Release files") is shown as "needs a full install", never downloaded. Rules for it: only the latest-release
-  request leaves the mixer (no device ID, serial or usage data); "update available" means strictly
-  newer, except that a card on a dev build of version X is offered release X; pre-releases only
-  with an explicit opt-in; dev packages never go online; downgrades only by an explicit choice (an
-  old package is still validly signed); check what server.js does with files on USB media before
-  using a stick (our files never look like a Mackie `.upd`); the download and check code gets a
-  security review.
+- **Updates from a USB stick** (#220): "Copy update from USB stick" on the Mod page puts the same
+  two files into `DLZDATA/dlzmod-update/` (the upload from a paired computer exists: #114, #207; the
+  download from GitHub: #55, "Check for Updates" above). Check what server.js does with files on USB
+  media before using a stick (our files never look like a Mackie `.upd`).
 - **Full update and undo** (#56), for what the drop-in cannot do (boot visuals, card layout):
   "Install" on the Mod page sets a one-shot flag on DLZDATA and restarts; the card's `boot.scr` (one
   that comes with a full install: an update cannot change it) sees it and boots the installer path (Mackie's kernel from the eMMC + the package's initramfs) in update

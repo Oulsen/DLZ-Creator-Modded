@@ -231,8 +231,9 @@ Sub-tabs Display / Colors / Time / Network / Remote / Mod (a browser: Display / 
 - **Network** (#12, #44): Wi-Fi and SSH, below.
 - **Remote Control** (#45, #48): control from a computer's web browser, off by default; below (phones
   and tablets: Mackie's web UI does not fit them and misses touches, #52).
-- **Mod**: version, update status (an update waiting on the card, with "Install Update..." on the
-  mixer's own screen, #65), credits.
+- **Mod**: version, "Automatic Update Check" (#55), update status (an update waiting on the card,
+  with "Install Update..." on the mixer's own screen, #65; a new release found, with Check for
+  Updates... / Download Update...: [updates.md](updates.md), "Check for Updates"), credits.
 
 ## Themes and colours (#21)
 

@@ -42,6 +42,8 @@ function DLZMOD_layoutTabs(page) {
     b.setGeometry(x, null, w, null);
     x += w + gap;
   });
+  // #55: the Mod tab's dot for a new version (DLZMOD_dot)
+  if (!page.banks[n].dlzmodDot) page.banks[n].dlzmodDot = DLZMOD_dot(page.banks[n]);
 }
 
 // Mod settings live in the hub state like Mackie's own keys (saved in srv_data.json, cleared by a
@@ -53,7 +55,7 @@ function DLZMOD_layoutTabs(page) {
 function DLZMOD_keys() {
   return { "dlzmod.hideHeader": 0, "dlzmod.meterMode": 0, "dlzmod.preColor": 0, "dlzmod.preLevel": 0,
     "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0, "dlzmod.recDate": 0,
-    "dlzmod.spectrum": 1, "dlzmod.rta": 0 };
+    "dlzmod.spectrum": 1, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "" };
 }
 
 // The owner's own colours on top of the theme (#21): the background, and an accent colour for the
@@ -1015,10 +1017,265 @@ function DLZMOD_updateRow() {
   if (p && p.approved) return [p.version + " installs at the next start: switch the mixer off and on", DLZMOD_accent()];
   if (p && (DLZMOD_setUpdateStatus.s || {}).local) return ["Update " + p.version + " is on the card", DLZMOD_accent()];
   if (p) return ["Update " + p.version + " is on the card: install it on the mixer's own screen", DLZMOD_accent()];
+  const r = DLZMOD_release();
+  if (r.state === "checking") return ["Looking for a new version on GitHub...", null];
+  if (r.state === "downloading") return ["Downloading " + (r.version || "the update") + "...", DLZMOD_accent()];
+  if (r.state === "newer") return [r.version + " is available (" + DLZMOD_size(r.size) + ")", DLZMOD_accent()];
+  if (r.state === "full") return [r.version + " is out: it needs a full install with the installer image", DLZMOD_accent()];
   const failed = DLZMOD_updateFailed();
   if (failed) return [failed, Color.red2];
+  if (r.state === "error") return [r.error.split("\n")[0], Color.red2];
+  if (r.state === "current") return ["Up to date: " + r.version + " is the latest release", null];
   if (DLZMOD_external()) return ["Upload the update's .tar and .sig with the button below", null];
   return ["Copy the update's .tar and .sig to DLZDATA/dlzmod-update", null];
+}
+
+// #55: what the last check for a new release found (dlzmod-server.js, DLZMOD_relPublic: state,
+// installed, version, size, summary, notes, error), at every load of the screen and after each step.
+// A check or download this page asked for gets its answer here once it is over
+function DLZMOD_setRelease(s) {
+  DLZMOD_setRelease.s = s && typeof s === "object" ? s : {};
+  const r = DLZMOD_setRelease.s;
+  const asked = DLZMOD_setRelease.asked;
+  if (asked && r.state !== "checking" && r.state !== "downloading") {
+    DLZMOD_setRelease.asked = "";
+    DLZMOD_relIdle();
+    DLZMOD_releaseAnswer(asked, r);
+  }
+  DLZMOD_releaseSeen();
+  DLZMOD_syncDots();
+  const page = DLZMOD_page();
+  if (page) page.about.syncInstall();
+  if (page && page.visible) page.about.update();
+}
+
+function DLZMOD_release() {
+  return DLZMOD_setRelease.s || {};
+}
+
+// a newer release (also one that needs a full install)
+function DLZMOD_releaseNew() {
+  const r = DLZMOD_release();
+  return (r.state === "newer" || r.state === "full") && !!r.version;
+}
+
+// Check for Updates... / Download Update... on the Mod page
+function DLZMOD_releasePress() {
+  if (DLZMOD_release().state === "newer" && !DLZMOD_updatePending()) return DLZMOD_askRelease(DLZMOD_release());
+  DLZMOD_releaseSend("check");
+}
+
+function DLZMOD_releaseSend(op) {
+  DLZMOD_setRelease.asked = op;
+  DLZMOD_relBusy(op);
+  $NET.cmd("DLZMOD_RELEASE", { op: op });
+}
+
+// Mackie's spinner popup while a check or a download asked from this page runs; closed by its answer
+// (DLZMOD_setRelease), or after a while without one (the server restarted, the connection dropped)
+function DLZMOD_relBusy(op) {
+  DLZMOD_relIdle();
+  const v = DLZMOD_release().version;
+  DLZMOD_relBusy.popup = new PopupShowProgress(app, {
+    title: "", icon: $FA.download,
+    text: op === "download" ? "Downloading " + (v || "the update") + "…" : "Checking for updates…",
+  });
+  DLZMOD_relBusy.timer = setTimeout(() => {
+    DLZMOD_setRelease.asked = "";
+    DLZMOD_relIdle();
+    showMessage("No answer from the mixer.\nTry again.", { title: "Updates" });
+  }, (op === "download" ? 600 : 60) * 1000);
+}
+
+function DLZMOD_relIdle() {
+  const p = DLZMOD_relBusy.popup;
+  clearTimeout(DLZMOD_relBusy.timer);
+  DLZMOD_relBusy.popup = null;
+  if (p) p.close();
+}
+
+// what this page's check or download came to
+function DLZMOD_releaseAnswer(op, r) {
+  const title = "Updates";
+  if (r.state === "error") return showMessage(r.error, { title: title });
+  if (r.state === "full") {
+    return showMessage(r.version + " is out, but it needs a full install with the installer image:\n" +
+      "see its release notes on GitHub.", { title: title });
+  }
+  if (r.state === "current") {
+    return showMessage("Up to date" + (r.installed ? ": " + r.installed : "") +
+      (r.version ? "\nThe latest release is " + r.version + "." : ""), { title: title });
+  }
+  if (r.state === "none") return showMessage("There is no release on GitHub yet.", { title: title });
+  if (op === "check" && r.state === "newer") return DLZMOD_askRelease(r);
+  if (op === "download" && r.state === "done") {
+    // the mixer's own screen gets the Install question from the server; a browser is told where it is
+    if (r.error) return showMessage(r.error, { title: title });
+    if (DLZMOD_external()) {
+      showMessage(r.version + " is on the mixer's card.\nTap Install on the mixer's screen, then switch the mixer off and on.",
+        { title: title });
+    }
+  }
+}
+
+// Download's question, laid out as the Install question (DLZMOD_askUpdate): the installed and the new
+// version, the size and the first sentence of the release notes; Download, What's New and Later
+function DLZMOD_askRelease(r) {
+  if (!r || r.state !== "newer") return;
+  const style = { textStyle: { font: Font.font(600, "16pt") } };
+  askConfirm("", {
+    title: DLZMOD_tabLabel() + " update", w: 760, h: 420, font: Font.font(500, "17pt"), textDY: 32,
+    paintCustom: function (t) {
+      const x = this.w / 2 | 0;
+      const big = { font: Font.font(500, "18pt"), align: "center", valign: "middle" };
+      t.drawText($FA.arrow_to_top, x, 92, { font: Font.fa("36px"), color: Color.main, align: "center" });
+      t.drawText(lang.CURRENT_VERSION, x, 136, Object.assign({ color: Color.white }, big));
+      t.drawText(r.installed || "-", x, 168, Object.assign({ color: Color.main }, big));
+      t.drawText(lang.UPDATE_VERSION, x, 204, Object.assign({ color: Color.white }, big));
+      t.drawText(r.version + "  (" + DLZMOD_size(r.size) + ")", x, 236, Object.assign({ color: Color.main }, big));
+      DLZMOD_wrap(t, r.summary || "", Font.font(500, "13pt"), this.w - 80).slice(0, 2).forEach((line, i) =>
+        t.drawText(line, x, 274 + i * 24, { color: "#AAAAAA", font: Font.font(500, "13pt"), align: "center", valign: "middle" }));
+    },
+    buttons: [
+      Object.assign({ text: "Download", textColors: [Color.main, Color.white], colors: [Color.confirm, Color.main],
+        onPress: function () {
+          this.parent.destroy();
+          DLZMOD_releaseSend("download");
+        } }, style),
+      Object.assign({ text: "What's New", onPress: function () {
+        this.parent.destroy();
+        DLZMOD_releaseNotes(r);
+      } }, style),
+      Object.assign({ text: "Later", onPress: function () {
+        this.parent.destroy();
+      } }, style),
+    ],
+  });
+}
+
+// text cut into lines that fit max px in the font (words kept whole; a word longer than a line is cut)
+function DLZMOD_wrap(t, text, font, max) {
+  t.font = font;
+  const out = [];
+  for (const para of String(text).split("\n")) {
+    let line = "";
+    for (const word of para.split(" ")) {
+      const next = line ? line + " " + word : word;
+      if (!line || t.measureText(next).width <= max) {
+        line = next;
+        continue;
+      }
+      out.push(line);
+      line = word;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+// What's New: the release notes on pages of their own (the screen has no scrolling text), < and >
+// to turn, Download and Close
+function DLZMOD_releaseNotes(r) {
+  const W = 900, H = 520, TOP = 70, LINE = 26, BOTTOM = 84;
+  const per = (H - TOP - BOTTOM) / LINE | 0;
+  if (DLZMOD_releaseNotes.popup) return;
+  DLZMOD_releaseNotes.popup = new PopupWindow(app, {
+    w: W, h: H, bgColor: Color.bgPopup, page: 0, lines: null,
+    initWidgets: function () {
+      new E1Button(this, {
+        anchors: [24, null, null, 22], size: [140, 50], text: "<",
+        onPress: () => this.show(this.page - 1),
+        getState: function () {
+          this.enabled = this.parent.page > 0;
+        },
+      });
+      new E1Button(this, {
+        anchors: [176, null, null, 22], size: [140, 50], text: ">",
+        onPress: () => this.show(this.page + 1),
+        getState: function () {
+          this.enabled = this.parent.page < this.parent.pages() - 1;
+        },
+      });
+      new E1Button(this, {
+        anchors: [null, null, 212, 22], size: [180, 50], text: "Download",
+        visible: r.state === "newer" && !DLZMOD_updatePending(),
+        onPress: () => {
+          this.close();
+          DLZMOD_releaseSend("download");
+        },
+      });
+      new E1Button(this, {
+        anchors: [null, null, 24, 22], size: [180, 50], text: lang.CLOSE || "Close",
+        onPress: () => this.close(),
+      });
+    },
+    onDestroy: function () {
+      DLZMOD_releaseNotes.popup = null;
+      PopupWindow.prototype.onDestroy.call(this);
+      DLZMOD_repaintSoon();
+    },
+    pages: function () {
+      return this.lines ? Math.max(1, Math.ceil(this.lines.length / per)) : 1;
+    },
+    show: function (page) {
+      this.page = Math.max(0, Math.min(page, this.pages() - 1));
+      this.update();
+    },
+    paint: function (t) {
+      PopupWindow.prototype.paint.call(this, t);
+      const font = Font.font(500, "13pt");
+      if (!this.lines) this.lines = DLZMOD_wrap(t, r.notes || r.summary || "No release notes.", font, W - 64);
+      const n = this.pages();
+      t.drawText("What's New in " + r.version + (n > 1 ? "  " + (this.page + 1) + "/" + n : ""), W / 2 | 0, 36,
+        { color: Color.white, font: Font.font(600, "18pt"), align: "center", valign: "middle" });
+      this.lines.slice(this.page * per, (this.page + 1) * per).forEach((line, i) =>
+        t.drawText(line, 32, TOP + i * LINE + LINE / 2, { color: Color.white, font: font, align: "left", valign: "middle" }));
+      // the first paint knows the lines: the buttons' states follow
+      if (!this.painted) {
+        this.painted = !0;
+        setTimeout(() => this.update(), 0);
+      }
+    },
+  });
+}
+
+// #55: a small red dot on the cogwheel, the mod's Settings tab and its Mod sub-tab while a new
+// version is out that the Mod page has not shown yet (dlzmod.updateSeen); on the mixer's own screen
+// only, never a popup. Opening the Mod page clears it until the next version
+function DLZMOD_dot(button) {
+  if (!button) return null;   // (a tab not there: no dot, never a broken Settings page)
+  const d = new Widget(button, {
+    anchors: [null, 6, 6], size: [12, 12], opaque: !1, visible: !1,
+    paint: function (t) {
+      t.fillStyle = Color.red2;
+      t.fillCircle(6, 6, 6);
+    },
+  });
+  (DLZMOD_dot.all || (DLZMOD_dot.all = [])).push(d);
+  d.setVisible(DLZMOD_dotOn());
+  return d;
+}
+
+function DLZMOD_dotOn() {
+  return !DLZMOD_external() && DLZMOD_releaseNew() && DLZMOD_release().version !== Data.get("dlzmod.updateSeen");
+}
+
+function DLZMOD_syncDots() {
+  const on = DLZMOD_dotOn();
+  for (const d of DLZMOD_dot.all || []) {
+    if (!!d.visible === on) continue;
+    d.setVisible(on);
+    if (d.parent) d.parent.update();
+  }
+}
+
+// the Mod page on the mixer's screen shows the new version: its dot goes
+function DLZMOD_releaseSeen() {
+  const page = DLZMOD_page();
+  if (DLZMOD_external() || !DLZMOD_releaseNew() || !page || !page.about.globalVisible()) return;
+  const v = DLZMOD_release().version;
+  if (Data.get("dlzmod.updateSeen") !== v) Data.set("dlzmod.updateSeen", v);
+  DLZMOD_syncDots();
 }
 
 // #114: Upload Update... (Mod page, in a browser): the browser's file picker for the update's two files.
@@ -1151,6 +1408,7 @@ function DLZMOD_settingsPage(parent, y) {
   Data.regWidget("dlzmod.meterMarks", DLZMOD_applyMeterMarks);
   for (const k of ["dlzmod.theme", "dlzmod.bgColor", "dlzmod.faderColor"]) Data.regWidget(k, DLZMOD_themeChanged);
   Data.regWidget("dlzmod.spectrum", DLZMOD_rtaSwitched);
+  Data.regWidget("dlzmod.updateSeen", DLZMOD_syncDots);
   const top = 44 + 8;   // sub-tabs (44) and a gap, then the panels
   return new Widget(parent, {
     anchors: [0, y, null, null, !0, !0],
@@ -1169,6 +1427,7 @@ function DLZMOD_settingsPage(parent, y) {
         textStyle: { align: "left", valign: "middle", x: 7, y: 23, offsetX: 0, offsetY: 0, font: Font.font(600, "18px") },
         onToggleON: () => this.setSub(i), getVal: () => this.sub === i,
       }));
+      DLZMOD_dot(this.tabs[shown.indexOf(5)]);   // #55: a new version out
       this.screen = DLZMOD_screenPanel(this, 0, top, 290);
       this.meters = DLZMOD_metersPanel(this, 290 + 12, top, 914 - 290 - 12);
       this.colours = DLZMOD_coloursPanel(this, 0, top, 914);
@@ -1192,12 +1451,18 @@ function DLZMOD_settingsPage(parent, y) {
       this.groups.forEach((g, j) => g.forEach((p) => p.setVisible(j === i)));
       if (i === 2) $NET.cmd("DLZMOD_TIME", { op: "status" });
       if (i === 3 || i === 4) $NET.cmd("DLZMOD_NET", { op: "status" });
+      if (i === 5) {
+        $NET.cmd("DLZMOD_RELEASE", { op: "status" });
+        DLZMOD_releaseSeen();
+      }
       this.update();
     },
     onShow: function () {
       this.pair.revealPin(!1);
       $NET.cmd("DLZMOD_NET", { op: "status" });
       $NET.cmd("DLZMOD_TIME", { op: "status" });
+      $NET.cmd("DLZMOD_RELEASE", { op: "status" });
+      if (this.sub === 5) setTimeout(DLZMOD_releaseSeen, 0);
     },
   });
 }
@@ -1405,26 +1670,50 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
     size: [w, DLZMOD_panelH()],
     bgColor: Color.bgDark,
     _constructor: function () {
+      // #55: Check for Updates... (Download Update... once a new version is found) next to Install
+      // Update... (the mixer's own screen) or Upload Update... (a browser); the check by itself
+      this.check = new E1Button(this, {
+        anchors: [0, 252], size: [300, 56], text: "Check for Updates...",
+        onPress: () => DLZMOD_releasePress(),
+      });
       this.install = new E1Button(this, {
-        anchors: [0, 252, null, null, !0], size: [300, 56], text: "Install Update...",
+        anchors: [0, 252], size: [300, 56], text: "Install Update...",
         onPress: () => DLZMOD_askUpdate(DLZMOD_updatePending()),
       });
       this.upload = new E1Button(this, {
-        anchors: [0, 252, null, null, !0], size: [300, 56], text: "Upload Update...",
+        anchors: [0, 252], size: [300, 56], text: "Upload Update...",
         visible: DLZMOD_external(), onPress: () => DLZMOD_uploadPick(),
       });
+      this.auto = DLZMOD_switch(this, w, 112, "dlzmod.updateAuto", () => this.update());
       this.syncInstall();
     },
     syncInstall: function () {
       const p = DLZMOD_updatePending();
       this.install.setVisible(!!p && !p.approved && !!(DLZMOD_setUpdateStatus.s || {}).local);
+      const r = DLZMOD_release();
+      const text = r.state === "newer" && !p ? "Download Update..." : "Check for Updates...";
+      if (this.check.text !== text) {
+        this.check.text = text;
+        this.check.update();
+      }
+      // the buttons shown, side by side in the middle
+      const shown = [this.check, this.install, this.upload].filter((b) => b.visible);
+      const gap = 16;
+      let x = (w - shown.length * 300 - (shown.length - 1) * gap) / 2 | 0;   // (w: this.w may not be set yet)
+      // (anchors: Mackie's layout places a widget by them again later)
+      for (const b of shown) {
+        b.setAnchors(x, 252);
+        x += 300 + gap;
+      }
     },
     paint: function (t) {
       DLZMOD_paintPanel(this, t, DLZMOD_tabLabel(), DLZMOD_accent(), Font.font(600, "24pt"));
       t.drawText("Unofficial mod for the Mackie DLZ Creator", this.w / 2 | 0, 70,
         { color: "#888888", font: Font.font(500, "12pt"), align: "center", valign: "middle" });
       const max = this.w - 56;
-      DLZMOD_paintRow(t, 28, 136, "Version", DLZMOD_installed(), max);
+      DLZMOD_paintRow(t, 28, 136, "Version", DLZMOD_installed(), this.w / 2 - 40);
+      t.drawText("Automatic Update Check", this.w - 24 - 72 - 16, this.auto.geomCenterY(),
+        { color: Color.white, font: Font.font(500, "14pt"), align: "right", valign: "middle" });
       const [text, color] = DLZMOD_updateRow();
       DLZMOD_paintRow(t, 28, 206, "Updates", text, max, color);
       t.drawText("by Oulsen · github.com/Oulsen/DLZ-Creator-Modded", this.w / 2 | 0, this.h - 24,

@@ -286,7 +286,7 @@ test("update ask: on the mixer's own screen at every load until Install; other d
   for (let i = 0; i < 2; i++) {   // Later: asked again
     const sent = [];
     noteSend(onScreen(sent), dir);
-    assert.deepStrictEqual(sent.map((m) => m.cmd), ["DLZMOD_UPDATE_STATUS", "DLZMOD_UPDATE_ASK"]);
+    assert.deepStrictEqual(sent.map((m) => m.cmd), ["DLZMOD_UPDATE_STATUS", "DLZMOD_UPDATE_ASK", "DLZMOD_RELEASE_STATE"]);
     assert.deepStrictEqual(sent[1].data, { sum: SUM_A, version: "v0.2.0 (dev-c0e3084)", approved: false });
     assert.strictEqual(sent[0].data.local, true);
   }
@@ -308,7 +308,7 @@ test("update approve: from the screen writes this record, flushed; then no more 
   assert.strictEqual(sent[1].data.pending.approved, true);
   const again = [];
   noteSend(onScreen(again), dir);
-  assert.deepStrictEqual(again.map((m) => m.cmd), ["DLZMOD_UPDATE_STATUS"]);
+  assert.deepStrictEqual(again.map((m) => m.cmd), ["DLZMOD_UPDATE_STATUS", "DLZMOD_RELEASE_STATE"]);
   // a second Install (the Mod page, a double tap) answers the same and does not write again
   const old = new Date(2000, 0, 1);
   fs.utimesSync(path.join(dir, "approved"), old, old);
@@ -2019,6 +2019,307 @@ test("update upload: the version for the question from the package's name, as th
     ["dlzmod-v10.0.1_rc1.tar", "v10.0.1_rc1"], ["dlzmod-test+3.tar", "test+3"], ["dlzmod-" + "a".repeat(80) + ".tar", "a".repeat(60)]]) {
     assert.strictEqual(ctx.DLZMOD_uploadLabel(name), label, name);
   }
+});
+// #55: Check for Updates / Download Update (DLZMOD_release). GitHub stubbed: DLZMOD_relGet answers
+// from a table of addresses (a response: a stream with statusCode and headers); the card's version
+// in the state folder
+const REL_SIG = Buffer.alloc(64, 9);
+const REL_TAR = Buffer.from("t".repeat(500));
+const REL_DL = "https://github.com/Oulsen/DLZ-Creator-Modded/releases/download/";
+const relJson = (tag, o = {}) => JSON.stringify(Object.assign({ tag_name: tag, draft: false, prerelease: false,
+  body: o.body !== undefined ? o.body : "Recordings can now be **merged**. More in the [notes](https://x).\n\n## New\n\n- one\n- two",
+  assets: o.assets || [
+    { name: "dlz-installer-" + tag + ".img", size: 9, browser_download_url: REL_DL + tag + "/dlz-installer-" + tag + ".img" },
+    { name: "dlzmod-" + tag + ".tar", size: REL_TAR.length, browser_download_url: REL_DL + tag + "/dlzmod-" + tag + ".tar" },
+    { name: "dlzmod-" + tag + ".tar.sig", size: 64, browser_download_url: REL_DL + tag + "/dlzmod-" + tag + ".tar.sig" },
+  ] }, o.extra || {}));
+const relRes = (status, body, headers = {}) => Object.assign(require("stream").Readable.from([Buffer.from(body)]),
+  { statusCode: status, headers: Object.assign({ "content-length": String(Buffer.from(body).length) }, headers) });
+const relStub = (table) => {
+  const asked = [];
+  ctx.DLZMOD_relGet = async (url) => {
+    asked.push(url);
+    const v = table[url];
+    if (!v) throw new Error("ENOTFOUND " + url);
+    return typeof v === "function" ? v() : v;
+  };
+  return asked;
+};
+const API = "https://api.github.com/repos/Oulsen/DLZ-Creator-Modded/releases/latest";
+const relGitHub = (tag, o = {}) => ({
+  [API]: () => relRes(200, relJson(tag, o)),
+  [REL_DL + tag + "/dlzmod-" + tag + ".tar.sig"]: () => relRes(200, o.sig || REL_SIG),
+  [REL_DL + tag + "/dlzmod-" + tag + ".tar"]: () => relRes(200, o.tar || REL_TAR, o.tarHeaders || {}),
+});
+const relMedia = (version = "v0.5.0") => {
+  const up = upMedia();
+  fs.writeFileSync(path.join(up.state, "version"), version + "\n");
+  return up;
+};
+const relCall = async (args, send, up) => {
+  await ctx.DLZMOD_release(args, send, { state: up.state, root: () => up.root, mounts: up.mounts });
+  await tick(20);
+  clearTimeout(ctx.DLZMOD_roLater.timer);
+};
+const relReset = () => {
+  ctx.DLZMOD_rel.s = null;
+  ctx.DLZMOD_updateNoteSend.screen = null;
+  ctx.DLZMOD_updateUpload.running = false;
+  ctx.DLZMOD_releaseWatch.online = 0;
+};
+const relTest = (name, fn) => test(name, async () => {
+  const get = ctx.DLZMOD_relGet;
+  relReset();
+  try {
+    await fn();
+  } finally {
+    ctx.DLZMOD_relGet = get;
+    relReset();
+    delete ctx.getDataKey;
+  }
+});
+const relLast = (sent) => sent.filter((m) => m.cmd === "DLZMOD_RELEASE_STATE").pop().data;
+test("release: versions compared by number; a dev build counts as its version", () => {
+  const cmp = ctx.DLZMOD_relCmp;
+  assert.strictEqual(cmp("v0.5.1", "v0.5.0"), 1);
+  assert.strictEqual(cmp("v0.10.0", "v0.9.9"), 1, "numbers, not text");
+  assert.strictEqual(cmp("v0.5.0", "v0.5.0 (dev-fa646fa)"), 0);
+  assert.strictEqual(cmp("v0.4.9", "v0.5.0"), -1);
+  assert.ok(isNaN(cmp("v0.5.1", "")), "no version on the card");
+  assert.ok(isNaN(cmp("latest", "v0.5.0")));
+});
+test("release: the notes as plain text for the screen, the summary their first sentence", () => {
+  const t = ctx.DLZMOD_relText("Recordings can now be **merged**, see [the guide](https://x). Second sentence.\n\n" +
+    "## What's new\n\n- One `thing`\n* Two\n\n<img src=x> ![pic](y.png)\n\n\n\nEnd");
+  assert.strictEqual(t.summary, "Recordings can now be merged, see the guide.");
+  assert.strictEqual(t.notes, "Recordings can now be merged, see the guide. Second sentence.\n\nWhat's new\n\n• One thing\n• Two\n\nEnd");
+  assert.strictEqual(ctx.DLZMOD_relText("## Only a heading\n\n- a list").summary, "", "no plain paragraph: no summary");
+  const long = ctx.DLZMOD_relText("word ".repeat(80)).summary;
+  assert.ok(long.length <= 180 && long.endsWith("…"), long);
+  assert.ok(ctx.DLZMOD_relText("x".repeat(30000)).notes.length <= 20000);
+});
+test("release: only HTTPS to GitHub's own hosts", async () => {
+  for (const url of ["http://api.github.com/x", "https://evil.example/x", "https://github.com.evil.example/x", "file:///etc/passwd", "nonsense"]) {
+    await assert.rejects(ctx.DLZMOD_relGet(url), /GitHub's addresses|not an address/, url);
+  }
+});
+relTest("release: newer, current, a release without update files, none yet, GitHub busy, no answer", async () => {
+  const up = relMedia("v0.5.0 (dev-fa646fa)");
+  const s = [];
+  relStub(relGitHub("v0.5.1"));
+  await relCall({ op: "check" }, sendTo(s), up);
+  assert.deepStrictEqual(s.map((m) => m.data.state), ["checking", "newer"]);
+  assert.deepStrictEqual(relLast(s), { state: "newer", installed: "v0.5.0 (dev-fa646fa)", version: "v0.5.1", size: REL_TAR.length,
+    summary: "Recordings can now be merged.", notes: "Recordings can now be merged. More in the notes.\n\nNew\n\n• one\n• two",
+    error: "" });
+  assert.ok(!("tarUrl" in relLast(s)), "the addresses stay on the mixer");
+  relStub(relGitHub("v0.5.0"));
+  await relCall({ op: "check" }, sendTo(s), up);
+  assert.strictEqual(relLast(s).state, "newer", "a dev build of v0.5.0 is offered release v0.5.0");
+  fs.writeFileSync(path.join(up.state, "installed"), "v0.5.0\n");
+  await relCall({ op: "check" }, sendTo(s), up);
+  assert.strictEqual(relLast(s).state, "current", "release v0.5.0 installed");
+  relStub(relGitHub("v0.4.0"));
+  await relCall({ op: "check" }, sendTo(s), up);
+  assert.strictEqual(relLast(s).state, "current", "an older release is never offered");
+  relStub(relGitHub("v0.6.0", { assets: [{ name: "dlz-installer-v0.6.0.img", size: 9, browser_download_url: REL_DL + "v0.6.0/x.img" }] }));
+  await relCall({ op: "check" }, sendTo(s), up);
+  assert.strictEqual(relLast(s).state, "full", "only an installer image: a full install");
+  // update files that are not the release's own (another address, another size) are not taken
+  relStub(relGitHub("v0.6.0", { assets: [
+    { name: "dlzmod-v0.6.0.tar", size: 10, browser_download_url: "https://elsewhere.example/dlzmod-v0.6.0.tar" },
+    { name: "dlzmod-v0.6.0.tar.sig", size: 64, browser_download_url: REL_DL + "v0.6.0/dlzmod-v0.6.0.tar.sig" }] }));
+  await relCall({ op: "check" }, sendTo(s), up);
+  assert.strictEqual(relLast(s).state, "full");
+  relStub({ [API]: () => relRes(404, "{}") });
+  await relCall({ op: "check" }, sendTo(s), up);
+  assert.strictEqual(relLast(s).state, "none");
+  relStub({ [API]: () => relRes(403, "{}") });
+  await relCall({ op: "check" }, sendTo(s), up);
+  assert.deepStrictEqual([relLast(s).state, relLast(s).error], ["error", "GitHub asks to wait (too many checks from this network)"]);
+  relStub({});
+  await relCall({ op: "check" }, sendTo(s), up);
+  assert.deepStrictEqual([relLast(s).state, relLast(s).error], ["error", "No answer from GitHub. Is the mixer online?"]);
+  relStub({ [API]: () => relRes(200, relJson("main")) });
+  await relCall({ op: "check" }, sendTo(s), up);
+  assert.strictEqual(relLast(s).state, "error", "a tag that is no version");
+});
+relTest("release: from the screen and paired devices; the state also goes to the mixer's screen", async () => {
+  const up = relMedia();
+  relStub(relGitHub("v0.5.1"));
+  const screen = [];
+  ctx.DLZMOD_updateNoteSend(sendTo(screen), up.state, path.join(up.state, "no-card-note"));
+  assert.deepStrictEqual(relLast(screen).state, "", "at load: not checked yet");
+  screen.length = 0;
+  const phone = [];
+  await relCall({ op: "check" }, paired(phone), up);
+  assert.strictEqual(relLast(phone).state, "newer");
+  assert.strictEqual(relLast(screen).state, "newer", "the screen hears of it too (its dot)");
+  const other = [];
+  await relCall({ op: "check" }, remoteTo(other), up);
+  assert.deepStrictEqual(other.map((m) => m.data.error), ["Only from the mixer's own screen or a paired device."]);
+  const st = [];
+  await relCall({ op: "status" }, paired(st), up);
+  assert.strictEqual(relLast(st).state, "newer");
+});
+relTest("release: Download Update puts the release's two files on the card, then the screen asks Install", async () => {
+  const up = relMedia();
+  const asked = relStub(relGitHub("v0.5.1"));
+  const screen = [];
+  ctx.DLZMOD_updateNoteSend.screen = sendTo(screen);
+  const s = [];
+  await relCall({ op: "download" }, paired(s), up);
+  assert.deepStrictEqual(s.map((m) => m.data.state), ["downloading", "done"]);
+  assert.strictEqual(relLast(s).error, "");
+  assert.deepStrictEqual(asked, [API, REL_DL + "v0.5.1/dlzmod-v0.5.1.tar.sig", REL_DL + "v0.5.1/dlzmod-v0.5.1.tar"],
+    "the release checked again, its own addresses");
+  assert.deepStrictEqual(ls(up.dir), ["dlzmod-v0.5.1.tar", "dlzmod-v0.5.1.tar.sig"]);
+  assert.ok(fs.readFileSync(path.join(up.dir, "dlzmod-v0.5.1.tar")).equals(REL_TAR));
+  assert.ok(fs.readFileSync(path.join(up.dir, "dlzmod-v0.5.1.tar.sig")).equals(REL_SIG));
+  const sum = require("crypto").createHash("sha256").update(Buffer.concat([REL_TAR, REL_SIG])).digest("hex");
+  assert.strictEqual(fs.readFileSync(path.join(up.state, "pending"), "utf8"), sum + " v0.5.1\n");
+  assert.deepStrictEqual(screen.find((m) => m.cmd === "DLZMOD_UPDATE_ASK").data, { sum: sum, version: "v0.5.1", approved: false });
+  assert.ok(!fs.existsSync(path.join(up.state, "approved")), "Install stays the screen's");
+  assert.ok(!ctx.DLZMOD_updateUpload.running);
+  assert.deepStrictEqual(up.remounts, [["/usr/bin/mount", "-o", "remount,rw", up.root]]);
+});
+relTest("release: a download that does not fit leaves nothing; refused while busy", async () => {
+  const fails = [
+    [{ tarHeaders: { "content-length": "499" } }, "The download did not finish. Nothing was kept."],
+    [{ sig: Buffer.alloc(63) }, "The download did not finish. Nothing was kept."],
+    [{ sig: Buffer.alloc(65) }, "The download did not finish. Nothing was kept."],
+  ];
+  for (const [o, text] of fails) {
+    const up = relMedia();
+    relStub(relGitHub("v0.5.1", o));
+    const s = [];
+    await relCall({ op: "download" }, sendTo(s), up);
+    assert.deepStrictEqual([relLast(s).state, relLast(s).error], ["error", text], JSON.stringify(o));
+    assert.deepStrictEqual(ls(up.dir).filter((f) => !f.startsWith(".")), [], "nothing kept");
+    assert.ok(!fs.existsSync(path.join(up.state, "pending")));
+    assert.ok(!ctx.DLZMOD_updateUpload.running);
+  }
+  // fewer bytes than announced (the connection went away)
+  const short = relMedia();
+  relStub(relGitHub("v0.5.1", { tar: REL_TAR.subarray(0, 100), tarHeaders: { "content-length": String(REL_TAR.length) } }));
+  const s1 = [];
+  await relCall({ op: "download" }, sendTo(s1), short);
+  assert.ok(s1.length, "an answer when cut off");
+  assert.strictEqual(relLast(s1).error, "The download did not finish. Nothing was kept.");
+  assert.deepStrictEqual(ls(short.dir), []);
+  // in the meantime the card got the version: nothing downloaded
+  const now = relMedia("v0.5.1");
+  const asked = relStub(relGitHub("v0.5.1"));
+  const s2 = [];
+  await relCall({ op: "download" }, sendTo(s2), now);
+  assert.ok(s2.length, "an answer when current");
+  assert.strictEqual(relLast(s2).state, "current");
+  assert.deepStrictEqual(asked, [API]);
+  // busy: a recording, an unfinished update, an upload, no SD card
+  const busy = relMedia();
+  relStub(relGitHub("v0.5.1"));
+  const cases = [
+    [() => (ctx.getDataKey = (k) => (k === "recState" ? 2 : undefined)), /busy with a recording/],
+    [() => fs.writeFileSync(path.join(busy.state, "inprogress"), "abc\n"), /did not finish\. Switch the mixer off and on first/],
+    [() => (ctx.DLZMOD_updateUpload.running = true), /being sent to the mixer/],
+  ];
+  for (const [set, text] of cases) {
+    set();
+    const s = [];
+    await ctx.DLZMOD_release({ op: "download" }, sendTo(s), { state: busy.state, root: () => busy.root, mounts: busy.mounts });
+    assert.ok(s.length, "an answer: " + text);
+    assert.match(relLast(s).error, text);
+    assert.deepStrictEqual(ls(busy.dir), []);
+    ctx.getDataKey = () => undefined;
+    fs.rmSync(path.join(busy.state, "inprogress"), { force: true });
+    ctx.DLZMOD_updateUpload.running = false;
+  }
+  const s3 = [];
+  await ctx.DLZMOD_release({ op: "download" }, sendTo(s3), { state: busy.state, root: () => "-", mounts: busy.mounts });
+  assert.match(relLast(s3).error, /does not see its SD card/);
+});
+relTest("release: the check by itself: on unless turned off, 5 minutes after the internet clock, then every 6 hours", async () => {
+  const up = relMedia();
+  relStub(relGitHub("v0.5.1"));
+  const screen = [];
+  ctx.DLZMOD_updateNoteSend.screen = sendTo(screen);
+  let t = 1000000;
+  const tickAt = (run) => ctx.DLZMOD_releaseTick({ now: () => t, run: run.run, state: up.state });
+  clockReset();
+  assert.strictEqual(await tickAt(clockRun()), "offline", "the clock not from the internet yet");
+  clockReset();
+  const online = clockRun({ leap: "Normal" });
+  assert.strictEqual(await tickAt(online), "soon");
+  t += 4 * 60000;
+  assert.strictEqual(await tickAt(online), "soon");
+  t += 61000;
+  assert.strictEqual(await tickAt(online), "checked");
+  assert.strictEqual(relLast(screen).state, "newer", "the screen hears of it");
+  t += 5 * 3600000;
+  assert.strictEqual(await tickAt(online), "later");
+  t += 3600000;
+  assert.strictEqual(await tickAt(online), "checked", "6 hours on");
+  // a failed check: again after 1 hour
+  relStub({});
+  t += 6 * 3600000;
+  assert.strictEqual(await tickAt(online), "checked");
+  assert.strictEqual(relLast(screen).state, "error");
+  t += 3600000;
+  assert.strictEqual(await tickAt(online), "checked");
+  // turned off on the Mod page; while recording
+  ctx.getDataKey = (k) => (k === "dlzmod.updateAuto" ? 0 : undefined);
+  t += 7 * 3600000;
+  assert.strictEqual(await tickAt(online), "off");
+  ctx.getDataKey = (k) => (k === "recState" ? 2 : k === "dlzmod.updateAuto" ? 1 : undefined);
+  assert.strictEqual(await tickAt(online), "busy");
+  clockReset();
+});
+relTest("release: while it downloads it stays \"downloading\"; a second Download or a Check only gets that", async () => {
+  const up = relMedia();
+  let release;
+  const held = new Promise((r) => (release = r));
+  // the package comes in only when released
+  const table = relGitHub("v0.5.1");
+  table[REL_DL + "v0.5.1/dlzmod-v0.5.1.tar"] = () => Object.assign(require("stream").Readable.from((async function* () {
+    await held;
+    yield REL_TAR;
+  })()), { statusCode: 200, headers: { "content-length": String(REL_TAR.length) } });
+  const asked = relStub(table);
+  const s = [];
+  const first = ctx.DLZMOD_release({ op: "download" }, sendTo(s), { state: up.state, root: () => up.root, mounts: up.mounts });
+  try {
+    await tick(30);
+    assert.deepStrictEqual(s.map((m) => m.data.state), ["downloading"]);
+    assert.strictEqual(ctx.DLZMOD_rel().state, "downloading", "also after its own re-check of the release");
+    const s2 = [];
+    await ctx.DLZMOD_release({ op: "download" }, paired(s2), { state: up.state, root: () => up.root, mounts: up.mounts });
+    await ctx.DLZMOD_release({ op: "check" }, paired(s2), { state: up.state });
+    assert.deepStrictEqual(s2.map((m) => m.data.state), ["downloading", "downloading"]);
+    assert.strictEqual(asked.filter((u) => u === API).length, 1, "no second request to GitHub");
+  } finally {
+    // (the download always ends here: its timers must not outlive the test)
+    release();
+    await first;
+    await tick(20);
+    clearTimeout(ctx.DLZMOD_roLater.timer);
+  }
+  assert.strictEqual(relLast(s).state, "done");
+  assert.deepStrictEqual(ls(up.dir), ["dlzmod-v0.5.1.tar", "dlzmod-v0.5.1.tar.sig"]);
+  // on the card, waiting for Install: the check by itself leaves it alone
+  const online = clockRun({ leap: "Normal" });
+  clockReset();
+  ctx.DLZMOD_releaseWatch.online = 1;
+  assert.strictEqual(await ctx.DLZMOD_releaseTick({ now: () => 1e9, run: online.run, state: up.state }), "done");
+  assert.strictEqual(ctx.DLZMOD_rel().state, "done");
+  clockReset();
+});
+relTest("release: a card that does not say its version is never told \"up to date\"", async () => {
+  const up = upMedia();   // no version, no installed
+  relStub(relGitHub("v0.5.1"));
+  const s = [];
+  await relCall({ op: "check" }, sendTo(s), up);
+  assert.deepStrictEqual([relLast(s).state, relLast(s).error],
+    ["error", "This card does not say which mod version it has.\nCopy the update to the card by hand."]);
 });
 test("update upload: a failure after the old update files are removed leaves no update files at all", async () => {
   const up = upMedia();

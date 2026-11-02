@@ -35,6 +35,19 @@ Object.assign(Widget.prototype, {
   geomCenterY() {
     return 0;
   },
+  // Mackie's: a null keeps that value
+  setGeometry(x, y, w, h) {
+    if (x !== null) this.x = x;
+    if (y !== null) this.y = y;
+    if (w !== null) this.w = w;
+    if (h !== null) this.h = h;
+  },
+  // Mackie's: left and top place it (right, bottom and centring not used here)
+  setAnchors(left, top) {
+    this.anchors = [left, top];
+    this.x = left;
+    this.y = top;
+  },
   // the foreground layer; as Mackie's, without a second argument the widget also joins the UI's modal
   // widgets (its parent's mWidgets here), and destroy takes it out again
   setOverlay(v, child) {
@@ -520,7 +533,7 @@ test("header: hidden or shown at once, but not on full-screen pages; saved setti
   ctx.DLZMOD_initKeys();
   assert.deepStrictEqual(ctx.Data.data, { "dlzmod.hideHeader": 1, "dlzmod.meterMode": 0, "dlzmod.preColor": 0,
     "dlzmod.preLevel": 0, "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0,
-    "dlzmod.recDate": 0, "dlzmod.spectrum": 1, "dlzmod.rta": 0 });
+    "dlzmod.recDate": 0, "dlzmod.spectrum": 1, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "" });
 });
 
 // #14: the date and time switch on Settings, Recording / Routing
@@ -677,7 +690,7 @@ test("Mod page: Display, Colors, Time, Network, Remote and Mod on the mixer; Dis
     ctx.EXTERNAL = false;
   }
 });
-test("Mod page: a tab shows its own panels; Time, Network and Remote ask for the status; leaving Remote hides the PIN", () => {
+test("Mod page: a tab shows its own panels; Time, Network, Remote and Mod ask for the status; leaving Remote hides the PIN", () => {
   reset();
   settings();
   const pg = settingsPage();
@@ -685,8 +698,9 @@ test("Mod page: a tab shows its own panels; Time, Network and Remote ask for the
   assert.deepStrictEqual(shown(), ["screen", "meters"], "Display first");
   assert.deepStrictEqual(ui.cmds, []);
   const net = [["DLZMOD_NET", { op: "status" }]], time = [["DLZMOD_TIME", { op: "status" }]];
+  const rel = [["DLZMOD_RELEASE", { op: "status" }]];
   for (const [i, panels, asks] of [[1, ["colours"], []], [2, ["time"], time], [3, ["network"], net], [4, ["pair"], net],
-    [5, ["about"], []], [0, ["screen", "meters"], []]]) {
+    [5, ["about"], rel], [0, ["screen", "meters"], []]]) {
     ui.cmds.length = 0;
     pg.tabs[i].onToggleON();
     assert.deepStrictEqual(shown(), panels, "tab " + i);
@@ -700,7 +714,8 @@ test("Mod page: a tab shows its own panels; Time, Network and Remote ask for the
   ui.cmds.length = 0;
   pg.onShow();
   assert.strictEqual(pg.pair.shown, false, "coming back to the page: hidden");
-  assert.deepStrictEqual(ui.cmds, [["DLZMOD_NET", { op: "status" }], ["DLZMOD_TIME", { op: "status" }]]);
+  assert.deepStrictEqual(ui.cmds, [["DLZMOD_NET", { op: "status" }], ["DLZMOD_TIME", { op: "status" }],
+    ["DLZMOD_RELEASE", { op: "status" }]]);
 });
 test("Mod page: header and meter marks follow a change from any screen; the before-fader rows only with Both", () => {
   reset();
@@ -874,6 +889,186 @@ test("update popups: the Mod page's Updates row and Install button follow the se
   } finally {
     ctx.app = undefined;
     ctx.DLZMOD_setUpdateStatus(null);
+  }
+});
+
+// #55: Check for Updates / Download Update (dlzmod-server.js, DLZMOD_release)
+const REL = { state: "newer", installed: "v0.5.0", version: "v0.5.1", size: 1200000, summary: "Recordings are merged.",
+  notes: "Recordings are merged.\n\n• one", error: "" };
+const relPage = (o = {}) => {
+  reset();
+  settings(o.data || {});
+  ctx.EXTERNAL = !!o.external;
+  ctx.DLZMOD_setRelease.s = undefined;
+  ctx.DLZMOD_setRelease.asked = "";
+  ctx.DLZMOD_dot.all = [];
+  const pg = settingsPage();
+  ctx.app = { pageSettings: { dlzmod: pg } };
+  return pg;
+};
+const relDone = () => {
+  ctx.app = undefined;
+  ctx.EXTERNAL = false;
+  ctx.DLZMOD_setRelease.s = undefined;
+  ctx.DLZMOD_setRelease.asked = "";
+  ctx.DLZMOD_dot.all = [];
+  ctx.DLZMOD_setUpdateStatus(null);
+};
+test("release: the Updates row and the left button follow what the check found", () => {
+  const pg = relPage();
+  try {
+    const COPY = "Copy the update's .tar and .sig to DLZDATA/dlzmod-update";
+    for (const [s, text, color, button] of [
+      [{}, COPY, null, "Check for Updates..."],
+      [{ state: "checking" }, "Looking for a new version on GitHub...", null, "Check for Updates..."],
+      [REL, "v0.5.1 is available (1.2 MB)", "#FFD600", "Download Update..."],
+      [Object.assign({}, REL, { state: "downloading" }), "Downloading v0.5.1...", "#FFD600", "Check for Updates..."],
+      [Object.assign({}, REL, { state: "full" }), "v0.5.1 is out: it needs a full install with the installer image", "#FFD600",
+        "Check for Updates..."],
+      [{ state: "current", version: "v0.5.0" }, "Up to date: v0.5.0 is the latest release", null, "Check for Updates..."],
+      [{ state: "error", error: "No answer from GitHub. Is the mixer online?" }, "No answer from GitHub. Is the mixer online?", "red2",
+        "Check for Updates..."],
+    ]) {
+      ctx.DLZMOD_setRelease(s);
+      assert.deepStrictEqual(plain(ctx.DLZMOD_updateRow()), [text, color], JSON.stringify(s));
+      assert.strictEqual(pg.about.check.text, button, JSON.stringify(s));
+    }
+    // an update already on the card comes first, and Download gives way to it
+    ctx.DLZMOD_setRelease(REL);
+    ctx.DLZMOD_setUpdateStatus({ pending: { sum: "abc", version: "v0.5.1" }, local: true });
+    assert.deepStrictEqual(plain(ctx.DLZMOD_updateRow()), ["Update v0.5.1 is on the card", "#FFD600"]);
+    assert.strictEqual(pg.about.check.text, "Check for Updates...");
+    // the buttons shown side by side in the middle: Check and Install here
+    assert.deepStrictEqual([pg.about.check.x, pg.about.install.x], [(914 - 616) / 2 | 0, ((914 - 616) / 2 | 0) + 316]);
+    ctx.DLZMOD_setUpdateStatus({});
+    assert.strictEqual(pg.about.check.x, (914 - 300) / 2 | 0, "Check alone: in the middle");
+    assert.ok(pg.about.auto, "the switch for the check by itself");
+    assert.strictEqual(pg.about.auto.key, "dlzmod.updateAuto");
+  } finally {
+    relDone();
+  }
+});
+test("release: Check asks the server; its answer: the question, a message or a short note", () => {
+  const pg = relPage();
+  try {
+    pg.about.check.onPress();
+    assert.deepStrictEqual(ui.cmds.at(-1), ["DLZMOD_RELEASE", { op: "check" }]);
+    ctx.DLZMOD_setRelease({ state: "checking" });
+    assert.strictEqual(ui.popups.length, 0, "nothing while it checks");
+    ctx.DLZMOD_setRelease(REL);
+    assert.strictEqual(ui.popups.length, 1, "a new version: Download's question");
+    const q = ui.popups[0];
+    assert.strictEqual(q.opts.title, "DLZ Creator Modded update");
+    assert.deepStrictEqual(plain(q.opts.buttons.map((b) => b.text)), ["Download", "What's New", "Later"]);
+    // Download on the question
+    const fake = { parent: { destroy() {
+      this.gone = true;
+    } } };
+    q.opts.buttons[0].onPress.call(fake);
+    assert.ok(fake.parent.gone);
+    assert.deepStrictEqual(ui.cmds.at(-1), ["DLZMOD_RELEASE", { op: "download" }]);
+    ctx.DLZMOD_setRelease(Object.assign({}, REL, { state: "downloading" }));
+    ctx.DLZMOD_setRelease(Object.assign({}, REL, { state: "done" }));
+    assert.strictEqual(ui.popups.length, 1, "on the mixer's screen the server asks Install itself");
+    // the button on a found version opens the question without a new check
+    ctx.DLZMOD_setRelease(REL);
+    ui.cmds.length = 0;
+    pg.about.check.onPress();
+    assert.strictEqual(ui.popups.length, 2);
+    assert.deepStrictEqual(ui.cmds, []);
+    // other answers to a check
+    for (const [s, kind, text] of [
+      [{ state: "current", installed: "v0.5.0", version: "v0.5.0" }, "message", "Up to date: v0.5.0\nThe latest release is v0.5.0."],
+      [{ state: "current", installed: "", version: "v0.4.0" }, "message", "Up to date\nThe latest release is v0.4.0."],
+      [{ state: "none" }, "message", "There is no release on GitHub yet."],
+      [{ state: "error", error: "GitHub asks to wait (too many checks from this network)" }, "message",
+        "GitHub asks to wait (too many checks from this network)"],
+      [Object.assign({}, REL, { state: "full" }), "message",
+        "v0.5.1 is out, but it needs a full install with the installer image:\nsee its release notes on GitHub."],
+    ]) {
+      ui.popups.length = 0;
+      ui.toasts.length = 0;
+      ctx.DLZMOD_setRelease({});
+      ctx.DLZMOD_releaseSend("check");
+      ctx.DLZMOD_setRelease(s);
+      if (kind === "toast") assert.deepStrictEqual(ui.toasts, [text], JSON.stringify(s));
+      else assert.deepStrictEqual(ui.popups.map((p) => p.text), [text], JSON.stringify(s));
+    }
+    // the check by itself (nobody asked): no popup, only the row
+    ui.popups.length = 0;
+    ctx.DLZMOD_setRelease(REL);
+    assert.strictEqual(ui.popups.length, 0);
+  } finally {
+    relDone();
+  }
+});
+test("release: a spinner while this page's check or download runs, closed by its answer", () => {
+  relPage();
+  try {
+    ui.progress.length = 0;
+    ui.popups.length = 0;
+    ctx.DLZMOD_setRelease({});
+    ctx.DLZMOD_releaseSend("check");
+    assert.strictEqual(ui.progress.length, 1);
+    assert.strictEqual(ui.progress[0].text, "Checking for updates…");
+    ctx.DLZMOD_setRelease({ state: "checking" });
+    assert.ok(!ui.progress[0].closed, "still checking: the spinner stays");
+    ctx.DLZMOD_setRelease(REL);
+    assert.ok(ui.progress[0].closed);
+    assert.strictEqual(ui.popups.length, 1, "the answer: the question");
+    ctx.DLZMOD_releaseSend("download");
+    assert.strictEqual(ui.progress[1].text, "Downloading v0.5.1…");
+    ctx.DLZMOD_setRelease(Object.assign({}, REL, { state: "done" }));
+    assert.ok(ui.progress[1].closed);
+  } finally {
+    ctx.DLZMOD_relIdle();
+    relDone();
+  }
+});
+test("release: in a browser the download's end says where Install is", () => {
+  relPage({ external: true });
+  try {
+    ctx.DLZMOD_releaseSend("download");
+    ctx.DLZMOD_setRelease(Object.assign({}, REL, { state: "done" }));
+    assert.deepStrictEqual(ui.popups.map((p) => p.text),
+      ["v0.5.1 is on the mixer's card.\nTap Install on the mixer's screen, then switch the mixer off and on."]);
+    ui.popups.length = 0;
+    ctx.DLZMOD_releaseSend("download");
+    ctx.DLZMOD_setRelease(Object.assign({}, REL, { state: "done", error: "This same update failed on this mixer before" }));
+    assert.deepStrictEqual(ui.popups.map((p) => p.text), ["This same update failed on this mixer before"]);
+  } finally {
+    relDone();
+  }
+});
+test("release: a dot on the Mod tab while a new version is out that the Mod page has not shown yet", () => {
+  const pg = relPage();
+  try {
+    const dots = () => ctx.DLZMOD_dot.all.map((d) => d.visible);
+    assert.ok(ctx.DLZMOD_dot.all.length >= 1, "the Mod sub-tab has one");
+    assert.ok(dots().every((v) => !v), "none at first");
+    pg.tabs[0].onToggleON();   // on another sub-tab
+    ctx.DLZMOD_setRelease(REL);
+    assert.ok(dots().every((v) => v), "a new version: shown");
+    pg.tabs[5].onToggleON();   // the Mod page shows it
+    assert.deepStrictEqual(ui.sets.at(-1), ["dlzmod.updateSeen", "v0.5.1"]);
+    assert.ok(dots().every((v) => !v), "seen: gone");
+    pg.tabs[0].onToggleON();
+    ctx.DLZMOD_setRelease(REL);
+    assert.ok(dots().every((v) => !v), "the same version: stays gone");
+    ctx.DLZMOD_setRelease(Object.assign({}, REL, { version: "v0.5.2" }));
+    assert.ok(dots().every((v) => v), "the next one: back");
+    ctx.DLZMOD_setRelease({ state: "current", version: "v0.5.2" });
+    assert.ok(dots().every((v) => !v), "installed: gone");
+  } finally {
+    relDone();
+  }
+  // a browser has no dots
+  relPage({ external: true });
+  try {
+    ctx.DLZMOD_setRelease(REL);
+    assert.ok(ctx.DLZMOD_dot.all.every((d) => !d.visible));
+  } finally {
+    relDone();
   }
 });
 

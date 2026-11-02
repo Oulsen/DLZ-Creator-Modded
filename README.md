@@ -51,8 +51,10 @@ below. They all start as stock: turn on what you want.
 
 ### Updates and safety
 
-- Update the mod without losing recordings or settings: copy the update to the card, or send it
-  from a paired computer *(Mod)*
+- Update the mod without losing recordings or settings: copy the update to the card, send it
+  from a paired computer, or let the mixer download it *(Mod)*
+- Looks for a new version by itself every few hours and shows a small dot on the cogwheel; only
+  GitHub's latest-release request leaves the mixer, and it can be turned off *(Mod)*
 - An update installs only after you tap Install on the mixer's own screen
 - Updates are signed; if a signing key ever leaks, an update withdraws it and the mixer refuses
   anything signed with it
