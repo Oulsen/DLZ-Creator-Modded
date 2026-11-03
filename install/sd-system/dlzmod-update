@@ -218,10 +218,14 @@ finish() {   # the report next to the other logs, then DLZDATA released
   # install would otherwise only flash it): the rest is waited here, with the report written and
   # DLZDATA released; Weston and the mixer software start after this step. Not when stopped (on_term
   # clears SHOW_FROM) and not after a refusal or a "later" (no reason to hold "installing update..."
-  # up then). Then the spinner stops; its last frame stays until Weston takes the display
+  # up then); those stop the screen here, its last frame stays until Weston takes the display. After an
+  # install the screen keeps running: removing SHOW_DIR tells it to switch to "update installed" /
+  # "starting the mixer..." (--then-when-gone), which it keeps drawing over the console clear of
+  # Weston's chvt until Weston takes the display, and it ends by itself (--then-timeout, 20 s)
   if [ -n "$SHOW_FROM" ] && [ "$SHOW_HOLD" = yes ]; then
     local left=$(( SHOW_FROM + SHOW_MIN - $(uptime_s) ))
     [ "$left" -le 0 ] || sleep "$left"
+    SHOW_PID=""
   fi
   if [ -n "$SHOW_PID" ]; then kill "$SHOW_PID" 2>/dev/null; wait "$SHOW_PID" 2>/dev/null || true; fi
   [ -z "$SHOW_DIR" ] || rm -rf "$SHOW_DIR"
@@ -688,7 +692,8 @@ wait_for_approval() {
 # by the checked package's own ui.py and glyphs (signed, like its check-rootfs.sh above), copied to
 # a folder of their own (WORK goes before the screen does), on the live system only. In the background
 # and never a reason to stop: the install does not wait for it, and a draw that fails leaves the logo,
-# as before. finish keeps it at least SHOW_MIN, then stops the spinner. An update installed by an
+# as before. finish keeps it at least SHOW_MIN; after an install it then says "starting the mixer..."
+# until Weston takes over, otherwise it stops. An update installed by an
 # updater from before this one, or with Weston already up, shows the logo as before.
 show_installing() {
   local ui=$WORK/root/pkg/ui label
@@ -709,7 +714,8 @@ show_installing() {
     exec nice -n 10 timeout 330 python3 -I -B "$SHOW_DIR/ui.py" --touch none --glyphs "$SHOW_DIR/glyphs.bin" splash \
       --bootsplash-off /sys/devices/platform/bootsplash.0/enabled --background "$SHOW_DIR/background.raw" \
       --line "ok|update $label checked" --line "wait|installing update..." --warning "Do not switch off" \
-      --hint "the mixer starts by itself when the update is done"
+      --hint "the mixer starts by itself when the update is done" \
+      --then-when-gone "$SHOW_DIR" --then-line "ok|update $label installed" --then-line "wait|starting the mixer..."
   ) < /dev/null > /dev/null 2>&1 &
   SHOW_PID=$! SHOW_FROM=$(uptime_s)
 }
