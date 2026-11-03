@@ -66,6 +66,13 @@ install_sd_system() {
   else
     echo "early-start drop-ins: this card's updater does not know them yet, its new copy places them at the next start"
   fi
+  # #96: Weston after the update step, so the screen keeps the update's message; left out, like the
+  # drop-ins above, when the card's updater does not allow it yet (the ones from before v0.3.0)
+  if [ ! -f "$MNT/usr/local/sbin/dlzmod-update" ] || grep -qF 'weston-mackie.service.d:dlzmod.conf' "$MNT/usr/local/sbin/dlzmod-update"; then
+    put_file 644 "$s/weston-mackie.service.d/dlzmod.conf" "$MNT/etc/systemd/system/weston-mackie.service.d/dlzmod.conf"
+  else
+    echo "Weston drop-in: this card's updater does not allow it yet, it comes with the next update"
+  fi
   # dspserver waits for server.js before starting (dlzmod-wait-hub, its drop-in above)
   for f in dlzmod-grow-data dlzmod-bootlog dlzmod-bootreport dlzmod-clock dlzmod-wait-hub dlzmod-netlog dlzmod-glesgui; do
     put_file 755 "$s/$f" "$MNT/usr/local/sbin/$f"

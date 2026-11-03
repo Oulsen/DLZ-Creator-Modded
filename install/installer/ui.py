@@ -12,6 +12,11 @@ Commands:
                               (1 = the screen itself failed)
   screen [options]            draw one screen; with --button, wait for a tap and print the button id
                               ("timeout" after --timeout seconds)
+  splash [options]            not the installer's: the drop-in update's screen (#96, dlzmod-update) in
+                              the start screens' layout (--background, --line ok|wait, --warning,
+                              --hint); the spinner turns until SIGTERM or --timeout; with
+                              --then-when-gone PATH it switches to the --then-line lines once PATH
+                              is gone and stops --then-timeout seconds later
 Screen options:
   --banner TEXT               yellow line above the title (e.g. DRY RUN)
   --title TEXT                green title
@@ -527,6 +532,89 @@ def serve(scr, glyphs, a):
     print(f"serve: {n} screens, {spent:.2f} s drawing", file=sys.stderr)
 
 
+DONE_GREEN = (31, 166, 72)
+
+
+def splash_draw(scr, glyphs, a):
+    """The start screens' layout (mklayers.py, scaled to the screen): a picture on top (a card's
+    /etc/dlz.png as raw BGRX, upright, the screen's size: its logo group), status lines below it in
+    the picture box's line slots, a grey hint at the bottom. The "wait" line gets the spinner."""
+    W, H = scr.w, scr.h
+    k = H / 600
+    scr.rect(0, 0, W, H, BG)
+    scr.spin_at = None
+    if a.background:
+        if getattr(a, "background_data", None) is None:   # read once: its folder may be gone at a redraw
+            try:
+                a.background_data = open(a.background, "rb").read()
+            except OSError:
+                a.background_data = b""
+        data = a.background_data
+        if len(data) == W * H * 4:   # another size (or none): the lines alone, on black
+            scr.picture(0, 0, W, [data[r * W * 4:(r + 1) * W * 4] for r in range(H)])
+    body, small = glyphs.fit(H // 20), glyphs.fit(H // 30)
+    cw, ch = body["w"], body["h"]
+    prefix = round(30 * k)
+    room = (W - prefix) // cw - 2   # a long label (a dev build's) is cut, never drawn off the screen
+    lines = [(l.partition("|")[0], l.partition("|")[2][:room]) for l in (a.line or [])]
+    block = prefix + max((len(t) for _, t in lines), default=0) * cw
+    x = (W - block) // 2
+    top = (H - round(260 * k)) // 2 + round(206 * k)
+    for i, (state, text) in enumerate(lines):
+        y = top + round(36 * k) * i + (round(36 * k) - ch) // 2
+        if state == "wait":
+            scr.spin_at = (x - ch // 4, y, ch, ch)
+            scr.text(glyphs, body, x + prefix, y, text, GREEN)
+        else:
+            scr.text(glyphs, body, x, y, "✓", YELLOW)
+            scr.text(glyphs, body, x + prefix, y, text, DONE_GREEN)
+    # below the lines: the warning in yellow at the lines' size, the hint in grey under it
+    y = top + round(36 * k) * len(lines) + round(36 * k)
+    if a.warning:
+        warn = a.warning[:W // cw]
+        scr.text(glyphs, body, (W - len(warn) * cw) // 2, y, warn, YELLOW)
+        y += ch + ch // 3
+    if a.hint:
+        hint = a.hint[:W // small["w"]]
+        scr.text(glyphs, small, (W - len(hint) * small["w"]) // 2, y, hint, GREY)
+
+
+def splash(scr, glyphs, a):
+    """Draw the splash, then turn its spinner until stopped (SIGTERM) or --timeout seconds."""
+    splash_draw(scr, glyphs, a)
+    spinner(scr, 0)
+    if a.bootsplash_off:   # only now, with the frame ready: a failure before this leaves the logo
+        try:
+            with open(a.bootsplash_off, "w") as f:
+                f.write("off")
+        except OSError:
+            pass
+    scr.present()
+    # the whole frame again at every step for the first seconds, then every second: turning the
+    # bootsplash off makes the kernel clear the screen a moment later (seen on the device: only the
+    # spinner's rows came back, up to a second later the rest), and so may anything else
+    end = None if a.timeout is None else time.monotonic() + a.timeout
+    full = time.monotonic()
+    every_step_until = full + 3
+    then = a.then_when_gone
+    while end is None or time.monotonic() < end:
+        time.sleep(SPIN_STEP)
+        now = time.monotonic()
+        if then and not os.path.exists(then):
+            # the work is done: say what comes next, until the next screen takes over (or the timeout)
+            then = None
+            a.line, a.warning, a.hint = a.then_line or [], None, None
+            splash_draw(scr, glyphs, a)
+            end, full = now + a.then_timeout, now
+        if scr.spin_at:
+            spinner(scr, int(now / SPIN_STEP))
+        if now >= full or now < every_step_until:
+            scr.present()
+            full = now + 1
+        elif scr.spin_at:
+            scr.present_rows(scr.spin_at[1], scr.spin_at[3])
+
+
 def inside(pos, b):
     _, bx, by, bw, bh = b[:5]
     return bx <= pos[0] < bx + bw and by <= pos[1] < by + bh
@@ -565,6 +653,18 @@ def main():
         s.add_argument("--next-title")
         s.add_argument("--next-line", action="append")
         s.add_argument("--next-footer")
+    s = sub.add_parser("splash", help="the start screens' layout with a spinner, until SIGTERM (the drop-in update, #96)")
+    s.add_argument("--background", help="raw BGRX, upright, the screen's size (dlz.png through ffmpeg)")
+    s.add_argument("--line", action="append", help="STATE|TEXT, STATE ok (✓) or wait (the spinner)")
+    s.add_argument("--warning", help="yellow line under the lines, at their size")
+    s.add_argument("--hint", help="grey line under the warning")
+    s.add_argument("--timeout", type=float, help="stop turning after this many seconds")
+    s.add_argument("--bootsplash-off", help="sysfs file the kernel bootsplash is switched off with, "
+                                            "written right before the first frame")
+    s.add_argument("--then-when-gone", metavar="PATH",
+                   help="when PATH is gone: the --then-line lines, no warning or hint, --then-timeout more seconds")
+    s.add_argument("--then-line", action="append", help="STATE|TEXT for the lines after PATH is gone")
+    s.add_argument("--then-timeout", type=float, default=20)
     a = ap.parse_args()
 
     touch_path = find_touch() if a.touch == "auto" else (None if a.touch == "none" else a.touch)
@@ -581,15 +681,22 @@ def main():
 
     glyphs = Glyphs(a.glyphs)
     a.logo_obj = Logo(a.logo) if os.path.exists(a.logo) else None
-    if a.png and a.cmd == "screen":
+    if a.png and a.cmd in ("screen", "splash"):
         signal.alarm(20)   # finish() waits for this: a hang must not keep the last screen away
         w, h = fb_geometry()[:2] if a.fb == "/dev/fb0" else (int(v) for v in a.size.split("x"))
         scr = Screen(bytearray(w * h * 4), w, h, w * 4, 0, 0)
-        a.button = None
-        draw(scr, glyphs, a)
+        if a.cmd == "splash":
+            splash_draw(scr, glyphs, a)
+            spinner(scr, 3)
+        else:
+            a.button = None
+            draw(scr, glyphs, a)
         write_png(scr, a.png)
         return
     scr, f = open_screen(a)
+    if a.cmd == "splash":
+        splash(scr, glyphs, a)
+        return
     if a.cmd == "serve":
         serve(scr, glyphs, a)
         return

@@ -252,12 +252,46 @@ rehearsal: `tests/update.sh` case 3a]:
   gates: it catches a mistake, not a hostile signer).
 - An unseen result popup and a new question can open at the same start, one over the other
   (accepted: rare, both still work).
-- **Not shown during the install**: the screen keeps Weston's background (the logo) meanwhile.
-  Weston and glesgui start in `basic.target`; the updater (a `multi-user` service) starts right
-  after `sysinit.target` and `local-fs.target` since #141, so the kernel bootsplash is on screen at
-  its start and
-  Weston's background takes over during a longer install [static: the units; the screen: guess]. A
-  message during the install: #96.
+- **On the screen during the install** (#96): the start screen's layout: the card's own logo group
+  (`/etc/dlz.png`, rows from 376 of 600 blacked out, made raw BGRX by the card's ffmpeg), then
+  "✓ update vX.Y.Z checked", a turning spinner at "installing update...", "Do not switch off" in
+  yellow and "the mixer starts by itself when the update is done" in grey (`ui.py splash`; its code
+  and glyphs from the checked package's `/pkg/ui/`, signed like its `check-rootfs.sh`, copied to
+  `/run/dlzmod-update-screen.*` because WORK is removed first; no Mackie logo in the package).
+  `show_installing` runs right after the approval gate, before the snapshot, and starts everything
+  in the background (output dropped), so the install never waits for it: ffmpeg (`timeout 20`, one
+  thread; no background: the lines on black), then the splash on `/dev/fb0` (`timeout 330`), which
+  switches the bootsplash `off` itself (`--bootsplash-off /sys/devices/platform/bootsplash.0/enabled`,
+  the value Armbian's own units write) right before its first frame: a python3 that fails before
+  that leaves the logo. The whole frame is drawn again at every spinner step for the first 3 s, then
+  every second, the spinner's rows in between:
+  something (likely the kernel, a moment after the `off`) draws over the first frame [device: with
+  only the spinner's rows redrawn, "installing update..." stayed and the other lines were gone;
+  with a full frame each second, the rest came up to a second after the spinner's line].
+  The job runs at `nice 10` and `oom_score_adj` 500, so with ~120 MB free the
+  OOM killer takes it before the install. After an install (`INSTALLED`), `finish` keeps it on
+  screen at least 9 s from its start (`SHOW_MIN`: ~1 s python start, ~8 s visible, so a fast install
+  does not just flash it; waited after the report is written and DLZDATA released), then removes the
+  screen's folder, which the screen takes as its cue (`--then-when-gone`): "✓ update vX.Y.Z installed",
+  "starting the mixer..." with the spinner, no warning, for 20 s more (`--then-timeout`), the
+  updater no longer waiting for it. Without it, Weston's `chvt 7` cleared the screen to black for
+  ~8 s (install done 25.2 s, Weston on the display ~33 s) [device]; with the full frame each
+  second the clear lasts at most a second, and the screen's writes to fb0 after Weston has the
+  display are not seen. After a refusal or a `later` it stops at once (no reason to hold
+  "installing update..."), and so does a stop signal (`on_term`). Accepted: the package's own
+  `ui.py` runs as root outside the sandbox, like its `check-rootfs.sh` (the signature is the trust
+  boundary; the arguments, the sysfs path among them, are the installed updater's); after a refusal
+  or a stop the last frame stays until Weston takes the display, so a Weston that never comes up
+  leaves that frame instead of the logo (Weston has `Restart=always`). Never in a rehearsal (`DLZMOD_ROOT` or
+  `DLZMOD_DATA` set). Weston waits for the updater (`weston-mackie.service.d/dlzmod.conf`:
+  `After=dlzmod-update.service`), so the message stays until Weston takes the display. That costs a
+  normal start nothing: Weston's first step (`chvt 7`) ends at ~17-19 s however early it starts,
+  and the updater is done at ~12-13 s ([components/glesgui.md](components/glesgui.md), "Weston")
+  [device: spike on the dev card, a test pattern drawn the same way after the bootsplash `off`,
+  mixer view at 26.9-27.3 s with Weston after the updater]. The update that brings this is
+  installed by the card's older updater, without the message (the Weston drop-in applies from the
+  start after it); `apply-mod.sh` leaves the drop-in out when the card's updater does not allow it
+  (those from before v0.3.0).
 
 Accepted: a file that someone else puts on the card still runs its package's `check-rootfs.sh` as
 root at every start while it waits, after the signature check (the signature is the trust boundary,
@@ -334,8 +368,8 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   `usr/local/sbin/dlzmod-*`, `etc/udev/rules.d/*dlzmod*.rules`, `etc/systemd/system/dlzmod-*.service`,
   `ssh.socket`, the `dlzmod.conf` drop-ins of flash-gd32, flash-fpga, upgradedaemon, upgraderun,
   dspserver and ssh, and since v0.3.0 those of glesgui, evolve-node and evolve-app (#140) and of
-  dlzmod-update and dlzmod-grow-data (#141), and of weston-mackie (for #96, no package brings one
-  yet), `dlzmod-*.service` links in `multi-user.target.wants`, and only
+  dlzmod-update and dlzmod-grow-data (#141), and of weston-mackie (#96, since v0.5.0),
+  `dlzmod-*.service` links in `multi-user.target.wants`, and only
   `dlzmod-emmc-ro.service` in `sysinit.target.wants`. Not `boot/boot.scr` (below). Also refused: names
   with a space, newline, quote or glob character; special files; wrongly shaped links; units with
   `DefaultDependencies=no` (only the eMMC lock's own unit has it), and since v0.3.0 drop-ins with it

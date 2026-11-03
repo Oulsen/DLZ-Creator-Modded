@@ -116,7 +116,8 @@ preflight() {
       sd-system/dlzmod-zerocd-eject sd-system/70-dlzmod-wifi-zerocd.rules \
       sd-system/ssh.service.d/dlzmod.conf sd-system/60-dlzmod-emmc-ro.rules keys/release.pub keys/release2.pub keys/dev.pub \
       sd-system/glesgui.service.d/dlzmod.conf sd-system/evolve-node.service.d/dlzmod.conf sd-system/evolve-app.service.d/dlzmod.conf \
-      sd-system/dlzmod-update.service.d/dlzmod.conf sd-system/dlzmod-grow-data.service.d/dlzmod.conf; do
+      sd-system/dlzmod-update.service.d/dlzmod.conf sd-system/dlzmod-grow-data.service.d/dlzmod.conf \
+      sd-system/weston-mackie.service.d/dlzmod.conf; do
     [ -f "$TOOLS/$f" ] || missing="$missing $f"
   done
   [ -n "$missing" ] && die "missing, nothing written:$missing"

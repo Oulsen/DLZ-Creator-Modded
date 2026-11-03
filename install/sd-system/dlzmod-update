@@ -179,6 +179,7 @@ WORK=""
 CHECK_STATE=""
 APPLYING=no
 LOGV=""   # the package's version and build for the report's name, once known (step 1)
+uptime_s() { local u; read -r u _ < /proc/uptime; echo "${u%.*}"; }   # whole seconds since the start (#96)
 finish() {   # the report next to the other logs, then DLZDATA released
   local n name f last
   # a put-back that keeps failing says so once, not at every start: no new report with the same
@@ -213,7 +214,23 @@ finish() {   # the report next to the other logs, then DLZDATA released
   if [ -z "${DLZMOD_DATA:-}" ]; then
     umount "$DATA" && rmdir "$DATA" || echo "dlzmod-update: DLZDATA could not be unmounted"
   fi
+  # #96: after an install, the message stays on screen at least SHOW_MIN seconds from its start (a fast
+  # install would otherwise only flash it): the rest is waited here, with the report written and
+  # DLZDATA released; Weston and the mixer software start after this step. Not when stopped (on_term
+  # clears SHOW_FROM) and not after a refusal or a "later" (no reason to hold "installing update..."
+  # up then); those stop the screen here, its last frame stays until Weston takes the display. After an
+  # install the screen keeps running: removing SHOW_DIR tells it to switch to "update installed" /
+  # "starting the mixer..." (--then-when-gone), which it keeps drawing over the console clear of
+  # Weston's chvt until Weston takes the display, and it ends by itself (--then-timeout, 20 s)
+  if [ -n "$SHOW_FROM" ] && [ "$SHOW_HOLD" = yes ]; then
+    local left=$(( SHOW_FROM + SHOW_MIN - $(uptime_s) ))
+    [ "$left" -le 0 ] || sleep "$left"
+    SHOW_PID=""
+  fi
+  if [ -n "$SHOW_PID" ]; then kill "$SHOW_PID" 2>/dev/null; wait "$SHOW_PID" 2>/dev/null || true; fi
+  [ -z "$SHOW_DIR" ] || rm -rf "$SHOW_DIR"
 }
+SHOW_PID="" SHOW_FROM="" SHOW_DIR="" SHOW_HOLD=no SHOW_MIN=9   # 9 s from the draw's start: ~1 s for python3 to start, ~8 s on screen
 trap finish EXIT
 # #1: the clock just past DLZDATA's newest file (a power-off after the clock saver's last save),
 # while it is mounted read-only and before the mixer software starts; here and not as a unit of its
@@ -323,7 +340,7 @@ later() {
   exit 0
 }
 # systemd's timeout (or a stop) during the apply: put things back first
-on_term() { if [ "$APPLYING" = yes ]; then log "stopped while applying: putting the previous files back"; restore; fi; exit 1; }
+on_term() { SHOW_FROM=""; [ -z "$SHOW_PID" ] || kill "$SHOW_PID" 2>/dev/null; if [ "$APPLYING" = yes ]; then log "stopped while applying: putting the previous files back"; restore; fi; exit 1; }
 trap on_term TERM INT
 
 U=$DATA/dlzmod-update
@@ -619,7 +636,7 @@ for f in apply-mod.sh check-rootfs.sh patch.py modversion.py app-mod/dlzmod.js s
     sd-system/dlzmod-zerocd-eject sd-system/70-dlzmod-wifi-zerocd.rules \
     sd-system/ssh.service.d/dlzmod.conf sd-system/glesgui.service.d/dlzmod.conf sd-system/evolve-node.service.d/dlzmod.conf \
     sd-system/evolve-app.service.d/dlzmod.conf sd-system/dlzmod-update.service.d/dlzmod.conf \
-    sd-system/dlzmod-grow-data.service.d/dlzmod.conf $GUARD_SRC; do
+    sd-system/dlzmod-grow-data.service.d/dlzmod.conf sd-system/weston-mackie.service.d/dlzmod.conf $GUARD_SRC; do
   [ -f "$T/$f" ] || fail "incomplete: $f missing"
 done
 # the new package's own check of this card (its firmware, and the GD32 marker that belongs to its
@@ -646,6 +663,11 @@ if [ -n "$CHECK_ONLY" ]; then log "CHECKS PASSED (checks only: nothing applied)"
 # "pending" holds its record and checked version for the server mod, which asks on the screen; after
 # Install the next start finds "approved" and goes on. No try counted, no report (the question on the
 # screen is the news; only an earlier cut-off try put back below writes one), the package stays.
+pkg_label() {   # named as the installed file names a build ("v0.2.0 (dev-c0e3084)"; a release: "v0.2.0")
+  local label=$NEWV
+  case $(penv BUILD) in ''|release) ;; *) label="$NEWV ($(penv BUILD))" ;; esac
+  printf '%s' "$label" | tr -cd 'A-Za-z0-9._+() -' | cut -c1-60
+}
 wait_for_approval() {
   local label
   # (a different file's cut-off try was put back above, before this file's checks: then the report
@@ -654,16 +676,50 @@ wait_for_approval() {
   else : > "$REPORT"; fi
   # an Install for another file (one replaced since) does not carry over to a later one
   rm -f "$STATE/approved"
-  # named as the installed file names a build ("v0.2.0 (dev-c0e3084)"; a release: "v0.2.0")
-  label=$NEWV
-  case $(penv BUILD) in ''|release) ;; *) label="$NEWV ($(penv BUILD))" ;; esac
-  label=$(printf '%s' "$label" | tr -cd 'A-Za-z0-9._+() -' | cut -c1-60)
+  label=$(pkg_label)
   { echo "$SUM $label" > "$STATE/pending.dlzmod-new" && mv -f "$STATE/pending.dlzmod-new" "$STATE/pending"; } \
     || { rm -f "$STATE/pending.dlzmod-new"; echo "dlzmod-update: the question for the screen could not be written"; }
   echo "dlzmod-update: ${SRC##*/} ($label) waits for Install on the mixer's screen"
   exit 0
 }
 [ "$APPROVED" = yes ] || wait_for_approval
+
+# #96: the screen says so while the update installs, instead of only the logo, so nobody switches the
+# mixer off halfway. Weston takes the display only after this step (its drop-in), so until then the
+# panel shows the framebuffer: the bootsplash off (as Armbian's own units do it), then the start
+# screen's layout (ui.py splash: the logo group of this card's /etc/dlz.png, made raw by its ffmpeg,
+# "update vX.Y.Z checked", a turning spinner at "installing update...", "Do not switch off"), drawn
+# by the checked package's own ui.py and glyphs (signed, like its check-rootfs.sh above), copied to
+# a folder of their own (WORK goes before the screen does), on the live system only. In the background
+# and never a reason to stop: the install does not wait for it, and a draw that fails leaves the logo,
+# as before. finish keeps it at least SHOW_MIN; after an install it then says "starting the mixer..."
+# until Weston takes over, otherwise it stops. An update installed by an
+# updater from before this one, or with Weston already up, shows the logo as before.
+show_installing() {
+  local ui=$WORK/root/pkg/ui label
+  [ -z "$ROOT" ] && [ -z "${DLZMOD_DATA:-}" ] && [ -f "$ui/ui.py" ] && [ -f "$ui/glyphs.bin" ] && [ -c /dev/fb0 ] || return 0
+  SHOW_DIR=$(mktemp -d /run/dlzmod-update-screen.XXXXXX) || { SHOW_DIR=""; return 0; }
+  cp "$ui/ui.py" "$ui/glyphs.bin" "$SHOW_DIR/" || return 0
+  label=$(pkg_label)
+  # all of it in the background, the install never waits: the background first (the logo group only,
+  # the start screen's own status lines and hint from row 376 of 600 blacked out), then the splash,
+  # which switches the bootsplash off itself right before its first frame (a python3 that fails
+  # before that leaves the logo); exec, so SHOW_PID is the timeout that stops it. Light on the ~120 MB
+  # the install also needs: ffmpeg on one thread, the job niced and first in line for the OOM killer
+  (
+    echo 500 > /proc/self/oom_score_adj 2>/dev/null
+    timeout 20 nice -n 10 ffmpeg -nostdin -v error -threads 1 -filter_threads 1 -i /etc/dlz.png \
+      -vf "drawbox=x=0:y=ih*376/600:w=iw:h=ih:color=black:t=fill" \
+      -f rawvideo -pix_fmt bgr0 "$SHOW_DIR/background.raw" || rm -f "$SHOW_DIR/background.raw"
+    exec nice -n 10 timeout 330 python3 -I -B "$SHOW_DIR/ui.py" --touch none --glyphs "$SHOW_DIR/glyphs.bin" splash \
+      --bootsplash-off /sys/devices/platform/bootsplash.0/enabled --background "$SHOW_DIR/background.raw" \
+      --line "ok|update $label checked" --line "wait|installing update..." --warning "Do not switch off" \
+      --hint "the mixer starts by itself when the update is done" \
+      --then-when-gone "$SHOW_DIR" --then-line "ok|update $label installed" --then-line "wait|starting the mixer..."
+  ) < /dev/null > /dev/null 2>&1 &
+  SHOW_PID=$! SHOW_FROM=$(uptime_s)
+}
+show_installing
 
 # 3. snapshot of everything it may change (once per package: a retry after a power cut keeps the one
 # from before the first try), then apply in a subshell run as a plain command (bash ignores set -e
@@ -811,9 +867,10 @@ allowed() {
         glesgui.service.d:dlzmod.conf|evolve-node.service.d:dlzmod.conf|evolve-app.service.d:dlzmod.conf) return 0 ;;
         # (the same for this line)
         dlzmod-update.service.d:dlzmod.conf|dlzmod-grow-data.service.d:dlzmod.conf) return 0 ;;
-        # #96 (the screen during an update): not placed by any package yet; here so that it needs no
-        # full install of its own (stock weston-mackie.service starts early itself, after sysinit.target
-        # and so after the eMMC lock; shape_ok refuses a drop-in that sets DefaultDependencies=no)
+        # #96 (the screen during an update), here since v0.3.0 so that it needs no full install of its
+        # own (stock weston-mackie.service starts early itself, after sysinit.target and so after the
+        # eMMC lock; shape_ok refuses a drop-in that sets DefaultDependencies=no)
+        # (apply-mod.sh greps an installed copy for this line's entry: keep it as written)
         weston-mackie.service.d:dlzmod.conf) return 0 ;;
         multi-user.target.wants:dlzmod-*.service|sysinit.target.wants:dlzmod-emmc-ro.service) return 0 ;;
       esac ;;
@@ -933,6 +990,7 @@ if [ "$rc" = 0 ]; then
   sync
   if writable && rm -f "$SRC" "$SRC.sig"; then del="the update files were deleted"
   else del="the update files could not be deleted (DLZDATA read-only?): remove them on a computer"; fi
+  SHOW_HOLD=yes   # #96: the screen's minimum time (finish)
   log "INSTALLED: $NEWV ($(penv BUILD)); $del. The app, the server, the audio engine and udev rules use it now;"
   log "changed startup units from the next start"
   [ -n "$ROOT" ] || udevadm control --reload 2>/dev/null
