@@ -46,7 +46,9 @@ Bluetooth's +10 dB), `linMul` a linear factor (pan laws), `mute`, `bypass` [stat
 | NDI | **NDIDiscovery**, **NDIInputStereo**, **NDIOutputStereo**, NDIOutputQuad |
 | Debug | Measure |
 
-There is **no limiter** block. `Compressor` goes up to ratio 20, attack 1-500 ms, with dry/wet.
+There is **no limiter** block. `Compressor` goes up to ratio 20, attack 1-500 ms, with dry/wet; the
+mod's limiter on the main out (#59) is one at ratio 20 and 1 ms. `Gate` / `EconomyGate`: threshold
+-40..0 dB, depth -100..0 dB [static, descriptors].
 There is **no analyser** block either: `MaxMeter`/`MinMeter` give a level, and the debug `Measure`
 block appears only commented out in the graph. JUCE's `dsp::FFT` is linked into dspserver, but no
 block exposes it (the only "analysis" in the descriptors is a `Vocoder` parameter) [static]. The
@@ -77,7 +79,7 @@ Unused blocks are available to mods, but their CPU cost on the A40i is unknown.
 | Players 1, 2 (stereo) | `p.0`, `p.1` | `p.0.src`: 0 line 3/4, 1 media player; `p.1.src`: 0 line 5/6, 1 Bluetooth | trim → EQ + HPF → gate/comp → fader → fade → ducking → sends |
 | Virtual 1, 2 (stereo) | `v.0`, `v.1` | `v.N.src`: 0 USB 1/2, 1 USB 3/4, 2 NDI in | same as players |
 | Samples (stereo) | `s` | 48 pad players (8 banks × 6) + preview + 1 kHz censor tone | EQ + HPF → gate/comp → fader → fade → ducking → sends |
-| Master | `m` | sum | 3-band EQ + HPF → compressor → balance (`m.pan`) → delay (`m.delay`) → fader `m.mix`/`m.mute` → master out |
+| Master | `m` | sum | 3-band EQ + HPF → (gate: stock commented out, mod #59) → compressor → balance (`m.pan`) → delay (`m.delay`) → fader `m.mix`/`m.mute` → master out (mod #59: → limiter, on that out only) |
 | Headphones 1, 2 | `a.0`, `a.1` | master, or own mix (`a.N.auxMixMode`: 0 master, 1 own pre-fader mix, 2 own post-fader mix) | level `a.N.mix` |
 | FX returns | `f.0` delay, `f.1` reverb | sends `*.fx.0.value` / `*.fx.1.value` | → master, USB mix-minus, NDI mix-minus |
 
@@ -137,7 +139,8 @@ headphone 1 and 2 mixes.
 
 ## Leftovers and oddities
 
-- Master gate is commented out: `m.gate.*` keys are stored but do nothing.
+- Master gate is commented out: `m.gate.*` keys are stored but do nothing (app.js hides the master's
+  Gate tab, `Strip.haveGate`). The mod switches it on (#59).
 - The compressor's hold parameter is not wired (Mackie's comment there doubts it is in the GUI).
 - Reverb room size/damping mapping is marked by Mackie as still to verify (a TODO comment).
 - A headphone volume line is commented out, with a TODO comment questioning whether it belongs there.
@@ -148,11 +151,16 @@ headphone 1 and 2 mixes.
   `graph-mod/dlzmod-graph.js` (function declarations only: hoisted, so the patched lines can call
   them), keeps a `.orig`; the installer and the update check the anchors first. A changed graph
   needs a `dspserver` restart (audio drops briefly; an update applies at a start). Overwritten by a
-  `dspserver` package update. First user: the EQ spectrum (#131).
+  `dspserver` package update. Users: the EQ spectrum (#131), the master's gate and the limiter on
+  the main out (#59, [../mod.md](../mod.md)).
 - Own state keys work: the hub stores and broadcasts any key, the graph binds to it, and an unset
-  key leaves the block at its default. A Mod page toggle can thus drive a new block.
+  key leaves the block at its default (with several keys in one binding: until all are set). A Mod
+  page toggle can thus drive a new block. Values are in the hub in real units (dB, ms, Hz: e.g.
+  `m.gate.thresh` -45); app.js's widgets work in 0..1 and convert per key (`Data.setKeyConv`,
+  createData's tables) [static].
 - Own meters work the same way: `configureVU` takes any group name and makes a `VU` per name; the
   hub relays the VU message as it is, and app.js reads groups by name (#131: `dlzmod.rta`) [static].
-- Unknowns before the first audio mod: CPU headroom of the DSP thread, and whether the full
-  (non-"Economy") dynamics blocks fit. Test on the device.
-- Candidates that are issues: limiter and gate on the main output (#59), headphone 2 solo and its own computer send (#60), robot voice (#61), a 4th EQ band (#25), a spectrum behind the EQ curve (#131), more sources per strip (#24), reassigning faders (#23).
+- Headroom: answered by Q19 ([dspserver.md](dspserver.md)). Whether the full (non-"Economy")
+  dynamics blocks are cheap enough: the master's `Gate` and the limiter's `Compressor` (#59) are the
+  first; measure on the device.
+- Candidates that are issues: headphone 2 solo and its own computer send (#60), robot voice (#61), a 4th EQ band (#25), more sources per strip (#24), reassigning faders (#23).

@@ -56,3 +56,37 @@ function DLZMOD_rtaAnalyser() {
     {type: 'MaxMeter', vu: meters[k], threshold: VU_THRESHOLD},
   ])]
 }
+
+// #59 the limiter on the main out: a compressor at ratio 20 with a 1 ms attack on the master out's
+// own buffers (masterOuts, right after Mackie copies the mix into them), so the speakers' out is
+// limited and nothing else (headphones, USB, NDI, recordings take the mix before that). Stereo
+// linked (one detector for both sides). Its settings are hub keys of the mod's own (dlzmod.lim.*, in
+// dB and ms like Mackie's; DLZMOD_keys in app-mod/dlzmod.js has their defaults: on, ceiling -1 dB).
+// A binding applies only once all of its keys have a value, until then the block keeps its own
+// default (thresh -20 dB, ratio 1): the ratio needs both keys, so with any of them missing the
+// block keeps ratio 1 and does nothing, never limiting at -20 dB. Meters around it as the VU group
+// dlzmod.lim: in, gain reduction, out.
+function DLZMOD_limMeters() {
+  return ['dlzmodLimIn', 'dlzmodLimGr', 'dlzmodLimOut']
+}
+
+function DLZMOD_limiter(outs) {
+  return [
+    outs[0], {type: 'MaxMeter', vu: 'dlzmodLimIn', threshold: VU_THRESHOLD},
+    outs[1], {type: 'MaxMeter', vu: 'dlzmodLimIn', threshold: VU_THRESHOLD},
+    outs[0],
+    {
+      type: 'Compressor',
+      bypass: `@dlzmod.lim.bypass`,
+      thresh: `@dlzmod.lim.thresh`,
+      ratio: `(@dlzmod.lim.bypass || @dlzmod.lim.thresh > 0) ? 1 : 20`,
+      attack: 1,
+      release: `@dlzmod.lim.release`,
+      knee: 0,
+      vu: 'dlzmodLimGr',
+      right: outs[1],
+    },
+    outs[0], {type: 'MaxMeter', vu: 'dlzmodLimOut', threshold: VU_THRESHOLD},
+    outs[1], {type: 'MaxMeter', vu: 'dlzmodLimOut', threshold: VU_THRESHOLD},
+  ]
+}

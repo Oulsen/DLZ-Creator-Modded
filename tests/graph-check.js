@@ -10,6 +10,8 @@
 //   the app mod gives that channel's EQ page (DLZMOD_rtaCode); the buffer cleared before the first
 //   tap, the analyser after the last; its meters as the VU group dlzmod.rta, with the app's bands
 // - Mackie's VU groups as they were
+// Checks (#59): the master's gate is Mackie's commented-out block, in its place; the limiter sits on
+// the master out only, right after the mix is copied there, and does nothing until its keys are set
 const fs = require("fs");
 const vm = require("vm");
 const assert = require("assert");
@@ -91,7 +93,13 @@ assert.deepStrictEqual(list("DLZMOD_rtaFreqs"), freqs, "the app and the graph ha
 const OWN = new Set(["dlzmodRta", "dlzmodRtaBand"]);
 // a block with a dest writes there (its own buffer is only where it sits), the others their buffer
 const writes = (b) => [b.p.dest ? String(b.p.dest).replace(/^buffer:/, "") : b.buf];
-const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").startsWith("dlzmodRta");
+// #59: the limiter (its meters and compressor, on the master out) and the master's gate (Mackie's
+// own block, commented out in the stock graph) change the master's sound on purpose: checked on
+// their own below, not as the mod's buffers
+const isLim = (b) => String(b.p.vu || "").startsWith("dlzmodLim");
+const isGate = (b) => b.type === "Gate" && b.p.vu === "vuMasterGate";
+const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").startsWith("dlzmodRta")
+  || isLim(b) || isGate(b);
 let fail = 0;
 const check = (ok, what) => {
   console.log((ok ? "ok    " : "FAIL  ") + what);
@@ -112,8 +120,45 @@ for (let i = 0; same && i < theirs.length; i++) {
 }
 check(same, "graph: Mackie's blocks unchanged, in the same order, on the same buffers");
 check(stock.blocks.every((b) => !writes(b).some((w) => OWN.has(w))), "graph: nothing of Mackie's writes the mod's buffers");
-const mine = patched.blocks.filter(ours);
+const mine = patched.blocks.filter((b) => ours(b) && !isLim(b) && !isGate(b));
 check(mine.every((b) => writes(b).every((w) => OWN.has(w))), `graph: the mod's ${mine.length} blocks write only its own buffers`);
+
+// #59 the master's gate: one, Mackie's block as it is commented out, between the master's EQ meter
+// (vuMasterDynIn) and its compressor, on both sides
+const at = (pred) => patched.blocks.findIndex(pred);
+const gates = patched.blocks.filter(isGate), gi = at(isGate);
+const g = gates[0];
+// its neighbours among Mackie's blocks (the EQ spectrum's master tap sits right after that meter)
+const prev = patched.blocks.slice(0, gi).filter((b) => !ours(b)).pop();
+const next = patched.blocks.slice(gi + 1).find((b) => !ours(b));
+check(gates.length === 1 && g.buf === "masterL" && g.p.right === "buffer:masterR"
+  && ["bypass", "thresh", "depth", "attack", "hold", "release"].every((k) => g.p[k] === `@m.gate.${k}`)
+  && prev && prev.type === "MaxMeter" && prev.p.vu === "vuMasterDynIn"
+  && next && next.type === "EconomyCompressor" && next.p.vu === "vuMasterComp",
+"master gate: Mackie's block, m.gate.* keys, after the master's EQ, before its compressor, stereo");
+
+// #59 the limiter: in-meters, the compressor, out-meters on the master out (aout16/aout20), right
+// after Mackie copies the mix there; ratio 20 only once both keys have a value, attack 1 ms
+const lim = patched.blocks.filter(isLim), li = at(isLim);
+const comp = lim.find((b) => b.type === "Compressor");
+const before = patched.blocks[li - 1];
+check(lim.length === 5 && lim.every((b) => b.buf === "aout16" || b.buf === "aout20")
+  && lim.map((b) => b.p.vu).join() === "dlzmodLimIn,dlzmodLimIn,dlzmodLimGr,dlzmodLimOut,dlzmodLimOut"
+  && patched.blocks.slice(li, li + 5).every(isLim)
+  && before.type === "CopyFrom" && before.buf === "aout20" && before.p.src === "buffer:masterR",
+"limiter: meters and compressor on the master out only, right after the mix is copied there");
+check(comp && comp.buf === "aout16" && comp.p.right === "buffer:aout20" && comp.p.attack === 1 && comp.p.knee === 0
+  && comp.p.bypass === "@dlzmod.lim.bypass" && comp.p.thresh === "@dlzmod.lim.thresh"
+  && comp.p.release === "@dlzmod.lim.release"
+  && comp.p.ratio === "(@dlzmod.lim.bypass || @dlzmod.lim.thresh > 0) ? 1 : 20",
+"limiter: stereo linked, 1 ms attack, ratio 20 needs both keys (else the block's own ratio 1)");
+const keys = /function DLZMOD_keys\(\) \{\s*return (\{[^}]*\});/.exec(app);
+const defaults = keys && JSON.parse(keys[1]);
+check(!!defaults && defaults["dlzmod.lim.bypass"] === 0 && defaults["dlzmod.lim.thresh"] === -1
+  && typeof defaults["dlzmod.lim.release"] === "number",
+"limiter: the app mod's defaults have every key it binds (on, ceiling -1 dB, a release)");
+check(JSON.stringify(patched.vus["dlzmod.lim"]) === JSON.stringify(["dlzmodLimIn", "dlzmodLimGr", "dlzmodLimOut"]),
+  "VU group dlzmod.lim: in, gain reduction, out");
 
 // the taps: after which meter, and the channel's code as the app's EQ page has it
 const prefixes = list("DLZMOD_rtaCode");   // the app's list, index + 1 = the code
@@ -162,6 +207,7 @@ const vuOk = JSON.stringify(patched.vus["dlzmod.rta"]) === JSON.stringify(freqs.
 check(vuOk, "VU group dlzmod.rta: one meter per band");
 const rest = Object.assign({}, patched.vus);
 delete rest["dlzmod.rta"];
+delete rest["dlzmod.lim"];
 check(JSON.stringify(rest) === JSON.stringify(stock.vus), `Mackie's ${Object.keys(stock.vus).length} VU groups as they were`);
 
 process.exit(fail);

@@ -224,6 +224,40 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   at once; Mackie's own greys were too dim [sandbox].
 - Open: the DSP thread's cost of the 14 taps and 20 filters [guess: small; measure on the mixer].
 
+## Limiter and gate on the main out (#59)
+
+On the master's channel page (Pro layout; the simple layout has only Setup for the master), the
+Gate tab and the De-Esser tab were greyed out. The Gate tab now opens Mackie's own gate page, and the
+De-Esser tab (the master has no de-esser) becomes a **Limiter** tab. XS only, like #131: the
+full-size's graph is not patched.
+
+- **Gate**: Mackie's `Gate` block for the master, commented out in the stock graph, switched on by
+  removing the comment (patch.py), in Mackie's place: after the master's EQ, before its compressor,
+  stereo. Its keys `m.gate.*` are in every state already (Mackie's defaults: off, so nothing changes
+  until it is switched on), its VU group `m.gate` is in `configureVU`, so the page's meters work
+  without more code. App side: `Strip.haveGate` true for the master, the tab enabled by it [static,
+  sandbox]. The block's threshold goes from -40 to 0 dB, like the channels' `EconomyGateCompressor`
+  gate; the page offers down to -60, also like the channels [static].
+- **Limiter**: a `Compressor` (ratio 20, attack 1 ms, no knee, stereo linked through `right`) on the
+  master out's own buffers (`masterOuts`, `aout[16]/[20]`), right after Mackie copies the mix there
+  (`DLZMOD_limiter`). Only the speakers' out: headphones, USB, NDI, Bluetooth and recordings take the
+  mix earlier. Keys `dlzmod.lim.*` in dB and ms like Mackie's compressor keys; defaults in
+  `DLZMOD_keys` (on, ceiling -1 dB, release 50 ms), written into the state by the install and every
+  update (`set_mod_defaults`) [static]. A binding applies only once all its keys have a value, until
+  then the block keeps its own defaults (threshold -20 dB, ratio 1): the ratio expression uses both
+  keys, so a state without them leaves the block at ratio 1, doing nothing [static; tests/graph-check.js].
+  Meters as the VU group `dlzmod.lim` (in, gain reduction, out). No lookahead: a peak shorter than
+  the attack can pass, so it is a safety net, not a brick wall.
+- **Page** (`DLZMOD_limPage`): Mackie's `PageComp` as a subclass on the `dlzmod.lim.*` keys (its
+  curve widget's `midKey` "lim."), the ratio's handle neither drawn nor moved, no knee, gain or
+  presets; Ceiling and Release on the knobs, the attack shown fixed. The keys' 0..1 screen values go
+  through Mackie's compressor conversions (`Data.setKeyConv`, `DLZMOD_limConv`). The tab text and
+  colour per channel (`DLZMOD_limTab`); a channel picked on that tab gets its De-Esser, the Limiter,
+  or Setup when it has neither, as stock does [sandbox].
+- A factory reset lays Mackie's defaults over the state and keeps keys it does not know, so the
+  limiter's settings survive it [static: server.js `FACTORY_RESET`].
+- Open: the DSP cost of the gate and the limiter [measure on the mixer, `dev/dsp-headroom.sh`].
+
 ## Mod settings (Settings → DLZ Creator Modded)
 
 Sub-tabs Display / Colors / Time / Network / Remote / Mod (a browser: Display / Colors / Time / Mod); layout and how to add a setting:

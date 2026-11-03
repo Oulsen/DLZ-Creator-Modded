@@ -53,16 +53,22 @@ function DLZMOD_layoutTabs(page) {
   if (!page.banks[n].dlzmodDot) page.banks[n].dlzmodDot = DLZMOD_dot(page.banks[n]);
 }
 
-// Mod settings live in the hub state like Mackie's own keys (saved in srv_data.json, cleared by a
-// factory reset). app.js refuses keys its Data store does not know yet ([NOT IN DATA]), so ours
+// Mod settings live in the hub state like Mackie's own keys (saved in srv_data.json; a factory reset
+// lays Mackie's defaults over the state and keeps them). app.js refuses keys its Data store does not
+// know yet ([NOT IN DATA]), so ours
 // are added with their defaults before use; the hub's INIT then brings the saved values. Plain JSON
 // (apply-mod.sh's set_mod_defaults reads it). dlzmod.spectrum: the EQ pages' Spectrum switch (#131),
 // on at first; dlzmod.rta is no setting: the channel the spectrum measures (DLZMOD_rtaMeasure), none
-// at first.
+// at first. dlzmod.lim.*: the limiter on the main out (#59, DLZMOD_limPage), on at first with its
+// ceiling at -1 dB; in dB and ms in the hub like Mackie's compressor keys (the screen's own 0..1
+// values through DLZMOD_limConv). Attack and ratio are fixed (the graph mod's DLZMOD_limiter), here
+// for the page's picture.
 function DLZMOD_keys() {
   return { "dlzmod.hideHeader": 0, "dlzmod.meterMode": 0, "dlzmod.preColor": 0, "dlzmod.preLevel": 0,
     "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0, "dlzmod.recDate": 0,
-    "dlzmod.spectrum": 1, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "" };
+    "dlzmod.spectrum": 1, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "",
+    "dlzmod.lim.bypass": 0, "dlzmod.lim.thresh": -1, "dlzmod.lim.release": 50, "dlzmod.lim.attack": 1,
+    "dlzmod.lim.ratio": 20, "dlzmod.lim.knee": 0 };
 }
 
 // The owner's own colours on top of the theme (#21): the background, and an accent colour for the
@@ -929,7 +935,12 @@ function DLZMOD_rtaPaint(eq, t) {
 }
 
 function DLZMOD_initKeys() {
-  Object.entries(DLZMOD_keys()).forEach(([k, v]) => Data.has(k) || (Data.data[k] = v));
+  DLZMOD_limConv();
+  Object.entries(DLZMOD_keys()).forEach(([k, v]) => {
+    if (Data.has(k)) return;
+    const conv = Data.convIn && Data.convIn[k];   // the hub's unit -> the screen's 0..1
+    Data.data[k] = conv ? conv(v) : v;
+  });
 }
 
 function DLZMOD_headerHidden() {
@@ -2957,4 +2968,132 @@ function DLZMOD_size(bytes) {
     i++;
   }
   return fmt(v) + " " + units[i];
+}
+
+// #59 the limiter on the main out (the graph mod's DLZMOD_limiter). On the master, the channel page's
+// De-Esser tab (the master has no de-esser, so Mackie greys the tab out) is the Limiter tab: Mackie's
+// compressor page with the limiter's keys, its ratio fixed (its handle neither drawn nor moved), no
+// knee, gain or presets. Ceiling (the threshold) and release on the knobs; the attack is fixed.
+function DLZMOD_limName() {
+  return "Limiter";
+}
+
+// The screen's 0..1 values to the hub's dB and ms, as Mackie's own compressor keys (createData's
+// conversions, clamped to 0..1 like there); registered before the keys get their defaults
+function DLZMOD_limConv() {
+  if (typeof Data === "undefined" || typeof Data.setKeyConv !== "function" || typeof VtoCompThresh !== "function") return;
+  const clamp = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+  [["thresh", VtoCompThresh, VotCompThresh], ["release", VtoCompRelease, VotCompRelease],
+    ["attack", VtoCompAttack, VotCompAttack], ["ratio", VtoCompRatio, VotCompRatio]].forEach(([k, to, from]) =>
+    Data.setKeyConv("dlzmod.lim." + k, (v) => to(clamp(v)), (v) => clamp(from(v))));
+}
+
+// a strip that shows the Limiter page on the De-Esser tab: the master, once the page is built
+function DLZMOD_limHas(strip) {
+  return !!strip && typeof E_CH_TYPE !== "undefined" && strip.type === E_CH_TYPE.MASTER &&
+    typeof app !== "undefined" && !!app && !!app.dlzmodLim;
+}
+
+// whether the De-Esser tab leads anywhere for this strip (Mackie: only with a de-esser)
+function DLZMOD_limHasTab(strip) {
+  return !!strip && (strip.haveDS() || DLZMOD_limHas(strip));
+}
+
+// the channel page's De-Esser tab: its text and colour for the selected strip, and whether it is
+// enabled (patch.py: in place of Mackie's haveDS)
+function DLZMOD_limTab(tab, strip) {
+  const lim = DLZMOD_limHas(strip);
+  if (tab) {
+    if (!tab.dlzmodOrig) tab.dlzmodOrig = { text: tab.text, color: tab.colors && tab.colors[1] };
+    tab.text = lim ? DLZMOD_limName() : tab.dlzmodOrig.text;
+    if (tab.colors) tab.colors[1] = lim ? Color.comp : tab.dlzmodOrig.color;
+    if (tab.update) tab.update();
+  }
+  return DLZMOD_limHasTab(strip);
+}
+
+// the page the De-Esser tab shows (app.setPage)
+function DLZMOD_limOrDs(app) {
+  const strip = typeof SELECTED === "function" ? SELECTED() : null;
+  return DLZMOD_limHas(strip) ? app.dlzmodLim : app.pageDs;
+}
+
+// the meters in, gain reduction and out (VU group dlzmod.lim), as Mackie fills its compressor page's
+function DLZMOD_limVu(t) {
+  try {
+    const page = typeof app !== "undefined" && app && app.dlzmodLim, s = t && t["dlzmod.lim"];
+    if (!page || !page.visible || typeof s !== "string") return;
+    const b = atob(s), gr = b.charCodeAt(1);
+    page.vuin.setValue(deconvertVU(b.charCodeAt(0) || 0));
+    page.vugr.setValue(isNaN(gr) ? 0 : deconvertVUgr(gr));
+    page.vuout.setValue(deconvertVU(b.charCodeAt(2) || 0));
+  } catch (e) {
+    console.log("dlzmod: limiter meters: " + e);
+  }
+}
+
+// The page, built once next to Mackie's (patch.py); null when Mackie's compressor page is missing
+function DLZMOD_limPage(parent, params) {
+  if (typeof PageComp !== "function") return null;
+  try {
+    return new (DLZMOD_limClass())(parent, params);
+  } catch (e) {
+    console.log("dlzmod: limiter page: " + e);
+    return null;
+  }
+}
+
+function DLZMOD_limClass() {
+  if (DLZMOD_limClass.cls) return DLZMOD_limClass.cls;
+  DLZMOD_limClass.cls = class extends PageComp {
+    initWidgets() {
+      super.initWidgets();
+      this.widgetName = "DLZMOD_PageLimiter";
+      [this.knee, this.preset, this.slGain].forEach((w) => w && w.hide());
+      if (this.slGain) this.slGain.label = "";   // Mackie's paint writes its label even when it is hidden
+      const comp = this.comp, move = comp.onmove, knob = comp.paintKnob;
+      comp.midKey = "lim.";
+      comp.onmove = function () {
+        if (this.mode !== 1) return move.apply(this, arguments);   // 1: the ratio's handle
+      };
+      comp.paintKnob = function (t, x, y, sel, color, label) {
+        if (label !== this.lbls[1]) return knob.apply(this, arguments);
+      };
+    }
+
+    sync(t) {
+      this.comp.setPrefix("dlzmod.");
+      this.ahr.setPrefix("dlzmod.lim.");
+      this.onoff.setKey("dlzmod.lim.bypass");
+      this.setKnobs();
+      [this.vuin, this.vugr, this.vuout].forEach((v) => v.reset());
+      if (t) this.update();
+    }
+
+    setKnobs() {
+      const knob = (sub, key, text) => ({ title: DLZMOD_limName, subTitle: () => sub, valueText: text,
+        value: () => Data.get(key), keys: [key], color: () => Color.comp, control: { key, color: Color.comp } });
+      SET_KNOBS([knob("Ceiling", "dlzmod.lim.thresh", (v) => $F.toText(VtoCompThresh(v), 1, lang.DB)),
+        knob(lang.RELEASE, "dlzmod.lim.release", (v) => $F.toTime(VtoCompRelease(v), 0))]);
+    }
+
+    showPresets() {}
+
+    // Mackie's compressor page, its switch named Limiter and no preset label; in the preset's box
+    // what the limiter does
+    paint(t) {
+      const keep = [lang.COMP, lang.PRESET];
+      lang.COMP = DLZMOD_limName();
+      lang.PRESET = "";
+      try {
+        super.paint(t);
+      } finally {
+        [lang.COMP, lang.PRESET] = keep;
+      }
+      ["Keeps the main out", "below the ceiling.", "", "Headphones, USB", "and recordings", "are not limited."]
+        .forEach((line, i) => t.drawText(line, 26, 185 + 22 * i,
+          { font: Font.font(500, "11pt"), color: "#8C8C8C", align: "left", valign: "middle" }));
+    }
+  };
+  return DLZMOD_limClass.cls;
 }
