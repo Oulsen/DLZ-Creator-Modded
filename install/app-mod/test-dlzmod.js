@@ -2463,7 +2463,7 @@ test("EQ spectrum: the bands go onto the open page, not without one, another cha
   ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-10)), 1033);
   assert.strictEqual(ctx.DLZMOD_rtaAnim().at, 1000, "not taken");
 });
-test("EQ spectrum: each message's picture glides in, a step every 50 ms, no frame while it stands still", () => {
+test("EQ spectrum: each message's picture glides in, a step every 100 ms, no frame while it stands still", () => {
   rtaReset();
   const pg = eqPage();
   ctx.DLZMOD_rtaShown(pg, true);
@@ -2473,18 +2473,18 @@ test("EQ spectrum: each message's picture glides in, a step every 50 ms, no fram
   ctx.DLZMOD_rtaTick(1000);
   const first = pg.eq.got[0];
   assert.ok(first.every((v, k) => Math.abs(v - 0.6 * goal[k]) < 1e-9), "from the bottom, 60 % of the way");
-  assert.strictEqual(ui.later, 50, "the next step in 50 ms");
-  for (let t = 1050; t < 1400; t += 50) {
-    if (t === 1200) ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), t);
+  assert.strictEqual(ui.later, 100, "the next step in 100 ms");
+  for (let t = 1100; t < 1900; t += 100) {
+    if (t % 200 === 0) ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), t);
     ctx.DLZMOD_rtaTick(t);
   }
   const n = pg.eq.got.length;
   assert.deepStrictEqual(plain(pg.eq.rtaData), goal, "there, exactly");
   assert.ok(pg.eq.got[n - 1].every((v, k) => Math.abs(v - goal[k]) * 200 < 1), "the last frame within a pixel");
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1390);
-  ctx.DLZMOD_rtaTick(1400);
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1890);
+  ctx.DLZMOD_rtaTick(1900);
   assert.strictEqual(pg.eq.got.length, n, "standing still: no frame");
-  assert.strictEqual(ui.later, 100, "a slower check");
+  assert.strictEqual(ui.later, 200, "a slower check");
 });
 test("EQ spectrum: while the widget redraws for a knob or a dragged dot, the picture moves without frames of its own", () => {
   rtaReset();
@@ -2503,7 +2503,10 @@ test("EQ spectrum: while the widget redraws for a knob or a dragged dot, the pic
   assert.notDeepStrictEqual(plain(pg.eq.rtaData), before, "but the picture moved on, for Mackie's next redraw");
   ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1250);
   ctx.DLZMOD_rtaTick(1260);
-  assert.strictEqual(pg.eq.got.length, 3, "250 ms after the last one: frames again");
+  assert.strictEqual(pg.eq.got.length, 2, "250 ms after it: still none");
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1400);
+  ctx.DLZMOD_rtaTick(1410);
+  assert.strictEqual(pg.eq.got.length, 3, "400 ms after the last one: frames again");
 });
 test("EQ spectrum: silence or no message for 300 ms: the picture sinks and goes; a closed page clears it", () => {
   rtaReset();
@@ -2637,6 +2640,36 @@ test("EQ spectrum: on the EQ curve's dB scale, so a -15 dB cut dips as far as th
   ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-70)), 1100);
   assert.strictEqual(ctx.DLZMOD_rtaAnim().target, null, "silent message: gone at once, not after the average");
 });
+test("EQ spectrum: a touch anywhere on the screen pauses its frames; Mackie's touch handlers still run", () => {
+  rtaReset();
+  const calls = [];
+  const saved = ctx.Events;
+  ctx.Events = { eventPointerDown(...a) { calls.push(["down", this === ctx.Events, ...a]); return "d"; },
+    eventPointerMove() { calls.push(["move"]); }, eventPointerUp() { calls.push(["up"]); } };
+  ctx.DLZMOD_rtaHookTouch.done = false;
+  try {
+    const pg = eqPage();
+    ctx.DLZMOD_rtaShown(pg, true);
+    ctx.DLZMOD_rtaShown(pg, true);   // shown again: wrapped once
+    ctx.DLZMOD_rtaSync(pg, "m.");
+    const before = ctx.DLZMOD_rtaNow();
+    assert.strictEqual(ctx.Events.eventPointerDown(10, 20, 0), "d", "its answer passed on");
+    ctx.Events.eventPointerMove(11, 20, 0);
+    ctx.Events.eventPointerUp(11, 20, 0);
+    assert.deepStrictEqual(plain(calls), [["down", true, 10, 20, 0], ["move"], ["up"]], "each once, on Events, with its arguments");
+    assert.ok(ctx.DLZMOD_rtaAnim().busyAt >= before, "the touch's time taken");
+    ctx.DLZMOD_rtaAnim().busyAt = 1000;
+    rtaAt(rtaMsg(Array(10).fill(-20)), 1100);
+    assert.strictEqual(pg.eq.got.length, 0, "100 ms after a touch: no frame of its own");
+    rtaAt(rtaMsg(Array(10).fill(-20)), 1400);
+    assert.strictEqual(pg.eq.got.length, 1, "400 ms after: frames again");
+    ctx.DLZMOD_rtaAnim().later = () => { throw new Error("broken"); };
+    assert.doesNotThrow(() => ctx.Events.eventPointerDown(1, 1, 0), "the wrapper never throws into Mackie's handler");
+  } finally {
+    ctx.Events = saved;
+    ctx.DLZMOD_rtaHookTouch.done = false;
+  }
+});
 test("EQ spectrum: while the screen program is behind, no frames of its own, the picture still moves", () => {
   rtaReset();
   const pg = eqPage();
@@ -2646,7 +2679,7 @@ test("EQ spectrum: while the screen program is behind, no frames of its own, the
   rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
   assert.strictEqual(pg.eq.got.length, 0, "behind: no frame");
   assert.ok(pg.eq.rtaData && pg.eq.rtaData.length === 64, "but the data moved, for Mackie's next redraw");
-  assert.strictEqual(ui.later, 50, "and it checks again");
+  assert.strictEqual(ui.later, 100, "and it checks again");
   ctx.wstream.writableLength = 2000;
   ctx.DLZMOD_rtaTick(1050);
   assert.strictEqual(pg.eq.got.length, 1, "caught up: frames again");

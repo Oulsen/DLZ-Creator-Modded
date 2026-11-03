@@ -185,7 +185,7 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   it in 6 dB steps, moving up when a band reaches it and down when all stay more than 18 dB below,
   so a boost or cut of a few dB does not move the scale. That is the target of an animation of the
   mod's own (`DLZMOD_rtaTick`), which moves the EQ widget's spectrum data (`rtaData`, as Mackie's
-  `setRTA` would set it) 60 % of the way every 50 ms; on silence (this message below -60 dBFS
+  `setRTA` would set it) 60 % of the way every 100 ms (at most 10 frames a second); on silence (this message below -60 dBFS
   everywhere) or no message for 300 ms it sinks to the bottom and goes. With `rtaOverlay` off the
   widget draws it with the curve; Mackie's overlay layer is not used. Drawn by the mod's
   `DLZMOD_rtaPaint` instead of Mackie's `paintRTA`: the fill from the bottom on a path of its own,
@@ -196,15 +196,21 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   1 kHz on pink noise they read -11.6 dB at Q 0.45, -5.0 dB at Q 2 and -2.9 dB at 4 kHz Q 4
   [static: a simulation of the filters]; narrow cuts need narrower bands (more DSP, #5). Each frame
   redraws the whole EQ widget (grid, curve, knobs): one per VU message made the EQ page's knobs and
-  touch lag on the mixer, at most one per 80 ms made the spectrum choppy [device]. So a frame is
-  drawn only when a point moved a pixel since the last one, within 250 ms of a redraw for something
-  else (a knob, a dragged dot; `eq.update` wrapped) none of its own (the picture moves on in
-  `rtaData` and shows with those redraws), and none while the screen program is behind
+  touch lag on the mixer, at most one per 80 ms made the spectrum choppy (with peaks held) [device].
+  So a frame is drawn only when a point moved a pixel since the last one, within 400 ms of a touch
+  anywhere on the screen (`Events.eventPointerDown/Move/Up` wrapped, `DLZMOD_rtaHookTouch`) or a
+  redraw for something else (a knob, a dragged dot; `eq.update` wrapped) none of its own (the picture
+  moves on in `rtaData` and shows with those redraws; a touch's frame does not wait behind the
+  spectrum's), and none while the screen program is behind
   (`DLZMOD_rtaBacklog`): app.js writes each frame into glesgui's pipe without waiting (`wstream.write`,
   its return value ignored), so frames glesgui cannot keep up with pile up in app.js's memory and the
   screen falls further behind the longer it lasts [static; the lag that grew with the spectrum on:
   device]; more than 16 KiB waiting (`wstream.writableLength`) skips the spectrum's frames until it
-  has caught up. Tried and dropped:
+  has caught up. Measured with frames every 50 ms, EQ page with music, 10 s each over SSH (`/proc`
+  of app.js and glesgui): Spectrum off, app.js wrote ~0 B/s at ~5 % of a core, glesgui ~2 %; on,
+  ~160 KB/s, ~18 %, glesgui ~10 %; app.js's memory steady at 57-59 MB either way: no backlog left
+  and no process short of CPU, yet the screen still felt a little behind [device]. The cost is the
+  frames' path to the panel, hence 10 frames a second and none while touching. Tried and dropped:
   the spectrum alone on Mackie's top sheet (the overlay layer, `rtaOverlay` on): the mod sent 28
   frames a second, 36 ms apart, yet the screen lagged far more, as on the mixer every clear of the
   top sheet clears all of it and glesgui lays the whole sheet over the screen for each frame

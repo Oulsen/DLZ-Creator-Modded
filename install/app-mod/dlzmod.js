@@ -638,6 +638,7 @@ function DLZMOD_rtaShown(page, on) {
         };
       }
     }
+    DLZMOD_rtaHookTouch();
     return;
   }
   if (page && DLZMOD_rtaShown.page !== page) return;
@@ -645,6 +646,25 @@ function DLZMOD_rtaShown(page, on) {
   DLZMOD_rtaShown.prefix = "";
   DLZMOD_rtaMeasure(0);
   DLZMOD_rtaStop(true);
+}
+
+// Every touch on the screen (down, move, up: Mackie's Events.eventPointer*, which the screen's touch
+// input and a browser's mouse call by name) pauses the animation's own frames for a moment, as a
+// redraw of the widget does (DLZMOD_rtaTick): while a finger is on the screen, the frames that answer
+// it do not wait behind the spectrum's. Wrapped once; the wrapper never throws into Mackie's handler.
+function DLZMOD_rtaHookTouch() {
+  if (DLZMOD_rtaHookTouch.done || typeof Events === "undefined" || !Events) return;
+  DLZMOD_rtaHookTouch.done = true;
+  for (const name of ["eventPointerDown", "eventPointerMove", "eventPointerUp"]) {
+    const own = Events[name];
+    if (typeof own !== "function") continue;
+    Events[name] = function () {
+      try {
+        DLZMOD_rtaAnim().busyAt = DLZMOD_rtaNow();
+      } catch (e) {}
+      return own.apply(this, arguments);
+    };
+  }
 }
 
 // PageEQ.sync (patch.py): the channel on the page; also called while the page is hidden. With the
@@ -745,14 +765,16 @@ function DLZMOD_rtaAnim() {
   return DLZMOD_rtaAnim.s;
 }
 
-// One step every 50 ms while the picture moves: each point 60 % of the way to the target, so a new
-// message glides in instead of jumping. A frame redraws the whole widget (grid, curve, knobs), which
-// is what the screen spends its time on, so one is drawn only when a point moved a pixel or more since
-// the last one, and none while the screen program is behind (DLZMOD_rtaBacklog): app.js does not wait
-// for it, so frames it cannot keep up with pile up in memory and the screen lags more and more.
-// Within 250 ms of a redraw for something else (a knob, a dragged dot) the picture only moves along
-// in the widget's data, drawn with those redraws, so turning and dragging stay quick. Standing still
-// (no point half a pixel off): a slower check. No message for 300 ms (silence, the switch off, another
+// One step every 100 ms while the picture moves (at most 10 frames a second; the average moves slowly
+// enough for that): each point 60 % of the way to the target, so a new message glides in instead of
+// jumping. A frame redraws the whole widget (grid, curve, knobs) and goes all the way to the panel
+// (glesgui, XWayland, Weston, a page flip), and a touch's frame waits behind it, so one is drawn only
+// when a point moved a pixel or more since the last one, and none while the screen program is behind
+// (DLZMOD_rtaBacklog): app.js does not wait for it, so frames it cannot keep up with pile up in memory
+// and the screen lags more and more. Within 400 ms of a touch (DLZMOD_rtaHookTouch) or a redraw for
+// something else (a knob, a dragged dot) the picture only moves along in the widget's data, drawn with
+// those redraws, so touching, turning and dragging stay as quick as without it. Standing still (no
+// point half a pixel off): a slower check. No message for 300 ms (silence, the switch off, another
 // channel measured) or a silent one: it sinks to the bottom and goes. now: ms (tests), else the clock.
 function DLZMOD_rtaTick(now) {
   const a = DLZMOD_rtaAnim();
@@ -772,7 +794,7 @@ function DLZMOD_rtaTick(now) {
     a.shown = gone ? null : next;
     if (moved || gone) eq.rtaData = a.shown;
     const far = gone || !a.drawn || next.some((v, k) => Math.abs(v - (a.drawn[k] || 0)) * px >= 1);
-    if (far && (now - a.busyAt >= 250 || gone) && (gone || !DLZMOD_rtaBacklog())) {
+    if (far && (now - a.busyAt >= 400 || gone) && (gone || !DLZMOD_rtaBacklog())) {
       a.drawn = a.shown;
       a.drawing = true;
       try {
@@ -781,7 +803,7 @@ function DLZMOD_rtaTick(now) {
         a.drawing = false;
       }
     }
-    if (!gone) a.timer = a.later(DLZMOD_rtaTick, moved ? 50 : 100);
+    if (!gone) a.timer = a.later(DLZMOD_rtaTick, moved ? 100 : 200);
   } catch (e) {
     console.log("dlzmod: EQ spectrum: " + e);
   }
