@@ -2393,6 +2393,7 @@ const rtaReset = () => {
   ctx.DLZMOD_rtaShown.prefix = "";
   ctx.DLZMOD_rtaStop(true);
   ctx.DLZMOD_rtaRange.code = ctx.DLZMOD_rtaSmooth.code = undefined;
+  ctx.DLZMOD_rtaRange.top = ctx.DLZMOD_rtaSmooth.levels = undefined;
   delete ctx.wstream;
   Object.assign(ctx.DLZMOD_rtaAnim(), { busyAt: -1e9, at: 0, later: (f, ms) => (ui.later = ms, 1) });
 };
@@ -2610,7 +2611,8 @@ test("EQ spectrum: averaged over about 0.4 s; afresh for another channel or afte
   assert.deepStrictEqual(S([0, 0], 2, 5800), [0, 0], "after a pause of over a second: afresh");
 });
 test("EQ spectrum: the scale's top 6-12 dB above the loudest band, steady while the bands move a little", () => {
-  const R = (dbs, code = 1) => ctx.DLZMOD_rtaRange(dbs.map((db) => 1 + db / 80), code);
+  let t = 1000;
+  const R = (dbs, code = 1) => ctx.DLZMOD_rtaRange(dbs.map((db) => 1 + db / 80), code, t += 100);
   ctx.DLZMOD_rtaRange.code = undefined;
   assert.strictEqual(R([-40, -14, -30]), -6, "loudest -14: top -6 dBFS");
   assert.strictEqual(R([-40, -8, -30]), -6, "a boost of 6 dB: the same top");
@@ -2620,6 +2622,8 @@ test("EQ spectrum: the scale's top 6-12 dB above the loudest band, steady while 
   assert.strictEqual(R([-40, -13, -30], 2), -6, "another channel: afresh");
   assert.strictEqual(R([-80, -80, -80], 2), -48, "silence: the lowest top");
   assert.strictEqual(R([10, 0, 0], 2), 6, "over 0 dBFS: the highest");
+  t += 1500;
+  assert.strictEqual(R([-40, -14, -30], 2), -6, "after a pause of over a second: afresh (the page left, silence)");
 });
 test("EQ spectrum: on the EQ curve's dB scale, so a -15 dB cut dips as far as the curve", () => {
   rtaReset();
@@ -2631,14 +2635,17 @@ test("EQ spectrum: on the EQ curve's dB scale, so a -15 dB cut dips as far as th
   ctx.DLZMOD_rtaVu(rtaMsg(dbs), 1000);
   const flat = plain(ctx.DLZMOD_rtaAnim().target);
   dbs[5] = -35;
-  ctx.DLZMOD_rtaVu(rtaMsg(dbs), 1001);   // afresh after a second: the cut at once
-  ctx.DLZMOD_rtaSmooth.code = undefined;
-  ctx.DLZMOD_rtaVu(rtaMsg(dbs), 1002);
+  ctx.DLZMOD_rtaVu(rtaMsg(dbs), 2100);   // after a pause of over a second: afresh, the cut at once
   const cut = plain(ctx.DLZMOD_rtaAnim().target);
   const k = cut.indexOf(Math.min(...cut));
   assert.ok(Math.abs(flat[k] - cut[k] - 0.5) < 0.01, "15 dB = half the height, as the curve's ±15 dB (" + (flat[k] - cut[k]) + ")");
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-70)), 1100);
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-70)), 2200);
   assert.strictEqual(ctx.DLZMOD_rtaAnim().target, null, "silent message: gone at once, not after the average");
+  const quiet = Array(10).fill(-70);
+  for (let t = 2300; t <= 2900; t += 100) ctx.DLZMOD_rtaVu(rtaMsg(quiet), t);
+  quiet[5] = -30;
+  ctx.DLZMOD_rtaVu(rtaMsg(quiet), 3000);
+  assert.ok(ctx.DLZMOD_rtaAnim().target, "sound after a quiet stretch: shown at once, while the average still rises");
 });
 test("EQ spectrum: a touch anywhere on the screen pauses its frames; Mackie's touch handlers still run", () => {
   rtaReset();
@@ -2665,6 +2672,36 @@ test("EQ spectrum: a touch anywhere on the screen pauses its frames; Mackie's to
     assert.strictEqual(pg.eq.got.length, 1, "400 ms after: frames again");
     ctx.DLZMOD_rtaAnim().later = () => { throw new Error("broken"); };
     assert.doesNotThrow(() => ctx.Events.eventPointerDown(1, 1, 0), "the wrapper never throws into Mackie's handler");
+  } finally {
+    ctx.Events = saved;
+    ctx.DLZMOD_rtaHookTouch.done = false;
+  }
+});
+test("EQ spectrum: a move under a pixel draws no frame but stays in the data, and is drawn once it adds up", () => {
+  rtaReset();
+  const pg = eqPage();
+  ctx.DLZMOD_rtaShown(pg, true);
+  ctx.DLZMOD_rtaSync(pg, "m.");
+  rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
+  for (let t = 1100; t < 2000; t += 100) rtaAt(rtaMsg(Array(10).fill(-20)), t);
+  const n = pg.eq.got.length, a = ctx.DLZMOD_rtaAnim();
+  a.target = a.shown.map((v) => v + 0.6 / 200);   // 0.6 px up: 60 % of it per step
+  a.at = 2000;
+  ctx.DLZMOD_rtaTick(2000);
+  assert.strictEqual(pg.eq.got.length, n, "under a pixel since the last frame: none");
+  assert.deepStrictEqual(plain(pg.eq.rtaData), plain(a.shown), "but in the data");
+  a.target = a.shown.map((v) => v + 2 / 200);
+  a.at = 2100;
+  ctx.DLZMOD_rtaTick(2100);
+  assert.strictEqual(pg.eq.got.length, n + 1, "a pixel or more: drawn");
+});
+test("EQ spectrum: touch handlers that cannot be wrapped leave the EQ page working", () => {
+  rtaReset();
+  const saved = ctx.Events;
+  ctx.Events = Object.freeze({ eventPointerDown() {}, eventPointerUp: 1 });
+  ctx.DLZMOD_rtaHookTouch.done = false;
+  try {
+    assert.doesNotThrow(() => ctx.DLZMOD_rtaShown(eqPage(), true));
   } finally {
     ctx.Events = saved;
     ctx.DLZMOD_rtaHookTouch.done = false;

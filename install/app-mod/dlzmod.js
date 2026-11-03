@@ -651,19 +651,24 @@ function DLZMOD_rtaShown(page, on) {
 // Every touch on the screen (down, move, up: Mackie's Events.eventPointer*, which the screen's touch
 // input and a browser's mouse call by name) pauses the animation's own frames for a moment, as a
 // redraw of the widget does (DLZMOD_rtaTick): while a finger is on the screen, the frames that answer
-// it do not wait behind the spectrum's. Wrapped once; the wrapper never throws into Mackie's handler.
+// it do not wait behind the spectrum's. Wrapped once; neither the wrapping (called from PageEQ's
+// onShow) nor the wrapper ever throws into Mackie's code.
 function DLZMOD_rtaHookTouch() {
   if (DLZMOD_rtaHookTouch.done || typeof Events === "undefined" || !Events) return;
   DLZMOD_rtaHookTouch.done = true;
   for (const name of ["eventPointerDown", "eventPointerMove", "eventPointerUp"]) {
-    const own = Events[name];
-    if (typeof own !== "function") continue;
-    Events[name] = function () {
-      try {
-        DLZMOD_rtaAnim().busyAt = DLZMOD_rtaNow();
-      } catch (e) {}
-      return own.apply(this, arguments);
-    };
+    try {
+      const own = Events[name];
+      if (typeof own !== "function") continue;
+      Events[name] = function () {
+        try {
+          DLZMOD_rtaAnim().busyAt = DLZMOD_rtaNow();
+        } catch (e) {}
+        return own.apply(this, arguments);
+      };
+    } catch (e) {
+      console.log("dlzmod: EQ spectrum: touch: " + e);
+    }
   }
 }
 
@@ -740,7 +745,7 @@ function DLZMOD_rtaVu(t, now) {
     const span = 2 * (page.eq.gainRange > 0 ? page.eq.gainRange : 15);
     // null: silence (this message's, not the average's: the picture goes as soon as the sound stops)
     const sound = raw.slice(0, DLZMOD_rtaFreqs().length).some((v) => v > 20 / 80);   // above -60 dBFS
-    a.target = sound ? DLZMOD_rtaPoints(levels, 64, DLZMOD_rtaRange(levels, code), span) : null;
+    a.target = sound ? DLZMOD_rtaPoints(levels, 64, DLZMOD_rtaRange(levels, code, now), span, false) : null;
     a.at = now;
     // the look's colours each time: a change of look shows at the next message
     [page.eq.rtaStrokeColor, page.eq.rtaFillColor] = DLZMOD_rtaColors();
@@ -852,13 +857,18 @@ function DLZMOD_rtaSmooth(levels, code, now) {
 
 // The top of the spectrum's scale in dBFS, in 6 dB steps: 6-12 dB above the loudest band, so a boost
 // of a few dB fits without the scale moving. It moves up when a band reaches it and down when every
-// band stays more than 18 dB below it; afresh for another channel. -48..+6 dBFS.
-function DLZMOD_rtaRange(levels, code) {
+// band stays more than 18 dB below it; afresh for another channel or after a pause of more than a
+// second (no message: the page closed, silence, the switch off), as the average (ms: now). -48..+6 dBFS.
+function DLZMOD_rtaRange(levels, code, now) {
   const st = DLZMOD_rtaRange;
   const loud = Math.max(...levels.map((v) => (v - 1) * 80));
   const fit = Math.max(-48, Math.min(6, Math.ceil((loud + 6) / 6) * 6));
-  if (st.code !== code || typeof st.top !== "number" || loud > st.top || loud < st.top - 18) st.top = fit;
+  const dt = now - (st.at || 0);
+  if (st.code !== code || typeof st.top !== "number" || !(dt >= 0) || dt > 1000 || loud > st.top || loud < st.top - 18) {
+    st.top = fit;
+  }
   st.code = code;
+  st.at = now;
   return st.top;
 }
 
@@ -866,14 +876,15 @@ function DLZMOD_rtaRange(levels, code) {
 // over the curve's 20 Hz - 20 kHz (a log scale), each the level at its frequency, on a smooth curve
 // through the bands (Catmull-Rom in dB, never beyond its two nearest bands; outside them: the outer
 // band's). Shown from top - span (bottom) to top (dBFS; the EQ curve's own dB per pixel); null when
-// every band is below -60 dBFS (silence: Mackie's code clears the curve).
-function DLZMOD_rtaPoints(levels, n = 64, top = 0, span = 60) {
+// every band is below -60 dBFS (silence: Mackie's code clears the curve), unless quiet is false (the
+// caller has judged silence on the message itself: the average still rises after a quiet stretch).
+function DLZMOD_rtaPoints(levels, n = 64, top = 0, span = 60, quiet = true) {
   const freqs = DLZMOD_rtaFreqs(), last = freqs.length - 1;
   if (!levels || levels.length < freqs.length) return null;
   const silent = 20 / 80;   // -60 dBFS
   const lo = 1 + (top - span) / 80, hi = 1 + top / 80;
   const show = (v) => Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
-  if (!levels.slice(0, freqs.length).some((v) => v > silent)) return null;
+  if (quiet && !levels.slice(0, freqs.length).some((v) => v > silent)) return null;
   const at = (j) => levels[Math.max(0, Math.min(last, j))];
   const pts = new Array(n);
   for (let k = 0; k < n; k++) {
