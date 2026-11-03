@@ -263,7 +263,9 @@ rehearsal: `tests/update.sh` case 3a]:
   thread; no background: the lines on black), then the splash on `/dev/fb0` (`timeout 330`), which
   switches the bootsplash `off` itself (`--bootsplash-off /sys/devices/platform/bootsplash.0/enabled`,
   the value Armbian's own units write) right before its first frame: a python3 that fails before
-  that leaves the logo. The job runs at `nice 10` and `oom_score_adj` 500, so with ~120 MB free the
+  that leaves the logo. The whole frame is drawn again every second, the spinner's rows in between:
+  something (likely the kernel, a moment after the `off`) draws over the first frame [device: with
+  only the spinner's rows redrawn, "installing update..." stayed and the other lines were gone]. The job runs at `nice 10` and `oom_score_adj` 500, so with ~120 MB free the
   OOM killer takes it before the install. After an install (`INSTALLED`), `finish` keeps it on
   screen at least 9 s from its start (`SHOW_MIN`: ~1 s python start, ~8 s visible, so a fast install
   does not just flash it; waited after the report is written and DLZDATA released), then stops the

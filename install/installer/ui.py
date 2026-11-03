@@ -586,11 +586,19 @@ def splash(scr, glyphs, a):
         except OSError:
             pass
     scr.present()
+    # the whole frame again every second: turning the bootsplash off makes the kernel clear the screen
+    # a moment later (seen on the device: only the spinner's rows came back), and so may anything else
     end = None if a.timeout is None else time.monotonic() + a.timeout
+    full = time.monotonic() + 1
     while end is None or time.monotonic() < end:
         time.sleep(SPIN_STEP)
+        now = time.monotonic()
         if scr.spin_at:
-            spinner(scr, int(time.monotonic() / SPIN_STEP))
+            spinner(scr, int(now / SPIN_STEP))
+        if now >= full:
+            scr.present()
+            full = now + 1
+        elif scr.spin_at:
             scr.present_rows(scr.spin_at[1], scr.spin_at[3])
 
 
