@@ -55,8 +55,8 @@ below. They all start as stock: turn on what you want.
   from a paired computer, copy it from a USB stick, or let the mixer download it *(Mod)*
 - Looks for a new version by itself every few hours and shows a small dot on the cogwheel; only
   GitHub's latest-release request leaves the mixer, and it can be turned off *(Mod)*
-- An update installs only after you tap Install on the mixer's own screen; afterwards What's New
-  shows what changed in it
+- An update installs only after you tap Install on the mixer's own screen; while it installs, the
+  screen says so; afterwards What's New shows what changed in it
 - Updates are signed; if a signing key ever leaks, an update withdraws it and the mixer refuses
   anything signed with it
 - The mixer's internal storage is never changed, and no firmware updates run from the card

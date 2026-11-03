@@ -179,6 +179,13 @@ longer a reliable trigger.
 - libinput `touchscreen_calibrator=true`, helper `/usr/local/bin/save-calibration.sh`
   (writes `LIBINPUT_CALIBRATION_MATRIX` to `/etc/udev/rules.d/touchscreen.rules`)
 - Env for both: `MESA_LOADER_DRIVER_OVERRIDE=sun4i-drm`, `XDG_RUNTIME_DIR=/run/user/0`
+- Its first step `ExecStartPre=/bin/chvt 7` is not a fixed wait: started at ~9 s (stock order) it
+  ends at 16.8-19.8 s; started at 12.5 s it ends at 19.3-19.6 s; started at 21.5 s it took 2.3 s
+  [device: network logs and the #96 spike]. So ordering Weston after the mod's update step
+  (`After=dlzmod-update.service`, #96) does not move the mixer view (26.9-27.3 s)
+- Until Weston takes the display, the panel shows `/dev/fb0` (`sun4i-drmdrmfb`, 32 bpp, 1024x600,
+  virtual 1024x1800, fb row 0 at the bottom of the upside-down panel): with the bootsplash `off`,
+  whatever is drawn there stays on screen [device: #96 spike]
 
 ## Boot visuals (in order)
 

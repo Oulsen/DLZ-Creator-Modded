@@ -619,7 +619,7 @@ for f in apply-mod.sh check-rootfs.sh patch.py modversion.py app-mod/dlzmod.js s
     sd-system/dlzmod-zerocd-eject sd-system/70-dlzmod-wifi-zerocd.rules \
     sd-system/ssh.service.d/dlzmod.conf sd-system/glesgui.service.d/dlzmod.conf sd-system/evolve-node.service.d/dlzmod.conf \
     sd-system/evolve-app.service.d/dlzmod.conf sd-system/dlzmod-update.service.d/dlzmod.conf \
-    sd-system/dlzmod-grow-data.service.d/dlzmod.conf $GUARD_SRC; do
+    sd-system/dlzmod-grow-data.service.d/dlzmod.conf sd-system/weston-mackie.service.d/dlzmod.conf $GUARD_SRC; do
   [ -f "$T/$f" ] || fail "incomplete: $f missing"
 done
 # the new package's own check of this card (its firmware, and the GD32 marker that belongs to its
@@ -646,6 +646,11 @@ if [ -n "$CHECK_ONLY" ]; then log "CHECKS PASSED (checks only: nothing applied)"
 # "pending" holds its record and checked version for the server mod, which asks on the screen; after
 # Install the next start finds "approved" and goes on. No try counted, no report (the question on the
 # screen is the news; only an earlier cut-off try put back below writes one), the package stays.
+pkg_label() {   # named as the installed file names a build ("v0.2.0 (dev-c0e3084)"; a release: "v0.2.0")
+  local label=$NEWV
+  case $(penv BUILD) in ''|release) ;; *) label="$NEWV ($(penv BUILD))" ;; esac
+  printf '%s' "$label" | tr -cd 'A-Za-z0-9._+() -' | cut -c1-60
+}
 wait_for_approval() {
   local label
   # (a different file's cut-off try was put back above, before this file's checks: then the report
@@ -654,16 +659,30 @@ wait_for_approval() {
   else : > "$REPORT"; fi
   # an Install for another file (one replaced since) does not carry over to a later one
   rm -f "$STATE/approved"
-  # named as the installed file names a build ("v0.2.0 (dev-c0e3084)"; a release: "v0.2.0")
-  label=$NEWV
-  case $(penv BUILD) in ''|release) ;; *) label="$NEWV ($(penv BUILD))" ;; esac
-  label=$(printf '%s' "$label" | tr -cd 'A-Za-z0-9._+() -' | cut -c1-60)
+  label=$(pkg_label)
   { echo "$SUM $label" > "$STATE/pending.dlzmod-new" && mv -f "$STATE/pending.dlzmod-new" "$STATE/pending"; } \
     || { rm -f "$STATE/pending.dlzmod-new"; echo "dlzmod-update: the question for the screen could not be written"; }
   echo "dlzmod-update: ${SRC##*/} ($label) waits for Install on the mixer's screen"
   exit 0
 }
 [ "$APPROVED" = yes ] || wait_for_approval
+
+# #96: the screen says so while the update installs, instead of only the logo, so nobody switches the
+# mixer off halfway. Weston takes the display only after this step (its drop-in), so until then the
+# panel shows the framebuffer: the bootsplash off (as Armbian's own units do it), then the message,
+# drawn by the checked package's own ui.py and glyphs (signed, like its check-rootfs.sh above) on the
+# live system only. In the background and never a reason to stop: the install does not wait for it,
+# and a draw that fails leaves the logo, as before. An update installed by an updater from before
+# this one, or with Weston already up, shows the logo as before.
+show_installing() {
+  local ui=$WORK/root/pkg/ui sp=/sys/devices/platform/bootsplash.0/enabled
+  [ -z "$ROOT" ] && [ -z "${DLZMOD_DATA:-}" ] && [ -f "$ui/ui.py" ] && [ -c /dev/fb0 ] || return 0
+  [ ! -w "$sp" ] || echo off > "$sp" 2>/dev/null || true
+  timeout 15 python3 -I -B "$ui/ui.py" --glyphs "$ui/glyphs.bin" --logo "$ui/logo.bin" --brand "DLZ Creator Modded" \
+    screen --title "Installing update $(pkg_label)" --text "Do not switch the mixer off." \
+    --text "It starts by itself in a moment." < /dev/null > /dev/null 2>&1 &
+}
+show_installing
 
 # 3. snapshot of everything it may change (once per package: a retry after a power cut keeps the one
 # from before the first try), then apply in a subshell run as a plain command (bash ignores set -e
