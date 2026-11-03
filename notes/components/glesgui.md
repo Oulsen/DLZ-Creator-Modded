@@ -88,11 +88,43 @@ stage is stuck or busy, the screen's path is just long. Work on it: #196.
   85 KiB frame, bigger than most tab switches, and feels fine) [PC sandbox + user]; the screen
   showing each frame one frame late (static pages get no next frame for 1.5-3 s, yet the busy
   Overview does not switch faster and forcing a redraw with a knob changes nothing) [device + user].
-- **Decision**: settings first (#196): `NODE_FPS` 60 (the tick waits up to 33 ms) and `vblank_mode=0`
-  for glesgui (may drop a vsync wait in its swap; unknown whether Mesa honours it on this EGL/X11
-  path). A replacement renderer was weighed and left out: it could win part of the 41 ms at most, must
+- **The frame loop** (#196) [static, `main` `0x15df0`; Mesa 23.0.4, Xwayland 22.1, Weston 9, renderer
+  "Mali400" (lima) [device]]:
+  - Each turn: drain the non-blocking FIFO (1 MiB pipe, 2 KiB reads) into a queue of lines, poll
+    touch (`0x22264`), parse every queued line into a JSON tree, run all its commands, and on the
+    **last** `drawFrame` of the batch end the NanoVG frame, swap (`0xb03f8`), `glFinish`, begin the
+    next frame; then `usleep(2000)`. So frames that arrive together already give one swap; a
+    skip-to-newest patch would only save painting the older frames' commands.
+  - `glFinish` runs on X11 only, after the swap: it delays the next turn (and touch polling), not
+    the frame just swapped.
+  - **GLX, not EGL**: the program links only `libGL.so.1` and asks for a 2.0 context with GLFW's
+    default API, on RGB565. It sets swap interval 1 (`0xb0454`). A swap therefore goes through
+    Mesa's GLX path, where `vblank_mode` applies, and Xwayland holds the frame for its next tick
+    [guess, from how Mesa and Xwayland work; not measured].
+  - On Wayland the window is single-buffered (the double-buffer hint is set off) and each frame's
+    commands are kept and replayed after the swap. app.js draws only what changed, so a buffer
+    that lacks earlier frames would show as flicker [guess]: this is the likely flicker of the
+    native Wayland run above.
+  - The two 1024x600 offscreen buffers (`DAT_028d0334`, `DAT_028d0338`) are for the overlay only
+    ("Overlay ON"/"OFF"): the switch reads the screen back once (`glReadPixels`); normal frames draw
+    straight into the window.
+- **Weston** [static, `/etc/weston.ini`]: `repaint-window=15` (Weston's default is 7), so Weston
+  composites ~2 ms after each vblank and a commit arriving later waits nearly a whole refresh.
+- **Plan** (#196, nothing tried yet; gains are estimates [guess]): (1) `repaint-window` near 7, ~8 ms
+  on every frame, if composite + rotate-180 still make the vblank; (2) `vblank_mode=0` in
+  `glesgui.service.d/dlzmod.conf`, up to 16 ms; (3) the 33 ms tick: `NODE_FPS` 60, or cheaper, draw
+  at once after a touch and leave meters at 30 (`$CFG.fps` also scales the meters' fall speed;
+  `Util.FpsCtrl` calls `updater`), ~8-16 ms; (4) only if these fall short: touch poll below 20 ms,
+  a one-constant patch beside #188's, ~5-8 ms (each poll may be an X round trip). Cheaper frames
+  allow more than the spectrum's 10 fps (`DLZMOD_rtaTick`). `/etc/weston.ini` is not on the
+  updater's allowlist; `weston-mackie.service.d:dlzmod.conf` is (a route for a config of the mod's own).
+- **Rejected**: a replacement renderer: it could win part of the 41 ms at most, must
   match ~100 Canvas2D calls and Mackie's fonts, and the screen is the mixer's only UI.
-- **How it was measured**: a read-only Python script piped over SSH (nothing written on the mixer),
+- **Before/after for #196**: same two captures each time: 40 s with ~16 tab switches (Overview
+  included), then 20 s on a channel's EQ page with music.
+- **How to measure**: `bash dev/tapprobe.sh <seconds> <capture.csv>` (Git Bash; a confirmed command,
+  `python` is not on the SSH wrapper's read-only list; never run so far, its report on a real
+  capture is unchecked). A read-only Python script sent over SSH (nothing written on the mixer),
   polling every 4 ms: touch-downs (`BTN_TOUCH` on `/dev/input/event1`, 16-byte `input_event` on armhf),
   app.js `wchar` and glesgui `rchar` in `/proc/<pid>/io` (`wchar` also counts app.js's hub traffic),
   utime + stime per process, and the page flip: `plane-1`'s `fb=` in
