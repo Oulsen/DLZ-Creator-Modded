@@ -39,6 +39,29 @@ A **dumb Canvas2D renderer**: the UI logic lives in `/srv/app.js`, glesgui only 
   offset `0x12270`, `bl` `eb02e5ff` → `eb02e60f` (`sd-system/dlzmod-glesgui`, only on the stock
   hash, the card's copy only). With it, touch kept working through a 292.6 s step back [device,
   2026-10-28].
+- **Nothing else waits on the wall clock** (#144) [static, disassembly + Ghidra on the dump; every
+  `clock_gettime`, `gettimeofday`, `time`, timed wait and timer call in glesgui, dspserver and
+  faderlink]. Besides the touch poll, glesgui reads `system_clock::now()` (`0xdba74`) in four
+  places, three in `main` and one in the calibration gesture:
+  - `main` (`0x15df0`) keeps the time of the last drawn frame (`0x1760c`) and, when app.js sent
+    none for 251 ms, draws once on its own (`0x16d64`, the prebuilt `drawFrame` command). After a
+    step back these extra frames pause for the length of the step (the picture stays, app.js's
+    frames still draw); after a step forward one comes at once. It never blocks.
+  - The calibration gesture (`0x1f318`, from the touch sender `0x20d5c`): corner taps less than
+    400 ms apart are counted; a step at most restarts the count.
+  - Everything else is monotonic (`clock_gettime(CLOCK_MONOTONIC)`, GLFW's timer,
+    `pthread_cond_clockwait` with clock 1, `timerfd_create(CLOCK_MONOTONIC)`), relative
+    (`poll`, `usleep`, `nanosleep`), or bookkeeping in the bundled libhv: log timestamps, the HTTP
+    `Date` header, the file cache's expiry, the thread pool's idle mark, `srand(time)`. libhv's
+    loop runs its timers on the monotonic clock and re-reads the wall clock when it disagrees with
+    `time()`; its wall-clock (cron-like) "period" timers are not linked into any of the three
+    (`cron_next_timeout` is only called from the timer loop's re-arm: glesgui, `0x751d8` in
+    faderlink, `0x12ea30` in dspserver).
+  - dspserver's QuickJS has a wall-clock timed wait (`Atomics.wait` with a timeout, `0x17efd8`,
+    `CLOCK_REALTIME` + `pthread_cond_timedwait`), but its scripts (`mixergraph*.js`) use no
+    `Atomics`, `Date` or timer; faderlink has no timed wait at all.
+
+  So a step forward, the kind a start makes, stalls none of these programs.
 - Side effects: a "Screen calibration gesture" runs `ts-calibrate.sh &` and
   `killall -STOP/-CONT /usr/local/bin/dspserver`; forces `/sys/class/drm/*/power/control` to `on`;
   writes `/tmp/thread_watchdog`.
@@ -158,7 +181,12 @@ longer a reliable trigger.
   GUI" (context at 33.5 s); a step adding to it is not ruled out. In the 9 starts before #140's
   change, the slow ones were those with the step ≤1.3 s before "Opening GUI" (4 of 5), the good
   ones ≥1.6 s before (4 of 4); with the change the context comes before the step in 9 of 10.
-  Testable: hold chrony's step back until the context is there, then count stalls.
+  No wall-clock wait in glesgui, dspserver or faderlink explains it (#144, "Nothing else waits on
+  the wall clock" above): the steps at the start go forward, and the only waits a step can lengthen
+  need a step back. So the correlation, if real, works through something else, outside these
+  three programs (Xwayland/Weston, app.js under node, the load around the step) [guess]. Testable
+  only if starts stall at the screen again (none since #140, and since #1 the step is only as long
+  as the mixer was off): hold chrony's step back until the context is there, then count stalls.
 - **If one comes back**: the dev card's journal reaches the PC as it happens, the whole start from
   the kernel's first line, without a login (`dlzmod-netlog`, `dev/netlog.sh`; the kernel has no
   netconsole) [device]; a start that hangs is left alone a few minutes (ping, does the log go on?),
