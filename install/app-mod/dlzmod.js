@@ -2979,7 +2979,10 @@ function DLZMOD_limName() {
 }
 
 // The screen's 0..1 values to the hub's dB and ms, as Mackie's own compressor keys (createData's
-// conversions, clamped to 0..1 like there); registered before the keys get their defaults
+// conversions, clamped to 0..1 like there). The hub's INIT converts only the keys that have a
+// conversion by then (Data.merge), and INIT comes before startGUI: so this runs when the file loads
+// (the call after this function), after Mackie's own Data.setConv, which replaces all conversions
+// [device: registered at Settings' build, the saved 50 ms release showed as 2^50 ms]
 function DLZMOD_limConv() {
   if (typeof Data === "undefined") return;
   if (typeof Data.setKeyConv !== "function" || typeof VtoCompThresh !== "function") {
@@ -2993,6 +2996,7 @@ function DLZMOD_limConv() {
     ["attack", VtoCompAttack, VotCompAttack], ["ratio", VtoCompRatio, VotCompRatio]].forEach(([k, to, from]) =>
     Data.setKeyConv("dlzmod.lim." + k, (v) => to(clamp(v)), (v) => clamp(from(v))));
 }
+DLZMOD_limConv();
 
 // a strip that shows the Limiter page on the De-Esser tab: the master, once the page is built
 function DLZMOD_limHas(strip) {

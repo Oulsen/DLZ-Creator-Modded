@@ -2877,6 +2877,7 @@ test("limiter: its keys in the hub's dB and ms, the screen's 0..1 through Mackie
     assert.strictEqual(conv.out["dlzmod.lim.thresh"](0.5), -30, "to the hub in dB");
     assert.strictEqual(conv.out["dlzmod.lim.thresh"](2), 0, "clamped like Mackie's");
     assert.strictEqual(conv.in["dlzmod.lim.thresh"](-90), 0, "from the hub, clamped");
+    assert.strictEqual(conv.in["dlzmod.lim.release"](50), 0.05, "a saved 50 ms as the screen's 0..1 (Data.merge at INIT)");
   } finally {
     delete ctx.Data.convIn;
     delete ctx.Data.setKeyConv;
