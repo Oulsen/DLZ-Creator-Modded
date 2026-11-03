@@ -578,6 +578,12 @@ def splash(scr, glyphs, a):
     """Draw the splash, then turn its spinner until stopped (SIGTERM) or --timeout seconds."""
     splash_draw(scr, glyphs, a)
     spinner(scr, 0)
+    if a.bootsplash_off:   # only now, with the frame ready: a failure before this leaves the logo
+        try:
+            with open(a.bootsplash_off, "w") as f:
+                f.write("off")
+        except OSError:
+            pass
     scr.present()
     end = None if a.timeout is None else time.monotonic() + a.timeout
     while end is None or time.monotonic() < end:
@@ -631,6 +637,8 @@ def main():
     s.add_argument("--warning", help="yellow line under the lines, at their size")
     s.add_argument("--hint", help="grey line under the warning")
     s.add_argument("--timeout", type=float, help="stop turning after this many seconds")
+    s.add_argument("--bootsplash-off", help="sysfs file the kernel bootsplash is switched off with, "
+                                            "written right before the first frame")
     a = ap.parse_args()
 
     touch_path = find_touch() if a.touch == "auto" else (None if a.touch == "none" else a.touch)

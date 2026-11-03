@@ -258,10 +258,12 @@ rehearsal: `tests/update.sh` case 3a]:
   yellow and "the mixer starts by itself when the update is done" in grey (`ui.py splash`; its code
   and glyphs from the checked package's `/pkg/ui/`, signed like its `check-rootfs.sh`, copied to
   `/run/dlzmod-update-screen.*` because WORK is removed first; no Mackie logo in the package).
-  `show_installing` runs right after the approval gate, before the snapshot: the bootsplash `off`
-  (`/sys/devices/platform/bootsplash.0/enabled`, as Armbian's own units write it), then the splash
-  on `/dev/fb0` in the background (`timeout 330`, output dropped): the install does not wait for it,
-  and a draw that fails leaves the logo. `finish` keeps it on screen at least 9 s from its start
+  `show_installing` runs right after the approval gate, before the snapshot, and starts everything
+  in the background (output dropped), so the install never waits for it: ffmpeg (`timeout 20`; no
+  background: the lines on black), then the splash on `/dev/fb0` (`timeout 330`), which switches the
+  bootsplash `off` itself (`--bootsplash-off /sys/devices/platform/bootsplash.0/enabled`, the value
+  Armbian's own units write) right before its first frame: a python3 that fails before that leaves
+  the logo. `finish` keeps it on screen at least 9 s from its start
   (`SHOW_MIN`: ~1 s python start, ~8 s visible, so a fast install does not just flash it; waited
   after the report is written and DLZDATA released), then stops the spinner; a stop signal
   (`on_term`) stops it at once, without the wait. Never in a rehearsal (`DLZMOD_ROOT` or

@@ -690,17 +690,23 @@ wait_for_approval() {
 # as before. finish keeps it at least SHOW_MIN, then stops the spinner. An update installed by an
 # updater from before this one, or with Weston already up, shows the logo as before.
 show_installing() {
-  local ui=$WORK/root/pkg/ui sp=/sys/devices/platform/bootsplash.0/enabled
+  local ui=$WORK/root/pkg/ui label
   [ -z "$ROOT" ] && [ -z "${DLZMOD_DATA:-}" ] && [ -f "$ui/ui.py" ] && [ -f "$ui/glyphs.bin" ] && [ -c /dev/fb0 ] || return 0
   SHOW_DIR=$(mktemp -d /run/dlzmod-update-screen.XXXXXX) || { SHOW_DIR=""; return 0; }
   cp "$ui/ui.py" "$ui/glyphs.bin" "$SHOW_DIR/" || return 0
-  # the logo group only: the start screen's own status lines and hint (from row 376 of 600) blacked out
-  timeout 20 ffmpeg -nostdin -v error -i /etc/dlz.png -vf "drawbox=x=0:y=ih*376/600:w=iw:h=ih:color=black:t=fill" \
-    -f rawvideo -pix_fmt bgr0 "$SHOW_DIR/background.raw" > /dev/null 2>&1 || rm -f "$SHOW_DIR/background.raw"
-  [ ! -w "$sp" ] || echo off > "$sp" 2>/dev/null || true
-  timeout 330 python3 -I -B "$SHOW_DIR/ui.py" --glyphs "$SHOW_DIR/glyphs.bin" splash --background "$SHOW_DIR/background.raw" \
-    --line "ok|update $(pkg_label) checked" --line "wait|installing update..." --warning "Do not switch off" \
-    --hint "the mixer starts by itself when the update is done" < /dev/null > /dev/null 2>&1 &
+  label=$(pkg_label)
+  # all of it in the background, the install never waits: the background first (the logo group only,
+  # the start screen's own status lines and hint from row 376 of 600 blacked out), then the splash,
+  # which switches the bootsplash off itself right before its first frame (a python3 that fails
+  # before that leaves the logo); exec, so SHOW_PID is the timeout that stops it
+  (
+    timeout 20 ffmpeg -nostdin -v error -i /etc/dlz.png -vf "drawbox=x=0:y=ih*376/600:w=iw:h=ih:color=black:t=fill" \
+      -f rawvideo -pix_fmt bgr0 "$SHOW_DIR/background.raw" || rm -f "$SHOW_DIR/background.raw"
+    exec timeout 330 python3 -I -B "$SHOW_DIR/ui.py" --touch none --glyphs "$SHOW_DIR/glyphs.bin" splash \
+      --bootsplash-off /sys/devices/platform/bootsplash.0/enabled --background "$SHOW_DIR/background.raw" \
+      --line "ok|update $label checked" --line "wait|installing update..." --warning "Do not switch off" \
+      --hint "the mixer starts by itself when the update is done"
+  ) < /dev/null > /dev/null 2>&1 &
   SHOW_PID=$! SHOW_FROM=$(uptime_s)
 }
 show_installing
@@ -851,9 +857,10 @@ allowed() {
         glesgui.service.d:dlzmod.conf|evolve-node.service.d:dlzmod.conf|evolve-app.service.d:dlzmod.conf) return 0 ;;
         # (the same for this line)
         dlzmod-update.service.d:dlzmod.conf|dlzmod-grow-data.service.d:dlzmod.conf) return 0 ;;
-        # #96 (the screen during an update): not placed by any package yet; here so that it needs no
-        # full install of its own (stock weston-mackie.service starts early itself, after sysinit.target
-        # and so after the eMMC lock; shape_ok refuses a drop-in that sets DefaultDependencies=no)
+        # #96 (the screen during an update), here since v0.3.0 so that it needs no full install of its
+        # own (stock weston-mackie.service starts early itself, after sysinit.target and so after the
+        # eMMC lock; shape_ok refuses a drop-in that sets DefaultDependencies=no)
+        # (apply-mod.sh greps an installed copy for this line's entry: keep it as written)
         weston-mackie.service.d:dlzmod.conf) return 0 ;;
         multi-user.target.wants:dlzmod-*.service|sysinit.target.wants:dlzmod-emmc-ro.service) return 0 ;;
       esac ;;
