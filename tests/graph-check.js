@@ -152,6 +152,11 @@ check(comp && comp.buf === "aout16" && comp.p.right === "buffer:aout20" && comp.
   && comp.p.release === "@dlzmod.lim.release"
   && comp.p.ratio === "(@dlzmod.lim.bypass || @dlzmod.lim.thresh > 0) ? 1 : 20",
 "limiter: stereo linked, 1 ms attack, ratio 20 needs both keys (else the block's own ratio 1)");
+// the ratio expression itself, as dspserver evaluates it once both keys have a value
+const ratioOf = (bypass, thresh) => vm.runInNewContext(String(comp && comp.p.ratio)
+  .replace(/@dlzmod\.lim\.bypass/g, String(bypass)).replace(/@dlzmod\.lim\.thresh/g, String(thresh)));
+check(comp && ratioOf(0, -1) === 20 && ratioOf(1, -1) === 1 && ratioOf(0, 3) === 1 && ratioOf(0, 0) === 20,
+  "limiter: ratio 20 when on with a ceiling at or below 0 dB, else 1");
 const keys = /function DLZMOD_keys\(\) \{\s*return (\{[^}]*\});/.exec(app);
 const defaults = keys && JSON.parse(keys[1]);
 check(!!defaults && defaults["dlzmod.lim.bypass"] === 0 && defaults["dlzmod.lim.thresh"] === -1

@@ -250,7 +250,8 @@ full-size's graph is not patched.
   the attack can pass, so it is a safety net, not a brick wall.
 - **Page** (`DLZMOD_limPage`): Mackie's `PageComp` as a subclass on the `dlzmod.lim.*` keys (its
   curve widget's `midKey` "lim."), the ratio's handle neither drawn nor moved, no knee, gain or
-  presets; Ceiling and Release on the knobs, the attack shown fixed. The keys' 0..1 screen values go
+  presets; Ceiling and Release on the knobs, the attack shown fixed; its texts English only, like the
+  Mod page's. The keys' 0..1 screen values go
   through Mackie's compressor conversions (`Data.setKeyConv`, `DLZMOD_limConv`). The tab text and
   colour per channel (`DLZMOD_limTab`); a channel picked on that tab gets its De-Esser, the Limiter,
   or Setup when it has neither, as stock does [sandbox].

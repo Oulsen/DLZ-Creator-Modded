@@ -239,7 +239,7 @@ APP_PATCHES = [
         # mic's De-Esser and back, or to Setup where neither exists (stock: Setup without a de-esser)
         "limiter: another channel picked on the De-Esser tab",
         "e.curPage!==E_PAGE.DS||t.haveDS()||e.setPage(E_PAGE.SETUP)",
-        "e.curPage!==E_PAGE.DS||e.setPage(DLZMOD_limHasTab(t)?E_PAGE.DS:E_PAGE.SETUP)",
+        "e.curPage!==E_PAGE.DS||DLZMOD_limReselect(e,t)",
     ),
     (
         # the channel page opened again on the tab last used

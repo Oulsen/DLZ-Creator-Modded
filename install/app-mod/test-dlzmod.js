@@ -2795,7 +2795,9 @@ test("EQ spectrum: the bands as the curve's points, -60 dBFS at the bottom, noth
 const LIM_GLOBALS = ["PageComp", "SELECTED", "SET_KNOBS", "$F", "VtoCompThresh", "VotCompThresh", "VtoCompRelease",
   "VotCompRelease", "VtoCompAttack", "VotCompAttack", "VtoCompRatio", "VotCompRatio", "deconvertVUgr"];
 // a stand-in for Mackie's compressor page: its widgets as initWidgets makes them, what sync and
-// paint touch recorded
+// paint touch recorded. Mackie's conversions (VtoCompThresh ...) are stand-ins too: the real ones
+// live in the bundle, which these tests do not load; DLZMOD_limConv only passes them through
+// (tests/patches.sh checks that the patched app.js parses with them)
 function limStage(selected) {
   const rec = { knobs: null, painted: [], prefixes: {} };
   const widget = (name) => ({ name, hidden: false, hide() {
@@ -2911,12 +2913,35 @@ test("limiter: the master's De-Esser tab is the Limiter tab, a mic's stays the D
   }
 });
 
+test("limiter: another channel on the De-Esser tab: its page only when it changes, Setup without one", () => {
+  const master = strip(4, false), mic = strip(0, true), player = strip(1, false);
+  const pages = [];
+  const a = { dlzmodLim: { visible: false }, pageDs: { visible: true }, setPage: (p) => pages.push(p) };
+  ctx.E_PAGE = { SETUP: "setup", DS: "ds" };
+  ctx.app = a;
+  try {
+    ctx.DLZMOD_limReselect(a, mic);
+    assert.deepStrictEqual(pages, [], "mic to mic: as stock, no page switch");
+    ctx.DLZMOD_limReselect(a, master);
+    assert.deepStrictEqual(pages, ["ds"], "mic to master: the Limiter");
+    [a.dlzmodLim.visible, a.pageDs.visible] = [true, false];
+    ctx.DLZMOD_limReselect(a, mic);
+    assert.deepStrictEqual(pages, ["ds", "ds"], "master to mic: the De-Esser");
+    ctx.DLZMOD_limReselect(a, player);
+    assert.deepStrictEqual(pages, ["ds", "ds", "setup"], "a player: Setup, as stock");
+  } finally {
+    ctx.app = undefined;
+    delete ctx.E_PAGE;
+  }
+});
+
 test("limiter: its page is Mackie's compressor page on the limiter's keys, its ratio fixed", () => {
   const rec = limStage({ strip: strip(4, false) });
   try {
     const p = ctx.DLZMOD_limPage({}, { anchors: [0] });
     assert.ok(p && p.widgetName === "DLZMOD_PageLimiter");
     assert.deepStrictEqual([p.knee.hidden, p.preset.hidden, p.slGain.hidden], [true, true, true], "no knee, presets, gain");
+    assert.strictEqual(p.comp.noGain, true, "the curve without a make-up gain");
     p.sync(true);
     assert.deepStrictEqual(plain(rec.prefixes), { comp: "dlzmod.lim.", ahr: "dlzmod.lim.", onoff: "dlzmod.lim.bypass" });
     assert.deepStrictEqual(plain(rec.knobs.map((k) => [k.subTitle(), k.control.key])),

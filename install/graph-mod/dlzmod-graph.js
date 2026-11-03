@@ -64,8 +64,10 @@ function DLZMOD_rtaAnalyser() {
 // dB and ms like Mackie's; DLZMOD_keys in app-mod/dlzmod.js has their defaults: on, ceiling -1 dB).
 // A binding applies only once all of its keys have a value, until then the block keeps its own
 // default (thresh -20 dB, ratio 1): the ratio needs both keys, so with any of them missing the
-// block keeps ratio 1 and does nothing, never limiting at -20 dB. Meters around it as the VU group
-// dlzmod.lim: in, gain reduction, out.
+// block keeps ratio 1 and does nothing, never limiting at -20 dB (a threshold above 0 dB, which the
+// screen never sends, also means off). Meters around it as the VU group dlzmod.lim: in, gain
+// reduction, out; two meters of one name (left and right) give the louder side, as Mackie's
+// vuMasterDynIn.
 function DLZMOD_limMeters() {
   return ['dlzmodLimIn', 'dlzmodLimGr', 'dlzmodLimOut']
 }

@@ -2981,7 +2981,13 @@ function DLZMOD_limName() {
 // The screen's 0..1 values to the hub's dB and ms, as Mackie's own compressor keys (createData's
 // conversions, clamped to 0..1 like there); registered before the keys get their defaults
 function DLZMOD_limConv() {
-  if (typeof Data === "undefined" || typeof Data.setKeyConv !== "function" || typeof VtoCompThresh !== "function") return;
+  if (typeof Data === "undefined") return;
+  if (typeof Data.setKeyConv !== "function" || typeof VtoCompThresh !== "function") {
+    // the limiter's keys would keep the hub's dB and ms on the screen's 0..1 scale
+    if (!DLZMOD_limConv.warned) console.log("dlzmod: limiter: no key conversions in this app.js");
+    DLZMOD_limConv.warned = true;
+    return;
+  }
   const clamp = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
   [["thresh", VtoCompThresh, VotCompThresh], ["release", VtoCompRelease, VotCompRelease],
     ["attack", VtoCompAttack, VotCompAttack], ["ratio", VtoCompRatio, VotCompRatio]].forEach(([k, to, from]) =>
@@ -3012,10 +3018,19 @@ function DLZMOD_limTab(tab, strip) {
   return DLZMOD_limHasTab(strip);
 }
 
-// the page the De-Esser tab shows (app.setPage)
-function DLZMOD_limOrDs(app) {
-  const strip = typeof SELECTED === "function" ? SELECTED() : null;
+// the page the De-Esser tab shows (app.setPage), for the selected strip or the one given
+function DLZMOD_limOrDs(app, strip) {
+  if (strip === undefined) strip = typeof SELECTED === "function" ? SELECTED() : null;
   return DLZMOD_limHas(strip) ? app.dlzmodLim : app.pageDs;
+}
+
+// another channel picked while the De-Esser tab is open (patch.py): Setup when the tab leads nowhere
+// for it (as stock), the tab again only when its page has to change (master <-> a mic), so a mic to
+// mic switch stays as stock: no setPage, no extra step in the page history
+function DLZMOD_limReselect(app, strip) {
+  if (!DLZMOD_limHasTab(strip)) return app.setPage(E_PAGE.SETUP);
+  const page = DLZMOD_limOrDs(app, strip);
+  if (page && !page.visible) app.setPage(E_PAGE.DS);
 }
 
 // the meters in, gain reduction and out (VU group dlzmod.lim), as Mackie fills its compressor page's
@@ -3053,6 +3068,7 @@ function DLZMOD_limClass() {
       if (this.slGain) this.slGain.label = "";   // Mackie's paint writes its label even when it is hidden
       const comp = this.comp, move = comp.onmove, knob = comp.paintKnob;
       comp.midKey = "lim.";
+      comp.noGain = true;   // no make-up gain (and no dlzmod.lim.gain key): neither drawn nor read
       comp.onmove = function () {
         if (this.mode !== 1) return move.apply(this, arguments);   // 1: the ratio's handle
       };
