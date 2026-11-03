@@ -259,14 +259,20 @@ rehearsal: `tests/update.sh` case 3a]:
   and glyphs from the checked package's `/pkg/ui/`, signed like its `check-rootfs.sh`, copied to
   `/run/dlzmod-update-screen.*` because WORK is removed first; no Mackie logo in the package).
   `show_installing` runs right after the approval gate, before the snapshot, and starts everything
-  in the background (output dropped), so the install never waits for it: ffmpeg (`timeout 20`; no
-  background: the lines on black), then the splash on `/dev/fb0` (`timeout 330`), which switches the
-  bootsplash `off` itself (`--bootsplash-off /sys/devices/platform/bootsplash.0/enabled`, the value
-  Armbian's own units write) right before its first frame: a python3 that fails before that leaves
-  the logo. `finish` keeps it on screen at least 9 s from its start
-  (`SHOW_MIN`: ~1 s python start, ~8 s visible, so a fast install does not just flash it; waited
-  after the report is written and DLZDATA released), then stops the spinner; a stop signal
-  (`on_term`) stops it at once, without the wait. Never in a rehearsal (`DLZMOD_ROOT` or
+  in the background (output dropped), so the install never waits for it: ffmpeg (`timeout 20`, one
+  thread; no background: the lines on black), then the splash on `/dev/fb0` (`timeout 330`), which
+  switches the bootsplash `off` itself (`--bootsplash-off /sys/devices/platform/bootsplash.0/enabled`,
+  the value Armbian's own units write) right before its first frame: a python3 that fails before
+  that leaves the logo. The job runs at `nice 10` and `oom_score_adj` 500, so with ~120 MB free the
+  OOM killer takes it before the install. After an install (`INSTALLED`), `finish` keeps it on
+  screen at least 9 s from its start (`SHOW_MIN`: ~1 s python start, ~8 s visible, so a fast install
+  does not just flash it; waited after the report is written and DLZDATA released), then stops the
+  spinner; after a refusal or a `later` it stops at once (no reason to hold "installing update..."),
+  and so does a stop signal (`on_term`). Accepted: the package's own `ui.py` runs as root outside the
+  sandbox, like its `check-rootfs.sh` (the signature is the trust boundary; the arguments, the
+  sysfs path among them, are the installed updater's); the last frame stays until Weston takes the
+  display, so a Weston that never comes up leaves "Do not switch off" instead of the logo (Weston has
+  `Restart=always`). Never in a rehearsal (`DLZMOD_ROOT` or
   `DLZMOD_DATA` set). Weston waits for the updater (`weston-mackie.service.d/dlzmod.conf`:
   `After=dlzmod-update.service`), so the message stays until Weston takes the display. That costs a
   normal start nothing: Weston's first step (`chvt 7`) ends at ~17-19 s however early it starts,

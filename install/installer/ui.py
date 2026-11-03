@@ -550,8 +550,9 @@ def splash_draw(scr, glyphs, a):
             scr.picture(0, 0, W, [data[r * W * 4:(r + 1) * W * 4] for r in range(H)])
     body, small = glyphs.fit(H // 20), glyphs.fit(H // 30)
     cw, ch = body["w"], body["h"]
-    lines = [(l.partition("|")[0], l.partition("|")[2]) for l in (a.line or [])]
     prefix = round(30 * k)
+    room = (W - prefix) // cw - 2   # a long label (a dev build's) is cut, never drawn off the screen
+    lines = [(l.partition("|")[0], l.partition("|")[2][:room]) for l in (a.line or [])]
     block = prefix + max((len(t) for _, t in lines), default=0) * cw
     x = (W - block) // 2
     top = (H - round(260 * k)) // 2 + round(206 * k)

@@ -214,18 +214,19 @@ finish() {   # the report next to the other logs, then DLZDATA released
   if [ -z "${DLZMOD_DATA:-}" ]; then
     umount "$DATA" && rmdir "$DATA" || echo "dlzmod-update: DLZDATA could not be unmounted"
   fi
-  # #96: the message stays on screen at least SHOW_MIN seconds from its start (a fast install would
-  # otherwise only flash it): the rest is waited here, with the report written and DLZDATA released;
-  # Weston and the mixer software start after this step. Not when stopped (on_term clears SHOW_FROM).
-  # Then the spinner stops; its last frame stays until Weston takes the display
-  if [ -n "$SHOW_FROM" ]; then
+  # #96: after an install, the message stays on screen at least SHOW_MIN seconds from its start (a fast
+  # install would otherwise only flash it): the rest is waited here, with the report written and
+  # DLZDATA released; Weston and the mixer software start after this step. Not when stopped (on_term
+  # clears SHOW_FROM) and not after a refusal or a "later" (no reason to hold "installing update..."
+  # up then). Then the spinner stops; its last frame stays until Weston takes the display
+  if [ -n "$SHOW_FROM" ] && [ "$SHOW_HOLD" = yes ]; then
     local left=$(( SHOW_FROM + SHOW_MIN - $(uptime_s) ))
     [ "$left" -le 0 ] || sleep "$left"
   fi
   if [ -n "$SHOW_PID" ]; then kill "$SHOW_PID" 2>/dev/null; wait "$SHOW_PID" 2>/dev/null || true; fi
   [ -z "$SHOW_DIR" ] || rm -rf "$SHOW_DIR"
 }
-SHOW_PID="" SHOW_FROM="" SHOW_DIR="" SHOW_MIN=9   # 9 s from the draw's start: ~1 s for python3 to start, ~8 s on screen
+SHOW_PID="" SHOW_FROM="" SHOW_DIR="" SHOW_HOLD=no SHOW_MIN=9   # 9 s from the draw's start: ~1 s for python3 to start, ~8 s on screen
 trap finish EXIT
 # #1: the clock just past DLZDATA's newest file (a power-off after the clock saver's last save),
 # while it is mounted read-only and before the mixer software starts; here and not as a unit of its
@@ -698,11 +699,14 @@ show_installing() {
   # all of it in the background, the install never waits: the background first (the logo group only,
   # the start screen's own status lines and hint from row 376 of 600 blacked out), then the splash,
   # which switches the bootsplash off itself right before its first frame (a python3 that fails
-  # before that leaves the logo); exec, so SHOW_PID is the timeout that stops it
+  # before that leaves the logo); exec, so SHOW_PID is the timeout that stops it. Light on the ~120 MB
+  # the install also needs: ffmpeg on one thread, the job niced and first in line for the OOM killer
   (
-    timeout 20 ffmpeg -nostdin -v error -i /etc/dlz.png -vf "drawbox=x=0:y=ih*376/600:w=iw:h=ih:color=black:t=fill" \
+    echo 500 > /proc/self/oom_score_adj 2>/dev/null
+    timeout 20 nice -n 10 ffmpeg -nostdin -v error -threads 1 -filter_threads 1 -i /etc/dlz.png \
+      -vf "drawbox=x=0:y=ih*376/600:w=iw:h=ih:color=black:t=fill" \
       -f rawvideo -pix_fmt bgr0 "$SHOW_DIR/background.raw" || rm -f "$SHOW_DIR/background.raw"
-    exec timeout 330 python3 -I -B "$SHOW_DIR/ui.py" --touch none --glyphs "$SHOW_DIR/glyphs.bin" splash \
+    exec nice -n 10 timeout 330 python3 -I -B "$SHOW_DIR/ui.py" --touch none --glyphs "$SHOW_DIR/glyphs.bin" splash \
       --bootsplash-off /sys/devices/platform/bootsplash.0/enabled --background "$SHOW_DIR/background.raw" \
       --line "ok|update $label checked" --line "wait|installing update..." --warning "Do not switch off" \
       --hint "the mixer starts by itself when the update is done"
@@ -980,6 +984,7 @@ if [ "$rc" = 0 ]; then
   sync
   if writable && rm -f "$SRC" "$SRC.sig"; then del="the update files were deleted"
   else del="the update files could not be deleted (DLZDATA read-only?): remove them on a computer"; fi
+  SHOW_HOLD=yes   # #96: the screen's minimum time (finish)
   log "INSTALLED: $NEWV ($(penv BUILD)); $del. The app, the server, the audio engine and udev rules use it now;"
   log "changed startup units from the next start"
   [ -n "$ROOT" ] || udevadm control --reload 2>/dev/null
