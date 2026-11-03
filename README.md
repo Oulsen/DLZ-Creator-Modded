@@ -17,7 +17,15 @@ Never post dumps, Mackie files, Wi-Fi passwords or keys, in any of these places.
 ## What the mod does
 
 The mod's own settings are in Settings → **DLZ Creator Modded**, on the tabs named in brackets
-below. They all start as stock: turn on what you want.
+below. Most start as stock: turn on what you want; the few that are on from the start say so.
+
+### Sound
+
+- A limiter on the main out, on from the start with its ceiling at -1 dB: a safety net, so a sudden
+  loud peak reaches the speakers less hard; ceiling and release on the master's own Limiter tab
+  (DLZ Creator XS for now) *(Channel, LR, Limiter)*
+- A noise gate on the main out, which keeps it quiet between takes: Mackie's own gate, which the
+  mixer had but did not offer for the master (DLZ Creator XS for now) *(Channel, LR, Gate)*
 
 ### Recording
 
