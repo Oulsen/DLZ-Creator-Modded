@@ -169,7 +169,10 @@ All [static].
   not socket.io. In a browser it uses socket.io to the page host.
 - Rendering: wraps the canvas context (`wrapObject`), queues every call/property set as
   `{obj,call,args}`, writes one JSON array per frame + `{"obj":"ctx","call":"drawFrame","args":[]}`
-  to the FIFO `/tmp/glesgui`. See [glesgui.md](glesgui.md).
+  to the FIFO `/tmp/glesgui`. See [glesgui.md](glesgui.md). The write (`wstream`, a global
+  `fs.createWriteStream`) ignores `write()`'s return value: when glesgui reads slower than app.js
+  draws, the frames wait in app.js's memory without a limit and the screen falls further behind
+  (`wstream.writableLength` says how much waits) [static].
 - Input: WebSocket to `ws://127.0.0.1:8011/`; `DOWN_x_y`/`MOVE_x_y`/`UP_x_y` → `Events.eventPointer*`.
 - Readable globals survive minification: `$CFG $NET Events Settings DBG UI`. State keys and command
   names are plain strings.

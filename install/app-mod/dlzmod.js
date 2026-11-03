@@ -591,9 +591,10 @@ function DLZMOD_paintDbScale(t, sl, m) {
 // that is (hub key dlzmod.rta, DLZMOD_rtaCode; the server takes it from the screen only); a browser
 // shows it when its EQ page has the same channel. Shown in the EQ widget's own spectrum data (rtaData),
 // drawn with the curve (rtaOverlay off: Mackie's overlay layer is not used) by the mod's
-// DLZMOD_rtaPaint instead of Mackie's paintRTA. Smoothed like an analyser: up at once, down slowly
-// (DLZMOD_rtaSmooth), so an EQ change shows as a calm rise or dip instead of drowning in every beat;
-// animated towards each message's picture by a timer of its own (DLZMOD_rtaTick).
+// DLZMOD_rtaPaint instead of Mackie's paintRTA. Averaged like an analyser (DLZMOD_rtaSmooth) and on
+// the EQ curve's own dB scale (DLZMOD_rtaRange), so an EQ change shows as a dip or rise as deep as the
+// curve's, instead of drowning in every beat; animated towards each message's picture by a timer of
+// its own (DLZMOD_rtaTick).
 
 // the bands' centres in Hz, as the graph mod has them
 function DLZMOD_rtaFreqs() {
@@ -710,11 +711,16 @@ function DLZMOD_rtaVu(t, now) {
     const code = DLZMOD_rtaCode(DLZMOD_rtaShown.prefix);
     if (!code || Data.get("dlzmod.rta") !== code) return;
     if (typeof now !== "number") now = DLZMOD_rtaNow();
-    const levels = DLZMOD_rtaSmooth(Array.from(atob(s), (c) => c.charCodeAt(0) / 240), code, now);
+    const raw = Array.from(atob(s), (c) => c.charCodeAt(0) / 240);
+    const levels = DLZMOD_rtaSmooth(raw, code, now);
     const a = DLZMOD_rtaAnim();
     if (a.eq !== page.eq) DLZMOD_rtaStop(true);
     a.eq = page.eq;
-    a.target = DLZMOD_rtaPoints(levels);   // null: silence, the picture sinks and goes
+    // the curve's own dB scale: gainRange above and below the middle line (Mackie's ±15 dB)
+    const span = 2 * (page.eq.gainRange > 0 ? page.eq.gainRange : 15);
+    // null: silence (this message's, not the average's: the picture goes as soon as the sound stops)
+    const sound = raw.slice(0, DLZMOD_rtaFreqs().length).some((v) => v > 20 / 80);   // above -60 dBFS
+    a.target = sound ? DLZMOD_rtaPoints(levels, 64, DLZMOD_rtaRange(levels, code), span) : null;
     a.at = now;
     // the look's colours each time: a change of look shows at the next message
     [page.eq.rtaStrokeColor, page.eq.rtaFillColor] = DLZMOD_rtaColors();
@@ -733,19 +739,21 @@ function DLZMOD_rtaNow() {
 // redrew for something else (busyAt).
 function DLZMOD_rtaAnim() {
   if (!DLZMOD_rtaAnim.s) {
-    DLZMOD_rtaAnim.s = { eq: null, target: null, shown: null, at: 0, busyAt: -1e9, timer: null, drawing: false,
-      later: (f, ms) => setTimeout(f, ms) };
+    DLZMOD_rtaAnim.s = { eq: null, target: null, shown: null, drawn: null, at: 0, busyAt: -1e9, timer: null,
+      drawing: false, later: (f, ms) => setTimeout(f, ms) };
   }
   return DLZMOD_rtaAnim.s;
 }
 
-// One frame, about 30 a second while the picture moves: each point 60 % of the way to the target, so
-// a new message glides in within ~80 ms instead of jumping. Each frame redraws the whole widget (grid,
-// curve, knobs), which is what the screen spends its time on: within 250 ms of a redraw for something
-// else (a knob, a dragged dot) the picture only moves along in the widget's data, drawn with those
-// redraws, so turning and dragging stay quick. Standing still (no point half a pixel off): no frames,
-// a slower check. No message for 300 ms (silence below the bottom, the switch off, another channel
-// measured) or a silent one: it sinks to the bottom and goes. now: ms (tests), else the clock.
+// One step every 50 ms while the picture moves: each point 60 % of the way to the target, so a new
+// message glides in instead of jumping. A frame redraws the whole widget (grid, curve, knobs), which
+// is what the screen spends its time on, so one is drawn only when a point moved a pixel or more since
+// the last one, and none while the screen program is behind (DLZMOD_rtaBacklog): app.js does not wait
+// for it, so frames it cannot keep up with pile up in memory and the screen lags more and more.
+// Within 250 ms of a redraw for something else (a knob, a dragged dot) the picture only moves along
+// in the widget's data, drawn with those redraws, so turning and dragging stay quick. Standing still
+// (no point half a pixel off): a slower check. No message for 300 ms (silence, the switch off, another
+// channel measured) or a silent one: it sinks to the bottom and goes. now: ms (tests), else the clock.
 function DLZMOD_rtaTick(now) {
   const a = DLZMOD_rtaAnim();
   a.timer = null;
@@ -762,18 +770,18 @@ function DLZMOD_rtaTick(now) {
     const moved = next.some((v, k) => v !== from[k]) || !a.shown;
     const gone = !target && next.every((v) => v * px < 0.5);
     a.shown = gone ? null : next;
-    if (moved || gone) {
-      eq.rtaData = a.shown;
-      if (now - a.busyAt >= 250 || gone) {
-        a.drawing = true;
-        try {
-          eq.update();
-        } finally {
-          a.drawing = false;
-        }
+    if (moved || gone) eq.rtaData = a.shown;
+    const far = gone || !a.drawn || next.some((v, k) => Math.abs(v - (a.drawn[k] || 0)) * px >= 1);
+    if (far && (now - a.busyAt >= 250 || gone) && (gone || !DLZMOD_rtaBacklog())) {
+      a.drawn = a.shown;
+      a.drawing = true;
+      try {
+        eq.update();
+      } finally {
+        a.drawing = false;
       }
     }
-    if (!gone) a.timer = a.later(DLZMOD_rtaTick, moved ? 33 : 100);
+    if (!gone) a.timer = a.later(DLZMOD_rtaTick, moved ? 50 : 100);
   } catch (e) {
     console.log("dlzmod: EQ spectrum: " + e);
   }
@@ -787,37 +795,63 @@ function DLZMOD_rtaStop(clear) {
   if (clear && a.eq) a.eq.rtaData = null;
   if (clear) a.eq = null;
   a.shown = null;
+  a.drawn = null;
   a.target = null;
 }
 
-// The band levels held like an analyser's: a louder level at once, a quieter one falling at most
-// 20 dB a second (levels are 1/80 per dB), so the picture stays calm between beats. Starts afresh for
-// another channel or after a pause of more than a second (ms: now).
+// The screen program (glesgui) behind: app.js writes each frame into its pipe without waiting
+// (wstream, Mackie's), so what the pipe cannot take waits in app.js's memory. More than 16 KiB
+// waiting (a few frames): the spectrum draws no frame of its own until it has caught up. Not on the
+// mixer (a browser, the sandbox): never behind.
+function DLZMOD_rtaBacklog() {
+  try {
+    return typeof wstream !== "undefined" && !!wstream && wstream.writableLength > 16384;
+  } catch (e) {
+    return false;
+  }
+}
+
+// The band levels averaged like an analyser's (in dB, about 0.4 s), so a steady EQ change stands out
+// from the music's own ups and downs instead of drowning in every beat. Starts afresh for another
+// channel or after a pause of more than a second (ms: now).
 function DLZMOD_rtaSmooth(levels, code, now) {
   const st = DLZMOD_rtaSmooth;
   const dt = (now - (st.at || 0)) / 1000;
   if (st.code !== code || !st.levels || st.levels.length !== levels.length || !(dt >= 0) || dt > 1) {
     st.levels = levels.slice();
   } else {
-    const fall = 20 / 80 * dt;
-    st.levels = levels.map((v, k) => Math.max(v, st.levels[k] - fall));
+    const k = 1 - Math.exp(-dt / 0.4);
+    st.levels = levels.map((v, i) => st.levels[i] + k * (v - st.levels[i]));
   }
   st.code = code;
   st.at = now;
   return st.levels;
 }
 
+// The top of the spectrum's scale in dBFS, in 6 dB steps: 6-12 dB above the loudest band, so a boost
+// of a few dB fits without the scale moving. It moves up when a band reaches it and down when every
+// band stays more than 18 dB below it; afresh for another channel. -48..+6 dBFS.
+function DLZMOD_rtaRange(levels, code) {
+  const st = DLZMOD_rtaRange;
+  const loud = Math.max(...levels.map((v) => (v - 1) * 80));
+  const fit = Math.max(-48, Math.min(6, Math.ceil((loud + 6) / 6) * 6));
+  if (st.code !== code || typeof st.top !== "number" || loud > st.top || loud < st.top - 18) st.top = fit;
+  st.code = code;
+  return st.top;
+}
+
 // The band levels (0..1 over 80 dB, top = 0 dBFS) as the points DLZMOD_rtaPaint draws: evenly spread
 // over the curve's 20 Hz - 20 kHz (a log scale), each the level at its frequency, on a smooth curve
 // through the bands (Catmull-Rom in dB, never beyond its two nearest bands; outside them: the outer
-// band's). Shown from -60 dBFS (bottom) to 0 dBFS (top); null when every band is below that
-// (silence: Mackie's code clears the curve).
-function DLZMOD_rtaPoints(levels, n = 64) {
+// band's). Shown from top - span (bottom) to top (dBFS; the EQ curve's own dB per pixel); null when
+// every band is below -60 dBFS (silence: Mackie's code clears the curve).
+function DLZMOD_rtaPoints(levels, n = 64, top = 0, span = 60) {
   const freqs = DLZMOD_rtaFreqs(), last = freqs.length - 1;
   if (!levels || levels.length < freqs.length) return null;
-  const floor = 20 / 80;   // -60 dBFS
-  const show = (v) => Math.max(0, Math.min(1, (v - floor) / (1 - floor)));
-  if (!levels.slice(0, freqs.length).some((v) => v > floor)) return null;
+  const silent = 20 / 80;   // -60 dBFS
+  const lo = 1 + (top - span) / 80, hi = 1 + top / 80;
+  const show = (v) => Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+  if (!levels.slice(0, freqs.length).some((v) => v > silent)) return null;
   const at = (j) => levels[Math.max(0, Math.min(last, j))];
   const pts = new Array(n);
   for (let k = 0; k < n; k++) {
