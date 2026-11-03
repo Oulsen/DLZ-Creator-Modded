@@ -252,14 +252,20 @@ rehearsal: `tests/update.sh` case 3a]:
   gates: it catches a mistake, not a hostile signer).
 - An unseen result popup and a new question can open at the same start, one over the other
   (accepted: rare, both still work).
-- **On the screen during the install** (#96): "Installing update vX.Y.Z", "Do not switch the mixer
-  off. It starts by itself in a moment.", drawn in the installer's style (`ui.py`, its glyphs and
-  the version sticker, all three from the checked package's `/pkg/ui/`, signed like its
-  `check-rootfs.sh`). `show_installing` runs right after the approval gate, before the snapshot:
-  the bootsplash `off` (`/sys/devices/platform/bootsplash.0/enabled`, as Armbian's own units write
-  it), then `ui.py screen` on `/dev/fb0` in the background (`timeout 15`, output dropped): the
-  install does not wait for it, and a draw that fails leaves the logo. Never in a rehearsal
-  (`DLZMOD_ROOT` or `DLZMOD_DATA` set). Weston waits for the updater (`weston-mackie.service.d/dlzmod.conf`:
+- **On the screen during the install** (#96): the start screen's layout: the card's own logo group
+  (`/etc/dlz.png`, rows from 376 of 600 blacked out, made raw BGRX by the card's ffmpeg), then
+  "✓ update vX.Y.Z checked", a turning spinner at "installing update...", "Do not switch off" in
+  yellow and "the mixer starts by itself when the update is done" in grey (`ui.py splash`; its code
+  and glyphs from the checked package's `/pkg/ui/`, signed like its `check-rootfs.sh`, copied to
+  `/run/dlzmod-update-screen.*` because WORK is removed first; no Mackie logo in the package).
+  `show_installing` runs right after the approval gate, before the snapshot: the bootsplash `off`
+  (`/sys/devices/platform/bootsplash.0/enabled`, as Armbian's own units write it), then the splash
+  on `/dev/fb0` in the background (`timeout 330`, output dropped): the install does not wait for it,
+  and a draw that fails leaves the logo. `finish` keeps it on screen at least 9 s from its start
+  (`SHOW_MIN`: ~1 s python start, ~8 s visible, so a fast install does not just flash it; waited
+  after the report is written and DLZDATA released), then stops the spinner; a stop signal
+  (`on_term`) stops it at once, without the wait. Never in a rehearsal (`DLZMOD_ROOT` or
+  `DLZMOD_DATA` set). Weston waits for the updater (`weston-mackie.service.d/dlzmod.conf`:
   `After=dlzmod-update.service`), so the message stays until Weston takes the display. That costs a
   normal start nothing: Weston's first step (`chvt 7`) ends at ~17-19 s however early it starts,
   and the updater is done at ~12-13 s ([components/glesgui.md](components/glesgui.md), "Weston")

@@ -179,6 +179,7 @@ WORK=""
 CHECK_STATE=""
 APPLYING=no
 LOGV=""   # the package's version and build for the report's name, once known (step 1)
+uptime_s() { local u; read -r u _ < /proc/uptime; echo "${u%.*}"; }   # whole seconds since the start (#96)
 finish() {   # the report next to the other logs, then DLZDATA released
   local n name f last
   # a put-back that keeps failing says so once, not at every start: no new report with the same
@@ -213,7 +214,18 @@ finish() {   # the report next to the other logs, then DLZDATA released
   if [ -z "${DLZMOD_DATA:-}" ]; then
     umount "$DATA" && rmdir "$DATA" || echo "dlzmod-update: DLZDATA could not be unmounted"
   fi
+  # #96: the message stays on screen at least SHOW_MIN seconds from its start (a fast install would
+  # otherwise only flash it): the rest is waited here, with the report written and DLZDATA released;
+  # Weston and the mixer software start after this step. Not when stopped (on_term clears SHOW_FROM).
+  # Then the spinner stops; its last frame stays until Weston takes the display
+  if [ -n "$SHOW_FROM" ]; then
+    local left=$(( SHOW_FROM + SHOW_MIN - $(uptime_s) ))
+    [ "$left" -le 0 ] || sleep "$left"
+  fi
+  if [ -n "$SHOW_PID" ]; then kill "$SHOW_PID" 2>/dev/null; wait "$SHOW_PID" 2>/dev/null || true; fi
+  [ -z "$SHOW_DIR" ] || rm -rf "$SHOW_DIR"
 }
+SHOW_PID="" SHOW_FROM="" SHOW_DIR="" SHOW_MIN=9   # 9 s from the draw's start: ~1 s for python3 to start, ~8 s on screen
 trap finish EXIT
 # #1: the clock just past DLZDATA's newest file (a power-off after the clock saver's last save),
 # while it is mounted read-only and before the mixer software starts; here and not as a unit of its
@@ -323,7 +335,7 @@ later() {
   exit 0
 }
 # systemd's timeout (or a stop) during the apply: put things back first
-on_term() { if [ "$APPLYING" = yes ]; then log "stopped while applying: putting the previous files back"; restore; fi; exit 1; }
+on_term() { SHOW_FROM=""; [ -z "$SHOW_PID" ] || kill "$SHOW_PID" 2>/dev/null; if [ "$APPLYING" = yes ]; then log "stopped while applying: putting the previous files back"; restore; fi; exit 1; }
 trap on_term TERM INT
 
 U=$DATA/dlzmod-update
@@ -669,18 +681,27 @@ wait_for_approval() {
 
 # #96: the screen says so while the update installs, instead of only the logo, so nobody switches the
 # mixer off halfway. Weston takes the display only after this step (its drop-in), so until then the
-# panel shows the framebuffer: the bootsplash off (as Armbian's own units do it), then the message,
-# drawn by the checked package's own ui.py and glyphs (signed, like its check-rootfs.sh above) on the
-# live system only. In the background and never a reason to stop: the install does not wait for it,
-# and a draw that fails leaves the logo, as before. An update installed by an updater from before
-# this one, or with Weston already up, shows the logo as before.
+# panel shows the framebuffer: the bootsplash off (as Armbian's own units do it), then the start
+# screen's layout (ui.py splash: the logo group of this card's /etc/dlz.png, made raw by its ffmpeg,
+# "update vX.Y.Z checked", a turning spinner at "installing update...", "Do not switch off"), drawn
+# by the checked package's own ui.py and glyphs (signed, like its check-rootfs.sh above), copied to
+# a folder of their own (WORK goes before the screen does), on the live system only. In the background
+# and never a reason to stop: the install does not wait for it, and a draw that fails leaves the logo,
+# as before. finish keeps it at least SHOW_MIN, then stops the spinner. An update installed by an
+# updater from before this one, or with Weston already up, shows the logo as before.
 show_installing() {
   local ui=$WORK/root/pkg/ui sp=/sys/devices/platform/bootsplash.0/enabled
-  [ -z "$ROOT" ] && [ -z "${DLZMOD_DATA:-}" ] && [ -f "$ui/ui.py" ] && [ -c /dev/fb0 ] || return 0
+  [ -z "$ROOT" ] && [ -z "${DLZMOD_DATA:-}" ] && [ -f "$ui/ui.py" ] && [ -f "$ui/glyphs.bin" ] && [ -c /dev/fb0 ] || return 0
+  SHOW_DIR=$(mktemp -d /run/dlzmod-update-screen.XXXXXX) || { SHOW_DIR=""; return 0; }
+  cp "$ui/ui.py" "$ui/glyphs.bin" "$SHOW_DIR/" || return 0
+  # the logo group only: the start screen's own status lines and hint (from row 376 of 600) blacked out
+  timeout 20 ffmpeg -nostdin -v error -i /etc/dlz.png -vf "drawbox=x=0:y=ih*376/600:w=iw:h=ih:color=black:t=fill" \
+    -f rawvideo -pix_fmt bgr0 "$SHOW_DIR/background.raw" > /dev/null 2>&1 || rm -f "$SHOW_DIR/background.raw"
   [ ! -w "$sp" ] || echo off > "$sp" 2>/dev/null || true
-  timeout 15 python3 -I -B "$ui/ui.py" --glyphs "$ui/glyphs.bin" --logo "$ui/logo.bin" --brand "DLZ Creator Modded" \
-    screen --title "Installing update $(pkg_label)" --text "Do not switch the mixer off." \
-    --text "It starts by itself in a moment." < /dev/null > /dev/null 2>&1 &
+  timeout 330 python3 -I -B "$SHOW_DIR/ui.py" --glyphs "$SHOW_DIR/glyphs.bin" splash --background "$SHOW_DIR/background.raw" \
+    --line "ok|update $(pkg_label) checked" --line "wait|installing update..." --warning "Do not switch off" \
+    --hint "the mixer starts by itself when the update is done" < /dev/null > /dev/null 2>&1 &
+  SHOW_PID=$! SHOW_FROM=$(uptime_s)
 }
 show_installing
 
