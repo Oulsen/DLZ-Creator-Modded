@@ -54,9 +54,10 @@ A **dumb Canvas2D renderer**: the UI logic lives in `/srv/app.js`, glesgui only 
     (`poll`, `usleep`, `nanosleep`), or bookkeeping in the bundled libhv: log timestamps, the HTTP
     `Date` header, the file cache's expiry, the thread pool's idle mark, `srand(time)`. libhv's
     loop runs its timers on the monotonic clock and re-reads the wall clock when it disagrees with
-    `time()`; its wall-clock (cron-like) "period" timers are not linked into any of the three
-    (`cron_next_timeout` is only called from the timer loop's re-arm: glesgui, `0x751d8` in
-    faderlink, `0x12ea30` in dspserver).
+    `time()`; its wall-clock (cron-like) "period" timers are never set up in any of the three. In
+    faderlink and dspserver `htimer_add_period` is not linked (`cron_next_timeout`, `0x751d8` /
+    `0x12ea30`, is only called from the timer loop's re-arm); glesgui has it (`0x5f23c`, next to
+    `cron_next_timeout` `0x7274c`), but nothing branches to it or holds its address.
   - dspserver's QuickJS has a wall-clock timed wait (`Atomics.wait` with a timeout, `0x17efd8`,
     `CLOCK_REALTIME` + `pthread_cond_timedwait`), but its scripts (`mixergraph*.js`) use no
     `Atomics`, `Date` or timer; faderlink has no timed wait at all.
