@@ -10,6 +10,7 @@ Alpha, at your own risk, not supported by Mackie, and it could void your mixer's
 - **Chat, questions, contact:** [Discord](https://discord.gg/Qa2fjzVbGp)
 - **Bugs, feature requests and help with an install:** [GitHub issues](https://github.com/Oulsen/DLZ-Creator-Modded/issues)
 - **A security hole:** privately, not in an issue: [SECURITY.md](SECURITY.md)
+- **Enjoying it?** [Buy me a cold one](https://github.com/sponsors/Oulsen), any amount helps
 
 Never post dumps, Mackie files, Wi-Fi passwords or keys, in any of these places.
 
