@@ -398,6 +398,7 @@ APP_PATCHES = [
         '$NET.addCallback("DLZMOD_NET_RESULT",(t=>DLZMOD_netResult(t))),'
         # Time tab (#9): the zone set, the outcome of a change
         '$NET.addCallback("DLZMOD_TIME_STATE",(t=>DLZMOD_setTimeState(t))),'
+        '$NET.addCallback("DLZMOD_KNOB",(t=>DLZMOD_knobStep(t))),'
         '$NET.addCallback("DLZMOD_TIME_RESULT",(t=>DLZMOD_timeResult(t))),'
         # #55: Check for Updates on the Mod page, and the check by itself: the latest release
         '$NET.addCallback("DLZMOD_RELEASE_STATE",(t=>DLZMOD_setRelease(t))),',
@@ -477,10 +478,10 @@ SERVER_PATCHES = [
         # plain key/value messages: no prototype keys; file paths dspserver opens only from the screen.
         # A refused key is also taken out of the message: after this loop stock passes the whole
         # message on to every socket.io client, dspserver included (entries() is a copy, so deleting
-        # while looping is safe)
+        # while looping is safe). The same for a knob's stand-in key caught for a mod page (#238)
         "files: data keys checked (DLZMOD_keyAllowed)",
         "for(const[a,i]of Object.entries(e))if(null!=a){",
-        "for(const[a,i]of Object.entries(e))if(null!=a&&(DLZMOD_keyAllowed(a,i,t.send)||(delete e[a],!1))){",
+        "for(const[a,i]of Object.entries(e))if(null!=a&&(DLZMOD_keyAllowed(a,i,t.send)||(delete e[a],!1))&&(!DLZMOD_knobCatch(a,i,t)||(delete e[a],!1))){",
     ),
     (
         # stock builds a shell line from file names on the card or stick: a name with ; would run

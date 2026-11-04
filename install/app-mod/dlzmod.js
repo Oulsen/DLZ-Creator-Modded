@@ -928,6 +928,28 @@ function DLZMOD_rtaPaint(eq, t) {
   t.stroke();
 }
 
+// #238: a knob panel for a page with the mod's own settings: an entry with stepKey (that setting) has
+// its knob on the stand-in key of its place in the list (the server's DLZMOD_KNOB_KEYS) and
+// DLZMOD_knobStep moves the setting, as faderlink moves a listed key: 1/80 of its range per step.
+// Goes through SET_KNOBS as any panel; entries without stepKey stay as they are.
+const DLZMOD_KNOB_KEYS = ["a.0.pan", "a.1.pan", "f.0.pan", "f.1.pan"];
+function DLZMOD_knobs(list) {
+  DLZMOD_knobs.steps = [];
+  return list.map((e, n) => {
+    if (!e || !e.stepKey || !DLZMOD_KNOB_KEYS[n]) return e;
+    DLZMOD_knobs.steps[n] = e.stepKey;
+    return Object.assign({}, e, { control: Object.assign({}, e.control, { key: DLZMOD_KNOB_KEYS[n] }) });
+  });
+}
+
+function DLZMOD_knobStep(t) {
+  const key = t && (DLZMOD_knobs.steps || [])[t.knob];
+  if (!key || DLZMOD_external()) return;
+  const v = Number(Data.get(key));
+  if (!Number.isFinite(v)) return;
+  Data.set(key, Math.min(1, Math.max(0, v + t.steps * 0.0125)));
+}
+
 function DLZMOD_initKeys() {
   Object.entries(DLZMOD_keys()).forEach(([k, v]) => Data.has(k) || (Data.data[k] = v));
 }

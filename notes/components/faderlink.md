@@ -66,12 +66,15 @@ Owned by package `faderlink` 521 (binary, flash scripts, firmware, bitstreams). 
   - Not `i.2.*`/`i.3.*`: real channels on the full-size, whose graph binds their mix, pan and gain.
     Not `a.2.pan`/`a.3.pan`: not on the XS. Not `eqBand`: one key, in use by the EQ page. Keys with
     min = max (`eq.hp.gain`, `eq.hp.q`, `eq.b*.slope`) cannot move.
-  - The way to build it (not built yet): catch the change at the top of `la()`, only while `K.N.key`
-    is that stand-in, and drop the message there, so it never reaches the hub's state, the broadcast
-    or the 3-second save. Compare each value with the one before and recentre faderlink's copy on
-    0.5 only when the knob stops or nears an end: recentring after every change counts a fast turn
-    twice. Ignore a jump too large for a turn (a faderlink restart). The reset goes to faderlink
-    without changing the hub's state.
+  - In the mod (#25, not on a page yet): a panel entry with `stepKey` goes through `DLZMOD_knobs` for
+    `SET_KNOBS`, which puts its knob on the stand-in of its place in the list. `DLZMOD_knobCatch` (from
+    `la()`'s key loop) drops the change, so it reaches neither the hub's state, the broadcast nor the
+    3-second save, and sends the screen `DLZMOD_KNOB` with the steps; `DLZMOD_knobStep` applies them
+    to the setting in its 0-1 form, where the laws are. Only from the mixer itself, only while
+    `K.N.key` is the stand-in. faderlink's copy goes back to 0.5 when a page takes the knob and past
+    a quarter from the middle, not after every change: that would count a fast turn twice. A change
+    sent before a reset counts from whichever place it is nearer; a jump of more than 24 steps
+    (a faderlink restart) moves nothing.
 - **GD32 forward filter** (`0x596e8`): what the hub sends goes on to the GD32 only for keys matching
   `(i|p|a).#.(lock|mix|solo|mute|blink|colorhex)`, `(s|m).(mix|solo|mute|blink|colorhex)`,
   `settings.brightness.*`, `hw_rec`, `hw_amix`, `amix`, `lock`, `(K|P).#.(blink|color)`;

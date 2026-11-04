@@ -740,7 +740,8 @@ test("files: a refused key is taken out of the message stock passes on to dspser
   assert.ok(m, "key loop patch found in patch.py");
   const loop = new vm.Script(m[1] + "stored.push(a)}");
   const run = (e, send) => {
-    const c = vm.createContext({ e, t: { send }, stored: [], DLZMOD_keyAllowed: keyOk });
+    const c = vm.createContext({ e, t: { send }, stored: [], DLZMOD_keyAllowed: keyOk,
+      DLZMOD_knobCatch: (k) => k === "a.0.pan" });
     loop.runInContext(c);
     return c.stored;
   };
@@ -750,6 +751,9 @@ test("files: a refused key is taken out of the message stock passes on to dspser
   const own = { recFile: "/media/sd/x.wav", "m.fader": 0.2 };
   assert.deepStrictEqual(plain(run(own, SCREEN)), ["recFile", "m.fader"]);
   assert.deepStrictEqual(plain(own), { recFile: "/media/sd/x.wav", "m.fader": 0.2 }, "the screen's keys untouched");
+  const knob = { "a.0.pan": 0.6, "m.fader": 0.2 };
+  assert.deepStrictEqual(plain(run(knob, SCREEN)), ["m.fader"], "a caught knob key is not stored");
+  assert.deepStrictEqual(plain(knob), { "m.fader": 0.2 }, "nor broadcast");
 });
 test("files: inMedia only inside a mounted medium, never the root itself", () => {
   assert.ok(inMedia("sd:/REC_0001.wav", ROOTS) && inMedia("sd:\\a\\b.wav", ROOTS) && inMedia("/media/sd/a.wav", ROOTS));
@@ -3155,6 +3159,103 @@ stampTest("recName: the date after the animal, the number still first", async ()
   fs.writeFileSync(path.join(dir, "REC_0011_owl_2026-01-30_1015.wav"), "");
   assert.match(await recName(dir, [], stampOpts("internet")), /^REC_0012_[a-z]{2,10}_2026-01-31_2358$/);
   assert.match(await recName(dir, [], stampOpts("")), NAME("0012"));
+});
+
+// a knob on its stand-in (#238): a hub with K.N.key set, what the screen gets, what faderlink is sent
+function knobHub(keys = { "K.0.key": "a.0.pan" }) {
+  ctx.DLZMOD_knobCatch.state = null;
+  const hub = { send: { dlzmodLocal: true }, sent: [], broadcast: (e, m) => hub.sent.push(plain(m)) };
+  hub.resets = [];
+  hub.get = (k) => keys[k];
+  hub.set = (k, v) => hub.resets.push([k, v]);
+  hub.turn = (k, v) => ctx.DLZMOD_knobCatch(k, v, hub, hub.get, hub.set);
+  hub.steps = () => hub.sent.map((m) => m.data.steps);
+  return hub;
+}
+
+test("knob stand-in: a change becomes steps for the screen and stays out of the hub", () => {
+  const hub = knobHub();
+  assert.strictEqual(hub.turn("a.0.pan", 0.5125), true);
+  assert.deepStrictEqual(hub.sent, [{ cmd: "DLZMOD_KNOB", id: 0, data: { knob: 0, steps: 1 } }]);
+  assert.strictEqual(hub.turn("a.0.pan", 0.5625), true);
+  assert.deepStrictEqual(hub.steps(), [1, 4], "from the value before, one click can be several steps");
+  assert.strictEqual(hub.turn("a.0.pan", 0.525), true);
+  assert.deepStrictEqual(hub.steps(), [1, 4, -3], "back again");
+  assert.strictEqual(hub.turn("a.0.pan", 0.525), true);
+  assert.strictEqual(hub.sent.length, 3, "no move, no message");
+  assert.deepStrictEqual(hub.resets, []);
+});
+
+test("knob stand-in: ordinary key when the knob is not on it, not from the mixer or no number", () => {
+  const hub = knobHub({ "K.0.key": "a.0.mix", "K.1.key": "a.1.pan" });
+  assert.strictEqual(hub.turn("a.0.pan", 0.6), false, "knob 1 is on Mackie's key");
+  assert.strictEqual(hub.turn("f.0.pan", 0.6), false, "knob 3 has no stand-in");
+  assert.strictEqual(hub.turn("i.0.pan", 0.6), false, "not a stand-in");
+  assert.strictEqual(hub.turn("a.1.pan", "0.6"), false);
+  hub.send.dlzmodLocal = false;
+  assert.strictEqual(hub.turn("a.1.pan", 0.6), false, "another device");
+  assert.deepStrictEqual(hub.sent, []);
+});
+
+test("knob stand-in: each knob has its own key and place", () => {
+  const hub = knobHub({ "K.0.key": "a.0.pan", "K.1.key": "a.1.pan", "K.2.key": "f.0.pan", "K.3.key": "f.1.pan" });
+  ["a.0.pan", "a.1.pan", "f.0.pan", "f.1.pan"].forEach((k, n) => hub.turn(k, 0.5 + (n + 1) * 0.0125));
+  assert.deepStrictEqual(hub.sent.map((m) => [m.data.knob, m.data.steps]), [[0, 1], [1, 2], [2, 3], [3, 4]]);
+  hub.turn("a.0.pan", 0.525);
+  assert.deepStrictEqual(plain(hub.sent[4].data), { knob: 0, steps: 1 }, "knob 1 counts from its own value");
+});
+
+test("knob stand-in: a page taking the knob puts faderlink's copy on the middle", () => {
+  const hub = knobHub({ "K.0.key": "a.0.mix" });
+  assert.strictEqual(hub.turn("K.0.key", "a.0.pan"), false, "K.N.key itself goes on");
+  assert.deepStrictEqual(hub.resets, [["a.0.pan", 0.5]]);
+  assert.strictEqual(hub.turn("K.1.key", "a.0.pan"), false, "another knob's key");
+  assert.strictEqual(hub.turn("K.0.key", "i.0.pan"), false);
+  assert.strictEqual(hub.resets.length, 1);
+  const on = knobHub();
+  on.turn("a.0.pan", 0.6);
+  on.turn("K.0.key", "a.0.pan");
+  assert.deepStrictEqual(on.resets, [], "the same panel set again: nothing moves under a turn");
+  assert.strictEqual(on.turn("a.0.pan", 0.6125), true);
+  assert.deepStrictEqual(on.steps(), [8, 1]);
+});
+
+test("knob stand-in: near an end it goes back to the middle, a change on its way still counts once", () => {
+  const hub = knobHub();
+  hub.turn("a.0.pan", 0.7625);   // 21 steps: past a quarter
+  assert.deepStrictEqual(hub.resets, [["a.0.pan", 0.5]]);
+  hub.turn("a.0.pan", 0.775);    // sent before faderlink had the reset
+  assert.deepStrictEqual(hub.steps(), [21, 1], "from the old place, not 22 from the middle");
+  assert.strictEqual(hub.resets.length, 1, "one reset is on its way");
+  hub.turn("a.0.pan", 0.5125);   // the reset arrived
+  assert.deepStrictEqual(hub.steps(), [21, 1, 1]);
+  hub.turn("a.0.pan", 0.525);
+  assert.deepStrictEqual(hub.steps(), [21, 1, 1, 1]);
+  const down = knobHub();
+  down.turn("a.0.pan", 0.2375);
+  assert.deepStrictEqual(down.resets, [["a.0.pan", 0.5]]);
+  assert.deepStrictEqual(down.steps(), [-21]);
+});
+
+test("knob stand-in: a long turn adds up exactly and never reaches an end", () => {
+  const hub = knobHub();
+  let copy = 0.5;
+  hub.set = (k, v) => (copy = v);
+  for (let i = 0; i < 400; i++) {
+    copy = Math.min(1, copy + 3 * 0.0125);
+    hub.turn("a.0.pan", Number(copy.toFixed(6)));   // faderlink's %f
+    assert.ok(copy < 1, "reached the end at turn " + i);
+  }
+  assert.strictEqual(hub.steps().reduce((a, b) => a + b, 0), 1200);
+});
+
+test("knob stand-in: a jump no turn makes moves nothing", () => {
+  const hub = knobHub();
+  assert.strictEqual(hub.turn("a.0.pan", 0.95), true);
+  assert.deepStrictEqual(hub.sent, []);
+  assert.deepStrictEqual(hub.resets, [["a.0.pan", 0.5]]);
+  hub.turn("a.0.pan", 0.5125);
+  assert.deepStrictEqual(hub.steps(), [1]);
 });
 
 (async () => {

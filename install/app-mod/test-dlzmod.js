@@ -2851,6 +2851,35 @@ test("a widget's background: left out only under its page, only in a full redraw
   assert.strictEqual(need({ _CACHING: true, parent: { widgetName: "PageMedia" } }, true), true, "its own cache");
 });
 
+test("knobs: a panel entry with stepKey sits on the stand-in of its place, the steps move the setting", () => {
+  const { DLZMOD_knobs: knobs, DLZMOD_knobStep: step, Data } = ctx;
+  const mine = { title: "Ceiling", stepKey: "dlzmod.x", control: { key: "dlzmod.x", color: "c" } };
+  const stock = { title: "HP", control: { key: "i.0.eq.hp.freq", color: "d" } };
+  const list = knobs([stock, mine, mine, null, mine]);
+  assert.strictEqual(list[0], stock, "Mackie's own entry as it was");
+  assert.strictEqual(list[1].control.key, "a.1.pan");
+  assert.strictEqual(list[1].control.color, "c");
+  assert.strictEqual(list[2].control.key, "f.0.pan");
+  assert.strictEqual(list[3], null);
+  assert.strictEqual(list[4], mine, "no stand-in for the fifth");
+  assert.strictEqual(mine.control.key, "dlzmod.x", "the page's own list stays");
+  Data.data["dlzmod.x"] = 0.5;
+  step({ knob: 1, steps: 4 });
+  assert.strictEqual(Data.data["dlzmod.x"], 0.55);
+  step({ knob: 1, steps: -100 });
+  assert.strictEqual(Data.data["dlzmod.x"], 0, "stops at the end of the range");
+  step({ knob: 1, steps: 200 });
+  assert.strictEqual(Data.data["dlzmod.x"], 1);
+  const before = ui.sets.length;
+  step({ knob: 0, steps: 1 });
+  step({ knob: 3, steps: 1 });
+  step(null);
+  assert.strictEqual(ui.sets.length, before, "a knob without a setting moves nothing");
+  knobs([stock]);
+  step({ knob: 1, steps: 1 });
+  assert.strictEqual(ui.sets.length, before, "the next page's panel replaces them");
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {
