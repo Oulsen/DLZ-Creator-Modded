@@ -2789,6 +2789,31 @@ test("EQ spectrum: the bands as the curve's points, -60 dBFS at the bottom, noth
   assert.ok(Math.abs(ends[0] - 0.8) < 1e-9 && Math.abs(ends[63] - 0.6) < 1e-9, JSON.stringify([ends[0], ends[63]]));
 });
 
+test("the top sheet's clear: once, then again only after something used the sheet", () => {
+  const env = ctx.$ENV;
+  const clears = [];
+  const ui = { w: 1024, h: 600, fctx: { clearRect: (...a) => clears.push(a) } };
+  try {
+    ctx.$ENV = { isNode: true };
+    ctx.DLZMOD_fgEmpty = false;
+    ctx.DLZMOD_fgClear(ui);
+    assert.deepStrictEqual(clears, [[0, 0, 1024, 600]], "not known to be empty: cleared");
+    ctx.DLZMOD_fgClear(ui);
+    assert.strictEqual(clears.length, 1, "known to be empty: left out");
+    ctx.DLZMOD_fgEmpty = false;
+    ctx.DLZMOD_fgClear(ui);
+    assert.strictEqual(clears.length, 2, "used since: cleared");
+    ctx.$ENV = { isNode: false };
+    ctx.DLZMOD_fgEmpty = false;
+    ctx.DLZMOD_fgClear(ui);
+    ctx.DLZMOD_fgClear(ui);
+    assert.strictEqual(clears.length, 4, "a browser's canvas is not tracked: always cleared");
+  } finally {
+    ctx.$ENV = env;
+    ctx.DLZMOD_fgEmpty = false;
+  }
+});
+
 test("a widget's background: left out only under its page, only in a full redraw", () => {
   const need = (w, full) => {
     ctx.DLZMOD_fullRedraw = full;

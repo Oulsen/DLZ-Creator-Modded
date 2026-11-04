@@ -122,6 +122,30 @@ APP_PATCHES = [
         "clear(t){this.alternativeClear?this.canvas.width=this.canvas.width:DLZMOD_fullRedraw||this.ctx.clearRect(0,0,this.w,this.h),!t&&this.clearFg()",
     ),
     (
+        # #243: the top sheet's clear is a job of its own on the GPU, a full layer, on every page; it
+        # goes when the sheet is known to be empty (DLZMOD_fgClear)
+        "top sheet: clear only when it may hold something",
+        "this.fcanvas.width=this.fcanvas.width:this.fctx.clearRect(0,0,this.w,this.h),this.overlayBgColor&&",
+        "this.fcanvas.width=this.fcanvas.width:DLZMOD_fgClear(this),this.overlayBgColor&&",
+    ),
+    (
+        "top sheet: a drawing call marks it",
+        "else{let i={obj:t,call:s,args:a};PIPELINE_DEBUG&&console.log(i),",
+        'else{let i={obj:t,call:s,args:a};"fctx"===t&&(DLZMOD_fgEmpty=!1);PIPELINE_DEBUG&&console.log(i),',
+    ),
+    (
+        # glesgui marks the sheet as used on any fctx command, a setting too
+        "top sheet: a setting marks it",
+        "let a={obj:t,call:s,args:[i]};PIPELINE_DEBUG&&console.log(a),",
+        'let a={obj:t,call:s,args:[i]};"fctx"===t&&(DLZMOD_fgEmpty=!1);PIPELINE_DEBUG&&console.log(a),',
+    ),
+    (
+        # a new glesgui has a sheet nobody cleared, and what was waiting to be sent is dropped here
+        "top sheet: unknown after connecting to glesgui",
+        "canvasWebsocket.onopen=()=>{canvasWebsocketOpen=!0,",
+        "canvasWebsocket.onopen=()=>{DLZMOD_fgEmpty=!1,canvasWebsocketOpen=!0,",
+    ),
+    (
         "full redraw: a strip's background",
         "paint(t){t.fRect(this.bgColor,0,0,this.w,this.h),t.strokeStyle=Color.stripBorder,",
         "paint(t){DLZMOD_bgNeeded(this)&&t.fRect(this.bgColor,0,0,this.w,this.h),t.strokeStyle=Color.stripBorder,",
