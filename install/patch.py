@@ -97,6 +97,46 @@ APP_PATCHES = [
         "function startGUI(t){DLZMOD_applyTheme();DLZMOD_rtaShown(null,!1);",
     ),
     (
+        # #196: a full redraw paints the page, then the widgets; DLZMOD_bgNeeded leaves out a widget's
+        # background when its page has just painted that same colour under it
+        "full redraw: starts",
+        "_drawAll(t){this.clear(t),this.havePaint&&this.paint();",
+        "_drawAll(t){DLZMOD_fullRedraw=!0;this.clear(t),this.havePaint&&this.paint();",
+    ),
+    (
+        "full redraw: ends",
+        "this.mWidgets[t].internalUpdate(this.fctx)}drawAllFg(){",
+        "this.mWidgets[t].internalUpdate(this.fctx);DLZMOD_fullRedraw=!1}drawAllFg(){",
+    ),
+    (
+        # a widget that throws in a full redraw would leave the flag up, and every later redraw of a
+        # single widget without its background
+        "full redraw: over by the next tick",
+        "updater(){let t=Util.getTime(),e=(t-this.lastUpdateTime)",
+        "updater(){DLZMOD_fullRedraw=!1;let t=Util.getTime(),e=(t-this.lastUpdateTime)",
+    ),
+    (
+        # the screen's clear costs a full layer of paint in glesgui, and a full redraw paints every pixel
+        "full redraw: no clear of the screen",
+        "clear(t){this.alternativeClear?this.canvas.width=this.canvas.width:this.ctx.clearRect(0,0,this.w,this.h),!t&&this.clearFg()",
+        "clear(t){this.alternativeClear?this.canvas.width=this.canvas.width:DLZMOD_fullRedraw||this.ctx.clearRect(0,0,this.w,this.h),!t&&this.clearFg()",
+    ),
+    (
+        "full redraw: a strip's background",
+        "paint(t){t.fRect(this.bgColor,0,0,this.w,this.h),t.strokeStyle=Color.stripBorder,",
+        "paint(t){DLZMOD_bgNeeded(this)&&t.fRect(this.bgColor,0,0,this.w,this.h),t.strokeStyle=Color.stripBorder,",
+    ),
+    (
+        "full redraw: a list's background",
+        "paint(t){t.fillStyle=this.bgColor,t.fillRoundRect(0,0,this.w,this.h,this.borderRound),this.useGradient&&",
+        "paint(t){DLZMOD_bgNeeded(this)&&(t.fillStyle=this.bgColor,t.fillRoundRect(0,0,this.w,this.h,this.borderRound)),this.useGradient&&",
+    ),
+    (
+        "full redraw: the FX panel's background",
+        "paint(t){let e=this.w/2|0;this.h,this.w,this.h;if(t.fRect(this.bgColor,0,0,this.w,this.h),this.bg&&t.drawImg(this.bg,0,0)",
+        "paint(t){let e=this.w/2|0;this.h,this.w,this.h;if(DLZMOD_bgNeeded(this)&&t.fRect(this.bgColor,0,0,this.w,this.h),this.bg&&t.drawImg(this.bg,0,0)",
+    ),
+    (
         # the mixer's screen: every drawing property set is sent to glesgui from here (in a browser
         # the mod wraps the canvas itself, DLZMOD_tokens)
         "theme: colours written into the code",

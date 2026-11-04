@@ -2958,3 +2958,29 @@ function DLZMOD_size(bytes) {
   }
   return fmt(v) + " " + units[i];
 }
+
+// #196: a layer of paint over the whole screen is ~20 ms of GPU, and glesgui has no cheaper way to
+// paint, a clear included. In a full redraw (UI._drawAll) every pixel gets painted, so the clear goes
+// (patch.py). So do backgrounds a widget would paint over its page's same colour: the file lists of
+// Snapshots and Media, the FX panels, the Overview's strips. Redrawn on its own, a widget's background
+// is what wipes its old contents, so it stays.
+var DLZMOD_fullRedraw = false;
+
+function DLZMOD_bgNeeded(w) {
+  if (!DLZMOD_fullRedraw || w._CACHING) return true;
+  const p = w.parent;
+  if (!p) return true;
+  switch (p.widgetName) {
+    case "PageSnapshots":
+    case "PageMedia":
+      // both pages paint list.bgColor under their list (and a margin around it), so no compare here
+      return p.list !== w;
+    case "PageReverb":
+    case "PageDelay":
+    case "MainMixer":
+      // the Overview's background is a colour of its own (DLZMOD_ovColor): what counts is what gets drawn
+      return DLZMOD_drawColor("fillStyle", p.bgColor) !== DLZMOD_drawColor("fillStyle", w.bgColor);
+    default:
+      return true;
+  }
+}
