@@ -28,7 +28,7 @@ function setup(isNode) {
   const c = vm.createContext({ console, $ENV: { isNode }, PIPELINE_DEBUG: 0, DLZMOD_drawColor: (s, v) => v });
   vm.runInContext(`let canvasWebsocketStash=[],canvasWebsocketOpen=!1,canvasWebsocket={},DLZMOD_fgEmpty=!1;
     ${fgClear}\n${wrapObject}
-    const plain={clearRect(){},fillRect(){},beginPath(){},fRect(){this.fillRect()},fillStyle:""};
+    const plain={clearRect(){},fillRect(){},beginPath(){},fRect(){this.fillRect()},drawText(){},fillStyle:""};
     var ui={w:1024,h:600,alternativeClear:!1,overlayBgColor:null,needDrawFrame:!1,
       fctx:wrapObject("fctx",plain),ctx:wrapObject("ctx",plain),${clearFg}};
     ${onopen}
@@ -67,6 +67,7 @@ for (const [what, use] of [
   ["a drawing call", (f) => f.fillRect(0, 0, 9, 9)],
   ["a setting", (f) => { f.fillStyle = "#123456"; }],
   ["a helper that draws", (f) => f.fRect("#000", 0, 0, 9, 9)],
+  ["a helper that sends nothing itself", (f) => f.drawText("x", 0, 0)],
   ["a small clear (a list's scroll bar)", (f) => f.clearRect(10, 10, 100, 3)],
 ]) {
   check(`${what} on the sheet brings the clear back`, () => {

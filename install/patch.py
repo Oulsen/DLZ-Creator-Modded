@@ -129,9 +129,10 @@ APP_PATCHES = [
         "this.fcanvas.width=this.fcanvas.width:DLZMOD_fgClear(this),this.overlayBgColor&&",
     ),
     (
+        # at the top: Mackie's helpers (drawText, fRect ...) take another path further down
         "top sheet: a drawing call marks it",
-        "else{let i={obj:t,call:s,args:a};PIPELINE_DEBUG&&console.log(i),",
-        'else{let i={obj:t,call:s,args:a};"fctx"===t&&(DLZMOD_fgEmpty=!1);PIPELINE_DEBUG&&console.log(i),',
+        '"function"==typeof e[s]?i[s]=(...a)=>{let o,n=!1;',
+        '"function"==typeof e[s]?i[s]=(...a)=>{"fctx"===t&&(DLZMOD_fgEmpty=!1);let o,n=!1;',
     ),
     (
         # glesgui marks the sheet as used on any fctx command, a setting too
