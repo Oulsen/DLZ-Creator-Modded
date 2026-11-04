@@ -2958,3 +2958,25 @@ function DLZMOD_size(bytes) {
   }
   return fmt(v) + " " + units[i];
 }
+
+// #196: a full screen of fills is the mixer's slowest work (~30 ms of GPU for each layer), and glesgui
+// has no cheaper way to paint. Two widgets paint a background their page has just painted in the same
+// colour: the file lists of Snapshots and Media, and the FX panels. Only in a full redraw
+// (UI._drawAll): redrawn on its own, a widget's background is what wipes its old contents, so it stays.
+var DLZMOD_fullRedraw = false;
+
+function DLZMOD_bgNeeded(w) {
+  if (!DLZMOD_fullRedraw || w._CACHING) return true;
+  const p = w.parent;
+  if (!p) return true;
+  switch (p.widgetName) {
+    case "PageSnapshots":
+    case "PageMedia":
+      return p.list !== w;
+    case "PageReverb":
+    case "PageDelay":
+      return p.bgColor !== w.bgColor;
+    default:
+      return true;
+  }
+}

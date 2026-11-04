@@ -125,9 +125,12 @@ has this fault, as has the conclusion that the largest stage is in app.js. Measu
   0.00-0.03, text 0.01-0.03). The GPU times fit ~32-35 ms per layer of the screen [guess: page sizes and pages only roughly
   matched]. Largest fills: every page but Channel a black `fillRect` of 70-77 % of the screen, on top of what the last page
   left, needed unless something cheaper erases it; plain copies on top of one another: FX two black ~70 % fills, Snapshots
-  two #141414 ~48 %. Each such layer would be ~20-25 ms on the GPU [guess]. Not known: what `clearRect` costs in glesgui
-  (its name is not a plain string there, nor is `fillRect`: `grep` and REA find neither), and whether `drawFrame`'s batch
-  uses `glClear` anywhere after the first frame (`main` has one `glClear`, at start).
+  two #141414 ~48 %. Each such layer would be ~20-25 ms on the GPU [guess].
+- **No cheap erase in glesgui** (#196) [static, every `bl` in `.text` to the imported stubs]: `glClear` has two calls, once at
+  start and once in the calibration gesture (`0x1f318`), none per frame, and `glScissor` has none, so clips run in the
+  shader. So a page can only be erased by painting it, through that same shader. `clearRect` and `fillRect` are not plain
+  strings in glesgui and their handlers were not found, so what app.js's one `clearRect` per frame costs is not known; the
+  overdraw above leaves it out, and if it paints it is one more layer on the mixer [guess].
 - The page's flip is inferred: the first flip after the Weston job that follows the three Xwayland jobs [device, by
   order; the trace does not show pixels]. 46 of 46 page reads met a heavy glesgui job within 60 ms, 74 heavy jobs in all.
 - GPU busy 39 % over the capture: Xwayland 21 %, glesgui 12 %, Weston 6 %. The clock is fixed at 408 MHz, no devfreq

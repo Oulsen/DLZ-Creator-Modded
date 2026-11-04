@@ -2789,6 +2789,35 @@ test("EQ spectrum: the bands as the curve's points, -60 dBFS at the bottom, noth
   assert.ok(Math.abs(ends[0] - 0.8) < 1e-9 && Math.abs(ends[63] - 0.6) < 1e-9, JSON.stringify([ends[0], ends[63]]));
 });
 
+test("a widget's background: left out only under its page, only in a full redraw", () => {
+  const need = (w, full) => {
+    ctx.DLZMOD_fullRedraw = full;
+    const r = ctx.DLZMOD_bgNeeded(w);
+    ctx.DLZMOD_fullRedraw = false;
+    return r;
+  };
+  const list = { bgColor: "#141414" }, other = { bgColor: "#141414" };
+  for (const widgetName of ["PageSnapshots", "PageMedia"]) {
+    const page = { widgetName, list };
+    list.parent = page;
+    other.parent = page;
+    assert.strictEqual(need(list, true), false);
+    assert.strictEqual(need(list, false), true, "redrawn on its own it wipes its old contents");
+    assert.strictEqual(need(other, true), true, "not the page's list: the page did not paint under it");
+  }
+  const fx = { bgColor: "#000000" };
+  for (const widgetName of ["PageReverb", "PageDelay"]) {
+    fx.parent = { widgetName, bgColor: "#000000" };
+    assert.strictEqual(need(fx, true), false);
+    assert.strictEqual(need(fx, false), true);
+    fx.parent.bgColor = "#111111";
+    assert.strictEqual(need(fx, true), true, "another colour under it");
+  }
+  assert.strictEqual(need({ parent: { widgetName: "Popup" } }, true), true);
+  assert.strictEqual(need({}, true), true, "no parent");
+  assert.strictEqual(need({ _CACHING: true, parent: { widgetName: "PageMedia" } }, true), true, "its own cache");
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {
