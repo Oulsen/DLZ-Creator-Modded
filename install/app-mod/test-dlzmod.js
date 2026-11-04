@@ -2806,7 +2806,7 @@ test("a widget's background: left out only under its page, only in a full redraw
     assert.strictEqual(need(other, true), true, "not the page's list: the page did not paint under it");
   }
   const fx = { bgColor: "#000000" };
-  for (const widgetName of ["PageReverb", "PageDelay"]) {
+  for (const widgetName of ["PageReverb", "PageDelay", "MainMixer"]) {
     fx.parent = { widgetName, bgColor: "#000000" };
     assert.strictEqual(need(fx, true), false);
     assert.strictEqual(need(fx, false), true);

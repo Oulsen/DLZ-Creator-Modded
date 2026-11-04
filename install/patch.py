@@ -109,6 +109,17 @@ APP_PATCHES = [
         "this.mWidgets[t].internalUpdate(this.fctx);DLZMOD_fullRedraw=!1}drawAllFg(){",
     ),
     (
+        # the screen's clear costs a full layer of paint in glesgui, and a full redraw paints every pixel
+        "full redraw: no clear of the screen",
+        "clear(t){this.alternativeClear?this.canvas.width=this.canvas.width:this.ctx.clearRect(0,0,this.w,this.h),!t&&this.clearFg()",
+        "clear(t){this.alternativeClear?this.canvas.width=this.canvas.width:DLZMOD_fullRedraw||this.ctx.clearRect(0,0,this.w,this.h),!t&&this.clearFg()",
+    ),
+    (
+        "full redraw: a strip's background",
+        "paint(t){t.fRect(this.bgColor,0,0,this.w,this.h),t.strokeStyle=Color.stripBorder,",
+        "paint(t){DLZMOD_bgNeeded(this)&&t.fRect(this.bgColor,0,0,this.w,this.h),t.strokeStyle=Color.stripBorder,",
+    ),
+    (
         "full redraw: a list's background",
         "paint(t){t.fillStyle=this.bgColor,t.fillRoundRect(0,0,this.w,this.h,this.borderRound),this.useGradient&&",
         "paint(t){DLZMOD_bgNeeded(this)&&(t.fillStyle=this.bgColor,t.fillRoundRect(0,0,this.w,this.h,this.borderRound)),this.useGradient&&",

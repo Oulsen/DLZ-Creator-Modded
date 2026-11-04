@@ -132,6 +132,13 @@ has this fault, as has the conclusion that the largest stage is in app.js. Measu
   79-80, 61 KiB 99-100), so the change is real and the method holds. That is 8-14 ms, about 20 ms for a whole layer of plain
   fill and not the 32-35 above: a page's cost is more than its layers, and the sum over page sizes is only a rough
   guide. Overview, the 61 KiB page, is the slowest at ~100 ms. The screen looks the same [user].
+- **Overview replayed, part by part** (#196) [device, XS, `2e470b4`, 2026-11-04; app.js paused, one frame from the sandbox
+  (1099 calls, 55 KiB; the mixer's Overview 1205 calls, 61 KiB) and parts of it written to `/tmp/glesgui` 5 times each, GPU
+  job from the trace, repeats within 0.2 ms]: `clearRect` alone **23.2 ms**, one full-screen `fillRect` 23.2, four 82.4, whole
+  Overview 96.2, without `clearRect` 76.4, without text 93.8, without rectangles over 5000 px 52.1, text with `clearRect` 25.7,
+  small shapes alone 29.7. So a full layer is ~20 ms over a base of ~3.5, and **`clearRect` is one such layer in every full
+  redraw**, on every page (`UI.clear`, `(0,0,1024,600)`). Overview: base 3.5, clear 20, big rectangles 44, small shapes 26,
+  text 2.5. Text is cheap on the GPU but not on the CPU: glesgui's read → GPU job 36 ms, without text 27.
 - **No cheap erase in glesgui** (#196) [static, every `bl` in `.text` to the imported stubs]: `glClear` has two calls, once at
   start and once in the calibration gesture (`0x1f318`), none per frame, and `glScissor` has none, so clips run in the
   shader. So a page can only be erased by painting it, through that same shader. `clearRect` and `fillRect` are not plain

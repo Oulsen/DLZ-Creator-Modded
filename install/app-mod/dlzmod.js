@@ -2959,10 +2959,11 @@ function DLZMOD_size(bytes) {
   return fmt(v) + " " + units[i];
 }
 
-// #196: a full screen of fills is the mixer's slowest work (~30 ms of GPU for each layer), and glesgui
-// has no cheaper way to paint. Two widgets paint a background their page has just painted in the same
-// colour: the file lists of Snapshots and Media, and the FX panels. Only in a full redraw
-// (UI._drawAll): redrawn on its own, a widget's background is what wipes its old contents, so it stays.
+// #196: a layer of paint over the whole screen is ~20 ms of GPU, and glesgui has no cheaper way to
+// paint, a clear included. In a full redraw (UI._drawAll) every pixel gets painted, so the clear goes
+// (patch.py). So do backgrounds a widget would paint over its page's same colour: the file lists of
+// Snapshots and Media, the FX panels, the Overview's strips. Redrawn on its own, a widget's background
+// is what wipes its old contents, so it stays.
 var DLZMOD_fullRedraw = false;
 
 function DLZMOD_bgNeeded(w) {
@@ -2975,6 +2976,7 @@ function DLZMOD_bgNeeded(w) {
       return p.list !== w;
     case "PageReverb":
     case "PageDelay":
+    case "MainMixer":
       return p.bgColor !== w.bgColor;
     default:
       return true;
