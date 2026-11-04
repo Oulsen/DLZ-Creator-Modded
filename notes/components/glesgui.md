@@ -104,6 +104,22 @@ has this fault, as has the conclusion that the largest stage is in app.js. Measu
   `XDG_SESSION_TYPE=wayland` and `UnsetEnvironment=DISPLAY`. The meter screen flickers and blacks out after a while,
   and is clean for a couple of seconds after a tab switch; other pages look fine, touch and audio work [user]. Fits
   partial frames drawn on buffers without the last picture: `main` replays commands only for the first frames [guess].
+  **It crashed**: glesgui died with SIGSEGV 4 m 23 s into that run, in the system log, cause not known; `Restart=always`
+  brought it back. The earlier hang of X11 glesgui after a Wayland run did not show: a power cycle gave a normal start.
+- **The page's GPU cost, the shader** (#196) [device, XS, 2026-11-04, `LIMA_DEBUG=pp` and `MESA_SHADER_CACHE_DISABLE=true`
+  in a `/run` drop-in; without the second Mesa loads the compiled shader from `/root/.cache/mesa_shader_cache` and prints
+  nothing]: glesgui has one NanoVG fragment shader (`EDGE_AA`), compiled to 49 Mali PP instructions. The branches stay
+  real branches, so the first idea, that each pixel pays for every path, is wrong. But 20 of the 49 run before the first
+  branch, for every pixel of every fill: scissor test and edge mask, ~25 on a solid fill by reading the blocks. A rough
+  sum fits the 70 ms: 0.6 Mpixel × ~25 instructions at 408 MHz is ~37 ms for one screen's coverage, more with overdraw
+  [guess: cycles per instruction, overdraw and how many of the PP cores work are not measured]. So what costs is the
+  per-pixel work of the common solid fill. Idea, untested: a shorter path in the shader text for solid fills without a
+  scissor, a patch of a text in glesgui. Turning `EDGE_AA` off is a one-constant route but would lose edge smoothing.
+- **Edge smoothing off, timed** (#196) [device, XS, 2026-11-04, a copy in `/dev/shm` (`/run` is `noexec`) with one byte
+  changed: the `1` for `0x1d408` at `0x161dc`, file `0x61dc`, 31 taps, 35 pages against 46]: the page's GPU job 75 → **56 ms**,
+  touch → page on screen 208 → **193 ms**, by size under 20 KiB 169 → 185, 20-40 KiB 210 → 190, over 40 KiB 236 → 210 (the
+  small-page group differs in mix; its GPU job stayed 56-58). The screen looks the same at a glance but worse up close [user], so not to ship as it is. So
+  the edge mask is ~25 % of a page's GPU job, not most of it; memory available fell 139 → 90 MB with the copy in RAM.
 - The page's flip is inferred: the first flip after the Weston job that follows the three Xwayland jobs [device, by
   order; the trace does not show pixels]. 46 of 46 page reads met a heavy glesgui job within 60 ms, 74 heavy jobs in all.
 - GPU busy 39 % over the capture: Xwayland 21 %, glesgui 12 %, Weston 6 %. The clock is fixed at 408 MHz, no devfreq
