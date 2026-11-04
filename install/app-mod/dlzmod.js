@@ -2973,6 +2973,7 @@ function DLZMOD_bgNeeded(w) {
   switch (p.widgetName) {
     case "PageSnapshots":
     case "PageMedia":
+      // both pages paint list.bgColor under their list (and a margin around it), so no compare here
       return p.list !== w;
     case "PageReverb":
     case "PageDelay":

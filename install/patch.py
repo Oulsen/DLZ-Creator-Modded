@@ -109,6 +109,13 @@ APP_PATCHES = [
         "this.mWidgets[t].internalUpdate(this.fctx);DLZMOD_fullRedraw=!1}drawAllFg(){",
     ),
     (
+        # a widget that throws in a full redraw would leave the flag up, and every later redraw of a
+        # single widget without its background
+        "full redraw: over by the next tick",
+        "updater(){let t=Util.getTime(),e=(t-this.lastUpdateTime)",
+        "updater(){DLZMOD_fullRedraw=!1;let t=Util.getTime(),e=(t-this.lastUpdateTime)",
+    ),
+    (
         # the screen's clear costs a full layer of paint in glesgui, and a full redraw paints every pixel
         "full redraw: no clear of the screen",
         "clear(t){this.alternativeClear?this.canvas.width=this.canvas.width:this.ctx.clearRect(0,0,this.w,this.h),!t&&this.clearFg()",
