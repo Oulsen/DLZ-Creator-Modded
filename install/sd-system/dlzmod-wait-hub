@@ -1,17 +1,43 @@
 #!/bin/sh
-# ExecStartPre of dspserver (SD system): wait until server.js (evolve-node) listens on port 80.
-# dspserver connects to it once, right after its init ("Waiting for graphics... Done."), and does
-# not retry: when it is done first, it never gets its state (no audio, mic dead, REC ignored) until
-# a reboot. Normally the server wins by seconds; anything that slows the boot (the first-boot grow)
-# flips the order. Gives up after 45 s and lets dspserver start anyway, as stock would.
+# ExecStartPre of dspserver (SD system): wait for server.js, then for glesgui's graphics.
+# - server.js (evolve-node) listening on port 80: dspserver connects to it once, right after its init
+#   ("Waiting for graphics... Done."), and does not retry: when it is done first, it never gets its
+#   state (no audio, mic dead, REC ignored) until a reboot. Normally the server wins by seconds;
+#   anything that slows the boot (the first-boot grow) flips the order.
+# - glesgui past its stops (#239): its graphics start runs `killall -STOP` on dspserver twice and
+#   -CONT ~8 s later, on every start. With the start order of #141 that can land in the middle of
+#   dspserver's chip init, and then the outputs can stay silent until another start. Started after
+#   the second stop nothing is stopped. glesgui opens the GPU only after it (the window's context), so
+#   its /dev/dri file is the sign.
+# Gives up after 50 s in all and lets dspserver start anyway, as stock would (its unit allows 60 s).
+PROC=${DLZMOD_WAIT_PROC:-/proc}
+LIMIT=250   # 0.2 s each
+
+graphics_up() {
+  for p in $(pidof glesgui 2> /dev/null); do
+    ls -l "$PROC/$p/fd" 2> /dev/null | grep -q /dev/dri/ && return 0
+  done
+  return 1
+}
+
 i=0
-while [ $i -lt 225 ]; do
-  if [ -n "$(ss -Hltn 'sport = :80' 2>/dev/null)" ]; then
-    [ $i -gt 0 ] && echo "dlzmod-wait-hub: server.js listening after $((i / 5)).$((i % 5 * 2)) s"
-    exit 0
-  fi
+while [ $i -lt $LIMIT ] && [ -z "$(ss -Hltn 'sport = :80' 2> /dev/null)" ]; do
   sleep 0.2
   i=$((i + 1))
 done
-echo "dlzmod-wait-hub: nothing on port 80 after 45 s, starting dspserver anyway" >&2
+if [ $i -ge $LIMIT ]; then
+  echo "dlzmod-wait-hub: nothing on port 80 after 50 s, starting dspserver anyway" >&2
+  exit 0
+fi
+[ $i -gt 0 ] && echo "dlzmod-wait-hub: server.js listening after $((i / 5)).$((i % 5 * 2)) s"
+
+while [ $i -lt $LIMIT ] && ! graphics_up; do
+  sleep 0.2
+  i=$((i + 1))
+done
+if [ $i -ge $LIMIT ]; then
+  echo "dlzmod-wait-hub: no graphics after 50 s, starting dspserver anyway" >&2
+  exit 0
+fi
+echo "dlzmod-wait-hub: glesgui's graphics up after $((i / 5)).$((i % 5 * 2)) s"
 exit 0

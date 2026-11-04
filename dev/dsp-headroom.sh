@@ -73,7 +73,7 @@ case ${1:-} in
       mixer "$OFF"
       exit 1
     fi
-    # dspserver first waits for the hub (up to 45 s, dlzmod-wait-hub): up to 60 s for the first blocks
+    # dspserver first waits for the hub and the graphics (up to 50 s, dlzmod-wait-hub): up to 60 s for the first blocks
     for i in 1 2 3 4 5 6; do
       sleep 10
       err=$(mixer 'python3 /run/dlzmod-headroom.py read 5' 2>&1) && { echo "$err"; exit 0; }

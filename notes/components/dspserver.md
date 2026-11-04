@@ -49,7 +49,7 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   graphics were up, dspserver was `Done.` within 8 s, in the same second as `Server started`, and
   lost [device: two failed first boots, with and without dspserver ordered after the grow]. Fix:
   `dspserver.service.d/dlzmod.conf` runs `dlzmod-wait-hub` first (waits until something listens on
-  port 80, max 45 s, then starts anyway). A crash-restart of evolve-node alone might still leave
+  port 80, then for glesgui's graphics, #239; max 50 s in all, then starts anyway). A crash-restart of evolve-node alone might still leave
   dspserver without its state [guess].
 - **No restart while the mixer runs** [device]: after `systemctl restart dspserver` (stock binary,
   server.js up) the new one connects and loads the pad samples, the meters move, but every output
@@ -102,7 +102,30 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   for the AKM ADC at `0x26`, and dspserver carried on. Only `Couldn't initialise audio hardware,
   exiting` ends it [static]. So a chip that fails at start gives moving meters and a silent output
   until the next start [guess on the effect]. AKM DAC = I2C `0x22`, AKM ADC = `0x26` [device].
+- **Silent outputs with moving meters also come without either cause** [device, one start, XS dev
+  card, 2026-11-04]: no sound while the meters moved, yet all three chips initialised without an
+  I2C error and dspserver, faderlink and evolve-node had 0 restarts. A reboot usually clears it
+  [user], this time it did not. In the saved state `m.mute` was 0 and the master gate bypassed; the
+  running graph had no limiter (`dlzmod.lim.*` keys left in the state from an earlier #59 drop-in
+  have no binding). It stayed silent after that reboot, before any probe ran or anyone logged in;
+  stock then had sound, and the next card start did too. That card's `mixergraph-dlzlite.js` is
+  byte-identical to a clean `patch.py graph` of the dump, so the graph is not the cause. The state
+  of the silent starts was not kept and the journal does not survive a restart, but
+  `dlzmod-logs/syslog-last-boots*.txt` keeps the last four starts' syslog. The silent start had the
+  ~7.5 s preamp step (#147) and the working one after it had not, yet so does about 1 start in 3 with
+  sound, and an earlier start that ended up silent had not: no link shown. Service order, faderlink's
+  log and restarts did not differ. Cause unknown; when it started in that session was not established.
 - The FPGA loaded on the first try in all 769 starts of that syslog [device].
+- **glesgui stops dspserver at every start, and two silent starts fell in that window** (#239): glesgui runs
+  `killall -STOP /usr/local/bin/dspserver` twice during its graphics start (`main` `0x15df0`, unconditional) and
+  `-CONT` on the main loop's 10th turn [static]. Silent starts 2026-11-04 09:10 and 10:58: the chips' init began at
+  ~20.3 s, then the THAT step took ~8 s, ending at ~28.4 s [device]. Starts with sound (09:28, 10:47): `DLZ Lite
+  detected` itself came at ~28 s and all chips took ~0.4 s. So in both the stop covers ~20-28 s; what differs is
+  whether it lands before the chip init or in the middle of it [guess that the stop is what holds it]. Most
+  likely explains #147's ~7.5 s step instead of CMA, though #147's "each wake-up ~110 ms late" does not fit a
+  single stop and needs checking. Why that leaves the outputs silent is unknown [guess: chips set up, then
+  ~8 s without the audio stream]. Also open: the first start that day was silent with a normal step, and #147
+  counted such slow starts as having sound (was it checked each time?).
 
 ## Audio loop and headroom
 
@@ -149,7 +172,7 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
 ## Related
 
 - `wavfinalizer`: fixes WAV headers with a size field of -1 (unfinished recordings)
-- Stopped by server.js before updates; SIGSTOP/SIGCONT'd by glesgui during touch calibration
+- Stopped by server.js before updates; SIGSTOP'd by glesgui at every graphics start and SIGCONT'd on its 10th main-loop turn (#239); also during touch calibration
 - `Requires=faderlink`, so restarting faderlink also restarts dspserver
 
 ## Mod angles
