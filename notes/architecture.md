@@ -77,7 +77,7 @@ Kernel cmdline isolates CPU 3 (`isolcpus=3 nohz_full=3 rcu_nocbs=3`), presumably
 | faderlink → BT module | UART `/dev/ttyS1` (uart3) | Unknown | [static] |
 | dspserver → audio HW | `/dev/mem` DMA; codecs over I2C from JS | — | [static] |
 | server.js → updater | `/tmp/upgradefile.txt` + `systemctl start upgraderun` | File path | [static] |
-| glesgui → dspserver | `killall -STOP/-CONT` during touch calibration | Signals | [static] |
+| glesgui → dspserver | `killall -STOP` at every graphics start, `-CONT` on the main loop's 10th turn (#239); also during touch calibration | Signals | [static] |
 
 ## The message protocol (shared by all hub clients)
 

@@ -146,6 +146,75 @@ stage is stuck or busy, the screen's path is just long. Work on it: #196.
   `VUData`'s peak moved per tick, now patched to use it. The timer runs on app.js's own
   `requestAnimationFrame` fallback (at least 17 ms apart), so ~58 ticks a second at most. In a browser
   `$CFG.fps` is 60 already: no change there, so the sandbox cannot show this; only the mixer can.
+- **After 60 ticks** (#196) [device, XS, dev card at `bb646cf`, 2026-11-04], same captures, total
+  min / median / max ms: tab switches 38 / 90 / 477 (52 of 53 taps), EQ page 46 / 66 / 199 (12 of 12).
+  Same page sizes, median before → after: 14-27 KiB 91 → 82 ms, 28 KiB and up 166 → 143 ms. On the EQ
+  page no gain (touch → app.js writes still 46 ms) and two slow taps (164, 199 ms), one with 116 ms
+  from app.js's write to glesgui's read (0 ms in all 12 taps before). CPU app.js
+  21 % / 31 %, glesgui 9 % / 13 %, server.js 15 % / 18 % (tabs / EQ), with twice the taps on tabs. Small
+  samples of the worst cases: one 477 ms tap, two on the EQ page; chance or load is open.
+- **The touch path in glesgui** (#196) [static, `0x22264`, `0x20d5c`, `0x63bec`, `main` `0x15df0`]: no input
+  thread. Once per turn of the main loop, at most every 20 ms by the wall clock, the poll runs
+  `glfwPollEvents`, reads the button from GLFW's memory, asks for the cursor (GLFW's X11 path; `XQueryPointer`
+  is in the program's X11 imports, so a wait for Xwayland's answer [guess]), and sends `DOWN_x_y` straight from
+  that thread over the WebSocket, before the turn parses and draws. So a tap that lands mid-turn waits for the
+  rest of it: parsing, painting, swap, `glFinish`, `usleep(2000)` (one to two 4 ms kernel ticks, `CONFIG_HZ=250`
+  [guess on the length]). Every extra frame adds such turns, which would fit no gain on the EQ page at 60 [guess].
+  app.js handles `DOWN` at once when the message arrives (`canvasWebsocket.onmessage` → `Events.eventPointerDown`,
+  no debounce or timer) [static]; its share (page build, tick) is not split from glesgui's yet: the probe's
+  loopback counter is for that. Fastest touch → app.js write 3-14 ms, median 46: the time looks like waits,
+  not work [guess].
+- **Where the first stage goes** (#196) [device, the five captures of 2026-11-04], min / median / max ms, split
+  by app.js's first small write after the touch (its answer to the hub, so the touch has arrived [guess, supported
+  by the noise: the same wait from a moment with no touch is 69-215 ms on the EQ page, 38-45 on tabs):
+
+  | Capture | Touch → app.js reacts | app.js reacts → writes page |
+  |---|---|---|
+  | Tabs, 30 ticks (n=22) | 2 / 23 / 58 | 12 / 44 / 296 |
+  | Tabs, 60 ticks (n=40) | 2 / 21 / 49 | 12 / 47 / 184 |
+  | EQ, 30 ticks (n=10) | 15 / 24 / 41 | 12 / 26 / 44 |
+  | EQ, 60 ticks (n=9, n=7) | 14 / 24 / 35, 15 / 23 / 46 | 12 / 20 / 32, 12 / 14 / 28 |
+
+  So ~23 ms before app.js in every capture, whatever the ticks: glesgui's polling and what lies before it. On
+  tabs the largest share is app.js's own 44-47 ms, which 60 ticks did not change, so it is the page build. A
+  second EQ run at 60 ticks gave touch → flip 44 / 55 / 77 ms, no slow tap: the 164 and 199 ms above did not
+  come back, so load is not shown as their cause. The loopback packet counter is no use for this: its
+  noise equals the wait (45 changes a second).
+- **A tab switch in app.js** (#196) [sandbox: Chrome CPU profile, 36 switches over the six tabs, CPU slowed 20x;
+  a real canvas, not the mixer's draw stream, so proportions only]: the tap's handler (`Events.mouse`, mostly
+  `setPage`) ~22 ms, then the next tick's `_drawAll` ~75 ms, about 3.4 times as much. `setPage` only queues
+  `drawAllQueued`; `updater` then repaints every visible widget, so each tab switch sends a full screen, and
+  page size drives glesgui's parse and paint too. Nearly all of `_drawAll` is the widgets' own `paint` and
+  `internalUpdate`, no single hot spot. The sandbox's meter ticks (`parseVuData`, `btoa`) are its fake feed.
+- **A tab switch, stage by stage** (#196) [device, XS, spike `9a16a7e` at 30 ticks, 33 taps, app.js's own clock
+  joined to the kernel's touch time], min / median / max ms:
+
+  | Stage | ms |
+  |---|---|
+  | Touch → app.js gets it (panel, Weston, Xwayland, glesgui's poll) | 4.8 / 17.4 / 35.7 |
+  | app.js's handler | 2.6 / 12.5 / 63.8 |
+  | Handler's end → the tick starts | 0.3 / 3.4 / 26.8 |
+  | Paint (widgets into draw calls) | 6.3 / 17.6 / 81.9 |
+  | `JSON.stringify` of the frame | 1.4 / 3.0 / 17.4 |
+  | Write | 0.9 / 1.4 / 19.8 |
+  | Touch → written | 24 / 64 / 179 |
+
+  Then glesgui read → flip ~28 (probe, same capture; touch → flip 44 / 93 / 265). So no one stage rules. The
+  tick wait is small because the handler runs inside it: that is why 60 ticks gained so little. 25 of 33 taps
+  were full redraws, 172 / 408 / 1205 draw calls, 8.8 / 20 / 61 KiB. By size, median paint: under 15 KiB 10 ms,
+  15-30 KiB 17 ms, over 30 KiB 41 ms, with JSON 2 / 3 / 7 ms: big pages cost in paint, ~55 µs a call.
+- **What a full redraw is made of** (#196) [sandbox: native canvas calls hooked during `_drawAll`, state followed
+  through `save`/`restore`; Overview 1285 calls against 1205 on the mixer, so the count holds]: Overview 1285, Channel
+  1068, Pads 960, Media 512, FX 460, Snapshots 363 calls. Sets that change nothing: only 6-12 % (Overview 129), so
+  skipping them would save ~7 ms of paint there at ~55 µs a call [guess], not the big win hoped for. The rest is real
+  drawing, spread out: paths 10-39 % (Pads 378, rounded corners built from `lineTo` and `quadraticCurveTo`), `save` +
+  `translate` + `restore` 8-16 %, text state 10-21 %. No sign of a one-call rounded rectangle among glesgui's strings
+  (only a plain search, its command table not read).
+- **`repaint-window` 7, tried** (#196) [device, XS, spike `9a16a7e`, `/etc/weston.ini` edited on the card, Weston's
+  log confirms 7 ms, 31 taps against 33]: no gain. Median glesgui read → flip 28 → 26 ms, and by size 24.1 → 23.7
+  (14-28 KiB) and 47.8 → 47.8 (over 28 KiB); touch → flip 93 → 94 ms. The meters looked as before [user]; missed flips were not measured. Undone. So that
+  stage is not spent waiting for Weston's composite: the ~8 ms estimate was wrong. It grows with the page, so the
+  work is more likely glesgui's parse and paint [guess].
 - **Panel**: 52 MHz, 1360 × 635 timing in `/etc/weston.ini`: ~60.2 Hz, 16.6 ms a refresh [static].
 - **How to measure**: `bash dev/tapprobe.sh <seconds> <capture.csv>` (Git Bash; a confirmed command,
   `python` is not on the SSH wrapper's read-only list). Start it when someone is at the screen: a

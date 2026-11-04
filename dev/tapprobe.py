@@ -69,6 +69,7 @@ def probe(dur):
     touch = os.open("/dev/input/event1", os.O_RDONLY | os.O_NONBLOCK)
     state = open(STATE)
     t0 = time.time()
+    print("t0 %.3f" % t0, flush=True)
     last = {}
     out = []
     fb = plane_fb(state)
@@ -131,7 +132,8 @@ def report(path):
                 return e
         return None
 
-    write, read, flip, total, sizes = [], [], [], [], []
+    write, read, flip, total, sizes, react, build, idle = [], [], [], [], [], [], [], []
+    small = [e[0] for e in ev if e[1] == "app_w" and e[2] < PAGE_MIN]
     for k, d in enumerate(downs):
         end = min(d + 600, downs[k + 1] if k + 1 < len(downs) else d + 600)
         w = first("app_w", d, end)
@@ -143,6 +145,15 @@ def report(path):
         f = next((x for x in flips if x > r[0]), None)
         if f is None or f > end + 300:
             continue
+        # app.js's first small write after the touch: its answer to the hub, so the touch has arrived
+        s = next((x for x in small if d < x < w[0]), None)
+        if s is not None:
+            react.append(s - d)
+            build.append(w[0] - s)
+        # the same wait from a moment with no touch: what its other small writes alone would give
+        s = next((x for x in small if x > d - 300), None)
+        if s is not None and s < d:
+            idle.append(s - (d - 300))
         write.append(w[0] - d)
         read.append(r[0] - w[0])
         flip.append(f - r[0])
@@ -155,6 +166,10 @@ def report(path):
     print("  glesgui read -> page flip    ", stats(flip))
     print("  touch -> page flip           ", stats(total))
     print("  page KiB, ms:", sorted(sizes))
+    print("the first stage split by app.js's first small write (only where there is one)")
+    print("  touch -> app.js reacts       ", stats(react))
+    print("  app.js reacts -> writes page ", stats(build))
+    print("  noise: same wait, no touch   ", stats(idle))
     gaps = [b - a for a, b in zip(flips, flips[1:])]
     print("flips %.1f/s, gap ms %s" % (len(flips) / dur, stats(gaps)))
     reads = [e[2] for e in ev if e[1] == "gles_r"]
