@@ -43,6 +43,9 @@ jobs:
       - name: Clock saver
         run: bash tests/clock.sh
 
+      - name: dspserver's wait at a start
+        run: bash tests/wait-hub.sh
+
       - name: Touch fix for glesgui (without the dump)
         run: bash tests/glesgui.sh
 
