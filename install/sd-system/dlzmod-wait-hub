@@ -10,8 +10,20 @@
 #   the second stop nothing is stopped. glesgui opens the GPU only after it (the window's context), so
 #   its /dev/dri file is the sign.
 # Gives up after 50 s in all and lets dspserver start anyway, as stock would (its unit allows 60 s).
+# Timed on /proc/uptime, not by counting turns: on a busy start each turn costs more than its sleep,
+# and running past the unit's limit would kill this script and fail the unit.
 PROC=${DLZMOD_WAIT_PROC:-/proc}
-LIMIT=250   # 0.2 s each
+LIMIT=5000   # hundredths of a second
+
+now() {
+  read -r up _ < "$PROC/uptime"
+  echo "${up%.*}${up#*.}"
+}
+
+START=$(now)
+elapsed() { echo $(($(now) - START)); }
+late() { [ "$(elapsed)" -ge $LIMIT ]; }
+took() { e=$(elapsed); echo "$((e / 100)).$((e % 100 / 10)) s"; }
 
 graphics_up() {
   for p in $(pidof glesgui 2> /dev/null); do
@@ -20,24 +32,23 @@ graphics_up() {
   return 1
 }
 
-i=0
-while [ $i -lt $LIMIT ] && [ -z "$(ss -Hltn 'sport = :80' 2> /dev/null)" ]; do
+waited=0
+until [ -n "$(ss -Hltn 'sport = :80' 2> /dev/null)" ]; do
+  if late; then
+    echo "dlzmod-wait-hub: nothing on port 80 after $(took), starting dspserver anyway" >&2
+    exit 0
+  fi
   sleep 0.2
-  i=$((i + 1))
+  waited=1
 done
-if [ $i -ge $LIMIT ]; then
-  echo "dlzmod-wait-hub: nothing on port 80 after 50 s, starting dspserver anyway" >&2
-  exit 0
-fi
-[ $i -gt 0 ] && echo "dlzmod-wait-hub: server.js listening after $((i / 5)).$((i % 5 * 2)) s"
+[ $waited = 1 ] && echo "dlzmod-wait-hub: server.js listening after $(took)"
 
-while [ $i -lt $LIMIT ] && ! graphics_up; do
+until graphics_up; do
+  if late; then
+    echo "dlzmod-wait-hub: no graphics after $(took), starting dspserver anyway" >&2
+    exit 0
+  fi
   sleep 0.2
-  i=$((i + 1))
 done
-if [ $i -ge $LIMIT ]; then
-  echo "dlzmod-wait-hub: no graphics after 50 s, starting dspserver anyway" >&2
-  exit 0
-fi
-echo "dlzmod-wait-hub: glesgui's graphics up after $((i / 5)).$((i % 5 * 2)) s"
+echo "dlzmod-wait-hub: glesgui's graphics up after $(took)"
 exit 0

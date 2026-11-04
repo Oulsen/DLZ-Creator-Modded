@@ -102,8 +102,8 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   for the AKM ADC at `0x26`, and dspserver carried on. Only `Couldn't initialise audio hardware,
   exiting` ends it [static]. So a chip that fails at start gives moving meters and a silent output
   until the next start [guess on the effect]. AKM DAC = I2C `0x22`, AKM ADC = `0x26` [device].
-- **Silent outputs with moving meters also come without either cause** [device, one start, XS dev
-  card, 2026-11-04]: no sound while the meters moved, yet all three chips initialised without an
+- **Silent outputs with moving meters also come without either cause above** (see also glesgui's
+  stop, below, which fits one of them) [device, XS dev card, 2026-11-04]: no sound while the meters moved, yet all three chips initialised without an
   I2C error and dspserver, faderlink and evolve-node had 0 restarts. A reboot usually clears it
   [user], this time it did not. In the saved state `m.mute` was 0 and the master gate bypassed; the
   running graph had no limiter (`dlzmod.lim.*` keys left in the state from an earlier #59 drop-in
@@ -114,7 +114,8 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   `dlzmod-logs/syslog-last-boots*.txt` keeps the last four starts' syslog. The silent start had the
   ~7.5 s preamp step (#147) and the working one after it had not, yet so does about 1 start in 3 with
   sound, and an earlier start that ended up silent had not: no link shown. Service order, faderlink's
-  log and restarts did not differ. Cause unknown; when it started in that session was not established.
+  log and restarts did not differ. The stop below fits the 09:10 start; the first start of that day, with a
+  normal step, stays unexplained, and when its silence began was not established.
 - The FPGA loaded on the first try in all 769 starts of that syslog [device].
 - **glesgui stops dspserver at every start, and two silent starts fell in that window** (#239): glesgui runs
   `killall -STOP /usr/local/bin/dspserver` twice during its graphics start (`main` `0x15df0`, unconditional) and
@@ -129,7 +130,9 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
 - **The wait for it** (#239, `dlzmod-wait-hub`) [device, XS dev card at `2e1a822`, 2026-11-04]: dspserver starts once
   glesgui holds `/dev/dri`, seen 0.8 s before its `Context renderer string`. 11 starts of 11 with sound, the THAT step
   at most ~1 s and never begun before the context, no I2C errors, the wait 7.8-10.0 s and never given up. The chips are
-  ready ~29.3 s after power-on, ~0.8 s later than the ~28.5 s before. On the system log's one-second clock.
+  ready ~29.3 s after power-on, ~0.8 s later than the ~28.5 s before. On the system log's one-second clock. It only
+  helps at a start: a glesgui restart while dspserver runs still stops it, as stock does [static]. A dying
+  glesgui can still hold `/dev/dri`, so a dspserver start during a glesgui restart may not wait [guess].
 
 ## Audio loop and headroom
 
