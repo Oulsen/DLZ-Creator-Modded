@@ -9,6 +9,7 @@
 - (MOD FEATURE) See what changed after an update
 - (MOD FEATURE) Show on the screen that an update is installing
 - (MOD BUG) After a restart of the mixer software, the date can drop out of recording names
+- (MOD BUG) Sometimes no sound on any output while the meters keep moving
 
 ## v0.4.0
 
