@@ -145,6 +145,11 @@ has this fault, as has the conclusion that the largest stage is in app.js. Measu
   page on screen 210 → 197 ms. No pixel changed on 11 screens with magenta painted under the redraw and the clear left out,
   against a control that showed magenta on all of them [sandbox]; the screen looks the same [user]. The strips kept their
   background in that build: the Overview's is a colour of its own (`DLZMOD_ovColor`), so a plain compare said they differ.
+- **Each full redraw is two GPU jobs** (#196) [device, XS, `3fe4267`, 33 taps]: the page's, and one of ~24 ms, which is one
+  full layer, on every page before and after these patches. The order varies, so take the larger of the two jobs after a
+  page read, not the first. Page job before → after all patches: 14 KiB 80 → 51, 18 KiB 103 → 69, 20 KiB 83 → 55, 26 KiB 69 → 49,
+  Overview (60 KiB) 99 → 63 ms; the second job stays. It fits `clearFg`'s `fctx.clearRect(0,0,w,h)` in `UI.clear`, the
+  overlay's clear [guess, not proven]. Only 5 of the 8 strips left out their background; the other 3 not looked at.
 - **No cheap erase in glesgui** (#196) [static, every `bl` in `.text` to the imported stubs]: `glClear` has two calls, once at
   start and once in the calibration gesture (`0x1f318`), none per frame, and `glScissor` has none, so clips run in the
   shader. So a page can only be erased by painting it, through that same shader. `clearRect` and `fillRect` are not plain

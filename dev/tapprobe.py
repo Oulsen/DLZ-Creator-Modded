@@ -5,7 +5,8 @@
 #     polls every 4 ms: touch-downs, app.js's writes, glesgui's reads, CPU per process and the page
 #     flip (plane-1's fb= in sun4i-drm's debugfs state changes to another of Weston's buffers).
 #   On the PC:                                           python tapprobe.py report <capture.csv>
-#     per tap: touch -> app.js writes the page -> glesgui reads it -> page flip; plus flips and
+#     per tap: touch -> app.js writes the page -> glesgui reads it -> the next flip, which is usually
+#     the frame before the page (notes/components/glesgui.md, "Tap to screen"); plus flips and
 #     writes per second and CPU over the whole capture.
 #
 # Run through the SSH wrapper (a confirmed command: python is not on its read-only list, and it
@@ -163,8 +164,10 @@ def report(path):
     print("min / median / max ms")
     print("  touch -> app.js writes page  ", stats(write))
     print("  app.js write -> glesgui read ", stats(read))
-    print("  glesgui read -> page flip    ", stats(flip))
-    print("  touch -> page flip           ", stats(total))
+    print("  glesgui read -> next flip    ", stats(flip))
+    print("  touch -> next flip           ", stats(total))
+    print("  (the first flip after the read: usually the frame before the page, so too low; for the")
+    print("   page's own flip use a GPU trace, notes/components/glesgui.md, \"Tap to screen\")")
     print("  page KiB, ms:", sorted(sizes))
     print("the first stage split by app.js's first small write (only where there is one)")
     print("  touch -> app.js reacts       ", stats(react))

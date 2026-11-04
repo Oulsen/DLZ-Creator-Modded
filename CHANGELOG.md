@@ -3,6 +3,7 @@
 ## v0.5.0
 
 - (DLZ FEATURE) See the sound behind the EQ curve
+- (DLZ BUG) The screen reacts later than the knobs
 - (MOD FEATURE) An update sent from a computer installs with one switch off and on
 - (MOD FEATURE) Check for mod updates on the Mod page and download them
 - (MOD FEATURE) Install mod updates from a USB stick
