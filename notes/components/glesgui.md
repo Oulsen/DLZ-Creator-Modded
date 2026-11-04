@@ -148,8 +148,25 @@ has this fault, as has the conclusion that the largest stage is in app.js. Measu
 - **Each full redraw is two GPU jobs** (#196) [device, XS, `3fe4267`, 33 taps]: the page's, and one of ~24 ms, which is one
   full layer, on every page before and after these patches. The order varies, so take the larger of the two jobs after a
   page read, not the first. Page job before → after all patches: 14 KiB 80 → 51, 18 KiB 103 → 69, 20 KiB 83 → 55, 26 KiB 69 → 49,
-  Overview (60 KiB) 99 → 63 ms; the second job stays. It fits `clearFg`'s `fctx.clearRect(0,0,w,h)` in `UI.clear`, the
-  overlay's clear [guess, not proven]. Only 5 of the 8 strips left out their background; the other 3 not looked at.
+  Overview (60 KiB) 99 → 63 ms; the second job stays. That job is `clearFg`'s `fctx.clearRect(0,0,w,h)` in `UI.clear`, the
+  overlay's clear (next point, and timed below it). Only 5 of the 8 strips left out their background; the other 3 not looked at.
+- **The top sheet is a framebuffer of its own** (#243) [static, the command handler `0x27500` and the frame code in `main`
+  around `0x17474`-`0x17978`]: glesgui keeps two offscreen framebuffers, the main picture's (`0x28d0334`) and the top sheet's
+  (`0x28d0338`). Normally `ctx` paints straight on the screen and only `fctx` goes to its framebuffer. Each change of target
+  flushes NanoVG and binds the other framebuffer, so a whole-sheet `fctx.clearRect` costs a render pass of its own, painted
+  through the shader with a copy blend: that fits the second job. Any `fctx` command, a setting too, sets "sheet in use"
+  (`0x28d033d`); a `clearRect` at x = y = 0 on `fctx` takes it down again, whatever its size. In use at `drawFrame`, glesgui
+  goes into overlay mode ("Overlay ON"): it copies the screen into the main framebuffer (`glReadPixels`, `glDrawPixels`), `ctx`
+  paints there, and each frame puts both on the screen; "Overlay OFF" when the flag is down. At start only the screen gets a
+  `glClear`, so what clears the sheet's framebuffer is app.js's first clear [static: no other clear seen].
+  `FCTX ON`/`OFF` is not this: it is a debug toggle on a GLFW key (`0x19250`).
+- **The sheet stays empty on the pages** (#243) [sandbox, every `fctx` call counted during 12 full redraws of Overview, Channel,
+  Config, Reverb, Media, Snapshots, Samples and Settings]: the clear was the only call. So `DLZMOD_fgClear` leaves it out when
+  no `fctx` command went out since the last whole-sheet clear; anything on the sheet brings it back for the next redraw.
+- **The sheet's clear removed, timed** (#243) [device, XS, `62ec81f`, 2026-11-04, 25 s of tabs, glesgui's PP jobs of 15 ms or
+  more grouped by gaps under 250 ms, one group about one redraw]: groups with two or more heavy jobs 30 of 41 → 3 of 50, and the 23-24 ms job of `196-trace2` is
+  gone: nothing between 18 and 45 ms is left. The page's own job stays 45-69 ms (median 56). Touch to screen was not timed. The
+  screen looks the same, popups, the keyboard and a scrolled list leave nothing behind [user].
 - **No cheap erase in glesgui** (#196) [static, every `bl` in `.text` to the imported stubs]: `glClear` has two calls, once at
   start and once in the calibration gesture (`0x1f318`), none per frame, and `glScissor` has none, so clips run in the
   shader. So a page can only be erased by painting it, through that same shader. `clearRect` and `fillRect` are not plain

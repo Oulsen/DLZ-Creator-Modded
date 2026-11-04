@@ -234,6 +234,9 @@ Whether the `HAVE_*` flags unlock anything without native support is unknown [gu
 - **The top sheet** (`fctx`, the overlay canvas popups draw on, `mWidgets`): a widget's `update()`
   leaves it alone, a full `drawAll` clears it. On the mixer `clearFgRect` clears all of it whatever
   the rectangle, and its commands go out with the next `ctx.drawFrame` (`needDrawFrame`) [static].
+  All its commands pass `wrapObject`, so the mod knows when it is empty and leaves that clear out then (#243,
+  `DLZMOD_fgClear`, [glesgui.md](glesgui.md)). Connecting to glesgui drops what was waiting to be sent and draws everything
+  (`canvasWebsocket.onopen`), so the mod counts the sheet as unknown again there.
   Drawing there ~28 times a second (a spectrum: one fill, one line) made the screen lag far more
   than redrawing the whole EQ widget as often [device]: no faster path for animation.
 

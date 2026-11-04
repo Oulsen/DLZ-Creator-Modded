@@ -2966,6 +2966,19 @@ function DLZMOD_size(bytes) {
 // is what wipes its old contents, so it stays.
 var DLZMOD_fullRedraw = false;
 
+// #243: the top sheet (fctx) has a framebuffer of its own in glesgui, so clearing it paints one full
+// layer in a pass of its own, on every full redraw, while the pages leave the sheet empty. True only
+// after a whole-sheet clear with no fctx command since (patch.py lowers it on each one, and on
+// connecting to glesgui: a new glesgui's sheet was never cleared). Only on the mixer: a browser's
+// canvas calls do not pass through wrapObject.
+var DLZMOD_fgEmpty = false;
+
+function DLZMOD_fgClear(ui) {
+  if (DLZMOD_fgEmpty) return;
+  ui.fctx.clearRect(0, 0, ui.w, ui.h);
+  DLZMOD_fgEmpty = !!$ENV.isNode;
+}
+
 function DLZMOD_bgNeeded(w) {
   if (!DLZMOD_fullRedraw || w._CACHING) return true;
   const p = w.parent;

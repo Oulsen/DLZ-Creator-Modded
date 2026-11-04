@@ -10,6 +10,7 @@
 # - the patched app.js carries the version's CHANGELOG.md section (What's New after an update, #224)
 # - the Time tab's zones (#9, DLZMOD_zoneList) are in the mixer's tzdata, and each row's offset is the
 #   zone's winter offset (standard time: the lower of January's and July's, by the mixer's node)
+# - the top sheet's clear goes only when the sheet is known to be empty (tests/overlay-check.js, #243)
 #   bash tests/patches.sh
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -53,6 +54,14 @@ if [ -f "$TMP/graph.js.orig" ]; then
   fi
 else
   bad "graph.js: no patched graph, tests/graph-check.js not run"
+fi
+# #243: the top sheet's clear in Mackie's own code, as patched
+if [ -f "$TMP/app.js" ]; then
+  if dnode tests/overlay-check.js "$TMP/app.js" > "$TMP/overlay.check" 2>&1; then
+    ok "app.js: $(grep -c '^ok' "$TMP/overlay.check") checks of the top sheet's clear (tests/overlay-check.js)"
+  else
+    bad "app.js: top sheet: $(grep -v '^ok' "$TMP/overlay.check" | head -5)"
+  fi
 fi
 # #224: the patched app carries VERSION's CHANGELOG.md section, as patch.py groups it (not empty:
 # every version's section gets a bullet per finished issue)
