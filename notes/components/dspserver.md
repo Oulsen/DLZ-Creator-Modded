@@ -128,8 +128,8 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   ~8 s without the audio stream]. Also open: the first start that day was silent with a normal step, and #147
   counted such slow starts as having sound (was it checked each time?).
 - **The wait for it** (#239, `dlzmod-wait-hub`) [device, XS dev card at `2e1a822`, 2026-11-04]: dspserver starts once
-  glesgui holds `/dev/dri`, seen 0.8 s before its `Context renderer string`. 11 starts of 11 with sound, the THAT step
-  at most ~1 s and never begun before the context, no I2C errors, the wait 7.8-10.0 s and never given up. The chips are
+  glesgui holds `/dev/dri`, seen 0.8 s before its `Context renderer string`. 15 starts of 15 with sound, the THAT step
+  at most ~1 s and never begun before the context, no I2C errors, the wait about 12 s by the clock (9-13 s) and never given up. The chips are
   ready ~29.3 s after power-on, ~0.8 s later than the ~28.5 s before. On the system log's one-second clock. It only
   helps at a start: a glesgui restart while dspserver runs still stops it, as stock does [static]. A dying
   glesgui can still hold `/dev/dri`, so a dspserver start during a glesgui restart may not wait [guess].
