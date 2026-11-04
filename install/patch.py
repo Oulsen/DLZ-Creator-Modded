@@ -89,6 +89,21 @@ def version_notes(version, path=CHANGELOG_FILE):
 # (what, anchor in Mackie's code, replacement)
 APP_PATCHES = [
     (
+        # #196: the screen draws at 60 frames a second, so a change waits at most ~17 ms for the next
+        # tick, not 33. $CFG.fps stays 30: the meters' speeds are tuned to it, and every tick gets
+        # its elapsed time in those frames, so they keep their speed (half a frame per tick here).
+        "screen: 60 frames a second",
+        "new Util.FpsCtrl($CFG.fps,this.updater.bind(this))",
+        "new Util.FpsCtrl(60,this.updater.bind(this))",
+    ),
+    (
+        # the one movement stock does per tick, not by the elapsed time: at 60 ticks it would fall
+        # twice as fast
+        "screen: peak markers by the elapsed time",
+        "i.peak-=i.peakSpeed,i.peakSpeed+=this.PEAK_ACC,",
+        "i.peak-=i.peakSpeed*t,i.peakSpeed+=this.PEAK_ACC*t,",
+    ),
+    (
         # startGUI builds the pages once the hub's INIT is in (dlzmod.theme with it); widgets copy
         # their colours when they are made
         "theme: palette set before the pages are built",

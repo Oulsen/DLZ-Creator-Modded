@@ -112,7 +112,7 @@ stage is stuck or busy, the screen's path is just long. Work on it: #196.
   composites ~2 ms after each vblank and a commit arriving later waits nearly a whole refresh.
 - **Plan** (#196, nothing tried yet; gains are estimates [guess]): (1) `repaint-window` near 7, ~8 ms
   on every frame, if composite + rotate-180 still make the vblank; (2) `vblank_mode=0` in
-  `glesgui.service.d/dlzmod.conf`, up to 16 ms; (3) the 33 ms tick: `NODE_FPS` 60, or cheaper, draw
+  `glesgui.service.d/dlzmod.conf`, up to 16 ms; (3) the 33 ms tick: 60 ticks (below, not `NODE_FPS`), or cheaper, draw
   at once after a touch and leave meters at 30 (`$CFG.fps` also scales the meters' fall speed;
   `Util.FpsCtrl` calls `updater`), ~8-16 ms; (4) only if these fall short: touch poll below 20 ms,
   a one-constant patch beside #188's, ~5-8 ms (each poll may be an X round trip). Cheaper frames
@@ -121,10 +121,35 @@ stage is stuck or busy, the screen's path is just long. Work on it: #196.
 - **Rejected**: a replacement renderer: it could win part of the 41 ms at most, must
   match ~100 Canvas2D calls and Mackie's fonts, and the screen is the mixer's only UI.
 - **Before/after for #196**: same two captures each time: 40 s with ~16 tab switches (Overview
-  included), then 20 s on a channel's EQ page with music.
+  included), then 20 s on a channel's EQ page with EQ and spectrum on, music in, ~10 taps.
+- **Baseline for #196** [device, XS, dev card at `1b20f09` (#236; `update-39` in `dlzmod-logs`),
+  2026-11-04], min / median / max ms:
+
+  | Capture | Touch → app.js writes | app.js write → glesgui read | glesgui read → flip | Touch → flip |
+  |---|---|---|---|---|
+  | Tab switches (25 of 28 taps used, 14-62 KiB) | 34 / 70 / 326 | 0 / 0 / 13 | 12 / 32 / 89 | 58 / 105 / 382 |
+  | EQ page, spectrum on (12 of 12, 10-13 KiB) | 14 / 46 / 68 | 0 / 0 / 0 | 12 / 20 / 28 | 26 / 67 / 95 |
+
+  Tab switches: pages of 14-27 KiB took 58-156 ms, 40-62 KiB 120-382 ms. The largest stage is before
+  glesgui, in app.js, and no process is short of CPU (app.js 13 %, glesgui 5 %; with the spectrum
+  29 % and 10 %). So step 3 of the plan acts on the larger stage; steps 1 and 2 only on the 20-32 ms.
+  In the tab capture one flip followed each page read within 120 ms, so that flip is the page's.
+  On the EQ page nearly all reads are pages by the probe's 4 KiB limit: the first read after a tap
+  is taken as the answer to it, which its size supports (13 KiB, the spectrum's frames ~23 KiB)
+  [guess]. Reading the debugfs state every 4 ms may slow flips a little (it likely takes the display
+  locks [guess]): keep the probe the same for before and after.
+- **60 frames, not `NODE_FPS` 60** (#196) [static]: `$CFG.fps` also sets the meters' constants, and
+  several are per tick (`VUData`'s `VU_SPEED`, `VU_ACC`, the peak's): `NODE_FPS` 60 makes a full-scale
+  fall 0.63 s instead of 1.27 s (simulated from those numbers). So `patch.py` leaves `$CFG.fps` at 30
+  and only runs `Util.FpsCtrl`, the one call that paces `updater`, at 60. `updater` gives each tick its
+  elapsed time in 30-fps frames (0.5 here), which all four `tick` methods use, so speeds stay; only
+  `VUData`'s peak moved per tick, now patched to use it. The timer runs on app.js's own
+  `requestAnimationFrame` fallback (at least 17 ms apart), so ~58 ticks a second at most. In a browser
+  `$CFG.fps` is 60 already: no change there, so the sandbox cannot show this; only the mixer can.
+- **Panel**: 52 MHz, 1360 × 635 timing in `/etc/weston.ini`: ~60.2 Hz, 16.6 ms a refresh [static].
 - **How to measure**: `bash dev/tapprobe.sh <seconds> <capture.csv>` (Git Bash; a confirmed command,
-  `python` is not on the SSH wrapper's read-only list; never run so far, its report on a real
-  capture is unchecked). A read-only Python script sent over SSH (nothing written on the mixer),
+  `python` is not on the SSH wrapper's read-only list). Start it when someone is at the screen: a
+  capture without taps gives no stage times. A read-only Python script sent over SSH (nothing written on the mixer),
   polling every 4 ms: touch-downs (`BTN_TOUCH` on `/dev/input/event1`, 16-byte `input_event` on armhf),
   app.js `wchar` and glesgui `rchar` in `/proc/<pid>/io` (`wchar` also counts app.js's hub traffic),
   utime + stime per process, and the page flip: `plane-1`'s `fb=` in
