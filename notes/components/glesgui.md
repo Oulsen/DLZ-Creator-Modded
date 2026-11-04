@@ -126,6 +126,12 @@ has this fault, as has the conclusion that the largest stage is in app.js. Measu
   matched]. Largest fills: every page but Channel a black `fillRect` of 70-77 % of the screen, on top of what the last page
   left, needed unless something cheaper erases it; plain copies on top of one another: FX two black ~70 % fills, Snapshots
   two #141414 ~48 %. Each such layer would be ~20-25 ms on the GPU [guess].
+- **Duplicate fills removed, timed** (#196) [device, XS, `2e470b4`, 53 taps, 55 of 55 page frames matched, pages told apart
+  by frame size]: `DLZMOD_bgNeeded` leaves out a list's or FX panel's background during a full redraw. GPU job, before →
+  after: 14 KiB 80 → 70 ms, 19 KiB 103 → 89, 20 KiB 83 → 75; pages it does not touch stayed put (21 KiB 77, 27 KiB 69, 44 KiB
+  79-80, 61 KiB 99-100), so the change is real and the method holds. That is 8-14 ms, about 20 ms for a whole layer of plain
+  fill and not the 32-35 above: a page's cost is more than its layers, and the sum over page sizes is only a rough
+  guide. Overview, the 61 KiB page, is the slowest at ~100 ms. The screen looks the same [user].
 - **No cheap erase in glesgui** (#196) [static, every `bl` in `.text` to the imported stubs]: `glClear` has two calls, once at
   start and once in the calibration gesture (`0x1f318`), none per frame, and `glScissor` has none, so clips run in the
   shader. So a page can only be erased by painting it, through that same shader. `clearRect` and `fillRect` are not plain
