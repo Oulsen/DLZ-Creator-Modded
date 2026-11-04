@@ -120,6 +120,14 @@ has this fault, as has the conclusion that the largest stage is in app.js. Measu
   touch → page on screen 208 → **193 ms**, by size under 20 KiB 169 → 185, 20-40 KiB 210 → 190, over 40 KiB 236 → 210 (the
   small-page group differs in mix; its GPU job stayed 56-58). The screen looks the same at a glance but worse up close [user], so not to ship as it is. So
   the edge mask is ~25 % of a page's GPU job, not most of it; memory available fell 139 → 90 MB with the copy in RAM.
+- **Overdraw of a full redraw** (#196) [sandbox, each draw call painted additively, one channel per kind, 2026-11-04]: mean
+  layers per pixel Overview 2.42, Channel 1.99, FX 2.74, Media 2.32, Snapshots 2.30, Pads 1.66. Nearly all fills (strokes
+  0.00-0.03, text 0.01-0.03). The GPU times fit ~32-35 ms per layer of the screen [guess: page sizes and pages only roughly
+  matched]. Largest fills: every page but Channel a black `fillRect` of 70-77 % of the screen, on top of what the last page
+  left, needed unless something cheaper erases it; plain copies on top of one another: FX two black ~70 % fills, Snapshots
+  two #141414 ~48 %. Each such layer would be ~20-25 ms on the GPU [guess]. Not known: what `clearRect` costs in glesgui
+  (its name is not a plain string there, nor is `fillRect`: `grep` and REA find neither), and whether `drawFrame`'s batch
+  uses `glClear` anywhere after the first frame (`main` has one `glClear`, at start).
 - The page's flip is inferred: the first flip after the Weston job that follows the three Xwayland jobs [device, by
   order; the trace does not show pixels]. 46 of 46 page reads met a heavy glesgui job within 60 ms, 74 heavy jobs in all.
 - GPU busy 39 % over the capture: Xwayland 21 %, glesgui 12 %, Weston 6 %. The clock is fixed at 408 MHz, no devfreq
@@ -187,8 +195,12 @@ stage is stuck or busy, the screen's path is just long. Work on it: #196.
   a one-constant patch beside #188's, ~5-8 ms (each poll may be an X round trip). Cheaper frames
   allow more than the spectrum's 10 fps (`DLZMOD_rtaTick`). `/etc/weston.ini` is not on the
   updater's allowlist; `weston-mackie.service.d:dlzmod.conf` is (a route for a config of the mod's own).
-- **Rejected**: a replacement renderer: it could win part of the 41 ms at most, must
-  match ~100 Canvas2D calls and Mackie's fonts, and the screen is the mixer's only UI.
+- **Replacement renderer, open again**: first rejected because it could win part of 41 ms at most, but that figure
+  came from the probe's fault (see "Tap to screen"): glesgui read → flip is 154 ms. It would have to read the same
+  FIFO and serve 8011 (so `app.js` stays), match ~100 Canvas2D calls and Mackie's fonts, satisfy dspserver's wait for
+  `Xwayland` and `glesgui` processes, keep its own persistent picture for partial frames, turn the picture for the
+  upside-down panel, and fall back to stock glesgui, because the screen is the mixer's only UI. Estimates [guess]:
+  ~90-140 ms touch → page on screen, the low end only if the page's 75 ms GPU job shrinks.
 - **Before/after for #196**: same two captures each time: 40 s with ~16 tab switches (Overview
   included), then 20 s on a channel's EQ page with EQ and spectrum on, music in, ~10 taps.
 - **Baseline for #196** [device, XS, dev card at `1b20f09` (#236; `update-39` in `dlzmod-logs`),
