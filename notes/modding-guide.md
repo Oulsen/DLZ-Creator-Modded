@@ -255,6 +255,8 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
   display, it assigns the physical knobs. Each page passes its knob list to `SET_KNOBS`, and
   `RightPanel.setData` writes `K.0-3.key/color/blink` (and `setUser`/`resetUser` the user knob `K.4`)
   to the hub, which faderlink uses to drive the knobs and LED rings ([faderlink.md](components/faderlink.md)).
+  A knob only drives keys in faderlink's own table, so a mod page's knobs go through a stand-in key
+  (same note, "Knob stand-ins").
   These are shared hub keys: a panel in a browser would point the mixer's knobs at whatever page the
   browser shows. So `SET_KNOBS`, `setData` and `setUser` all do nothing when `EXTERNAL`, and app.js
   puts a 0-wide `Widget` where `RightPanel` would go (search `debugAlias:"panel"`). `#EXT` / `#INT`
