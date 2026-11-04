@@ -2813,6 +2813,14 @@ test("a widget's background: left out only under its page, only in a full redraw
     fx.parent.bgColor = "#111111";
     assert.strictEqual(need(fx, true), true, "another colour under it");
   }
+  const map = ctx.DLZMOD_drawColor.map;
+  ctx.DLZMOD_drawColor.map = { "#000001": "#000000" };
+  fx.parent = { widgetName: "MainMixer", bgColor: "#000001" };
+  fx.bgColor = "#000000";
+  assert.strictEqual(need(fx, true), false, "the Overview's own colour, drawn as the strip's");
+  ctx.DLZMOD_drawColor.map = { "#000001": "#223344" };
+  assert.strictEqual(need(fx, true), true, "the owner's own background: the strip stays");
+  ctx.DLZMOD_drawColor.map = map;
   assert.strictEqual(need({ parent: { widgetName: "Popup" } }, true), true);
   assert.strictEqual(need({}, true), true, "no parent");
   assert.strictEqual(need({ _CACHING: true, parent: { widgetName: "PageMedia" } }, true), true, "its own cache");

@@ -139,6 +139,12 @@ has this fault, as has the conclusion that the largest stage is in app.js. Measu
   small shapes alone 29.7. So a full layer is ~20 ms over a base of ~3.5, and **`clearRect` is one such layer in every full
   redraw**, on every page (`UI.clear`, `(0,0,1024,600)`). Overview: base 3.5, clear 20, big rectangles 44, small shapes 26,
   text 2.5. Text is cheap on the GPU but not on the CPU: glesgui's read → GPU job 36 ms, without text 27.
+- **The clear removed, timed** (#196) [device, XS, `7d42a22`, 53 taps, 51 of 52 page frames matched, by frame size]: GPU job and
+  glesgui read → flip, before → after: 14 KiB 80 → 51 and 147 → 119 ms, 19 KiB 103 → 69 and 172 → 134, 20 KiB 83 → 55 and 160
+  → 132, 27 KiB 69 → 49 and 142 → 120, Overview (61 KiB) 99 → 79 and 193 → 182. Median of all pages, whose mix differs: touch →
+  page on screen 210 → 197 ms. No pixel changed on 11 screens with magenta painted under the redraw and the clear left out,
+  against a control that showed magenta on all of them [sandbox]; the screen looks the same [user]. The strips kept their
+  background in that build: the Overview's is a colour of its own (`DLZMOD_ovColor`), so a plain compare said they differ.
 - **No cheap erase in glesgui** (#196) [static, every `bl` in `.text` to the imported stubs]: `glClear` has two calls, once at
   start and once in the calibration gesture (`0x1f318`), none per frame, and `glScissor` has none, so clips run in the
   shader. So a page can only be erased by painting it, through that same shader. `clearRect` and `fillRect` are not plain

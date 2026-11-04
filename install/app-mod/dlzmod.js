@@ -2977,7 +2977,8 @@ function DLZMOD_bgNeeded(w) {
     case "PageReverb":
     case "PageDelay":
     case "MainMixer":
-      return p.bgColor !== w.bgColor;
+      // the Overview's background is a colour of its own (DLZMOD_ovColor): what counts is what gets drawn
+      return DLZMOD_drawColor("fillStyle", p.bgColor) !== DLZMOD_drawColor("fillStyle", w.bgColor);
     default:
       return true;
   }
