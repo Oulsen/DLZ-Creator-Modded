@@ -69,6 +69,49 @@ A **dumb Canvas2D renderer**: the UI logic lives in `/srv/app.js`, glesgui only 
 
 ### Tap to screen (#7)
 
+**Read this first: the probe's flip numbers are too low** (#196) [device, XS, dev card at `bdc1510`, 2026-11-04, kernel
+trace over 42 taps, 46 page frames]. `dev/tapprobe.py` takes the first flip after glesgui reads a page, and that is
+usually the flip of the frame before it. Every "glesgui read → flip", "touch → flip" and `repaint-window` figure below
+has this fault, as has the conclusion that the largest stage is in app.js. Measured instead, median ms for a tap:
+
+| Stage | ms |
+|---|---|
+| Touch → glesgui reads the page | 60 |
+| glesgui's CPU, read → GPU job | 16 |
+| glesgui's job on the GPU | 75 (58 under 20 KiB, 77 over) |
+| Xwayland's jobs after it, to their end | 42 (19 under 20 KiB) |
+| Weston's composite | 5 |
+| Wait for the vblank | 7 |
+| **Touch → page on screen** | **~208** (min 118, over 40 KiB 236) |
+| of which glesgui read → flip | 154 (the probe said 28) |
+
+- **Every frame takes three Xwayland GPU jobs**, 18 ms in all, even an empty one (540 of 571 frames), then one Weston job
+  of 4.6 ms; glesgui's own empty frame takes 4.6 ms. So nothing reaches the screen in under ~27 ms. A plain full-screen
+  pass costs ~4.6 ms here, so a 75 ms page equals about 16 of them.
+- **The three jobs** [device, trace, 527 frames]: always in this order, 4.9, 9.25 and 3.7 ms, whatever the frame shows, so
+  whole-window passes and not drawing. glesgui's window (`EvolveGUI`, 1024x600) has depth **24**, and Weston's window
+  manager has it inside a frame window of the same size with depth **32** [device, `xwininfo`]. Shared buffers are mostly
+  32-bit (2.49 MB), Weston's scanout 16-bit (RGB565). glesgui asks for 5/6/5 and gets a 24-bit visual. Likely chain
+  [guess, from how Xwayland and Composite work; job-to-step not proven]: Present copies the frame into the window; the
+  depth mismatch makes X composite the window into its frame (the 9.25 ms job); Xwayland copies that into the buffer
+  it gives Weston. Routes that would drop jobs: native Wayland (no Xwayland at all, see above: flicker, a hang after it,
+  never timed), or a 32-bit window for glesgui, which may drop the middle job or more; both untested.
+- **Native Wayland, timed** (#196) [device, XS, 2026-11-04, RAM-only drop-in in `/run`, 31 taps, 29 pages]: no Xwayland
+  jobs at all. Touch → page on screen 208 → **184 ms** median, glesgui read → flip 154 → **120**; by size read → flip
+  under 20 KiB 109 → 131 (8 pages only), 20-40 KiB 153 → 112, over 40 KiB 163 → 129. So ~30-35 ms on bigger pages, not
+  more: the page's own GPU job stays ~70 ms and is now the largest stage by far. An empty frame costs ~8 ms of GPU
+  against ~27. This is also the most a window change could save. `WAYLAND_DISPLAY` alone keeps X11: GLFW needs
+  `XDG_SESSION_TYPE=wayland` and `UnsetEnvironment=DISPLAY`. The meter screen flickers and blacks out after a while,
+  and is clean for a couple of seconds after a tab switch; other pages look fine, touch and audio work [user]. Fits
+  partial frames drawn on buffers without the last picture: `main` replays commands only for the first frames [guess].
+- The page's flip is inferred: the first flip after the Weston job that follows the three Xwayland jobs [device, by
+  order; the trace does not show pixels]. 46 of 46 page reads met a heavy glesgui job within 60 ms, 74 heavy jobs in all.
+- GPU busy 39 % over the capture: Xwayland 21 %, glesgui 12 %, Weston 6 %. The clock is fixed at 408 MHz, no devfreq
+  [device], so no raised clock to be had. No GPU queue in front of pages (median 0).
+- **How**: `lima:lima_task_submit`, `gpu_scheduler:drm_run_job`, `drm_sched_process_job`,
+  `drm:drm_vblank_event_delivered`, `trace_clock` `mono`, in RAM only. Read the buffer **before** setting the clock back:
+  writing `trace_clock` empties it. Kernel 5.10.197-sunxi has no uprobes. Private data: `build/device-logs/196-trace2.*`.
+
 The screen follows a tap 60-190 ms later (to the page flip) while the knob LEDs change at once; same
 on stock. No
 stage is stuck or busy, the screen's path is just long. Work on it: #196.
@@ -108,6 +151,16 @@ stage is stuck or busy, the screen's path is just long. Work on it: #196.
   - The two 1024x600 offscreen buffers (`DAT_028d0334`, `DAT_028d0338`) are for the overlay only
     ("Overlay ON"/"OFF"): the switch reads the screen back once (`glReadPixels`); normal frames draw
     straight into the window.
+  - **The turn, in order** (#196) [static, `main`]: FIFO, touch poll, parse, commands, the swap's end (`nvgEndFrame`
+    `0x56cc8`, swap, `glFinish`), `usleep(2000)`. Touch is polled once a turn, so while a frame is drawn and finished
+    the poll waits for it, on top of its 20 ms gate. A lower gate therefore only helps on turns shorter than 20 ms.
+  - **A frame of its own** [static]: when 251 ms or more passed since the last swap, each turn adds the `drawFrame`
+    parsed at start, without any line from app.js, so glesgui swaps at least ~4 times a second. That sits badly with
+    "no next frame for 1.5-3 s" above (flips of `plane-1`): an empty swap may give no new buffer [guess], not measured.
+  - **Window** [static]: on X11 double-buffered (hint on), RGB565, 1 stencil bit asked, no multisampling; NanoVG made
+    with the antialias flag alone, no stencil strokes (`0x1d408(1)`). Parsing is a SIMD JSON parser, whitespace skipped
+    by vector compares, so parsing is an unlikely big cost [guess]. No `glClear` per frame; 25 of 33 taps were full
+    redraws anyway (below). Whether a swap also copies the whole buffer back (`loader_dri3`) is not known [guess].
 - **Weston** [static, `/etc/weston.ini`]: `repaint-window=15` (Weston's default is 7), so Weston
   composites ~2 ms after each vblank and a commit arriving later waits nearly a whole refresh.
 - **Plan** (#196, nothing tried yet; gains are estimates [guess]): (1) `repaint-window` near 7, ~8 ms
