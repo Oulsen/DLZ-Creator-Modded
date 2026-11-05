@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Apply the DLZ Creator Modded patches to Mackie's /srv/app.js, /srv/server.js or the XS audio graph.
+"""Apply the DLZ Creator Modded patches to Mackie's /srv/app.js, /srv/server.js or the audio graphs.
 
 Usage: patch.py app <app.js>
        patch.py server <server.js>
-       patch.py graph <mixergraph-dlzlite.js>   (/usr/local/share/evolve-a1/, dspserver's graph)
-       patch.py --check app|server|graph <file>   (only check the anchors and the mod file, write
+       patch.py graph <mixergraph-dlzlite.js>   (/usr/local/share/evolve-a1/, dspserver's graph, XS)
+       patch.py graph-full <mixergraph.js>      (the same folder, the full-size's graph)
+       patch.py --check app|server|graph|graph-full <file>   (only check the anchors and the mod file, write
                                                    nothing; the installer runs this on the read-only
                                                    eMMC before its accept screen)
 
@@ -12,7 +13,7 @@ The first run keeps the original as <file>.orig; every run patches from that ori
 be re-run after changing the patches. Each anchor must occur exactly once in the original,
 otherwise nothing is written (a different firmware build needs its anchors checked). Our own code
 is appended afterwards: app-mod/dlzmod.js (with the mod version and its CHANGELOG.md section stamped in),
-server-mod/dlzmod-server.js or graph-mod/dlzmod-graph.js.
+server-mod/dlzmod-server.js or graph-mod/dlzmod-graph.js; the full-size's graph gets no code of ours.
 
 The patched server.js only ever runs from the SD card, where the only SD slot holds the boot card
 (FORMAT SD would wipe its bootloader and partition table) and Mackie updates must not be installed
@@ -398,9 +399,79 @@ APP_PATCHES = [
         '$NET.addCallback("DLZMOD_NET_RESULT",(t=>DLZMOD_netResult(t))),'
         # Time tab (#9): the zone set, the outcome of a change
         '$NET.addCallback("DLZMOD_TIME_STATE",(t=>DLZMOD_setTimeState(t))),'
+        '$NET.addCallback("DLZMOD_KNOB",(t=>DLZMOD_knobStep(t))),'
         '$NET.addCallback("DLZMOD_TIME_RESULT",(t=>DLZMOD_timeResult(t))),'
         # #55: Check for Updates on the Mod page, and the check by itself: the latest release
         '$NET.addCallback("DLZMOD_RELEASE_STATE",(t=>DLZMOD_setRelease(t))),',
+    ),
+    # #25 the fourth EQ band: the screen's copy of the state's defaults (server patches), and the EQ
+    # page's Reset
+    (
+        "eq, four bands: the defaults' frequencies",
+        "DEFAULT_EQ_FREQS=[200,1e3,5e3]",
+        "DEFAULT_EQ_FREQS=[200,1e3,5e3,1e4]",
+    ),
+    (
+        "eq, four bands: the state's keys",
+        '"FLAT";for(let s=0;s<3;s++){let a=`${e}${i}b${s+1}`;',
+        '"FLAT";for(let s=0;s<4;s++){let a=`${e}${i}b${s+1}`;',
+    ),
+    # #25 the EQ page: the band is built from its line in bandsConfig, in Mackie's spare band colour.
+    # The rest of the page counts three bands in these places
+    (
+        "eq, four bands: the page's band",
+        '["bell","b3",Color.eqBands[3],3,$F.FREQtoV(DEFAULT_EQ_FREQS[2]),!0,!1,.5,VotEqQ(EQ_DEF_Q),1]]]',
+        '["bell","b3",Color.eqBands[3],3,$F.FREQtoV(DEFAULT_EQ_FREQS[2]),!0,!1,.5,VotEqQ(EQ_DEF_Q),1],'
+        '["bell","b4",Color.eqBands[4],4,$F.FREQtoV(DEFAULT_EQ_FREQS[3]),!0,!1,.5,VotEqQ(EQ_DEF_Q),1]]]',
+    ),
+    (
+        "eq, four bands: the knob panel's title",
+        'lang.BAND+" 2",lang.BAND+" 3"][s]',
+        'lang.BAND+" 2",lang.BAND+" 3",lang.BAND+" 4"][s]',
+    ),
+    (
+        "eq, four bands: the panel follows the band's frequency",
+        'e+"eq.b2.freq",e+"eq.b3.freq"]',
+        'e+"eq.b2.freq",e+"eq.b3.freq",e+"eq.b4.freq"]',
+    ),
+    (
+        "eq, four bands: the panel follows the band's gain",
+        'e+"eq.b2.gain",e+"eq.b3.gain"]',
+        'e+"eq.b2.gain",e+"eq.b3.gain",e+"eq.b4.gain"]',
+    ),
+    (
+        "eq, four bands: the panel follows the band's Q",
+        'e+"eq.b2.q",e+"eq.b3.q"]',
+        'e+"eq.b2.q",e+"eq.b3.q",e+"eq.b4.q"]',
+    ),
+    (
+        # faderlink only drives keys in its table, and eq.b4.* is not: the knobs go through the stand-ins
+        "eq, four bands: the knobs",
+        "SET_KNOBS(n)}sync(t){",
+        "SET_KNOBS(DLZMOD_eqKnobs(n,e,r))}sync(t){",
+    ),
+    (
+        # the full-size's fifth knob: eqBand moves 0.1833 a click within 0.1333-0.8667, less than a
+        # band's 0.25, so turning passes every band
+        "eq, four bands: the band knob's text",
+        'valueText:t=>["B1","B2","B3"][3*t|0]||""',
+        'valueText:t=>["B1","B2","B3","B4"][4*t|0]||""',
+    ),
+    (
+        "eq, four bands: eqBand to the selected band",
+        "Util.bound(1+3*e|0,1,3)",
+        "Util.bound(1+4*e|0,1,4)",
+    ),
+    (
+        "eq, four bands: the selected band to eqBand",
+        "Util.bound((t-1)/3+1/6,0,1)",
+        "Util.bound((t-1)/4+1/8,0,1)",
+    ),
+    (
+        "eq, four bands: Reset",
+        '"b3.type":"bell","hp.bypass":1',
+        '"b3.type":"bell","b4.bypass":0,"b4.freq":DEFAULT_EQ_FREQS[3],"b4.gain":0,"b4.q":EQ_DEF_Q,'
+        '"b4.slope":12,"b4.type":"bell","hp.bypass":1',
     ),
 ]
 
@@ -477,10 +548,10 @@ SERVER_PATCHES = [
         # plain key/value messages: no prototype keys; file paths dspserver opens only from the screen.
         # A refused key is also taken out of the message: after this loop stock passes the whole
         # message on to every socket.io client, dspserver included (entries() is a copy, so deleting
-        # while looping is safe)
+        # while looping is safe). The same for a knob's stand-in key caught for a mod page (#238)
         "files: data keys checked (DLZMOD_keyAllowed)",
         "for(const[a,i]of Object.entries(e))if(null!=a){",
-        "for(const[a,i]of Object.entries(e))if(null!=a&&(DLZMOD_keyAllowed(a,i,t.send)||(delete e[a],!1))){",
+        "for(const[a,i]of Object.entries(e))if(null!=a&&(DLZMOD_keyAllowed(a,i,t.send)||(delete e[a],!1))&&(!DLZMOD_knobCatch(a,i,t)||(delete e[a],!1))){",
     ),
     (
         # stock builds a shell line from file names on the card or stick: a name with ; would run
@@ -600,6 +671,35 @@ SERVER_PATCHES = [
         "DLZMOD_RELEASE(e,t,a,i){DLZMOD_release(e,i)},"
         "async FIRMWARE_UPDATE_SUCCESS_OK(){",
     ),
+    # #25 the fourth EQ band: its keys, with their conversions, in the two copies of Mackie's state
+    # defaults: flat, at 10 kHz. srv_data.json is merged over them, so a mixer that has run before
+    # gets them too, and the graph's bindings have their values from the start
+    (
+        "eq, four bands: the defaults' frequencies",
+        ",O=[200,1e3,5e3]",
+        ",O=[200,1e3,5e3,1e4]",
+    ),
+    (
+        "eq, four bands: the defaults' frequencies, second copy",
+        ",l=[200,1e3,5e3]",
+        ",l=[200,1e3,5e3,1e4]",
+    ),
+    (
+        "eq, four bands: the state's keys",
+        'for(let i=0;i<3;i++){let n=`${t}${a}b${i+1}`;e[n+".bypass"]=0,e[n+".type"]="bell",l(n+".freq"',
+        'for(let i=0;i<4;i++){let n=`${t}${a}b${i+1}`;e[n+".bypass"]=0,e[n+".type"]="bell",l(n+".freq"',
+    ),
+    (
+        "eq, four bands: the state's keys, second copy",
+        'for(let i=0;i<3;i++){let n=`${t}${a}b${i+1}`;e[n+".bypass"]=0,e[n+".type"]="bell",w(n+".freq"',
+        'for(let i=0;i<4;i++){let n=`${t}${a}b${i+1}`;e[n+".bypass"]=0,e[n+".type"]="bell",w(n+".freq"',
+    ),
+    (
+        # a snapshot saved with three bands: its keys are set one by one, so band 4 would stay as it is
+        "eq, four bands: an old snapshot leaves the band flat",
+        "return v(`*** EMPTY SNAPSHOT: ${e}`),{};for(const[e,a]of Object.entries(t))",
+        "return v(`*** EMPTY SNAPSHOT: ${e}`),{};DLZMOD_snapEq(t);for(const[e,a]of Object.entries(t))",
+    ),
 ]
 
 # #131 the sound behind the EQ curve (graph-mod/dlzmod-graph.js): its meters, its buffer cleared at
@@ -653,13 +753,34 @@ GRAPH_PATCHES = [
         "\ncompileGraph(graph)\n",
         "\ngraph.push(DLZMOD_rtaAnalyser())\n\ncompileGraph(graph)\n",
     ),
+    (
+        # #25 the fourth EQ band: every list of bands, the 4 strips' and the master's 6 (L and R of
+        # the main mix, the USB and the NDI mix-minus). Its keys: "eq, four bands" in the app and
+        # server patches. Bypassed while its gain is 0, as Mackie's bands
+        "eq, four bands: the graph",
+        "['b1', 'b2', 'b3']",
+        "['b1', 'b2', 'b3', 'b4']",
+        10,
+    ),
 ]
 
-# target: (patches, appended mod file, stamp the mod version into it)
+# #25 the full-size's graph: the same fourth band, in its 9 lists of bands. No spectrum here, so none
+# of the graph mod: only this patch
+GRAPH_FULL_PATCHES = [
+    (
+        "eq, four bands: the full-size's graph",
+        "['b1', 'b2', 'b3']",
+        "['b1', 'b2', 'b3', 'b4']",
+        9,
+    ),
+]
+
+# target: (patches, appended mod file or None, stamp the mod version into it)
 TARGETS = {
     "app": (APP_PATCHES, HERE / "app-mod" / "dlzmod.js", True),
     "server": (SERVER_PATCHES, HERE / "server-mod" / "dlzmod-server.js", False),
     "graph": (GRAPH_PATCHES, HERE / "graph-mod" / "dlzmod-graph.js", False),
+    "graph-full": (GRAPH_FULL_PATCHES, None, False),
 }
 
 
@@ -680,12 +801,22 @@ def main():
     # bytes in, bytes out: no newline translation, so Windows and Linux builds are identical
     src = orig.read_bytes().decode("utf-8")
 
-    for what, anchor, repl in patches:
+    # (what, anchor, replacement), with a fourth value when the anchor occurs that many times
+    for what, anchor, repl, *times in patches:
+        want = times[0] if times else 1
         n = src.count(anchor)
-        if n != 1:
-            sys.exit(f"anchor for '{what}' found {n} times, expected 1; nothing written")
+        if n != want:
+            sys.exit(f"anchor for '{what}' found {n} times, expected {want}; nothing written")
         src = src.replace(anchor, repl)
         print(f"{'anchor ok' if check else 'patched'}: {what}")
+
+    if mod_js is None:
+        if check:
+            print(f"check ok: {len(patches)} anchors in {orig}")
+        else:
+            write_atomic(target, src.encode("utf-8"))
+            print(f"wrote {target} (original: {orig.name})")
+        return
 
     mod = mod_js.read_bytes().decode("utf-8").replace("\r\n", "\n")
     note = ""

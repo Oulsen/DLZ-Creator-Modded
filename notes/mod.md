@@ -148,7 +148,7 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
 ## The sound behind the EQ curve (#131)
 
 The EQ page shows the channel's sound behind the EQ curve, on the XS only: the full-size's graph
-(`mixergraph.js`) is not patched, so its EQ page stays as stock. A **Spectrum** switch on every EQ
+(`mixergraph.js`) does not get the analyser, so its EQ page has no spectrum. A **Spectrum** switch on every EQ
 page, under Mackie's EQ switch (which moves up in its box for it, patched `PageEQ.initWidgets` and
 `paint`), turns it on or off for all channels at once: hub key `dlzmod.spectrum`, on by default; off,
 no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) and nothing is drawn
@@ -223,6 +223,39 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   line 85 % / fill 25 %, High contrast 100 % / 35 %, set at each message so a change of look shows
   at once; Mackie's own greys were too dim [sandbox].
 - Open: the DSP thread's cost of the 14 taps and 20 filters [guess: small; measure on the mixer].
+
+## The fourth EQ band (#25)
+
+On both models the EQ page has a fourth band. Knobs, sound and old presets tested on the XS [device,
+dev-c34a68f]; on the full-size only the page, in the sandbox.
+
+- **Graph**: patch.py adds `b4` to all 10 lists of bands in `mixergraph-dlzlite.js` (the only
+  anchor that occurs more than once, with its count in `GRAPH_PATCHES`): 18 `EqBand`s more, each right
+  after its band 3, peak like bands 1-3. Skipped while its gain is 0. `tests/graph-check.js` checks
+  each one against its band 3 and runs its other checks without them. Heard on the mixer
+  [device]. Processor load: ~0.18 points per active band, ~3.2 for all 18 [device, 14 measured],
+  table in [components/dspserver.md](components/dspserver.md).
+- **Full-size**: `patch.py graph-full` puts the same band in the 9 lists of `mixergraph.js`, without
+  the graph mod. Both files are patched on every card, the model's own one runs. `tests/graph-check.js`
+  checks it against the stock file. It never ran on a full-size: its load is not measured and a
+  mistake would show there first [static].
+- **EQ page**: band 4 is one more line in `bandsConfig`, in the spare colour of `Color.eqBands`; the
+  widget's drawing and touch loop over the bands. `patch.py` changes what counts three: the panel's
+  title and key lists, `eqBand` <-> selected band.
+- **Knobs**: as for bands 1-3, knob 1 the HP filter, 2-4 frequency, gain and Q of the selected band,
+  chosen by touch on the XS. faderlink has no `eq.b4.*`, so with band 4 selected `DLZMOD_eqKnobs`
+  puts knobs 2-4 on the stand-ins (`faderlink.md`, "Knob stand-ins"). On the XS the real knobs move
+  it [device], so `a.1.pan`, `f.0.pan` and `f.1.pan` work as stand-ins too.
+- **The full-size's fifth knob**: `eqBand` is now four bands of 0.25. faderlink moves it 0.1833 a click
+  within 0.1333-0.8667, so turning passes every band, from any band's own value, one or two clicks
+  each [static, from faderlink's numbers].
+- **Keys**: both copies of Mackie's state defaults in `server.js` and the one in `app.js` loop over four
+  bands, with the same conversions; the default is flat at 10 kHz. `srv_data.json` is merged over the
+  defaults, so a mixer that has run before gets the keys at its next start. New presets and snapshots
+  contain the band. The EQ page's Reset sets it flat (`$DEFAULTS.eq`).
+- **Old presets and snapshots** set nothing on keys they do not have, so band 4 would stay as it was.
+  A preset without it goes flat in `DLZMOD_eqOld` (a wrap of `Data.apply`, every preset passes there), a
+  snapshot in `DLZMOD_snapEq` (server, `SNAP_LOAD`), per channel. Only the gain is set.
 
 ## Mod settings (Settings → DLZ Creator Modded)
 

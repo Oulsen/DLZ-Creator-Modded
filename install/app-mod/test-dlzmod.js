@@ -124,6 +124,9 @@ const ctx = vm.createContext({
       return this.data[k];
     },
     regWidget: (k, f) => (regs[k] = regs[k] || []).push(f),
+    apply(t, e, i, s) {
+      ui.applied.push([t, e, i, s]);
+    },
     set(k, v) {
       ui.sets.push([k, v]);
       this.data[k] = v;
@@ -2849,6 +2852,65 @@ test("a widget's background: left out only under its page, only in a full redraw
   assert.strictEqual(need({ parent: { widgetName: "Popup" } }, true), true);
   assert.strictEqual(need({}, true), true, "no parent");
   assert.strictEqual(need({ _CACHING: true, parent: { widgetName: "PageMedia" } }, true), true, "its own cache");
+});
+
+test("eq band 4: a preset without it means the band flat, in both forms, on Data.apply's scale", () => {
+  const { DLZMOD_eqOld: old, Data } = ctx;
+  assert.strictEqual(old(null), null);
+  const comp = { thresh: -30 };
+  assert.strictEqual(old(comp), comp, "another kind of preset as it is");
+  const eq = { "b1.gain": 2 };
+  assert.deepStrictEqual({ ...old(eq) }, { "b1.gain": 2, "b4.gain": 0 });
+  assert.deepStrictEqual({ ...eq }, { "b1.gain": 2 }, "the preset read stays as it is");
+  assert.deepStrictEqual({ ...old({ "eq.b1.gain": 2 }) }, { "eq.b1.gain": 2, "eq.b4.gain": 0 });
+  const four = { "b1.gain": 2, "b4.gain": 5 };
+  assert.strictEqual(old(four), four, "a preset with band 4 keeps it");
+  ui.applied = [];
+  Data.apply("i.0.eq.", eq);
+  assert.deepStrictEqual({ ...ui.applied.pop()[1] }, { "b1.gain": 2, "b4.gain": 0 });
+  Data.apply("i.0.eq.", eq, [], 0);
+  assert.strictEqual(ui.applied.pop()[1], eq, "raw 0-1 values: no dB value goes in");
+});
+
+test("eq band 4: its knobs sit on the stand-ins, bands 1-3 and the HP filter on their own keys", () => {
+  const { DLZMOD_eqKnobs: knobs } = ctx;
+  const panel = () => ["eq.hp.freq", "eq.bX.freq", "eq.bX.gain", "eq.bX.q", "eqBand"].map((key) => ({ control: { key } }));
+  const b4 = knobs(panel(), "i.1.", "b4");
+  assert.deepStrictEqual(Array.from(b4, (e) => e.control.key), ["eq.hp.freq", "a.1.pan", "f.0.pan", "f.1.pan", "eqBand"]);
+  assert.deepStrictEqual(Array.from(ctx.DLZMOD_knobs.steps).slice(1), ["i.1.eq.b4.freq", "i.1.eq.b4.gain", "i.1.eq.b4.q"]);
+  assert.strictEqual(0 in ctx.DLZMOD_knobs.steps, false, "knob 1 stays the HP filter");
+  const b3 = knobs(panel(), "i.1.", "b3");
+  assert.deepStrictEqual(Array.from(b3, (e) => e.control.key), panel().map((e) => e.control.key));
+  assert.strictEqual(ctx.DLZMOD_knobs.steps.length, 0, "back on band 3 no knob steps band 4");
+});
+
+test("knobs: a panel entry with stepKey sits on the stand-in of its place, the steps move the setting", () => {
+  const { DLZMOD_knobs: knobs, DLZMOD_knobStep: step, Data } = ctx;
+  const mine = { title: "Ceiling", stepKey: "dlzmod.x", control: { key: "dlzmod.x", color: "c" } };
+  const stock = { title: "HP", control: { key: "i.0.eq.hp.freq", color: "d" } };
+  const list = knobs([stock, mine, mine, null, mine]);
+  assert.strictEqual(list[0], stock, "Mackie's own entry as it was");
+  assert.strictEqual(list[1].control.key, "a.1.pan");
+  assert.strictEqual(list[1].control.color, "c");
+  assert.strictEqual(list[2].control.key, "f.0.pan");
+  assert.strictEqual(list[3], null);
+  assert.strictEqual(list[4], mine, "no stand-in for the fifth");
+  assert.strictEqual(mine.control.key, "dlzmod.x", "the page's own list stays");
+  Data.data["dlzmod.x"] = 0.5;
+  step({ knob: 1, steps: 4 });
+  assert.strictEqual(Data.data["dlzmod.x"], 0.55);
+  step({ knob: 1, steps: -100 });
+  assert.strictEqual(Data.data["dlzmod.x"], 0, "stops at the end of the range");
+  step({ knob: 1, steps: 200 });
+  assert.strictEqual(Data.data["dlzmod.x"], 1);
+  const before = ui.sets.length;
+  step({ knob: 0, steps: 1 });
+  step({ knob: 3, steps: 1 });
+  step(null);
+  assert.strictEqual(ui.sets.length, before, "a knob without a setting moves nothing");
+  knobs([stock]);
+  step({ knob: 1, steps: 1 });
+  assert.strictEqual(ui.sets.length, before, "the next page's panel replaces them");
 });
 
 (async () => {

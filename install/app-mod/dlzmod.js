@@ -928,6 +928,55 @@ function DLZMOD_rtaPaint(eq, t) {
   t.stroke();
 }
 
+// #238: a knob panel for a page with the mod's own settings: an entry with stepKey (that setting) has
+// its knob on the stand-in key of its place in the list (the server's DLZMOD_KNOB_KEYS) and
+// DLZMOD_knobStep moves the setting, as faderlink moves a listed key: 1/80 of its range per step.
+// Goes through SET_KNOBS as any panel; entries without stepKey stay as they are.
+const DLZMOD_KNOB_KEYS = ["a.0.pan", "a.1.pan", "f.0.pan", "f.1.pan"];
+function DLZMOD_knobs(list) {
+  DLZMOD_knobs.steps = [];
+  return list.map((e, n) => {
+    if (!e || !e.stepKey || !DLZMOD_KNOB_KEYS[n]) return e;
+    DLZMOD_knobs.steps[n] = e.stepKey;
+    return Object.assign({}, e, { control: Object.assign({}, e.control, { key: DLZMOD_KNOB_KEYS[n] }) });
+  });
+}
+
+// #25: PageEQ's knobs (patch.py; knob 1 the HP filter, 2-4 frequency, gain and Q of the selected
+// band): faderlink's table has no eq.b4.*, so band 4's three go through the stand-ins
+function DLZMOD_eqKnobs(list, prefix, band) {
+  if (band !== "b4") return DLZMOD_knobs(list);
+  const on = { 1: "freq", 2: "gain", 3: "q" };
+  return DLZMOD_knobs(list.map((e, n) => (e && on[n] ? Object.assign({}, e, { stepKey: prefix + "eq.b4." + on[n] }) : e)));
+}
+
+function DLZMOD_knobStep(t) {
+  const key = t && (DLZMOD_knobs.steps || [])[t.knob];
+  if (!key || DLZMOD_external()) return;
+  const v = Number(Data.get(key));
+  if (!Number.isFinite(v)) return;
+  Data.set(key, Math.min(1, Math.max(0, v + t.steps * 0.0125)));
+}
+
+// #25: a preset saved with three bands (Mackie's, the factory's, an owner's) sets nothing on band 4,
+// so it would stay as the last preset left it: such a preset means the band flat. Both forms: an EQ
+// preset's keys (b1.gain), a channel preset's (eq.b1.gain). Only for values on Data.apply's own
+// scale (real dB), which is what presets are; they all pass Data.apply, the EQ page's Reset too.
+function DLZMOD_eqOld(v) {
+  if (!v) return v;
+  for (const p of ["", "eq."]) {
+    if (p + "b1.gain" in v && !(p + "b4.gain" in v)) return Object.assign({}, v, { [p + "b4.gain"]: 0 });
+  }
+  return v;
+}
+
+{
+  const apply = Data.apply;
+  if (typeof apply === "function") Data.apply = function (t, e, i = [], s = 1) {
+    return apply.call(this, t, s ? DLZMOD_eqOld(e) : e, i, s);
+  };
+}
+
 function DLZMOD_initKeys() {
   Object.entries(DLZMOD_keys()).forEach(([k, v]) => Data.has(k) || (Data.data[k] = v));
 }

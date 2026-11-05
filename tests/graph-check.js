@@ -3,6 +3,8 @@
 // stringRange and its flattenGraph, which keeps each nested list's current buffer to itself), and the
 // flat block lists are compared.
 //   node tests/graph-check.js <stock mixergraph-dlzlite.js> <patched one> <install/app-mod/dlzmod.js>
+//   node tests/graph-check.js <stock mixergraph.js> <patched one>     the full-size's: no spectrum, so
+//   only Mackie's blocks and band 4
 // Checks (#131, graph-mod/dlzmod-graph.js):
 // - every block of Mackie's is there, in the same order, on the same buffer, with the same parameters
 // - the mod's blocks write only the mod's own buffers; nothing of Mackie's writes them
@@ -10,13 +12,15 @@
 //   the app mod gives that channel's EQ page (DLZMOD_rtaCode); the buffer cleared before the first
 //   tap, the analyser after the last; its meters as the VU group dlzmod.rta, with the app's bands
 // - Mackie's VU groups as they were
+// - #25: band 4 right after every band 3, the same block on the band's own keys, and nothing else on
+//   those keys. It changes Mackie's audio path on purpose, so the checks above run without it
 const fs = require("fs");
 const vm = require("vm");
 const assert = require("assert");
 
 const [stockFile, patchedFile, appFile] = process.argv.slice(2);
-if (!appFile) {
-  console.error("usage: node graph-check.js <stock graph> <patched graph> <dlzmod.js>");
+if (!patchedFile) {
+  console.error("usage: node graph-check.js <stock graph> <patched graph> [<dlzmod.js>]");
   process.exit(2);
 }
 
@@ -76,6 +80,49 @@ function run(file) {
 }
 
 const stock = run(stockFile), patched = run(patchedFile);
+const usesB4 = (b) => JSON.stringify(b.p).includes(".eq.b4.");
+const isB4 = (b) => b.type === "EqBand" && usesB4(b);
+const withB4 = patched.blocks;
+patched.blocks = withB4.filter((b) => !isB4(b));
+
+let fail = 0;
+const check = (ok, what) => {
+  console.log((ok ? "ok    " : "FAIL  ") + what);
+  if (!ok) fail = 1;
+};
+
+// #25 band 4: follows each band 3 at once, the same block with b3 -> b4
+function checkB4() {
+  const twin = (b) => JSON.parse(JSON.stringify(b).replace(/\.eq\.b3\./g, ".eq.b4."));
+  const b3s = withB4.filter((b) => b.type === "EqBand" && JSON.stringify(b.p).includes(".eq.b3."));
+  const followed = withB4.every((b, i) => {
+    if (!b3s.includes(b)) return true;
+    try {
+      assert.deepStrictEqual(withB4[i + 1], twin(b));
+      return true;
+    } catch (e) {
+      console.log(`      no band 4 after ${JSON.stringify(b)}`);
+      return false;
+    }
+  });
+  check(b3s.length > 0 && followed, `band 4: right after each of the ${b3s.length} band 3 blocks, the same block on its own keys`);
+  check(withB4.filter(isB4).length === b3s.length, "band 4: no other block of it");
+  check(withB4.filter(usesB4).length === b3s.length, "band 4: nothing else reads its keys");
+}
+
+if (!appFile) {   // the full-size's graph: with band 4 taken out, exactly Mackie's
+  let same = true;
+  try {
+    assert.deepStrictEqual(patched.blocks, stock.blocks);
+  } catch (e) {
+    same = false;
+  }
+  check(same, `graph: Mackie's ${stock.blocks.length} blocks unchanged, in the same order, on the same buffers`);
+  check(JSON.stringify(patched.vus) === JSON.stringify(stock.vus), `Mackie's ${Object.keys(stock.vus).length} VU groups as they were`);
+  checkB4();
+  process.exit(fail);
+}
+
 const app = fs.readFileSync(appFile, "utf8");
 const list = (fn) => {
   const m = new RegExp("function " + fn + "\\([^)]*\\) \\{\\s*return (\\[[^\\]]*\\])").exec(app);
@@ -92,12 +139,6 @@ const OWN = new Set(["dlzmodRta", "dlzmodRtaBand"]);
 // a block with a dest writes there (its own buffer is only where it sits), the others their buffer
 const writes = (b) => [b.p.dest ? String(b.p.dest).replace(/^buffer:/, "") : b.buf];
 const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").startsWith("dlzmodRta");
-let fail = 0;
-const check = (ok, what) => {
-  console.log((ok ? "ok    " : "FAIL  ") + what);
-  if (!ok) fail = 1;
-};
-
 // Mackie's blocks: the patched list without ours is the stock list
 const theirs = patched.blocks.filter((b) => !ours(b));
 check(theirs.length === stock.blocks.length, `graph: Mackie's ${stock.blocks.length} blocks all there (${theirs.length})`);
@@ -163,5 +204,7 @@ check(vuOk, "VU group dlzmod.rta: one meter per band");
 const rest = Object.assign({}, patched.vus);
 delete rest["dlzmod.rta"];
 check(JSON.stringify(rest) === JSON.stringify(stock.vus), `Mackie's ${Object.keys(stock.vus).length} VU groups as they were`);
+
+checkB4();
 
 process.exit(fail);

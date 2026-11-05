@@ -426,6 +426,62 @@ function DLZMOD_keyAllowed(key, value, send) {
   return true;
 }
 
+// #238: a knob only drives keys in faderlink's own table, so a mod page points knob N at
+// DLZMOD_KNOB_KEYS[N] (listed there, on both models, used by neither audio graph; faderlink.md, "Knob
+// stand-ins"). Its changes are caught here: they stay out of the state, the broadcast and the save,
+// and the screen gets the steps (DLZMOD_knobStep), where the mod key's law is known. Counted in
+// DLZMOD_KNOB_STEPs, as faderlink counts: one click can be several. Only from the mixer itself and
+// only while the knob is on the key; otherwise it is an ordinary key.
+// faderlink keeps its own copy, so it is put back on the middle when a page takes the knob and
+// before it nears an end. A change sent before that arrives after it, still from the old place:
+// each value counts from whichever place it is nearer. A jump no turn makes (faderlink restarted)
+// moves nothing.
+const DLZMOD_KNOB_KEYS = ["a.0.pan", "a.1.pan", "f.0.pan", "f.1.pan"];
+const DLZMOD_KNOB_STEP = 0.0125;
+function DLZMOD_knobCatch(key, value, hub, get = globalThis.getDataKey, set = globalThis.setDataKey) {
+  const s = (DLZMOD_knobCatch.state = DLZMOD_knobCatch.state || DLZMOD_KNOB_KEYS.map(() => ({ at: 0.5, was: null })));
+  const taken = /^K\.([0-3])\.key$/.exec(key);
+  if (taken) {
+    const n = +taken[1];
+    if (value === DLZMOD_KNOB_KEYS[n] && get(key) !== value) {
+      s[n] = { at: 0.5, was: null };
+      set(value, 0.5);
+    }
+    return false;
+  }
+  const n = DLZMOD_KNOB_KEYS.indexOf(key);
+  if (n < 0 || !(hub && hub.send && hub.send.dlzmodLocal === true) || !Number.isFinite(value)) return false;
+  if (get("K." + n + ".key") !== key) return false;
+  const k = s[n];
+  const late = k.was !== null && Math.abs(value - k.was) < Math.abs(value - k.at);
+  if (!late) k.was = null;
+  const from = late ? "was" : "at";
+  const steps = Math.round((value - k[from]) / DLZMOD_KNOB_STEP);
+  if (Math.abs(steps) > 24) {
+    s[n] = { at: 0.5, was: null };
+    set(key, 0.5);
+    return true;
+  }
+  k[from] += steps * DLZMOD_KNOB_STEP;
+  if (steps) hub.broadcast("message", { cmd: "DLZMOD_KNOB", id: 0, data: { knob: n, steps } });
+  if (k.was === null && Math.abs(k.at - 0.5) > 0.25) {
+    k.was = k.at;
+    k.at = 0.5;
+    set(key, 0.5);
+  }
+  return true;
+}
+
+// #25: a snapshot saved with three bands has no band 4 keys, and loading sets only the keys it has:
+// the band would stay as it is. Such a snapshot means the band flat. Its values are the state's own
+// (dB), per channel on its own: a file may be cut short.
+function DLZMOD_snapEq(snap) {
+  for (const k of Object.keys(snap)) {
+    const m = /^((?:[ipv]\.\d+\.|[sm]\.)eq\.)b1\.gain$/.exec(k);
+    if (m && !(m[1] + "b4.gain" in snap)) snap[m[1] + "b4.gain"] = 0;
+  }
+}
+
 // ms on Date.now()'s scale, but a clock that never jumps: waits measured with it (a medium's 10 s
 // before read-only, the wrong-PIN pause) stay right when the clock is set back (by hand, #13, or
 // chrony after a phone's time that was ahead); with Date.now() a medium stayed writable that long

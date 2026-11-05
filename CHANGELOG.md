@@ -3,6 +3,7 @@
 ## v0.5.0
 
 - (DLZ FEATURE) See the sound behind the EQ curve
+- (DLZ FEATURE) 4th EQ band
 - (DLZ BUG) The screen reacts later than the knobs
 - (DLZ BUG) Every page change does one full-screen pass too many
 - (MOD FEATURE) An update sent from a computer installs with one switch off and on
