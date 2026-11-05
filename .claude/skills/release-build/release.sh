@@ -6,7 +6,7 @@
 #   release.sh check   is build/release's package + installer image from HEAD, clean and fresh, and
 #                      still origin/develop's tip? and build/devcard's dev image of the same commit?
 #   release.sh ready   right before main is moved (Releases, step 3): the build is origin/develop's
-#                      tip and main can fast-forward to it
+#                      tip, main can fast-forward to it, and GitHub will not delete develop for it
 #   release.sh compare <tag>
 #                      after the tag's workflow attached its build to the draft (#158): the draft's
 #                      files are this PC's build byte for byte, their SHA256SUMS fit, and the

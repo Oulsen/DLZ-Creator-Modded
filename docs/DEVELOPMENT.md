@@ -471,7 +471,8 @@ issue's technical notes point to the note section instead of copying it.
      requests only") for this push; force pushes stay blocked. "Automatically delete head branches"
      (GitHub: Settings, General) must stay off: the PR counts as merged, so with it on GitHub deletes
      `develop`, its head branch, and moves the open PRs on it to `main` (v0.5.0; the commits stay on
-     `main`: `git push origin <commit>:refs/heads/develop`, then `gh pr edit <n> --base develop`).
+     `main`, so with the commit just pushed there: `git push origin <commit>:refs/heads/develop`, then
+     for each moved PR `gh pr edit <n> --base develop`).
      `ready` refuses while it is on. So merged feature branches stay on GitHub until deleted by hand.
   4. Check the milestone: `gh issue list --milestone vX.Y.Z --state open` is empty (an open one
      moves to the next milestone or holds the release), and the "Done when" items noted for later
