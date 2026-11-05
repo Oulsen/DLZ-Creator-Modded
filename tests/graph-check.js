@@ -10,6 +10,8 @@
 //   the app mod gives that channel's EQ page (DLZMOD_rtaCode); the buffer cleared before the first
 //   tap, the analyser after the last; its meters as the VU group dlzmod.rta, with the app's bands
 // - Mackie's VU groups as they were
+// - #25: band 4 right after every band 3, the same block on the band's own keys, and nothing else on
+//   those keys. It changes Mackie's audio path on purpose, so the checks above run without it
 const fs = require("fs");
 const vm = require("vm");
 const assert = require("assert");
@@ -76,6 +78,10 @@ function run(file) {
 }
 
 const stock = run(stockFile), patched = run(patchedFile);
+const usesB4 = (b) => JSON.stringify(b.p).includes(".eq.b4.");
+const isB4 = (b) => b.type === "EqBand" && usesB4(b);
+const withB4 = patched.blocks;
+patched.blocks = withB4.filter((b) => !isB4(b));
 const app = fs.readFileSync(appFile, "utf8");
 const list = (fn) => {
   const m = new RegExp("function " + fn + "\\([^)]*\\) \\{\\s*return (\\[[^\\]]*\\])").exec(app);
@@ -163,5 +169,22 @@ check(vuOk, "VU group dlzmod.rta: one meter per band");
 const rest = Object.assign({}, patched.vus);
 delete rest["dlzmod.rta"];
 check(JSON.stringify(rest) === JSON.stringify(stock.vus), `Mackie's ${Object.keys(stock.vus).length} VU groups as they were`);
+
+// #25 band 4: follows each band 3 at once, the same block with b3 -> b4
+const twin = (b) => JSON.parse(JSON.stringify(b).replace(/\.eq\.b3\./g, ".eq.b4."));
+const b3s = withB4.filter((b) => b.type === "EqBand" && JSON.stringify(b.p).includes(".eq.b3."));
+const followed = withB4.every((b, i) => {
+  if (!b3s.includes(b)) return true;
+  try {
+    assert.deepStrictEqual(withB4[i + 1], twin(b));
+    return true;
+  } catch (e) {
+    console.log(`      no band 4 after ${JSON.stringify(b)}`);
+    return false;
+  }
+});
+check(b3s.length > 0 && followed, `band 4: right after each of the ${b3s.length} band 3 blocks, the same block on its own keys`);
+check(withB4.filter(isB4).length === b3s.length, "band 4: no other block of it");
+check(withB4.filter(usesB4).length === b3s.length, "band 4: nothing else reads its keys");
 
 process.exit(fail);

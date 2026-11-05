@@ -224,6 +224,25 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   at once; Mackie's own greys were too dim [sandbox].
 - Open: the DSP thread's cost of the 14 taps and 20 filters [guess: small; measure on the mixer].
 
+## The fourth EQ band (#25)
+
+Work in progress on `feature/25-knob-stand-ins`: the sound path and the keys are there, the EQ page
+and the knobs are not.
+
+- **Graph**: patch.py adds `b4` to all 10 lists of bands in `mixergraph-dlzlite.js` (the only
+  anchor that occurs more than once, with its count in `GRAPH_PATCHES`): 18 `EqBand`s more, each right
+  after its band 3, peak like bands 1-3. Skipped while its gain is 0. `tests/graph-check.js` checks
+  each one against its band 3 and runs its other checks without them. Audible on the mixer: not
+  tested yet. Processor load with everything on: not measured yet (Q19).
+- **Full-size**: its `mixergraph.js` stays stock, so there the keys exist and do nothing.
+- **Keys**: both copies of Mackie's state defaults in `server.js` and the one in `app.js` loop over four
+  bands, with the same conversions; the default is flat at 10 kHz. `srv_data.json` is merged over the
+  defaults, so a mixer that has run before gets the keys at its next start. New presets and snapshots
+  contain the band. The EQ page's Reset sets it flat (`$DEFAULTS.eq`).
+- **Old presets and snapshots** set nothing on keys they do not have, so band 4 would stay as it was.
+  A preset without it goes flat in `DLZMOD_eqOld` (a wrap of `Data.apply`, every preset passes there), a
+  snapshot in `DLZMOD_snapEq` (server, `SNAP_LOAD`), per channel. Only the gain is set.
+
 ## Mod settings (Settings → DLZ Creator Modded)
 
 Sub-tabs Display / Colors / Time / Network / Remote / Mod (a browser: Display / Colors / Time / Mod); layout and how to add a setting:

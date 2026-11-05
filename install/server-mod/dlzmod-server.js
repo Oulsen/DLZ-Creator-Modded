@@ -472,6 +472,16 @@ function DLZMOD_knobCatch(key, value, hub, get = globalThis.getDataKey, set = gl
   return true;
 }
 
+// #25: a snapshot saved with three bands has no band 4 keys, and loading sets only the keys it has:
+// the band would stay as it is. Such a snapshot means the band flat. Its values are the state's own
+// (dB), per channel on its own: a file may be cut short.
+function DLZMOD_snapEq(snap) {
+  for (const k of Object.keys(snap)) {
+    const m = /^((?:[ipv]\.\d+\.|[sm]\.)eq\.)b1\.gain$/.exec(k);
+    if (m && !(m[1] + "b4.gain" in snap)) snap[m[1] + "b4.gain"] = 0;
+  }
+}
+
 // ms on Date.now()'s scale, but a clock that never jumps: waits measured with it (a medium's 10 s
 // before read-only, the wrong-PIN pause) stay right when the clock is set back (by hand, #13, or
 // chrony after a phone's time that was ahead); with Date.now() a medium stayed writable that long

@@ -950,6 +950,25 @@ function DLZMOD_knobStep(t) {
   Data.set(key, Math.min(1, Math.max(0, v + t.steps * 0.0125)));
 }
 
+// #25: a preset saved with three bands (Mackie's, the factory's, an owner's) sets nothing on band 4,
+// so it would stay as the last preset left it: such a preset means the band flat. Both forms: an EQ
+// preset's keys (b1.gain), a channel preset's (eq.b1.gain). Only for values on Data.apply's own
+// scale (real dB), which is what presets are; they all pass Data.apply, the EQ page's Reset too.
+function DLZMOD_eqOld(v) {
+  if (!v) return v;
+  for (const p of ["", "eq."]) {
+    if (p + "b1.gain" in v && !(p + "b4.gain" in v)) return Object.assign({}, v, { [p + "b4.gain"]: 0 });
+  }
+  return v;
+}
+
+{
+  const apply = Data.apply;
+  if (typeof apply === "function") Data.apply = function (t, e, i = [], s = 1) {
+    return apply.call(this, t, s ? DLZMOD_eqOld(e) : e, i, s);
+  };
+}
+
 function DLZMOD_initKeys() {
   Object.entries(DLZMOD_keys()).forEach(([k, v]) => Data.has(k) || (Data.data[k] = v));
 }

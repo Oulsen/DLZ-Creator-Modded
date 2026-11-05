@@ -2630,6 +2630,15 @@ test("update upload: a paired device reaches it, others do not", () => {
   assert.strictEqual(post({ cookie: cookie(token) }).status, 403, "off");
 });
 
+test("eq band 4: a snapshot without it means the band flat, per channel", () => {
+  const snap = { "i.0.eq.b1.gain": 2, "m.eq.b1.gain": 1, "s.eq.b1.gain": 0, "s.eq.b4.gain": 6, "i.0.mix": 1, "x.eq.b1.gain": 3 };
+  ctx.DLZMOD_snapEq(snap);
+  assert.strictEqual(snap["i.0.eq.b4.gain"], 0);
+  assert.strictEqual(snap["m.eq.b4.gain"], 0);
+  assert.strictEqual(snap["s.eq.b4.gain"], 6, "a snapshot with band 4 keeps it");
+  assert.strictEqual(Object.keys(snap).length, 8, "nothing else is added");
+});
+
 // #136: the boot log copied to the SD card once a start has finished (DLZMOD_bootlogCopy). Same rig
 // as the upload: the medium a temp folder, its remount stubbed; the timer never fires, tick() is
 // called by hand. Each test starts as a fresh start: the file seen and its tries are forgotten

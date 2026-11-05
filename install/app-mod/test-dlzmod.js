@@ -124,6 +124,9 @@ const ctx = vm.createContext({
       return this.data[k];
     },
     regWidget: (k, f) => (regs[k] = regs[k] || []).push(f),
+    apply(t, e, i, s) {
+      ui.applied.push([t, e, i, s]);
+    },
     set(k, v) {
       ui.sets.push([k, v]);
       this.data[k] = v;
@@ -2849,6 +2852,24 @@ test("a widget's background: left out only under its page, only in a full redraw
   assert.strictEqual(need({ parent: { widgetName: "Popup" } }, true), true);
   assert.strictEqual(need({}, true), true, "no parent");
   assert.strictEqual(need({ _CACHING: true, parent: { widgetName: "PageMedia" } }, true), true, "its own cache");
+});
+
+test("eq band 4: a preset without it means the band flat, in both forms, on Data.apply's scale", () => {
+  const { DLZMOD_eqOld: old, Data } = ctx;
+  assert.strictEqual(old(null), null);
+  const comp = { thresh: -30 };
+  assert.strictEqual(old(comp), comp, "another kind of preset as it is");
+  const eq = { "b1.gain": 2 };
+  assert.deepStrictEqual({ ...old(eq) }, { "b1.gain": 2, "b4.gain": 0 });
+  assert.deepStrictEqual({ ...eq }, { "b1.gain": 2 }, "the preset read stays as it is");
+  assert.deepStrictEqual({ ...old({ "eq.b1.gain": 2 }) }, { "eq.b1.gain": 2, "eq.b4.gain": 0 });
+  const four = { "b1.gain": 2, "b4.gain": 5 };
+  assert.strictEqual(old(four), four, "a preset with band 4 keeps it");
+  ui.applied = [];
+  Data.apply("i.0.eq.", eq);
+  assert.deepStrictEqual({ ...ui.applied.pop()[1] }, { "b1.gain": 2, "b4.gain": 0 });
+  Data.apply("i.0.eq.", eq, [], 0);
+  assert.strictEqual(ui.applied.pop()[1], eq, "raw 0-1 values: no dB value goes in");
 });
 
 test("knobs: a panel entry with stepKey sits on the stand-in of its place, the steps move the setting", () => {

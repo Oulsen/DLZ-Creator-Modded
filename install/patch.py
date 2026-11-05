@@ -403,6 +403,24 @@ APP_PATCHES = [
         # #55: Check for Updates on the Mod page, and the check by itself: the latest release
         '$NET.addCallback("DLZMOD_RELEASE_STATE",(t=>DLZMOD_setRelease(t))),',
     ),
+    # #25 the fourth EQ band: the screen's copy of the state's defaults (server patches), and the EQ
+    # page's Reset
+    (
+        "eq, four bands: the defaults' frequencies",
+        "DEFAULT_EQ_FREQS=[200,1e3,5e3]",
+        "DEFAULT_EQ_FREQS=[200,1e3,5e3,1e4]",
+    ),
+    (
+        "eq, four bands: the state's keys",
+        '"FLAT";for(let s=0;s<3;s++){let a=`${e}${i}b${s+1}`;',
+        '"FLAT";for(let s=0;s<4;s++){let a=`${e}${i}b${s+1}`;',
+    ),
+    (
+        "eq, four bands: Reset",
+        '"b3.type":"bell","hp.bypass":1',
+        '"b3.type":"bell","b4.bypass":0,"b4.freq":DEFAULT_EQ_FREQS[3],"b4.gain":0,"b4.q":EQ_DEF_Q,'
+        '"b4.slope":12,"b4.type":"bell","hp.bypass":1',
+    ),
 ]
 
 SERVER_PATCHES = [
@@ -601,6 +619,35 @@ SERVER_PATCHES = [
         "DLZMOD_RELEASE(e,t,a,i){DLZMOD_release(e,i)},"
         "async FIRMWARE_UPDATE_SUCCESS_OK(){",
     ),
+    # #25 the fourth EQ band: its keys, with their conversions, in the two copies of Mackie's state
+    # defaults: flat, at 10 kHz. srv_data.json is merged over them, so a mixer that has run before
+    # gets them too, and the graph's bindings have their values from the start
+    (
+        "eq, four bands: the defaults' frequencies",
+        ",O=[200,1e3,5e3]",
+        ",O=[200,1e3,5e3,1e4]",
+    ),
+    (
+        "eq, four bands: the defaults' frequencies, second copy",
+        ",l=[200,1e3,5e3]",
+        ",l=[200,1e3,5e3,1e4]",
+    ),
+    (
+        "eq, four bands: the state's keys",
+        'for(let i=0;i<3;i++){let n=`${t}${a}b${i+1}`;e[n+".bypass"]=0,e[n+".type"]="bell",l(n+".freq"',
+        'for(let i=0;i<4;i++){let n=`${t}${a}b${i+1}`;e[n+".bypass"]=0,e[n+".type"]="bell",l(n+".freq"',
+    ),
+    (
+        "eq, four bands: the state's keys, second copy",
+        'for(let i=0;i<3;i++){let n=`${t}${a}b${i+1}`;e[n+".bypass"]=0,e[n+".type"]="bell",w(n+".freq"',
+        'for(let i=0;i<4;i++){let n=`${t}${a}b${i+1}`;e[n+".bypass"]=0,e[n+".type"]="bell",w(n+".freq"',
+    ),
+    (
+        # a snapshot saved with three bands: its keys are set one by one, so band 4 would stay as it is
+        "eq, four bands: an old snapshot leaves the band flat",
+        "return v(`*** EMPTY SNAPSHOT: ${e}`),{};for(const[e,a]of Object.entries(t))",
+        "return v(`*** EMPTY SNAPSHOT: ${e}`),{};DLZMOD_snapEq(t);for(const[e,a]of Object.entries(t))",
+    ),
 ]
 
 # #131 the sound behind the EQ curve (graph-mod/dlzmod-graph.js): its meters, its buffer cleared at
@@ -654,6 +701,15 @@ GRAPH_PATCHES = [
         "\ncompileGraph(graph)\n",
         "\ngraph.push(DLZMOD_rtaAnalyser())\n\ncompileGraph(graph)\n",
     ),
+    (
+        # #25 the fourth EQ band: every list of bands, the 4 strips' and the master's 6 (L and R of
+        # the main mix, the USB and the NDI mix-minus). Its keys: "eq, four bands" in the app and
+        # server patches. Bypassed while its gain is 0, as Mackie's bands
+        "eq, four bands: the graph",
+        "['b1', 'b2', 'b3']",
+        "['b1', 'b2', 'b3', 'b4']",
+        10,
+    ),
 ]
 
 # target: (patches, appended mod file, stamp the mod version into it)
@@ -681,10 +737,12 @@ def main():
     # bytes in, bytes out: no newline translation, so Windows and Linux builds are identical
     src = orig.read_bytes().decode("utf-8")
 
-    for what, anchor, repl in patches:
+    # (what, anchor, replacement), with a fourth value when the anchor occurs that many times
+    for what, anchor, repl, *times in patches:
+        want = times[0] if times else 1
         n = src.count(anchor)
-        if n != 1:
-            sys.exit(f"anchor for '{what}' found {n} times, expected 1; nothing written")
+        if n != want:
+            sys.exit(f"anchor for '{what}' found {n} times, expected {want}; nothing written")
         src = src.replace(anchor, repl)
         print(f"{'anchor ok' if check else 'patched'}: {what}")
 
