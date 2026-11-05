@@ -2892,6 +2892,48 @@ test("the top sheet's clear: once, then again only after something used the shee
   }
 });
 
+test("a strip's name plate: left out over the strip's own colour, only in a full redraw", () => {
+  const need = (strip, c, full) => {
+    ctx.DLZMOD_fullRedraw = full;
+    const r = ctx.DLZMOD_plateNeeded(strip, c);
+    ctx.DLZMOD_fullRedraw = false;
+    return r;
+  };
+  const strip = { bgColor: "#1a1a1a" };
+  assert.strictEqual(need(strip, "#1a1a1a", true), false);
+  assert.strictEqual(need(strip, "#1a1a1a", false), true, "redrawn on its own it wipes its old contents");
+  assert.strictEqual(need(strip, "#aaaaaa", true), true, "another colour: the selected strip's name plate");
+  assert.strictEqual(need({ ...strip, _CACHING: true }, "#1a1a1a", true), true, "its own cache");
+});
+
+test("the Overview's background: not under the strips with a colour of their own", () => {
+  const fill = (widgets, more = {}, full = true) => {
+    const rects = [], t = { fillRect: (x, y, w, h) => rects.push([x, y, w, h, t.fillStyle]) };
+    const mixer = { widgetName: "MainMixer", bgColor: "#000000", w: 871, h: 504, widgets, ...more };
+    for (const s of widgets) Object.assign(s, { parent: mixer, y: 0, h: 504, w: 107 });
+    ctx.DLZMOD_fullRedraw = full;
+    const r = ctx.DLZMOD_ovFill(mixer, t);
+    ctx.DLZMOD_fullRedraw = false;
+    return r ? plain(rects) : false;
+  };
+  const strip = (x, bgColor, visible = true) => ({ x, bgColor, visible });
+  assert.deepStrictEqual(fill([strip(0, "#000000"), strip(109, "#1A1A1A"), strip(218, "#1A1A1A"), strip(327, "#171E0D"), strip(436, "#000000")]),
+    [[0, 0, 109, 504, "#000000"], [216, 0, 2, 504, "#000000"], [325, 0, 2, 504, "#000000"], [434, 0, 437, 504, "#000000"]],
+    "the columns left out, the margins and the rest painted");
+  assert.deepStrictEqual(fill([strip(109, "#1a1a1a"), strip(0, "#1a1a1a")]), [[107, 0, 2, 504, "#000000"], [216, 0, 655, 504, "#000000"]],
+    "in the order of the screen, nothing before a strip at the left edge");
+  assert.strictEqual(fill([strip(0, "#000000")]), false, "all in the page's colour: as Mackie's");
+  assert.strictEqual(fill([strip(0, "#1a1a1a")], {}, false), false, "redrawn on its own: as Mackie's");
+  assert.strictEqual(fill([strip(0, "#1a1a1a")], { dx: 10 }), false, "scrolled: as Mackie's");
+  assert.strictEqual(fill([strip(0, "#1a1a1a")], { showScroll: true }), false, "with its scroll bar: as Mackie's");
+  assert.strictEqual(fill([strip(0, "#1a1a1a", false)]), false, "a hidden strip paints nothing");
+  assert.strictEqual(fill([strip(0, "rgba(0,0,0,0.5)")]), false, "see-through: needs the page under it");
+  const map = ctx.DLZMOD_drawColor.map;
+  ctx.DLZMOD_drawColor.map = { "#1a1a1a": "#000000" };
+  assert.strictEqual(fill([strip(0, "#1a1a1a")]), false, "a look that gives it the page's colour");
+  ctx.DLZMOD_drawColor.map = map;
+});
+
 test("a widget's background: left out only under its page, only in a full redraw", () => {
   const need = (w, full) => {
     ctx.DLZMOD_fullRedraw = full;
