@@ -226,14 +226,14 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
 
 ## The fourth EQ band (#25)
 
-Work in progress on `feature/25-knob-stand-ins`. On both models the EQ page has a fourth band: seen
-in the sandbox in both layouts, on the mixer itself not yet.
+On both models the EQ page has a fourth band. Knobs, sound and old presets tested on the XS [device,
+dev-c34a68f]; on the full-size only the page, in the sandbox.
 
 - **Graph**: patch.py adds `b4` to all 10 lists of bands in `mixergraph-dlzlite.js` (the only
   anchor that occurs more than once, with its count in `GRAPH_PATCHES`): 18 `EqBand`s more, each right
   after its band 3, peak like bands 1-3. Skipped while its gain is 0. `tests/graph-check.js` checks
-  each one against its band 3 and runs its other checks without them. Audible on the mixer: not
-  tested yet. Processor load: ~0.18 points per active band, ~3.2 for all 18 [device, 14 measured],
+  each one against its band 3 and runs its other checks without them. Heard on the mixer
+  [device]. Processor load: ~0.18 points per active band, ~3.2 for all 18 [device, 14 measured],
   table in [components/dspserver.md](components/dspserver.md).
 - **Full-size**: `patch.py graph-full` puts the same band in the 9 lists of `mixergraph.js`, without
   the graph mod. Both files are patched on every card, the model's own one runs. `tests/graph-check.js`
@@ -244,8 +244,8 @@ in the sandbox in both layouts, on the mixer itself not yet.
   title and key lists, `eqBand` <-> selected band.
 - **Knobs**: as for bands 1-3, knob 1 the HP filter, 2-4 frequency, gain and Q of the selected band,
   chosen by touch on the XS. faderlink has no `eq.b4.*`, so with band 4 selected `DLZMOD_eqKnobs`
-  puts knobs 2-4 on the stand-ins (`faderlink.md`, "Knob stand-ins"). In the sandbox the keys follow
-  the band and steps move it; turning real knobs not tested yet.
+  puts knobs 2-4 on the stand-ins (`faderlink.md`, "Knob stand-ins"). On the XS the real knobs move
+  it [device], so `a.1.pan`, `f.0.pan` and `f.1.pan` work as stand-ins too.
 - **The full-size's fifth knob**: `eqBand` is now four bands of 0.25. faderlink moves it 0.1833 a click
   within 0.1333-0.8667, so turning passes every band, from any band's own value, one or two clicks
   each [static, from faderlink's numbers].

@@ -62,7 +62,7 @@ Owned by package `faderlink` 521 (binary, flash scripts, firmware, bitstreams). 
   - They are in the table (continuous, 0-1, default 0.5), neither audio graph binds them (every
     `@key` of both graphs against the table), both models have them (XS 2 auxes and 2 FX, full-size 4
     and 2), no forward filter below matches them, and `la()` in `server.js` gives them no special
-    handling. On the XS `a.0.pan` moved from the knob and reached the hub [device].
+    handling. On the XS `a.0.pan` moved from the knob and reached the hub, and `a.1.pan`, `f.0.pan` and `f.1.pan` drive band 4 (#25) [device].
   - Not `i.2.*`/`i.3.*`: real channels on the full-size, whose graph binds their mix, pan and gain.
     Not `a.2.pan`/`a.3.pan`: not on the XS. Not `eqBand`: one key, in use by the EQ page. Keys with
     min = max (`eq.hp.gain`, `eq.hp.q`, `eq.b*.slope`) cannot move.

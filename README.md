@@ -39,6 +39,7 @@ below. They all start as stock: turn on what you want.
 - Hide the header bar for more room; messages still show for a moment *(Display)*
 - The sound of the channel behind its EQ curve, so you see which frequencies to cut or boost
   (DLZ Creator XS for now); a Spectrum switch on the EQ page turns it off *(Channel, EQ)*
+- A fourth EQ band on every channel, moved by touch and the knobs like the other three *(Channel, EQ)*
 - A high-contrast look, your own background and your own color for the faders, meters and what is
   selected *(Colors)*
 - The mod's own startup screens
