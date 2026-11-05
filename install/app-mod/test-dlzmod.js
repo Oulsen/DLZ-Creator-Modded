@@ -2395,8 +2395,8 @@ const rtaReset = () => {
   ctx.DLZMOD_rtaShown.page = null;
   ctx.DLZMOD_rtaShown.prefix = "";
   ctx.DLZMOD_rtaStop(true);
-  ctx.DLZMOD_rtaRange.code = ctx.DLZMOD_rtaSmooth.code = undefined;
-  ctx.DLZMOD_rtaRange.top = ctx.DLZMOD_rtaSmooth.levels = undefined;
+  ctx.DLZMOD_rtaSmooth.code = undefined;
+  ctx.DLZMOD_rtaSmooth.levels = undefined;
   delete ctx.wstream;
   Object.assign(ctx.DLZMOD_rtaAnim(), { busyAt: -1e9, at: 0, later: (f, ms) => (ui.later = ms, 1) });
 };
@@ -2442,10 +2442,10 @@ test("EQ spectrum: a browser shows the screen's channel but never chooses it", (
     assert.deepStrictEqual(ui.sets, []);
     ctx.DLZMOD_rtaShown(pg, true);
     ctx.DLZMOD_rtaSync(pg, "i.0.");
-    rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
+    rtaAt(rtaMsg(Array(20).fill(-20)), 1000);
     assert.strictEqual(pg.eq.got.length, 0, "the screen measures another channel (none)");
     ctx.Data.data["dlzmod.rta"] = 1;
-    rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
+    rtaAt(rtaMsg(Array(20).fill(-20)), 1000);
     assert.strictEqual(pg.eq.got.length, 1, "the same channel as the screen's");
   } finally {
     ctx.EXTERNAL = false;
@@ -2454,71 +2454,91 @@ test("EQ spectrum: a browser shows the screen's channel but never chooses it", (
 test("EQ spectrum: the bands go onto the open page, not without one, another channel's or a broken message", () => {
   rtaReset();
   const pg = eqPage();
-  rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
+  rtaAt(rtaMsg(Array(20).fill(-20)), 1000);
   ctx.DLZMOD_rtaShown(pg, true);
   ctx.DLZMOD_rtaSync(pg, "s.");
   rtaAt({ "in.post": "AAA=" }, 1000);
   rtaAt({ "dlzmod.rta": "not base64!" }, 1000);
   rtaAt(undefined, 1000);
   assert.strictEqual(pg.eq.got.length, 0);
-  rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
+  rtaAt(rtaMsg(Array(20).fill(-20)), 1000);
   assert.strictEqual(pg.eq.got.length, 1);
   ctx.Data.data["dlzmod.rta"] = 3;   // the hub has another channel (a moment after a switch)
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-10)), 1033);
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-10)), 1033);
   assert.strictEqual(ctx.DLZMOD_rtaAnim().at, 1000, "not taken");
 });
-test("EQ spectrum: each message's picture glides in, a step every 100 ms, no frame while it stands still", () => {
+test("EQ spectrum: each message's picture glides in, a step every 33 ms, no frame while it stands still", () => {
   rtaReset();
   const pg = eqPage();
   ctx.DLZMOD_rtaShown(pg, true);
   ctx.DLZMOD_rtaSync(pg, "m.");
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1000);
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-20)), 1000);
   const goal = plain(ctx.DLZMOD_rtaAnim().target);
   ctx.DLZMOD_rtaTick(1000);
   const first = pg.eq.got[0];
-  assert.ok(first.every((v, k) => Math.abs(v - 0.6 * goal[k]) < 1e-9), "from the bottom, 60 % of the way");
-  assert.strictEqual(ui.later, 100, "the next step in 100 ms");
-  for (let t = 1100; t < 1900; t += 100) {
-    if (t % 200 === 0) ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), t);
+  const part = 1 - Math.pow(0.2, 0.33);
+  assert.ok(first.every((v, k) => Math.abs(v - part * goal[k]) < 1e-9), "from the bottom, a third of 100 ms's 80 %");
+  assert.strictEqual(ui.later, 33, "the next step in 33 ms");
+  for (let t = 1033; t < 1890; t += 33) {
+    ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-20)), t);
     ctx.DLZMOD_rtaTick(t);
   }
   const n = pg.eq.got.length;
   assert.deepStrictEqual(plain(pg.eq.rtaData), goal, "there, exactly");
   assert.ok(pg.eq.got[n - 1].every((v, k) => Math.abs(v - goal[k]) * 200 < 1), "the last frame within a pixel");
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1890);
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-20)), 1890);
   ctx.DLZMOD_rtaTick(1900);
   assert.strictEqual(pg.eq.got.length, n, "standing still: no frame");
   assert.strictEqual(ui.later, 200, "a slower check");
 });
-test("EQ spectrum: while the widget redraws for a knob or a dragged dot, the picture moves without frames of its own", () => {
+test("EQ spectrum: the glide keeps its speed: two short steps go as far as one long, a late timer catches up", () => {
+  const glide = (steps) => {
+    rtaReset();
+    const pg = eqPage();
+    ctx.DLZMOD_rtaShown(pg, true);
+    ctx.DLZMOD_rtaSync(pg, "m.");
+    for (let t = 1000; t <= 1600; t += 50) rtaAt(rtaMsg(Array(20).fill(-20)), t);
+    const a = ctx.DLZMOD_rtaAnim(), from = plain(pg.eq.rtaData);
+    a.target = from.map((v) => v + 0.2);
+    a.at = 1600;
+    let t = 1600;
+    for (const ms of steps) ctx.DLZMOD_rtaTick(t += ms);
+    return (pg.eq.rtaData[0] - from[0]) / 0.2;
+  };
+  assert.ok(Math.abs(glide([100]) - 0.8) < 1e-6, "80 % in 100 ms");
+  assert.ok(Math.abs(glide([50, 50]) - 0.8) < 1e-6, "the same in two steps");
+  assert.ok(Math.abs(glide([200]) - 0.96) < 1e-6, "a late timer goes further");
+  assert.ok(Math.abs(glide([250]) - 0.96) < 1e-6, "but no more than 200 ms's worth");
+});
+test("EQ spectrum: a redraw for a knob or a dragged dot counts as this step's frame, the next step draws again", () => {
   rtaReset();
   const pg = eqPage();
   ctx.DLZMOD_rtaShown(pg, true);
   ctx.DLZMOD_rtaSync(pg, "m.");
-  rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
+  rtaAt(rtaMsg(Array(20).fill(-20)), 1000);
   assert.strictEqual(pg.eq.got.length, 1);
   pg.eq.update();   // Mackie's own redraw: a knob turned
   assert.strictEqual(pg.eq.got.length, 2);
   ctx.DLZMOD_rtaAnim().busyAt = 1010;   // the wrapper takes the clock; here: at 1010
   const before = plain(pg.eq.rtaData);
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1030);
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-20)), 1030);
   ctx.DLZMOD_rtaTick(1033);
   assert.strictEqual(pg.eq.got.length, 2, "no frame of its own");
   assert.notDeepStrictEqual(plain(pg.eq.rtaData), before, "but the picture moved on, for Mackie's next redraw");
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1250);
-  ctx.DLZMOD_rtaTick(1260);
-  assert.strictEqual(pg.eq.got.length, 2, "250 ms after it: still none");
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1400);
-  ctx.DLZMOD_rtaTick(1410);
-  assert.strictEqual(pg.eq.got.length, 3, "400 ms after the last one: frames again");
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-20)), 1060);
+  ctx.DLZMOD_rtaTick(1066);
+  assert.strictEqual(pg.eq.got.length, 2, "within a frame of the graphics chip: still its frame");
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-20)), 1099);
+  ctx.DLZMOD_rtaTick(1099);
+  assert.strictEqual(pg.eq.got.length, 3, "then frames again");
 });
 test("EQ spectrum: silence or no message for 300 ms: the picture sinks and goes; a closed page clears it", () => {
   rtaReset();
   const pg = eqPage();
   ctx.DLZMOD_rtaShown(pg, true);
   ctx.DLZMOD_rtaSync(pg, "m.");
-  rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-80)), 1033);
+  rtaAt(rtaMsg(Array(20).fill(-20)), 1000);
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-80)), 1033);
   let t = 1033;
   for (; t < 2000 && pg.eq.got[pg.eq.got.length - 1] !== null; t += 33) ctx.DLZMOD_rtaTick(t);
   const g = pg.eq.got;
@@ -2527,10 +2547,10 @@ test("EQ spectrum: silence or no message for 300 ms: the picture sinks and goes;
   ui.later = undefined;
   ctx.DLZMOD_rtaTick(t);
   assert.strictEqual(ui.later, undefined, "and the timer stops");
-  rtaAt(rtaMsg(Array(10).fill(-20)), 3000);
-  for (t = 3033; t < 3600; t += 33) ctx.DLZMOD_rtaTick(t);
+  rtaAt(rtaMsg(Array(20).fill(-20)), 3000);
+  for (t = 3033; t < 3990; t += 33) ctx.DLZMOD_rtaTick(t);
   assert.strictEqual(pg.eq.got[pg.eq.got.length - 1], null, "no message for 300 ms: gone too");
-  rtaAt(rtaMsg(Array(10).fill(-20)), 4000);
+  rtaAt(rtaMsg(Array(20).fill(-20)), 4000);
   ctx.DLZMOD_rtaShown(pg, false);
   assert.strictEqual(pg.eq.rtaData, null, "the page closed: cleared");
   ctx.DLZMOD_rtaTick(4033);
@@ -2542,18 +2562,18 @@ test("EQ spectrum: the Spectrum switch off measures and shows nothing; on again,
   ctx.Data.data["dlzmod.spectrum"] = 0;
   ctx.DLZMOD_rtaShown(pg, true);
   ctx.DLZMOD_rtaSync(pg, "v.0.");
-  rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
+  rtaAt(rtaMsg(Array(20).fill(-20)), 1000);
   assert.deepStrictEqual(ui.sets, [], "off: no channel measured");
   assert.strictEqual(pg.eq.got.length, 0, "and nothing drawn");
   ctx.Data.data["dlzmod.spectrum"] = 1;
   ctx.DLZMOD_rtaSwitched();
   assert.deepStrictEqual(ui.sets, [["dlzmod.rta", 5]], "on: the open page's channel");
-  rtaAt(rtaMsg(Array(10).fill(-20)), 1100);
+  rtaAt(rtaMsg(Array(20).fill(-20)), 1100);
   assert.strictEqual(pg.eq.got.length, 1);
   ctx.Data.data["dlzmod.spectrum"] = 0;
   ctx.DLZMOD_rtaSwitched();
   assert.deepStrictEqual(ui.sets[1], ["dlzmod.rta", 0], "off again: none");
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1300);
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-20)), 1300);
   assert.strictEqual(ctx.DLZMOD_rtaAnim().at, 1100, "its messages no longer taken: the picture goes after 300 ms");
   ctx.DLZMOD_rtaShown(pg, false);
   ctx.Data.data["dlzmod.spectrum"] = 1;
@@ -2583,74 +2603,129 @@ test("EQ spectrum: the fill reaches the bottom on its own path, the line is draw
   const ctx2 = new Proxy({}, { get: (o, k) => (k in o ? o[k] : (...a) => calls.push([k, ...a])),
     set: (o, k, v) => (calls.push(["set " + String(k), v]), true) });
   const pg = eqPage();
-  Object.assign(pg.eq, { w: 101, h: 52, freqToX: (f) => Math.round(100 * Math.log10(f / 20) / 3), rtaFillColor: "F", rtaStrokeColor: "S" });
+  Object.assign(pg.eq, { w: 101, h: 52, freqToX: (f) => Math.round(100 * Math.log10(f / 20) / 3), rtaStrokeColor: "S" });
   ctx.DLZMOD_rtaShown(pg, true);
   pg.eq.rtaData = [0, 0.5, 1];
   pg.eq.paintRTA(ctx2);
   const names = calls.map((c) => c[0]);
-  const fill = names.indexOf("fill"), stroke = names.indexOf("stroke");
-  assert.ok(fill > 0 && stroke > fill, "fill first, then the line");
-  assert.deepStrictEqual(calls[names.indexOf("moveTo")], ["moveTo", 0, 50], "the fill starts at the bottom left");
-  const beforeFill = calls.slice(0, fill);
-  assert.deepStrictEqual(beforeFill[beforeFill.map((c) => c[0]).lastIndexOf("lineTo")], ["lineTo", 100, 50], "and closes at the bottom right");
+  assert.ok(!names.includes("fill"), "no filled area: the graphics chip's dearest part");
+  assert.deepStrictEqual(calls[names.indexOf("moveTo")], ["moveTo", 0, 50], "the line starts at the first point");
   assert.deepStrictEqual(plain(calls.find((c) => c[0] === "lineToArray")[1]), [[0, 50], [50, 25], [100, 0]], "points on the widget's own frequency scale");
-  assert.strictEqual(names.slice(fill, stroke).filter((n) => n === "beginPath").length, 1, "a fresh path for the line");
-  assert.ok(calls.some((c) => c[0] === "set fillStyle" && c[1] === "F") && calls.some((c) => c[0] === "set strokeStyle" && c[1] === "S"));
+  assert.ok(calls.some((c) => c[0] === "set strokeStyle" && c[1] === "S") && calls.some((c) => c[0] === "set lineWidth" && c[1] === 4), "thick, in the look's colour");
+  pg.eq.rtaData = [0, 0.333, 1];
+  calls.length = 0;
+  pg.eq.paintRTA(ctx2);
+  assert.strictEqual(calls.find((c) => c[0] === "lineToArray")[1][1][1], 50 * 0.667, "at the exact height, no whole pixels");
   pg.eq.rtaData = null;
   calls.length = 0;
   pg.eq.paintRTA(ctx2);
   assert.strictEqual(calls.length, 0, "nothing without data");
 });
-test("EQ spectrum: averaged over about 0.4 s; afresh for another channel or after a pause", () => {
+test("EQ spectrum: up in about 0.1 s, down in about 0.3 s; afresh for another channel or after a pause", () => {
   const S = (lv, code, now) => plain(ctx.DLZMOD_rtaSmooth(lv, code, now));
   S([0.5, 0.5], 1, 1000);
-  const k = 1 - Math.exp(-0.1 / 0.4);
+  const up = 1 - Math.exp(-0.1 / 0.1), down = 1 - Math.exp(-0.1 / 0.3);
   const got = S([0.9, 0.1], 1, 1100);
-  assert.ok(Math.abs(got[0] - (0.5 + 0.4 * k)) < 1e-9 && Math.abs(got[1] - (0.5 - 0.4 * k)) < 1e-9, "a fifth of the way after 0.1 s, up and down alike");
+  assert.ok(Math.abs(got[0] - (0.5 + 0.4 * up)) < 1e-9 && Math.abs(got[1] - (0.5 - 0.4 * down)) < 1e-9, "up fast, down slower");
   for (let t = 1200; t <= 4000; t += 100) S([0.9, 0.1], 1, t);
   const there = S([0.9, 0.1], 1, 4100);
   assert.ok(Math.abs(there[0] - 0.9) < 1e-3 && Math.abs(there[1] - 0.1) < 1e-3, "a steady level reached");
   assert.deepStrictEqual(S([0.1, 0.1], 2, 4200), [0.1, 0.1], "another channel: afresh");
   assert.deepStrictEqual(S([0, 0], 2, 5800), [0, 0], "after a pause of over a second: afresh");
 });
-test("EQ spectrum: the scale's top 6-12 dB above the loudest band, steady while the bands move a little", () => {
-  let t = 1000;
-  const R = (dbs, code = 1) => ctx.DLZMOD_rtaRange(dbs.map((db) => 1 + db / 80), code, t += 100);
-  ctx.DLZMOD_rtaRange.code = undefined;
-  assert.strictEqual(R([-40, -14, -30]), -6, "loudest -14: top -6 dBFS");
-  assert.strictEqual(R([-40, -8, -30]), -6, "a boost of 6 dB: the same top");
-  assert.strictEqual(R([-40, -23, -30]), -6, "a cut of 9 dB: the same top");
-  assert.strictEqual(R([-40, -3, -30]), 6, "a band over the top: up");
-  assert.strictEqual(R([-40, -10, -30]), 6, "not down yet (16 dB below)");
-  assert.strictEqual(R([-40, -13, -30], 2), -6, "another channel: afresh");
-  assert.strictEqual(R([-80, -80, -80], 2), -48, "silence: the lowest top");
-  assert.strictEqual(R([10, 0, 0], 2), 6, "over 0 dBFS: the highest");
-  t += 1500;
-  assert.strictEqual(R([-40, -14, -30], 2), -6, "after a pause of over a second: afresh (the page left, silence)");
-});
-test("EQ spectrum: on the EQ curve's dB scale, so a -15 dB cut dips as far as the curve", () => {
+test("EQ spectrum: a picture after silence glides in, it does not catch up on the pause", () => {
   rtaReset();
   const pg = eqPage();
-  pg.eq.gainRange = 15;
   ctx.DLZMOD_rtaShown(pg, true);
   ctx.DLZMOD_rtaSync(pg, "m.");
-  const dbs = Array(10).fill(-20);
-  ctx.DLZMOD_rtaVu(rtaMsg(dbs), 1000);
-  const flat = plain(ctx.DLZMOD_rtaAnim().target);
-  dbs[5] = -35;
-  ctx.DLZMOD_rtaVu(rtaMsg(dbs), 2100);   // after a pause of over a second: afresh, the cut at once
-  const cut = plain(ctx.DLZMOD_rtaAnim().target);
-  const k = cut.indexOf(Math.min(...cut));
-  assert.ok(Math.abs(flat[k] - cut[k] - 0.5) < 0.01, "15 dB = half the height, as the curve's ±15 dB (" + (flat[k] - cut[k]) + ")");
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-70)), 2200);
+  rtaAt(rtaMsg(Array(20).fill(-20)), 1000);
+  let t = 1000;
+  for (; t < 3000 && ctx.DLZMOD_rtaAnim().shown; t += 33) ctx.DLZMOD_rtaTick(t);
+  assert.strictEqual(ctx.DLZMOD_rtaAnim().shown, null, "gone");
+  rtaAt(rtaMsg(Array(20).fill(-20)), t + 2000);
+  const goal = plain(ctx.DLZMOD_rtaAnim().target), first = plain(pg.eq.rtaData);
+  const part = 1 - Math.pow(0.2, 0.33);
+  assert.ok(first.every((v, k) => Math.abs(v - part * goal[k]) < 1e-9), "one step of the way, from the bottom");
+});
+test("EQ spectrum: the EQ's shape follows the widget's size and range; none where there is no sound", () => {
+  rtaReset();
+  const ps = [[0, 50], [500, 90], [1000, 50]];
+  const eq = { h: 100, gainRange: 15, freqToX: (f) => 1000 * Math.log10(f / 20) / 3, graphPoints: ps };
+  const a = plain(ctx.DLZMOD_rtaEqShape(eq, 33));
+  assert.notDeepStrictEqual(plain(ctx.DLZMOD_rtaEqShape({ ...eq, gainRange: 30 }, 33)), a, "another range: worked out again");
+  assert.notDeepStrictEqual(plain(ctx.DLZMOD_rtaEqShape({ ...eq, h: 200 }, 33)), a, "another height: worked out again");
+  const pg = eqPage();
+  Object.assign(pg.eq, eq, { h: 102, graphPoints: [[0, 10], [1000, 10]], rtaStrokeColor: "S" });
+  ctx.DLZMOD_rtaShown(pg, true);
+  ctx.DLZMOD_rtaSync(pg, "m.");
+  const heights = () => {
+    let got = null;
+    pg.eq.paintRTA(new Proxy({}, { get: (o, k) => (k === "lineToArray" ? (p) => (got = p) : () => {}), set: () => true }));
+    return plain(got).map((p) => p[1]);
+  };
+  pg.eq.rtaData = Array(33).fill(0);
+  assert.ok(heights().every((y) => y === 100), "a boost where nothing plays: the line stays at the bottom");
+});
+test("EQ spectrum: a narrow cut shows as deep as the curve, from the curve; not with the EQ or the channel's processing off", () => {
+  rtaReset();
+  // a curve on a 1000 px wide widget, 200 px high, ±15 dB: -15 dB at 4 kHz, Q 4, in RBJ's peak form
+  const toX = (f) => 1000 * Math.log10(f / 20) / 3;
+  const gain = (f) => {
+    const A = Math.pow(10, -15 / 40), w = 2 * Math.PI * f / 48000, w0 = 2 * Math.PI * 4000 / 48000, al = Math.sin(w0) / 8;
+    const c0 = Math.cos(w0), [c1, c2, s1, s2] = [Math.cos(w), Math.cos(2 * w), Math.sin(w), Math.sin(2 * w)];
+    const [b0, b2, a0, a2, m] = [1 + al * A, 1 - al * A, 1 + al / A, 1 - al / A, -2 * c0];
+    const nr = b0 + m * c1 + b2 * c2, ni = m * s1 + b2 * s2, dr = a0 + m * c1 + a2 * c2, di = m * s1 + a2 * s2;
+    return 10 * Math.log10((nr * nr + ni * ni) / (dr * dr + di * di));
+  };
+  const ps = [];
+  for (let x = 0; x <= 1000; x += 2) ps.push([x, 100 - gain(20 * Math.pow(10, 3 * x / 1000)) / 15 * 100]);
+  const eq = { h: 200, gainRange: 15, freqToX: toX, graphPoints: ps };
+  const shape = plain(ctx.DLZMOD_rtaEqShape(eq, 129));
+  const at = Math.round(128 * Math.log(4000 / 20) / Math.log(1000));
+  // the curve's half of the height, less what the band already read, about 3 dB of the 60
+  assert.ok(Math.abs(shape[at] + 0.5 - 3.2 / 60) < 0.02, "at the cut: half the height, as the curve, got " + shape[at]);
+  assert.ok(Math.abs(shape[20]) < 0.003, "far from it: nothing");
+  const again = { ...eq, graphPoints: ps.map((p) => p.slice()) };
+  assert.strictEqual(ctx.DLZMOD_rtaEqShape(again, 129), ctx.DLZMOD_rtaEqShape(eq, 129), "the same curve in a new list: not worked out again");
+  const moved = { ...eq, graphPoints: ps.map((p, i) => (i === 300 ? [p[0], p[1] + 1] : p)) };
+  assert.notStrictEqual(ctx.DLZMOD_rtaEqShape(moved, 129), ctx.DLZMOD_rtaEqShape(eq, 129), "a changed curve: again");
+  assert.strictEqual(ctx.DLZMOD_rtaEqShape({ ...eq, bypass: true }, 129), null, "EQ off: the sound has no cut");
+  const pg = eqPage();
+  Object.assign(pg.eq, eq, { rtaStrokeColor: "S", rtaData: Array(129).fill(0.5) });
+  ctx.DLZMOD_rtaShown(pg, true);
+  ctx.DLZMOD_rtaSync(pg, "m.");
+  const heights = () => {
+    let got = null;
+    pg.eq.paintRTA(new Proxy({}, { get: (o, k) => (k === "lineToArray" ? (p) => (got = p) : () => {}), set: () => true }));
+    return plain(got).map((p) => p[1]);
+  };
+  const on = heights();
+  assert.ok(on[at] > on[20] + 30, "the line dips");
+  ctx.Data.data["m.procBypass"] = 1;
+  const off = heights();
+  delete ctx.Data.data["m.procBypass"];
+  assert.strictEqual(off[at], off[20], "the channel skips its EQ: flat");
+});
+test("EQ spectrum: a fixed scale, -60 to 0 dBFS, whatever the music does; a silent message: gone at once", () => {
+  rtaReset();
+  const pg = eqPage();
+  ctx.DLZMOD_rtaShown(pg, true);
+  ctx.DLZMOD_rtaSync(pg, "m.");
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-30)), 1000);
+  const low = plain(ctx.DLZMOD_rtaAnim().target);
+  assert.ok(low.every((v) => Math.abs(v - 0.5) < 1e-9), "-30 dBFS: halfway up");
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-6)), 2100);   // after a pause of over a second: afresh
+  const loud = plain(ctx.DLZMOD_rtaAnim().target);
+  assert.ok(loud.every((v) => Math.abs(v - 0.9) < 1e-9), "-6 dBFS: nine tenths up, not at the top");
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-70)), 2200);
   assert.strictEqual(ctx.DLZMOD_rtaAnim().target, null, "silent message: gone at once, not after the average");
-  const quiet = Array(10).fill(-70);
+  const quiet = Array(20).fill(-70);
   for (let t = 2300; t <= 2900; t += 100) ctx.DLZMOD_rtaVu(rtaMsg(quiet), t);
   quiet[5] = -30;
   ctx.DLZMOD_rtaVu(rtaMsg(quiet), 3000);
   assert.ok(ctx.DLZMOD_rtaAnim().target, "sound after a quiet stretch: shown at once, while the average still rises");
 });
-test("EQ spectrum: a touch anywhere on the screen pauses its frames; Mackie's touch handlers still run", () => {
+test("EQ spectrum: a touch counts as this step's frame; Mackie's touch handlers still run", () => {
   rtaReset();
   const calls = [];
   const saved = ctx.Events;
@@ -2669,10 +2744,10 @@ test("EQ spectrum: a touch anywhere on the screen pauses its frames; Mackie's to
     assert.deepStrictEqual(plain(calls), [["down", true, 10, 20, 0], ["move"], ["up"]], "each once, on Events, with its arguments");
     assert.ok(ctx.DLZMOD_rtaAnim().busyAt >= before, "the touch's time taken");
     ctx.DLZMOD_rtaAnim().busyAt = 1000;
-    rtaAt(rtaMsg(Array(10).fill(-20)), 1100);
-    assert.strictEqual(pg.eq.got.length, 0, "100 ms after a touch: no frame of its own");
-    rtaAt(rtaMsg(Array(10).fill(-20)), 1400);
-    assert.strictEqual(pg.eq.got.length, 1, "400 ms after: frames again");
+    rtaAt(rtaMsg(Array(20).fill(-20)), 1010);
+    assert.strictEqual(pg.eq.got.length, 0, "right after a touch: no frame of its own");
+    rtaAt(rtaMsg(Array(20).fill(-20)), 1070);
+    assert.strictEqual(pg.eq.got.length, 1, "a frame later: frames again");
     ctx.DLZMOD_rtaAnim().later = () => { throw new Error("broken"); };
     assert.doesNotThrow(() => ctx.Events.eventPointerDown(1, 1, 0), "the wrapper never throws into Mackie's handler");
   } finally {
@@ -2685,10 +2760,10 @@ test("EQ spectrum: a move under a pixel draws no frame but stays in the data, an
   const pg = eqPage();
   ctx.DLZMOD_rtaShown(pg, true);
   ctx.DLZMOD_rtaSync(pg, "m.");
-  rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
-  for (let t = 1100; t < 2000; t += 100) rtaAt(rtaMsg(Array(10).fill(-20)), t);
+  for (let t = 500; t < 2000; t += 100) rtaAt(rtaMsg(Array(20).fill(-20)), t);
   const n = pg.eq.got.length, a = ctx.DLZMOD_rtaAnim();
-  a.target = a.shown.map((v) => v + 0.6 / 200);   // 0.6 px up: 60 % of it per step
+  a.drawn = a.shown;
+  a.target = a.shown.map((v) => v + 0.6 / 200);   // 0.6 px up: under a pixel
   a.at = 2000;
   ctx.DLZMOD_rtaTick(2000);
   assert.strictEqual(pg.eq.got.length, n, "under a pixel since the last frame: none");
@@ -2716,10 +2791,10 @@ test("EQ spectrum: while the screen program is behind, no frames of its own, the
   ctx.DLZMOD_rtaShown(pg, true);
   ctx.DLZMOD_rtaSync(pg, "m.");
   ctx.wstream = { writableLength: 40000 };
-  rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
+  rtaAt(rtaMsg(Array(20).fill(-20)), 1000);
   assert.strictEqual(pg.eq.got.length, 0, "behind: no frame");
-  assert.ok(pg.eq.rtaData && pg.eq.rtaData.length === 64, "but the data moved, for Mackie's next redraw");
-  assert.strictEqual(ui.later, 100, "and it checks again");
+  assert.ok(pg.eq.rtaData && pg.eq.rtaData.length === 128, "but the data moved, for Mackie's next redraw");
+  assert.strictEqual(ui.later, 33, "and it checks again");
   ctx.wstream.writableLength = 2000;
   ctx.DLZMOD_rtaTick(1050);
   assert.strictEqual(pg.eq.got.length, 1, "caught up: frames again");
@@ -2729,11 +2804,11 @@ test("EQ spectrum: while the screen program is behind, no frames of its own, the
 });
 test("EQ spectrum: a smooth curve through the bands, never beyond its neighbours", () => {
   const P = (dbs, n) => plain(ctx.DLZMOD_rtaPoints(dbs.map((db) => (240 + 3 * db) / 240), n));
-  const dbs = [-40, -20, -50, -10, -30, -30, -45, -12, -50, -35];
+  const dbs = [-40, -20, -50, -10, -30, -30, -45, -12, -50, -35, -40, -20, -50, -10, -30, -30, -45, -12, -50, -35];
   const pts = P(dbs, 200);
   const show = (db) => Math.max(0, Math.min(1, (80 + db) / 80 * 80 / 60 - 20 / 60));
   for (let k = 0; k < 200; k++) {
-    const f = 20 * Math.pow(1000, k / 199), x = Math.max(0, Math.min(9, Math.log2(f / 31.5))), j = Math.min(8, Math.floor(x));
+    const f = 20 * Math.pow(1000, k / 199), x = Math.max(0, Math.min(19, 19 * Math.log(f / 22.4) / Math.log(16000 / 22.4))), j = Math.min(18, Math.floor(x));
     const lo = Math.min(show(dbs[j]), show(dbs[j + 1])) - 1e-9, hi = Math.max(show(dbs[j]), show(dbs[j + 1])) + 1e-9;
     assert.ok(pts[k] >= lo && pts[k] <= hi, `point ${k} (${Math.round(f)} Hz) between its bands`);
   }
@@ -2746,7 +2821,7 @@ test("EQ spectrum: an error in it never reaches Mackie's meters (same parseVuDat
   };
   ctx.DLZMOD_rtaShown(pg, true);
   ctx.DLZMOD_rtaSync(pg, "m.");
-  assert.doesNotThrow(() => ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20))));
+  assert.doesNotThrow(() => ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-20))));
   assert.doesNotThrow(() => ctx.DLZMOD_rtaTick(), "nor the animation's timer");
   assert.doesNotThrow(() => ctx.DLZMOD_rtaVu({ "dlzmod.rta": "not base64!" }));
 });
@@ -2755,40 +2830,40 @@ test("EQ spectrum: in the meters' colour of the look on screen, stronger with Hi
   const saved = ctx.DLZMOD_applyTheme.look;
   try {
     ctx.DLZMOD_applyTheme.look = undefined;
-    assert.deepStrictEqual(plain(ctx.DLZMOD_rtaColors()), ["rgba(156, 204, 86, 0.85)", "rgba(156, 204, 86, 0.25)"], "Mackie's look");
+    assert.strictEqual(ctx.DLZMOD_rtaColor(), "rgba(156, 204, 86, 0.85)", "Mackie's look");
     ctx.DLZMOD_applyTheme.look = { colors: { green: "#3ab0e0" } };
     const pg = eqPage();
     ctx.DLZMOD_rtaShown(pg, true);
     ctx.DLZMOD_rtaSync(pg, "i.0.");
-    ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1000);
-    assert.deepStrictEqual([pg.eq.rtaStrokeColor, pg.eq.rtaFillColor], ["rgba(58, 176, 224, 0.85)", "rgba(58, 176, 224, 0.25)"], "the owner's colour");
+    ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-20)), 1000);
+    assert.strictEqual(pg.eq.rtaStrokeColor, "rgba(58, 176, 224, 0.85)", "the owner's colour");
     settings({ "dlzmod.rta": 1, "dlzmod.theme": 1 });
-    ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 2000);
-    assert.deepStrictEqual([pg.eq.rtaStrokeColor, pg.eq.rtaFillColor], ["rgba(58, 176, 224, 1)", "rgba(58, 176, 224, 0.35)"], "High contrast, at the next message");
+    ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-20)), 2000);
+    assert.strictEqual(pg.eq.rtaStrokeColor, "rgba(58, 176, 224, 1)", "High contrast, at the next message");
   } finally {
     ctx.DLZMOD_applyTheme.look = saved;
   }
 });
 test("EQ spectrum: the bands as the curve's points, -60 dBFS at the bottom, nothing for silence", () => {
   const P = (dbs, n) => plain(ctx.DLZMOD_rtaPoints(dbs.map((db) => (240 + 3 * db) / 240), n));
-  assert.strictEqual(P(Array(10).fill(-80)), null, "silence");
-  assert.strictEqual(P(Array(10).fill(-61)), null, "everything below the bottom");
+  assert.strictEqual(P(Array(20).fill(-80)), null, "silence");
+  assert.strictEqual(P(Array(20).fill(-61)), null, "everything below the bottom");
   assert.strictEqual(ctx.DLZMOD_rtaPoints([0.5, 0.5]), null, "too few bands");
-  const flat = P(Array(10).fill(-30));
+  const flat = P(Array(20).fill(-30));
   assert.strictEqual(flat.length, 64);
   assert.ok(flat.every((v) => Math.abs(v - 0.5) < 1e-9), "-30 dBFS: halfway up, everywhere");
-  const top = P(Array(10).fill(6));
+  const top = P(Array(20).fill(6));
   assert.ok(top.every((v) => v === 1), "over 0 dBFS: at the top");
   // one loud band at 1 kHz: the peak where 1 kHz is on the curve's 20 Hz - 20 kHz log scale
-  const dbs = Array(10).fill(-60);
-  dbs[5] = 0;
+  const dbs = Array(20).fill(-60);
+  dbs[11] = 0;
   const pts = P(dbs, 101);
   const peak = pts.indexOf(Math.max(...pts));
   const f = 20 * Math.pow(1000, peak / 100);
   assert.ok(f > 900 && f < 1150, "the peak at " + Math.round(f) + " Hz");
   assert.strictEqual(pts[0], 0, "20 Hz: the lowest band's level");
   // the ends take the outer bands
-  const ends = P([-12, -60, -60, -60, -60, -60, -60, -60, -60, -24], 64);
+  const ends = P([-12, ...Array(18).fill(-60), -24], 64);
   assert.ok(Math.abs(ends[0] - 0.8) < 1e-9 && Math.abs(ends[63] - 0.6) < 1e-9, JSON.stringify([ends[0], ends[63]]));
 });
 

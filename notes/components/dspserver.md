@@ -172,6 +172,13 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   | EQ on, band 4 flat | 59.1 % | 28.2 % |
   | EQ on, band 4 at +6 dB on 14 blocks | 56.6 % | 31.6 % |
 
+  The spectrum with 20 bands (#217) [device, XS, 2026-11-05]: the same setup, 30 s each, with mic 1's EQ
+  off so that only the Spectrum switch differs: off 63.7 % / 34.8 %, on 59.8 % / 28.4 %, so ~3.9 points
+  on average and ~6.4 in the worst block; EQ on and Spectrum on 59.3 % / 27.9 %. That is level with the
+  10 bands of the row above, though the worst block moves between 28 and 32 % across runs. Why twice
+  the bands cost no visible extra is not known; the older "~7 points" also held the screen's data.
+  Only while an EQ page is open with Spectrum on.
+
   An active `EqBand` costs ~0.18 points of a block (~5 µs), and an earlier run with 3 active blocks
   gave the same rate (60.8 → 60.3 %). A flat band costs nothing measurable. The 4 master blocks of
   the USB and NDI mix-minus did not run, so all 18 would cost ~3.2 points. The worst block does not

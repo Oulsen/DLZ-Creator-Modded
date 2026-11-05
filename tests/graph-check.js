@@ -185,7 +185,7 @@ check(taps.length === 14, `taps: 14 (${taps.length})`);
 const clear = patched.blocks.findIndex((b) => b.type === "Clear" && b.buf === "dlzmodRta");
 check(clear >= 0 && clear < Math.min(...taps.map((t) => t.i)), "the mod's buffer cleared before the first tap");
 
-// the analyser: per band a copy, a high-pass half an octave below, a low-pass half an octave above
+// the analyser: per band a copy, a high-pass a quarter octave below, a low-pass a quarter octave above
 // (at most 20 kHz, EqBand's top) and a meter, after the last tap, at the end
 const an = patched.blocks.filter((b) => b.buf === "dlzmodRtaBand");
 const firstAn = patched.blocks.findIndex((b) => b.buf === "dlzmodRtaBand");
@@ -195,7 +195,7 @@ const near = (a, b) => Math.abs(a - b) < 1e-6;
 const bandsOk = an.length === 4 * freqs.length && freqs.every((f, k) => {
   const [c, hp, lp, m] = an.slice(4 * k, 4 * k + 4);
   return c.type === "CopyFrom" && c.p.src === "buffer:dlzmodRta" && hp.type === "EqBand" && hp.p.kind === 4
-    && near(hp.p.freq, f / Math.SQRT2) && lp.type === "EqBand" && lp.p.kind === 3 && near(lp.p.freq, Math.min(20000, f * Math.SQRT2))
+    && near(hp.p.freq, f / 2 ** 0.25) && lp.type === "EqBand" && lp.p.kind === 3 && near(lp.p.freq, Math.min(20000, f * 2 ** 0.25))
     && m.type === "MaxMeter" && m.p.vu === "dlzmodRta" + k;
 });
 check(bandsOk, `analyser: ${freqs.length} bands (copy, high-pass, low-pass, meter): ${freqs.join(" ")} Hz`);

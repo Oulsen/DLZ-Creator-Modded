@@ -7,7 +7,7 @@
 // #131 the sound behind the EQ curve. The channel whose EQ page the mixer's screen shows (hub key
 // dlzmod.rta, the codes in DLZMOD_rtaTap's callers; 0 = no EQ page open) is mixed into one mono
 // buffer of the mod's own, right after its EQ (where Mackie's "dynin" meter sits); at the end of
-// the graph one band-pass (DLZMOD_rtaAnalyser) and one meter per octave report it as the VU group
+// the graph one band-pass (DLZMOD_rtaAnalyser) and one meter per half octave report it as the VU group
 // "dlzmod.rta". The taps
 // only read the channel's buffer and write the mod's own, each in a nested list (flattenGraph keeps
 // the current buffer of the list around it), so Mackie's audio path stays as it is. With no EQ page
@@ -15,7 +15,7 @@
 
 // the bands' centres in Hz; app-mod/dlzmod.js has the same list (DLZMOD_rtaFreqs)
 function DLZMOD_rtaFreqs() {
-  return [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+  return [22.4, 31.5, 45, 63, 90, 125, 180, 250, 355, 500, 710, 1000, 1400, 2000, 2800, 4000, 5600, 8000, 11200, 16000]
 }
 
 // the mono buffer the open EQ page's channel is mixed into, made on first use (the first use is the
@@ -42,8 +42,8 @@ function DLZMOD_rtaTap(code, bufs) {
   }))
 }
 
-// per band an octave wide band-pass and a meter, each on a copy of the tapped buffer. The band-pass
-// is a high-pass half an octave below the centre and a low-pass half an octave above (EqBand's T_HP
+// per band a half octave wide band-pass and a meter, each on a copy of the tapped buffer. The band-pass
+// is a high-pass a quarter octave below the centre and a low-pass a quarter octave above (EqBand's T_HP
 // and T_LP, as Mackie's telephone effect uses them), not EqBand's own T_BP: Mackie never uses that,
 // and with it every band read silence on the mixer, with the tap's channel at -10 dB [device].
 function DLZMOD_rtaAnalyser() {
@@ -51,8 +51,8 @@ function DLZMOD_rtaAnalyser() {
   let meters = DLZMOD_rtaMeters()
   return [band, ...DLZMOD_rtaFreqs().map((f, k) => [
     {type: 'CopyFrom', src: DLZMOD_rtaBuf()},
-    {type: 'EqBand', bypass: `!@dlzmod.rta`, kind: T_HP, freq: f / Math.SQRT2, q: 0.707, gain: 0.0},
-    {type: 'EqBand', bypass: `!@dlzmod.rta`, kind: T_LP, freq: Math.min(20000, f * Math.SQRT2), q: 0.707, gain: 0.0},
+    {type: 'EqBand', bypass: `!@dlzmod.rta`, kind: T_HP, freq: f / 2 ** 0.25, q: 0.707, gain: 0.0},
+    {type: 'EqBand', bypass: `!@dlzmod.rta`, kind: T_LP, freq: Math.min(20000, f * 2 ** 0.25), q: 0.707, gain: 0.0},
     {type: 'MaxMeter', vu: meters[k], threshold: VU_THRESHOLD},
   ])]
 }

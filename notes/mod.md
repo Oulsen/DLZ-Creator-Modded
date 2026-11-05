@@ -158,8 +158,8 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   change to the audio engine. A mono buffer of its own (`dlzmodRta`), cleared at the start of each
   cycle; a tap (`GainWithLinMixTo`, stereo -6 dB per side) right after each channel's EQ, behind
   Mackie's "dynin" meter, bypassed unless hub key `dlzmod.rta` names that channel; at the end, before
-  the file's own `compileGraph(graph)`, per octave band (31.5 Hz - 16 kHz, 10 bands) a copy, a
-  high-pass half an octave below the centre and a low-pass half an octave above (`EqBand` `T_HP` and
+  the file's own `compileGraph(graph)`, per half-octave band (22.4 Hz - 16 kHz, 20 bands, #217) a copy, a
+  high-pass a quarter octave below the centre and a low-pass a quarter octave above (`EqBand` `T_HP` and
   `T_LP`, Q 0.707, bypassed with no channel measured) and a `MaxMeter`, reported as the VU group
   `dlzmod.rta`. `EqBand`'s own band-pass (`T_BP`, which Mackie never uses) read silence on every band
   [device]. Each tap is a nested list, so Mackie's next block keeps its buffer.
@@ -176,53 +176,53 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   channel. In `DLZMOD_keys` (so app.js knows it and the card's state has it from the install), not a
   setting [sandbox: 3 for channel 3/4, 8 for LR, 0 after leaving the page].
 - **Drawing**: every VU message (`parseVuData`, patched) goes to `DLZMOD_rtaVu`: the band bytes
-  (Mackie's VU scale, 1/80 per dB) as 64 points over the curve's 20 Hz - 20 kHz, interpolated in dB
-  between bands (Catmull-Rom, never beyond the two nearest bands), on the **EQ curve's own dB
-  scale**: the graph's height is twice its `gainRange` (Mackie's ±15 dB: 30 dB), so a -15 dB cut
-  that the bands see in full dips half the height, as the curve does. Before, the height was 60 dB
-  (-60 to 0 dBFS), and an EQ change looked half as deep as the curve's [device: "moves, but does not
-  reflect what it is doing"]. The top follows the loudest band (`DLZMOD_rtaRange`): 6-12 dB above
-  it in 6 dB steps, moving up when a band reaches it and down when all stay more than 18 dB below,
-  so a boost or cut of a few dB does not move the scale; afresh for another channel or after a
-  second without a message. That is the target of an animation of the mod's own (`DLZMOD_rtaTick`),
-  which moves the EQ widget's spectrum data (`rtaData`, as Mackie's `setRTA` would set it) 60 % of
-  the way every 100 ms (at most 10 frames a second); on silence (judged on the message itself, not
+  (Mackie's VU scale, 1/80 per dB) as 128 points over the curve's 20 Hz - 20 kHz, interpolated in dB
+  between bands (Catmull-Rom, never beyond the two nearest bands), on a **fixed scale** of its own,
+  -60 to 0 dBFS, as analysers have (Pro-Q: 60, 90 or 120 dB, set by hand). An automatic scale, tried
+  in #131 and #217, moved the whole picture and put it against the top when music started. That is the target of an animation of the mod's own (`DLZMOD_rtaTick`), which moves the EQ widget's spectrum data
+  (`rtaData`, as Mackie's `setRTA` would set it) 80 % of the way per 100 ms of real time, a step
+  every 33 ms like the meters' tick; on silence (judged on the message itself, not
   the average) or no message for 300 ms it sinks to the bottom and goes. With `rtaOverlay` off the
   widget draws it with the curve; Mackie's overlay layer is not used. Drawn by the mod's
-  `DLZMOD_rtaPaint` instead of Mackie's `paintRTA`: the fill from the bottom on a path of its own,
-  then the line on a fresh one (glesgui uses a path up with `stroke()`, so Mackie's fill reached only
-  the middle line) [device]. Averaged like an analyser's (`DLZMOD_rtaSmooth`: in dB, about 0.4 s, up
-  and down alike; before: peaks held, falling 20 dB/s, which a steady dip drowned in). The octave
-  bands themselves soften an EQ change (2nd-order filters, neighbours leak in): for a -15 dB cut at
-  1 kHz on pink noise they read -11.6 dB at Q 0.45, -5.0 dB at Q 2 and -2.9 dB at 4 kHz Q 4
-  [static: a simulation of the filters]; narrow cuts need narrower bands (more DSP, #5). Each frame
-  redraws the whole EQ widget (grid, curve, knobs): one per VU message made the EQ page's knobs and
-  touch lag on the mixer, at most one per 80 ms made the spectrum choppy (with peaks held) [device].
-  So a frame is drawn only when a point moved a pixel since the last one, within 400 ms of a touch
-  anywhere on the screen (`Events.eventPointerDown/Move/Up` wrapped, `DLZMOD_rtaHookTouch`; app.js's
-  touch input from glesgui and a browser's mouse call them on `Events` by name at each event [static],
-  and the lag while touching went [device]) or a
-  redraw for something else (a knob, a dragged dot; `eq.update` wrapped) none of its own (the picture
-  moves on in `rtaData` and shows with those redraws; a touch's frame does not wait behind the
-  spectrum's), and none while the screen program is behind
-  (`DLZMOD_rtaBacklog`): app.js writes each frame into glesgui's pipe without waiting (`wstream.write`,
-  its return value ignored), so frames glesgui cannot keep up with pile up in app.js's memory and the
-  screen falls further behind the longer it lasts [static; the lag that grew with the spectrum on:
-  device]; more than 16 KiB waiting (`wstream.writableLength`) skips the spectrum's frames until it
-  has caught up. Measured on the build before the touch pause (frames every 50 ms), EQ page with music, 10 s each over SSH (`/proc`
-  of app.js and glesgui): Spectrum off, app.js wrote ~0 B/s at ~5 % of a core, glesgui ~2 %; on,
-  ~160 KB/s, ~18 %, glesgui ~10 %; app.js's memory steady at 57-59 MB either way: no backlog left
-  and no process short of CPU, yet the screen still felt a little behind [device]. The cost is the
-  frames' path to the panel, hence 10 frames a second and none while touching: with those the rest
-  of the screen no longer lags, the spectrum itself moves less smoothly [device: felt, not measured]. Tried and dropped:
-  the spectrum alone on Mackie's top sheet (the overlay layer, `rtaOverlay` on): the mod sent 28
+  `DLZMOD_rtaPaint` instead of Mackie's `paintRTA`: a 4 pixel line at the points' exact height, no
+  fill (its cost below) [device]. Averaged like a meter (`DLZMOD_rtaSmooth`: in dB, up in about 0.1 s, down in about
+  0.3 s; 0.4 s both ways felt late on the mixer, 0.05 s and 0.2 s with a quicker glide jumpy; before that: peaks held, falling 20 dB/s, which a
+  steady dip drowned in). The
+  bands soften an EQ change (2nd-order filters, neighbours leak in), and more bands do not help: a
+  -15 dB cut at 4 kHz Q 4 on pink noise reads -2.9 dB with 10 bands, -3.2 with 20 or 30, -3.3 with 60;
+  twice the filters per band, -4.6 [static: a simulation of the filters]. So `DLZMOD_rtaEqShape`
+  draws the EQ from the curve Mackie's widget has (`graphPoints`): the curve as a band sees it comes
+  off on the sound's scale and the curve goes on, on its own scale (at 60 dB alone a cut looked half as
+  deep [device: "moves, but does not reflect what it is doing"]); not with the EQ bypassed or
+  `procBypass` on, and fading out under -54 dBFS, so a boost never shows sound that is not there. So a
+  cut dips as far as the curve; its shape is calculated, not measured. The audio's cost:
+  [components/dspserver.md](components/dspserver.md). Each frame
+  redraws the whole EQ widget (grid, curve, knobs). A redraw for something else or a touch within 66 ms counts
+  as that step's frame, so the picture keeps moving while a knob turns without adding to it [device].
+- **What limits its frames** (#217) [device, XS, GPU trace, 2026-11-05, music, hands off]: not the
+  processor (glesgui ~10 % of a core, cores 0-2 mostly idle) and not the mod (28 frames/s sent, none
+  skipped) but the graphics chip, 96 % busy. A frame is ~23 ms of Xwayland and Weston whatever it
+  shows, plus glesgui's job: ~46 ms with Mackie-style fill (14 frames/s), ~16.5 ms with line only, 1 or
+  3 px, or nothing at all (~22 frames/s, the ceiling for this page). The same fill as 63 convex slices
+  took ~20-25 ms, measured with a finger on the screen, so not cleanly; line only won on the look.
+  glesgui merges frames that arrive while it is busy, so sending more than it shows is harmless.
+  A faster processor would not help (#5); the GPU clock is fixed at 408 MHz.
+  So a frame is drawn only when a point moved a pixel since the last one. A touch anywhere on the screen
+  (`Events.eventPointerDown/Move/Up` wrapped, `DLZMOD_rtaHookTouch`; app.js's touch input from glesgui
+  and a browser's mouse call them on `Events` by name at each event [static]) or a redraw for something
+  else (a knob, a dragged dot; `eq.update` wrapped) within 66 ms counts as the step's frame, and none is
+  drawn while the screen program is behind (`DLZMOD_rtaBacklog`): app.js writes each frame into glesgui's
+  pipe without waiting (`wstream.write`, its return value ignored), so frames glesgui cannot keep up
+  with pile up in app.js's memory and the screen falls further behind the longer it lasts [static; the
+  lag that grew with the spectrum on: device]; more than 16 KiB waiting (`wstream.writableLength`)
+  skips the spectrum's frames until it has caught up.
+  Tried and dropped: the spectrum alone on Mackie's top sheet (the overlay layer, `rtaOverlay` on): the mod sent 28
   frames a second, 36 ms apart, yet the screen lagged far more, as on the mixer every clear of the
   top sheet clears all of it and glesgui lays the whole sheet over the screen for each frame
   ([components/node-backend.md](components/node-backend.md)) [device]. Colours
-  (`DLZMOD_rtaColors`): the meters' colour of the look on screen (theme or own fader colour, #21),
-  line 85 % / fill 25 %, High contrast 100 % / 35 %, set at each message so a change of look shows
+  (`DLZMOD_rtaColor`): the meters' colour of the look on screen (theme or own fader colour, #21),
+  85 %, High contrast 100 %, set at each message so a change of look shows
   at once; Mackie's own greys were too dim [sandbox].
-- Open: the DSP thread's cost of the 14 taps and 20 filters [guess: small; measure on the mixer].
 
 ## The fourth EQ band (#25)
 

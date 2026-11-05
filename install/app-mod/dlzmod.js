@@ -586,19 +586,19 @@ function DLZMOD_paintDbScale(t, sl, m) {
 }
 
 // #131 the sound behind the EQ curve. The graph mod (graph-mod/dlzmod-graph.js) measures the channel
-// whose EQ page the mixer's screen shows in octave bands and sends them with every VU message as
+// whose EQ page the mixer's screen shows in half-octave bands and sends them with every VU message as
 // "dlzmod.rta" (one byte per band, Mackie's VU scale: 0..1 over 80 dB). The screen says which channel
 // that is (hub key dlzmod.rta, DLZMOD_rtaCode; the server takes it from the screen only); a browser
 // shows it when its EQ page has the same channel. Shown in the EQ widget's own spectrum data (rtaData),
 // drawn with the curve (rtaOverlay off: Mackie's overlay layer is not used) by the mod's
 // DLZMOD_rtaPaint instead of Mackie's paintRTA. Averaged like an analyser (DLZMOD_rtaSmooth) and on
-// the EQ curve's own dB scale (DLZMOD_rtaRange), so an EQ change shows as a dip or rise as deep as the
-// curve's, instead of drowning in every beat; animated towards each message's picture by a timer of
+// a fixed scale (DLZMOD_RTA_SPAN), with the EQ's own shape on top (DLZMOD_rtaEqShape), so an EQ
+// change shows as a dip or rise as deep as the curve's; animated towards each message's picture by a timer of
 // its own (DLZMOD_rtaTick).
 
 // the bands' centres in Hz, as the graph mod has them
 function DLZMOD_rtaFreqs() {
-  return [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+  return [22.4, 31.5, 45, 63, 90, 125, 180, 250, 355, 500, 710, 1000, 1400, 2000, 2800, 4000, 5600, 8000, 11200, 16000];
 }
 
 // a channel's dlzmod.rta value from its key prefix (the graph mod's taps have the same numbers);
@@ -610,11 +610,11 @@ function DLZMOD_rtaCode(prefix) {
 // the spectrum's line and fill in the meters' colour of the look on screen (the theme's or the
 // owner's fader colour, #21), so it follows a change of look; stronger with High contrast. Mackie's
 // greys (rgba(200,200,200,0.5), rgba(100,100,100,0.15)) were too dim behind the curve.
-function DLZMOD_rtaColors() {
+function DLZMOD_rtaColor() {
   const c = DLZMOD_lookColor("green", "#9CCC56");
   const rgb = [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)).join(", ");
   const high = DLZMOD_lookSel().theme === 1;
-  return [`rgba(${rgb}, ${high ? 1 : 0.85})`, `rgba(${rgb}, ${high ? 0.35 : 0.25})`];
+  return `rgba(${rgb}, ${high ? 1 : 0.85})`;
 }
 
 // PageEQ shown or hidden (patch.py; null at startGUI: none open yet). Its channel follows in sync.
@@ -628,7 +628,7 @@ function DLZMOD_rtaShown(page, on) {
         DLZMOD_rtaPaint(this, t);
       };
       // every redraw of the widget that is not the spectrum's own (a knob turned, a dot dragged, a
-      // change from a browser) pauses the animation for a moment (DLZMOD_rtaTick)
+      // change from a browser) counts as the animation's frame of that step (DLZMOD_rtaTick)
       if (!eq.dlzmodUpdate) {
         const own = eq.dlzmodUpdate = eq.update;
         eq.update = function () {
@@ -649,9 +649,9 @@ function DLZMOD_rtaShown(page, on) {
 }
 
 // Every touch on the screen (down, move, up: Mackie's Events.eventPointer*, which the screen's touch
-// input and a browser's mouse call by name) pauses the animation's own frames for a moment, as a
-// redraw of the widget does (DLZMOD_rtaTick): while a finger is on the screen, the frames that answer
-// it do not wait behind the spectrum's. Wrapped once; neither the wrapping (called from PageEQ's
+// input and a browser's mouse call by name) counts as the animation's frame of that step, as a redraw
+// of the widget does (DLZMOD_rtaTick), so the frame that answers it does not wait behind one of the
+// spectrum's. Wrapped once; neither the wrapping (called from PageEQ's
 // onShow) nor the wrapper ever throws into Mackie's code.
 function DLZMOD_rtaHookTouch() {
   if (DLZMOD_rtaHookTouch.done || typeof Events === "undefined" || !Events) return;
@@ -741,14 +741,12 @@ function DLZMOD_rtaVu(t, now) {
     const a = DLZMOD_rtaAnim();
     if (a.eq !== page.eq) DLZMOD_rtaStop(true);
     a.eq = page.eq;
-    // the curve's own dB scale: gainRange above and below the middle line (Mackie's ±15 dB)
-    const span = 2 * (page.eq.gainRange > 0 ? page.eq.gainRange : 15);
     // null: silence (this message's, not the average's: the picture goes as soon as the sound stops)
     const sound = raw.slice(0, DLZMOD_rtaFreqs().length).some((v) => v > 20 / 80);   // above -60 dBFS
-    a.target = sound ? DLZMOD_rtaPoints(levels, 64, DLZMOD_rtaRange(levels, code, now), span, false) : null;
+    a.target = sound ? DLZMOD_rtaPoints(levels, 128, 0, DLZMOD_RTA_SPAN, false) : null;
     a.at = now;
-    // the look's colours each time: a change of look shows at the next message
-    [page.eq.rtaStrokeColor, page.eq.rtaFillColor] = DLZMOD_rtaColors();
+    // the look's colour each time: a change of look shows at the next message
+    page.eq.rtaStrokeColor = DLZMOD_rtaColor();
     if (!a.timer) a.timer = a.later(DLZMOD_rtaTick, 0);
   } catch (e) {
     console.log("dlzmod: EQ spectrum: " + e);
@@ -764,23 +762,29 @@ function DLZMOD_rtaNow() {
 // redrew for something else (busyAt).
 function DLZMOD_rtaAnim() {
   if (!DLZMOD_rtaAnim.s) {
-    DLZMOD_rtaAnim.s = { eq: null, target: null, shown: null, drawn: null, at: 0, busyAt: -1e9, timer: null,
+    DLZMOD_rtaAnim.s = { eq: null, target: null, shown: null, drawn: null, at: 0, stepAt: 0, busyAt: -1e9, timer: null,
       drawing: false, later: (f, ms) => setTimeout(f, ms) };
   }
   return DLZMOD_rtaAnim.s;
 }
 
-// One step every 100 ms while the picture moves (at most 10 frames a second; the average moves slowly
-// enough for that): each point 60 % of the way to the target, so a new message glides in instead of
-// jumping. A frame redraws the whole widget (grid, curve, knobs) and goes all the way to the panel
-// (glesgui, XWayland, Weston, a page flip), and a touch's frame waits behind it, so one is drawn only
+// One step every DLZMOD_RTA_STEP ms while the picture moves: each point part of the way to the target,
+// 80 % per 100 ms of real time whatever the step (a late timer moves it further, not slower), so a new
+// message glides in instead of jumping. A frame redraws the whole widget (grid, curve, knobs) and goes
+// all the way to the panel (glesgui, XWayland, Weston, a page flip), and a touch's frame waits behind
+// it, so one is drawn only
 // when a point moved a pixel or more since the last one, and none while the screen program is behind
 // (DLZMOD_rtaBacklog): app.js does not wait for it, so frames it cannot keep up with pile up in memory
-// and the screen lags more and more. Within 400 ms of a touch (DLZMOD_rtaHookTouch) or a redraw for
-// something else (a knob, a dragged dot) the picture only moves along in the widget's data, drawn with
-// those redraws, so touching, turning and dragging stay as quick as without it. Standing still (no
+// and the screen lags more and more. A redraw for something else (a knob, a dragged dot) or a touch
+// (DLZMOD_rtaHookTouch) within DLZMOD_RTA_BUSY ms, about one frame of the graphics chip, counts as this
+// step's frame: it shows the picture too, so a second one right behind it would only make the touch or
+// the knob wait. Standing still (no
 // point half a pixel off): a slower check. No message for 300 ms (silence, the switch off, another
 // channel measured) or a silent one: it sinks to the bottom and goes. now: ms (tests), else the clock.
+const DLZMOD_RTA_STEP = 33;   // the app's own tick, the one the meters move on
+const DLZMOD_RTA_BUSY = 66;
+const DLZMOD_RTA_SPAN = 60;   // the sound's fixed scale, in dB: 0 dBFS at the top, as analysers have
+
 function DLZMOD_rtaTick(now) {
   const a = DLZMOD_rtaAnim();
   a.timer = null;
@@ -793,13 +797,17 @@ function DLZMOD_rtaTick(now) {
     const goal = target || a.shown.map(() => 0);
     const from = a.shown || goal.map(() => 0);   // a new picture rises from the bottom
     const px = Math.max(1, (eq.h || 0) - 2);
-    const next = from.map((v, k) => (Math.abs(goal[k] - v) * px < 0.5 ? goal[k] : v + 0.6 * (goal[k] - v)));
+    const dt = a.stepAt ? Math.min(Math.max(now - a.stepAt, 1), 200) : DLZMOD_RTA_STEP;
+    a.stepAt = now;
+    const share = 1 - Math.pow(0.2, dt / 100);
+    const next = from.map((v, k) => (Math.abs(goal[k] - v) * px < 0.5 ? goal[k] : v + share * (goal[k] - v)));
     const moved = next.some((v, k) => v !== from[k]) || !a.shown;
     const gone = !target && next.every((v) => v * px < 0.5);
     a.shown = gone ? null : next;
+    if (gone) a.stepAt = 0;   // the next picture starts afresh, it does not catch up on the pause
     if (moved || gone) eq.rtaData = a.shown;
     const far = gone || !a.drawn || next.some((v, k) => Math.abs(v - (a.drawn[k] || 0)) * px >= 1);
-    if (far && (now - a.busyAt >= 400 || gone) && (gone || !DLZMOD_rtaBacklog())) {
+    if (far && (now - a.busyAt >= DLZMOD_RTA_BUSY || gone) && (gone || !DLZMOD_rtaBacklog())) {
       a.drawn = a.shown;
       a.drawing = true;
       try {
@@ -808,7 +816,7 @@ function DLZMOD_rtaTick(now) {
         a.drawing = false;
       }
     }
-    if (!gone) a.timer = a.later(DLZMOD_rtaTick, moved ? 100 : 200);
+    if (!gone) a.timer = a.later(DLZMOD_rtaTick, moved ? DLZMOD_RTA_STEP : 200);
   } catch (e) {
     console.log("dlzmod: EQ spectrum: " + e);
   }
@@ -824,6 +832,7 @@ function DLZMOD_rtaStop(clear) {
   a.shown = null;
   a.drawn = null;
   a.target = null;
+  a.stepAt = 0;
 }
 
 // The screen program (glesgui) behind: app.js writes each frame into its pipe without waiting
@@ -838,8 +847,8 @@ function DLZMOD_rtaBacklog() {
   }
 }
 
-// The band levels averaged like an analyser's (in dB, about 0.4 s), so a steady EQ change stands out
-// from the music's own ups and downs instead of drowning in every beat. Starts afresh for another
+// The band levels averaged like a meter (in dB): up in about 0.1 s, so the picture answers the sound
+// quickly, down in about 0.3 s, so it stays calm and a steady EQ change stands out from the music. Starts afresh for another
 // channel or after a pause of more than a second (ms: now).
 function DLZMOD_rtaSmooth(levels, code, now) {
   const st = DLZMOD_rtaSmooth;
@@ -847,35 +856,18 @@ function DLZMOD_rtaSmooth(levels, code, now) {
   if (st.code !== code || !st.levels || st.levels.length !== levels.length || !(dt >= 0) || dt > 1) {
     st.levels = levels.slice();
   } else {
-    const k = 1 - Math.exp(-dt / 0.4);
-    st.levels = levels.map((v, i) => st.levels[i] + k * (v - st.levels[i]));
+    const up = 1 - Math.exp(-dt / 0.1), down = 1 - Math.exp(-dt / 0.3);
+    st.levels = levels.map((v, i) => st.levels[i] + (v > st.levels[i] ? up : down) * (v - st.levels[i]));
   }
   st.code = code;
   st.at = now;
   return st.levels;
 }
 
-// The top of the spectrum's scale in dBFS, in 6 dB steps: 6-12 dB above the loudest band, so a boost
-// of a few dB fits without the scale moving. It moves up when a band reaches it and down when every
-// band stays more than 18 dB below it; afresh for another channel or after a pause of more than a
-// second (no message: the page closed, silence, the switch off), as the average (ms: now). -48..+6 dBFS.
-function DLZMOD_rtaRange(levels, code, now) {
-  const st = DLZMOD_rtaRange;
-  const loud = Math.max(...levels.map((v) => (v - 1) * 80));
-  const fit = Math.max(-48, Math.min(6, Math.ceil((loud + 6) / 6) * 6));
-  const dt = now - (st.at || 0);
-  if (st.code !== code || typeof st.top !== "number" || !(dt >= 0) || dt > 1000 || loud > st.top || loud < st.top - 18) {
-    st.top = fit;
-  }
-  st.code = code;
-  st.at = now;
-  return st.top;
-}
-
 // The band levels (0..1 over 80 dB, top = 0 dBFS) as the points DLZMOD_rtaPaint draws: evenly spread
 // over the curve's 20 Hz - 20 kHz (a log scale), each the level at its frequency, on a smooth curve
 // through the bands (Catmull-Rom in dB, never beyond its two nearest bands; outside them: the outer
-// band's). Shown from top - span (bottom) to top (dBFS; the EQ curve's own dB per pixel); null when
+// band's). Shown from top - span (bottom) to top (dBFS); null when
 // every band is below -60 dBFS (silence: Mackie's code clears the curve), unless quiet is false (the
 // caller has judged silence on the message itself: the average still rises after a quiet stretch).
 function DLZMOD_rtaPoints(levels, n = 64, top = 0, span = 60, quiet = true) {
@@ -889,7 +881,7 @@ function DLZMOD_rtaPoints(levels, n = 64, top = 0, span = 60, quiet = true) {
   const pts = new Array(n);
   for (let k = 0; k < n; k++) {
     const f = 20 * Math.pow(1000, k / (n - 1));
-    const x = Math.max(0, Math.min(last, Math.log2(f / freqs[0])));
+    const x = Math.max(0, Math.min(last, last * Math.log(f / freqs[0]) / Math.log(freqs[last] / freqs[0])));
     const j = Math.min(last - 1, Math.floor(x)), u = x - j;
     const p0 = at(j - 1), p1 = at(j), p2 = at(j + 1), p3 = at(j + 2);
     const v = p1 + 0.5 * u * (p2 - p0 + u * (2 * p0 - 5 * p1 + 4 * p2 - p3 + u * (3 * (p1 - p2) + p3 - p0)));
@@ -898,32 +890,79 @@ function DLZMOD_rtaPoints(levels, n = 64, top = 0, span = 60, quiet = true) {
   return pts;
 }
 
-// EQ.paintRTA on the open page (DLZMOD_rtaShown): the points as a filled area from the bottom of the
-// graph, then its line on top, each on a path of its own. On the mixer the screen program uses a path
-// up with stroke(), so Mackie's paintRTA (line, then fill on the same path) filled only down to the
-// middle there; Mackie's own curve builds its path again for the fill (NODE_DRAW_FIX) for the same
-// reason. x from the widget's own frequency scale (freqToX).
+// The EQ on the picture, as a part of its height per point of n. The sound has a fixed scale of its own
+// (DLZMOD_RTA_SPAN), the EQ curve its ±gainRange, so a cut in the sound alone would look half as deep
+// as the curve's, and the bands' filters are too wide for a narrow one (-15 dB at 4 kHz Q 4 reads -3 dB,
+// with 60 bands too; #217). But the EQ does exactly what its curve says: so what the bands saw of the
+// curve comes off on the sound's scale, and the curve goes on, on its own: a cut dips as deep and as
+// narrow as the curve. A band sees the curve as a power average through its two filters
+// (dlzmod-graph.js: high-pass and low-pass a quarter octave from its centre, Q 0.707). From the curve
+// Mackie's widget draws (graphPoints: [x, y] pixels, 0 dB in the middle). The widget makes that list
+// anew for each redraw, so its contents say whether it changed: worked out again only then. null:
+// nothing to add (no curve, the EQ bypassed).
+function DLZMOD_rtaEqShape(eq, n) {
+  const ps = eq.graphPoints;
+  if (eq.bypass || !ps || ps.length < 2 || !(eq.gainRange > 0) || typeof eq.freqToX !== "function") return null;
+  const c = DLZMOD_rtaEqShape;
+  const same = c.n === n && c.h === eq.h && c.gainRange === eq.gainRange && c.ps && c.ps.length === ps.length
+    && ps.every((p, i) => p[0] === c.ps[i][0] && p[1] === c.ps[i][1]);
+  if (same) return c.shape;
+  const m = 2 * (n - 1) + 1, octaves = Math.log2(1000), mid = Math.round(0.5 * eq.h), db = new Array(m);
+  let j = 0;
+  for (let i = 0; i < m; i++) {
+    const x = eq.freqToX(20 * Math.pow(1000, i / (m - 1)));
+    while (j + 2 < ps.length && ps[j + 1][0] < x) j++;
+    const [x0, y0] = ps[j], [x1, y1] = ps[j + 1];
+    const y = x1 > x0 ? y0 + (y1 - y0) * Math.max(0, Math.min(1, (x - x0) / (x1 - x0))) : y0;
+    db[i] = (mid - y) / (0.5 * eq.h / eq.gainRange);
+  }
+  const reach = Math.ceil((m - 1) / octaves * 3);   // three octaves to each side
+  const power = db.map((v) => Math.pow(10, v / 10));
+  if (c.m !== m) {
+    c.m = m;
+    c.weights = [];
+    for (let i = -reach; i <= reach; i++) {
+      const d = i * octaves / (m - 1);
+      c.weights.push(1 / ((1 + Math.pow(2, 4 * (d - 0.25))) * (1 + Math.pow(2, -4 * (d + 0.25)))));
+    }
+  }
+  c.shape = new Array(n);
+  for (let k = 0; k < n; k++) {
+    const g = 2 * k;
+    let sum = 0, weight = 0;
+    for (let i = Math.max(0, g - reach); i <= Math.min(m - 1, g + reach); i++) {
+      const w = c.weights[i - g + reach];
+      sum += w * power[i];
+      weight += w;
+    }
+    c.shape[k] = db[g] / (2 * eq.gainRange) - 10 * Math.log10(sum / weight) / DLZMOD_RTA_SPAN;
+  }
+  c.ps = ps;
+  c.n = n;
+  c.h = eq.h;
+  c.gainRange = eq.gainRange;
+  return c.shape;
+}
+
+// EQ.paintRTA on the open page (DLZMOD_rtaShown): the points as a thick line on a path of its own, at
+// the points' exact height so that slow movement does not jump a pixel at a time. No filled area: the
+// graphics chip took 30 ms a frame for it (#217), the line costs next to nothing. x from the widget's
+// own frequency scale (freqToX).
 function DLZMOD_rtaPaint(eq, t) {
   const d = eq.rtaData;
   if (!d || !d.length) return;
-  const bottom = eq.h - 2, n = d.length;
-  const pts = d.map((v, k) => [eq.freqToX(20 * Math.pow(1000, k / (n - 1))), Math.round(bottom * (1 - v))]);
-  const line = (ps) => {
-    if (typeof t.lineToArray === "function") t.lineToArray(ps);
-    else ps.forEach((p) => t.lineTo(p[0], p[1]));
-  };
-  t.lineWidth = 1;
+  const bottom = eq.h - 2;
+  const off = Data.get(DLZMOD_rtaShown.prefix + "procBypass");   // a channel that skips its EQ
+  const shape = off ? null : DLZMOD_rtaEqShape(eq, d.length);
+  // the EQ shapes the sound: where there is hardly any (the bottom tenth, under -54 dBFS), it fades out
+  const pts = d.map((v, k) => [eq.freqToX(20 * Math.pow(1000, k / (d.length - 1))),
+    bottom * (1 - Math.max(0, Math.min(1, v + (shape ? shape[k] * Math.min(1, v / 0.1) : 0))))]);
+  t.lineWidth = 4;
   t.lineJoin = "round";
   t.beginPath();
-  t.moveTo(pts[0][0], bottom);
-  line(pts);
-  t.lineTo(pts[n - 1][0], bottom);
-  t.closePath();
-  t.fillStyle = eq.rtaFillColor;
-  t.fill();
-  t.beginPath();
   t.moveTo(pts[0][0], pts[0][1]);
-  line(pts);
+  if (typeof t.lineToArray === "function") t.lineToArray(pts);
+  else pts.forEach((p) => t.lineTo(p[0], p[1]));
   t.strokeStyle = eq.rtaStrokeColor;
   t.stroke();
 }

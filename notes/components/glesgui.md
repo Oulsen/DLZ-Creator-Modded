@@ -178,6 +178,9 @@ has this fault, as has the conclusion that the largest stage is in app.js. Measu
 - **How**: `lima:lima_task_submit`, `gpu_scheduler:drm_run_job`, `drm_sched_process_job`,
   `drm:drm_vblank_event_delivered`, `trace_clock` `mono`, in RAM only. Read the buffer **before** setting the clock back:
   writing `trace_clock` empties it. Kernel 5.10.197-sunxi has no uprobes. Private data: `build/device-logs/196-trace2.*`.
+- **A big translucent `fill()` is the dear part** (#217) [device, XS, trace, `mod.md`, "What limits its frames"]: the EQ
+  spectrum's concave filled area cost ~30 ms of glesgui's GPU job; its 1 or 3 px line next to nothing; the same area
+  as 63 convex fills ~5-8 ms (with a finger on the screen, not clean). Why: NanoVG's stencil pass for concave paths [guess].
 
 The screen follows a tap 60-190 ms later (to the page flip) while the knob LEDs change at once; same
 on stock. No
