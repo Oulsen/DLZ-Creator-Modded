@@ -187,17 +187,20 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   second without a message. The drawn top follows those steps in about half a second
   (`DLZMOD_rtaGlideTop`, #217): a step used to move the whole picture at once. That is the target of
   an animation of the mod's own (`DLZMOD_rtaTick`), which moves the EQ widget's spectrum data
-  (`rtaData`, as Mackie's `setRTA` would set it) 90 % of the way per 100 ms of real time, a step
+  (`rtaData`, as Mackie's `setRTA` would set it) 80 % of the way per 100 ms of real time, a step
   every 33 ms like the meters' tick; on silence (judged on the message itself, not
   the average) or no message for 300 ms it sinks to the bottom and goes. With `rtaOverlay` off the
   widget draws it with the curve; Mackie's overlay layer is not used. Drawn by the mod's
   `DLZMOD_rtaPaint` instead of Mackie's `paintRTA`: a 4 pixel line at the points' exact height, no
-  fill (its cost below) [device]. Averaged like a meter (`DLZMOD_rtaSmooth`: in dB, up in about 0.05 s, down in about
-  0.2 s; 0.4 s both ways felt late on the mixer; before that: peaks held, falling 20 dB/s, which a
-  steady dip drowned in). The octave
-  bands themselves soften an EQ change (2nd-order filters, neighbours leak in): for a -15 dB cut at
-  1 kHz on pink noise they read -11.6 dB at Q 0.45, -5.0 dB at Q 2 and -2.9 dB at 4 kHz Q 4
-  [static: a simulation of the filters]; narrow cuts need narrower bands (more DSP, #5). Each frame
+  fill (its cost below) [device]. Averaged like a meter (`DLZMOD_rtaSmooth`: in dB, up in about 0.1 s, down in about
+  0.3 s; 0.4 s both ways felt late on the mixer, 0.05 s and 0.2 s with a quicker glide jumpy; before that: peaks held, falling 20 dB/s, which a
+  steady dip drowned in). The
+  bands soften an EQ change (2nd-order filters, neighbours leak in), and more bands do not help: a
+  -15 dB cut at 4 kHz Q 4 on pink noise reads -2.9 dB with 10 bands, -3.2 with 20 or 30, -3.3 with 60;
+  twice the filters per band, -4.6 [static: a simulation of the filters]. So `DLZMOD_rtaEqShape`
+  adds what the bands miss when drawing, from the curve Mackie's widget has (`graphPoints`): the curve
+  minus the curve as a band sees it, not with the EQ bypassed or `procBypass` on. The fine shape of a
+  cut is calculated from the curve, not measured; 128 points so a narrow one fits. Each frame
   redraws the whole EQ widget (grid, curve, knobs). A redraw for something else or a touch counts as
   that step's frame, so the picture keeps moving while a knob turns and the knobs felt good [device].
 - **What limits its frames** (#217) [device, XS, GPU trace, 2026-11-05, music, hands off]: not the

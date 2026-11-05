@@ -745,7 +745,7 @@ function DLZMOD_rtaVu(t, now) {
     const span = 2 * (page.eq.gainRange > 0 ? page.eq.gainRange : 15);
     // null: silence (this message's, not the average's: the picture goes as soon as the sound stops)
     const sound = raw.slice(0, DLZMOD_rtaFreqs().length).some((v) => v > 20 / 80);   // above -60 dBFS
-    a.target = sound ? DLZMOD_rtaPoints(levels, 64, DLZMOD_rtaGlideTop(DLZMOD_rtaRange(levels, code, now), code, now), span, false) : null;
+    a.target = sound ? DLZMOD_rtaPoints(levels, 128, DLZMOD_rtaGlideTop(DLZMOD_rtaRange(levels, code, now), code, now), span, false) : null;
     a.at = now;
     // the look's colour each time: a change of look shows at the next message
     page.eq.rtaStrokeColor = DLZMOD_rtaColor();
@@ -771,7 +771,7 @@ function DLZMOD_rtaAnim() {
 }
 
 // One step every DLZMOD_RTA_STEP ms while the picture moves: each point part of the way to the target,
-// 90 % per 100 ms of real time whatever the step (a late timer moves it further, not slower), so a new
+// 80 % per 100 ms of real time whatever the step (a late timer moves it further, not slower), so a new
 // message glides in instead of jumping. A frame redraws the whole widget (grid, curve, knobs) and goes
 // all the way to the panel (glesgui, XWayland, Weston, a page flip), and a touch's frame waits behind
 // it, so one is drawn only
@@ -798,7 +798,7 @@ function DLZMOD_rtaTick(now) {
     const px = Math.max(1, (eq.h || 0) - 2);
     const dt = a.stepAt ? Math.min(Math.max(now - a.stepAt, 1), 200) : DLZMOD_RTA_STEP;
     a.stepAt = now;
-    const share = 1 - Math.pow(0.1, dt / 100);
+    const share = 1 - Math.pow(0.2, dt / 100);
     const next = from.map((v, k) => (Math.abs(goal[k] - v) * px < 0.5 ? goal[k] : v + share * (goal[k] - v)));
     const moved = next.some((v, k) => v !== from[k]) || !a.shown;
     const gone = !target && next.every((v) => v * px < 0.5);
@@ -845,8 +845,8 @@ function DLZMOD_rtaBacklog() {
   }
 }
 
-// The band levels averaged like a meter (in dB): up in about 0.05 s, so the picture answers the sound at
-// once, down in about 0.2 s, so a steady EQ change still stands out from the music's own ups and downs. Starts afresh for another
+// The band levels averaged like a meter (in dB): up in about 0.1 s, so the picture answers the sound
+// quickly, down in about 0.3 s, so it stays calm and a steady EQ change stands out from the music. Starts afresh for another
 // channel or after a pause of more than a second (ms: now).
 function DLZMOD_rtaSmooth(levels, code, now) {
   const st = DLZMOD_rtaSmooth;
@@ -854,7 +854,7 @@ function DLZMOD_rtaSmooth(levels, code, now) {
   if (st.code !== code || !st.levels || st.levels.length !== levels.length || !(dt >= 0) || dt > 1) {
     st.levels = levels.slice();
   } else {
-    const up = 1 - Math.exp(-dt / 0.05), down = 1 - Math.exp(-dt / 0.2);
+    const up = 1 - Math.exp(-dt / 0.1), down = 1 - Math.exp(-dt / 0.3);
     st.levels = levels.map((v, i) => st.levels[i] + (v > st.levels[i] ? up : down) * (v - st.levels[i]));
   }
   st.code = code;
@@ -918,6 +918,45 @@ function DLZMOD_rtaPoints(levels, n = 64, top = 0, span = 60, quiet = true) {
   return pts;
 }
 
+// What the EQ does that the bands cannot show, in dB per point of n: the curve itself minus the curve
+// as a band sees it. The bands' filters are too wide for a narrow cut (-15 dB at 4 kHz Q 4 reads -3 dB,
+// with 60 bands too; #217), and their width is the audio's time, but the EQ does exactly what its curve
+// says. So the spectrum takes the fine shape from the curve: a cut shows as deep and narrow as it is.
+// A band sees the curve as a power average through its two filters (dlzmod-graph.js: high-pass and
+// low-pass a quarter octave from its centre, Q 0.707). From the curve Mackie's widget draws (graphPoints: [x, y] pixels, 0 dB in the
+// middle), again only when that changes. null: nothing to add (no curve, the EQ bypassed).
+function DLZMOD_rtaEqShape(eq, n) {
+  const ps = eq.graphPoints;
+  if (eq.bypass || !ps || ps.length < 2 || !(eq.gainRange > 0) || typeof eq.freqToX !== "function") return null;
+  const c = DLZMOD_rtaEqShape;
+  if (c.ps === ps && c.n === n) return c.shape;
+  const m = 4 * (n - 1) + 1, octaves = Math.log2(1000), mid = Math.round(0.5 * eq.h), db = new Array(m);
+  let j = 0;
+  for (let i = 0; i < m; i++) {
+    const x = eq.freqToX(20 * Math.pow(1000, i / (m - 1)));
+    while (j + 2 < ps.length && ps[j + 1][0] < x) j++;
+    const [x0, y0] = ps[j], [x1, y1] = ps[j + 1];
+    const y = x1 > x0 ? y0 + (y1 - y0) * Math.max(0, Math.min(1, (x - x0) / (x1 - x0))) : y0;
+    db[i] = (mid - y) / (0.5 * eq.h / eq.gainRange);
+  }
+  const reach = Math.ceil((m - 1) / octaves * 4);   // four octaves to each side
+  c.shape = new Array(n);
+  for (let k = 0; k < n; k++) {
+    const g = 4 * k;
+    let sum = 0, weight = 0;
+    for (let i = Math.max(0, g - reach); i <= Math.min(m - 1, g + reach); i++) {
+      const d = (i - g) * octaves / (m - 1);
+      const w = 1 / ((1 + Math.pow(2, 4 * (d - 0.25))) * (1 + Math.pow(2, -4 * (d + 0.25))));
+      sum += w * Math.pow(10, db[i] / 10);
+      weight += w;
+    }
+    c.shape[k] = db[g] - 10 * Math.log10(sum / weight);
+  }
+  c.ps = ps;
+  c.n = n;
+  return c.shape;
+}
+
 // EQ.paintRTA on the open page (DLZMOD_rtaShown): the points as a thick line on a path of its own, at
 // the points' exact height so that slow movement does not jump a pixel at a time. No filled area: the
 // graphics chip took 30 ms a frame for it (#217), the line costs next to nothing. x from the widget's
@@ -926,7 +965,10 @@ function DLZMOD_rtaPaint(eq, t) {
   const d = eq.rtaData;
   if (!d || !d.length) return;
   const bottom = eq.h - 2;
-  const pts = d.map((v, k) => [eq.freqToX(20 * Math.pow(1000, k / (d.length - 1))), bottom * (1 - v)]);
+  const off = Data.get(DLZMOD_rtaShown.prefix + "procBypass");   // a channel that skips its EQ
+  const shape = off ? null : DLZMOD_rtaEqShape(eq, d.length), span = 2 * (eq.gainRange > 0 ? eq.gainRange : 15);
+  const pts = d.map((v, k) => [eq.freqToX(20 * Math.pow(1000, k / (d.length - 1))),
+    bottom * (1 - Math.max(0, Math.min(1, v + (shape ? shape[k] / span : 0))))]);
   t.lineWidth = 4;
   t.lineJoin = "round";
   t.beginPath();
