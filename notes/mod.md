@@ -147,14 +147,17 @@ The 8 guards are hash-pinned in the updater: a package that changes one needs a 
 
 ## The sound behind the EQ curve (#131)
 
-The EQ page shows the channel's sound behind the EQ curve, on the XS only: the full-size's graph
-(`mixergraph.js`) does not get the analyser, so its EQ page has no spectrum. A **Spectrum** switch on every EQ
+The EQ page shows the channel's sound behind the EQ curve, on both models: the analyser and the taps
+go into `mixergraph-dlzlite.js` and `mixergraph.js` alike (the full-size has mics 3 and 4 and player 3
+instead of the virtual channels, `DLZMOD_rtaCode`) [XS: device; full-size: `tests/graph-check.js` and the
+sandbox, not yet on a mixer, so its processor load is unknown]. A **Spectrum** switch on every EQ
 page, under Mackie's EQ switch (which moves up in its box for it, patched `PageEQ.initWidgets` and
-`paint`), turns it on or off for all channels at once: hub key `dlzmod.spectrum`, on by default; off,
+`paint`), turns it on or off for all channels at once: hub key `dlzmod.spectrum`, off by default on both models (its load on a full-size is not known); off,
 no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) and nothing is drawn
-[sandbox].
+[sandbox]. `dlzmod.rta` is saved with the other keys, so a mixer switched off on an EQ page starts with
+it set; the first VU message on the screen with no EQ page open clears it (`DLZMOD_rtaVu`) [static].
 
-- **Graph** (`graph-mod/dlzmod-graph.js`, patched into `mixergraph-dlzlite.js`): the mod's first
+- **Graph** (`graph-mod/dlzmod-graph.js`, patched into `mixergraph-dlzlite.js` and `mixergraph.js`): the mod's first
   change to the audio engine. A mono buffer of its own (`dlzmodRta`), cleared at the start of each
   cycle; a tap (`GainWithLinMixTo`, stereo -6 dB per side) right after each channel's EQ, behind
   Mackie's "dynin" meter, bypassed unless hub key `dlzmod.rta` names that channel; at the end, before
@@ -164,8 +167,8 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   `dlzmod.rta`. `EqBand`'s own band-pass (`T_BP`, which Mackie never uses) read silence on every band
   [device]. Each tap is a nested list, so Mackie's next block keeps its buffer.
   `tests/graph-check.js` (from `tests/patches.sh`) builds both graphs in a stand-in for dspserver's
-  prelude: Mackie's 583 blocks unchanged and in order, the mod's 55 writing only its own two
-  buffers [static; the spectrum follows the EQ on the mixer: device].
+  prelude: Mackie's 583 blocks (XS) or 676 (full-size) unchanged and in order, the mod's 95 writing
+  only its own two buffers [static; the spectrum follows the EQ on the mixer: device].
 - A channel with **Bypass All Processing** on (its Setup page, `<prefix>procBypass`) skips its EQ,
   high-pass and dynamics in Mackie's graph: EQ changes are neither heard nor seen in the spectrum
   there. Stock behaviour, easy to miss: the EQ page does not show it [device: 9/10].
@@ -235,8 +238,8 @@ dev-c34a68f]; on the full-size only the page, in the sandbox.
   each one against its band 3 and runs its other checks without them. Heard on the mixer
   [device]. Processor load: ~0.18 points per active band, ~3.2 for all 18 [device, 14 measured],
   table in [components/dspserver.md](components/dspserver.md).
-- **Full-size**: `patch.py graph-full` puts the same band in the 9 lists of `mixergraph.js`, without
-  the graph mod. Both files are patched on every card, the model's own one runs. `tests/graph-check.js`
+- **Full-size**: `patch.py graph-full` puts the same band in the 9 lists of `mixergraph.js`. Both
+  files are patched on every card, the model's own one runs. `tests/graph-check.js`
   checks it against the stock file. It never ran on a full-size: its load is not measured and a
   mistake would show there first [static].
 - **EQ page**: band 4 is one more line in `bandsConfig`, in the spare colour of `Color.eqBands`; the

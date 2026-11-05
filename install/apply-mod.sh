@@ -155,7 +155,7 @@ install_update_unit() {
 }
 
 # Our UI mods into /srv/app.js, the media/firmware guards into /srv/server.js, the EQ spectrum's
-# analyser (#131, XS only) and the fourth EQ band (#25) into the audio graphs: one firmware for both
+# analyser (#131) and the fourth EQ band (#25) into the audio graphs: one firmware for both
 # models, so both files, and the model's own one runs. patch.py patches from the kept *.orig every
 # time, so it can run again; it writes atomically.
 apply_patches() {

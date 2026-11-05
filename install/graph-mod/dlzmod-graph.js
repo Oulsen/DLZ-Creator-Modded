@@ -1,8 +1,8 @@
-// DLZ Creator Modded additions to Mackie's mixergraph-dlzlite.js (the audio graph dspserver runs in
-// its QuickJS), appended by install/patch.py. Only function declarations: they are hoisted, so the
-// patched lines above can call them. The file calls compileGraph(graph) itself, above this part, so
-// what goes into the graph is patched in before that call (DLZMOD_rtaAnalyser too), never pushed
-// here. The full-size's mixergraph.js does not get this: there the EQ page simply shows no spectrum.
+// DLZ Creator Modded additions to Mackie's mixergraph-dlzlite.js (XS) and mixergraph.js (full-size),
+// the audio graph dspserver runs in its QuickJS, appended by install/patch.py. Only function
+// declarations: they are hoisted, so the patched lines above can call them. The file calls
+// compileGraph(graph) itself, above this part, so what goes into the graph is patched in before that
+// call (DLZMOD_rtaAnalyser too), never pushed here.
 
 // #131 the sound behind the EQ curve. The channel whose EQ page the mixer's screen shows (hub key
 // dlzmod.rta, the codes in DLZMOD_rtaTap's callers; 0 = no EQ page open) is mixed into one mono
@@ -23,6 +23,16 @@ function DLZMOD_rtaFreqs() {
 function DLZMOD_rtaBuf() {
   if (!globalThis.DLZMOD_rtaBuffer) globalThis.DLZMOD_rtaBuffer = createBuffer('dlzmodRta')
   return globalThis.DLZMOD_rtaBuffer
+}
+
+// the channels' dlzmod.rta values; app-mod/dlzmod.js has the same numbers (DLZMOD_rtaCode). The XS's
+// channels come first, the full-size's mics 3 and 4 and player 3 after them
+function DLZMOD_rtaMicCode(i) {
+  return i < 2 ? 1 + i : 7 + i
+}
+
+function DLZMOD_rtaPlayerCode(i) {
+  return i < 2 ? 3 + i : 9 + i
 }
 
 // the meters, for configureVU

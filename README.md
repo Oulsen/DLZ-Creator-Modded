@@ -38,7 +38,7 @@ below. They all start as stock: turn on what you want.
 - Yellow and red zones and a dB scale on the meters *(Display)*
 - Hide the header bar for more room; messages still show for a moment *(Display)*
 - The sound of the channel behind its EQ curve, so you see which frequencies to cut or boost
-  (DLZ Creator XS for now); a Spectrum switch on the EQ page turns it off *(Channel, EQ)*
+  (not tried on a full-size mixer yet); off until you turn on the Spectrum switch on the EQ page *(Channel, EQ)*
 - A fourth EQ band on every channel, moved by touch and the knobs like the other three *(Channel, EQ)*
 - A high-contrast look, your own background and your own color for the faders, meters and what is
   selected *(Colors)*

@@ -177,7 +177,8 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   on average and ~6.4 in the worst block; EQ on and Spectrum on 59.3 % / 27.9 %. That is level with the
   10 bands of the row above, though the worst block moves between 28 and 32 % across runs. Why twice
   the bands cost no visible extra is not known; the older "~7 points" also held the screen's data.
-  Only while an EQ page is open with Spectrum on.
+  Only while an EQ page is open with Spectrum on. The full-size has the same blocks for it, but its
+  load has not been measured [guess: about the same cost, since a tap reads one channel].
 
   An active `EqBand` costs ~0.18 points of a block (~5 µs), and an earlier run with 3 active blocks
   gave the same rate (60.8 → 60.3 %). A flat band costs nothing measurable. The 4 master blocks of

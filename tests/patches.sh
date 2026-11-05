@@ -56,7 +56,7 @@ else
   bad "graph.js: no patched graph, tests/graph-check.js not run"
 fi
 if [ -f "$TMP/graph-full.js.orig" ]; then
-  if dnode tests/graph-check.js "$TMP/graph-full.js.orig" "$TMP/graph-full.js" > "$TMP/graph-full.check" 2>&1; then
+  if dnode tests/graph-check.js "$TMP/graph-full.js.orig" "$TMP/graph-full.js" install/app-mod/dlzmod.js > "$TMP/graph-full.check" 2>&1; then
     ok "graph-full.js: $(grep -c '^ok' "$TMP/graph-full.check") checks of the patched graph (tests/graph-check.js)"
   else
     bad "graph-full.js: $(grep -v '^ok' "$TMP/graph-full.check" | head -5)"

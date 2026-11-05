@@ -536,7 +536,7 @@ test("header: hidden or shown at once, but not on full-screen pages; saved setti
   ctx.DLZMOD_initKeys();
   assert.deepStrictEqual(ctx.Data.data, { "dlzmod.hideHeader": 1, "dlzmod.meterMode": 0, "dlzmod.preColor": 0,
     "dlzmod.preLevel": 0, "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0,
-    "dlzmod.recDate": 0, "dlzmod.spectrum": 1, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "" });
+    "dlzmod.recDate": 0, "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "" });
 });
 
 // #14: the date and time switch on Settings, Recording / Routing
@@ -2391,7 +2391,7 @@ const rtaAt = (msg, now) => {
 const rtaMsg = (dbs) => ({ "dlzmod.rta": Buffer.from(dbs.map((db) => Math.round(240 + 3 * db))).toString("base64") });
 const rtaReset = () => {
   reset();
-  settings({ "dlzmod.rta": 0 });
+  settings({ "dlzmod.rta": 0, "dlzmod.spectrum": 1 });
   ctx.DLZMOD_rtaShown.page = null;
   ctx.DLZMOD_rtaShown.prefix = "";
   ctx.DLZMOD_rtaStop(true);
@@ -2401,9 +2401,9 @@ const rtaReset = () => {
   Object.assign(ctx.DLZMOD_rtaAnim(), { busyAt: -1e9, at: 0, later: (f, ms) => (ui.later = ms, 1) });
 };
 test("EQ spectrum: the channels with an EQ page get the graph mod's numbers, others none", () => {
-  const codes = ["i.0.", "i.1.", "p.0.", "p.1.", "v.0.", "v.1.", "s.", "m."].map((p) => ctx.DLZMOD_rtaCode(p));
-  assert.deepStrictEqual(codes, [1, 2, 3, 4, 5, 6, 7, 8]);
-  for (const p of ["f.0.", "f.1.", "", undefined, "i.2."]) assert.strictEqual(ctx.DLZMOD_rtaCode(p), 0, String(p));
+  const codes = ["i.0.", "i.1.", "p.0.", "p.1.", "v.0.", "v.1.", "s.", "m.", "i.2.", "i.3.", "p.2."].map((p) => ctx.DLZMOD_rtaCode(p));
+  assert.deepStrictEqual(codes, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+  for (const p of ["f.0.", "f.1.", "", undefined, "i.4.", "p.3."]) assert.strictEqual(ctx.DLZMOD_rtaCode(p), 0, String(p));
 });
 test("EQ spectrum: the screen's EQ page says which channel to measure, and none when it closes", () => {
   rtaReset();
@@ -2556,6 +2556,22 @@ test("EQ spectrum: silence or no message for 300 ms: the picture sinks and goes;
   ctx.DLZMOD_rtaTick(4033);
   assert.strictEqual(pg.eq.rtaData, null);
 });
+test("EQ spectrum: a start with the measured channel still saved stops measuring, on the screen only", () => {
+  rtaReset();
+  ctx.Data.data["dlzmod.rta"] = 3;
+  ctx.DLZMOD_rtaVu({}, 1000);
+  assert.deepStrictEqual(ui.sets, [["dlzmod.rta", 0]], "no EQ page open: nothing measured");
+  ui.sets.length = 0;
+  ctx.Data.data["dlzmod.rta"] = 3;
+  const before = ctx.DLZMOD_external;
+  ctx.DLZMOD_external = () => true;
+  try {
+    ctx.DLZMOD_rtaVu({}, 1000);
+  } finally {
+    ctx.DLZMOD_external = before;
+  }
+  assert.deepStrictEqual(ui.sets, [], "a browser leaves the key alone");
+});
 test("EQ spectrum: the Spectrum switch off measures and shows nothing; on again, the open page measures", () => {
   rtaReset();
   const pg = eqPage();
@@ -2580,21 +2596,32 @@ test("EQ spectrum: the Spectrum switch off measures and shows nothing; on again,
   ctx.DLZMOD_rtaSwitched();
   assert.strictEqual(ui.sets.length, 2, "no EQ page open: still none");
 });
-test("EQ spectrum: the Spectrum switch on the XS's EQ page only, the EQ switch moved up for it", () => {
+test("EQ spectrum: off until the owner turns it on, also while the key is not set yet", () => {
+  rtaReset();
+  assert.strictEqual(ctx.DLZMOD_keys()["dlzmod.spectrum"], 0, "the default");
+  for (const v of [undefined, 0]) {
+    if (v === undefined) delete ctx.Data.data["dlzmod.spectrum"];
+    else ctx.Data.data["dlzmod.spectrum"] = v;
+    assert.strictEqual(ctx.DLZMOD_rtaOn(), false, String(v));
+  }
+  ctx.Data.data["dlzmod.spectrum"] = 1;
+  assert.strictEqual(ctx.DLZMOD_rtaOn(), true);
+});
+test("EQ spectrum: the Spectrum switch on both models' EQ page, the EQ switch moved up for it", () => {
   rtaReset();
   const page = { color: "eq" };
-  assert.strictEqual(ctx.DLZMOD_rtaSwitch(page), null, "full-size: no switch");
-  assert.strictEqual(ctx.DLZMOD_rtaSwitchY(), 55, "and Mackie's EQ switch where it was");
-  ctx.LITE_MODE = 1;
-  try {
-    const sw = ctx.DLZMOD_rtaSwitch(page);
-    assert.strictEqual(sw.key, "dlzmod.spectrum");
-    assert.strictEqual(ctx.DLZMOD_rtaSwitchY(), 22);
-    const top = 22, bottom = sw.anchors[1] + sw.size[1];
-    assert.ok(top >= 14 + 6 && sw.anchors[1] >= top + 48 + 6 && bottom <= 137 - 6, "both in the box (14..137)");
-    assert.strictEqual(sw.onToggleON, ctx.DLZMOD_rtaSwitched);
-  } finally {
-    delete ctx.LITE_MODE;
+  for (const lite of [undefined, 1]) {   // full-size, XS
+    if (lite) ctx.LITE_MODE = lite;
+    try {
+      const sw = ctx.DLZMOD_rtaSwitch(page);
+      assert.strictEqual(sw.key, "dlzmod.spectrum");
+      assert.strictEqual(ctx.DLZMOD_rtaSwitchY(), 22);
+      const top = 22, bottom = sw.anchors[1] + sw.size[1];
+      assert.ok(top >= 14 + 6 && sw.anchors[1] >= top + 48 + 6 && bottom <= 137 - 6, "both in the box (14..137)");
+      assert.strictEqual(sw.onToggleON, ctx.DLZMOD_rtaSwitched);
+    } finally {
+      delete ctx.LITE_MODE;
+    }
   }
 });
 test("EQ spectrum: the fill reaches the bottom on its own path, the line is drawn on a fresh one", () => {
