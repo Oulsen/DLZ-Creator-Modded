@@ -468,7 +468,12 @@ issue's technical notes point to the note section instead of copying it.
      `git fetch origin && git push origin <commit>:main` (no `--force`: git refuses anything that is
      not a fast-forward). GitHub then shows the PR as merged, and `main` and `develop` are the same
      commit. The ruleset on `main` needs the maintainer on its bypass list in mode "Always" (not "Pull
-     requests only") for this push; force pushes stay blocked.
+     requests only") for this push; force pushes stay blocked. "Automatically delete head branches"
+     (GitHub: Settings, General) must stay off: the PR counts as merged, so with it on GitHub deletes
+     `develop`, its head branch, and moves the open PRs on it to `main` (v0.5.0; the commits stay on
+     `main`, so with the commit just pushed there: `git push origin <commit>:refs/heads/develop`, then
+     for each moved PR `gh pr edit <n> --base develop`).
+     `ready` refuses while it is on. So merged feature branches stay on GitHub until deleted by hand.
   4. Check the milestone: `gh issue list --milestone vX.Y.Z --state open` is empty (an open one
      moves to the next milestone or holds the release), and the "Done when" items noted for later
      on its closed issues (an install log seen at the next install) are seen on the release

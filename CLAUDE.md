@@ -22,6 +22,10 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
 - Never run Mackie updaters from SD; never touch the GD32 (firmware, markers, openocd); never
   add or remove `/root/.dlzlite` (it picks the GD32/FPGA firmware per model).
 - Every mod must be reproducible via `install/build-sd.sh` from a clean dump.
+- **Both models, always**: every feature is built for the XS and the full-size. One model only is
+  never decided alone: if a model cannot have it or cannot be tested, stop and ask the maintainer
+  before building, say so at the top of the report, not only in PR text, and give the other model
+  its own issue in the next milestone.
 - Nothing new or changed runs on the mixer or lands on a card (mod changes, `install/**`, U-Boot
   scripts, `uboot.env`, initramfs, installer, spikes, rebuilt images) before the `device-review`
   skill has run: on a PR that changes what runs on the mixer, after `/cr` and its fixes and before

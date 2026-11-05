@@ -10,3 +10,4 @@ Refs #
 
 - [ ] No Mackie code and nothing from a dump in the diff
 - [ ] Notes updated where a fact changed (with its confidence tag)
+- [ ] Built for both the XS and the full-size (one model only: the maintainer agreed, and the other has an issue)

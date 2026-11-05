@@ -6,7 +6,7 @@
 #   release.sh check   is build/release's package + installer image from HEAD, clean and fresh, and
 #                      still origin/develop's tip? and build/devcard's dev image of the same commit?
 #   release.sh ready   right before main is moved (Releases, step 3): the build is origin/develop's
-#                      tip and main can fast-forward to it
+#                      tip, main can fast-forward to it, and GitHub will not delete develop for it
 #   release.sh compare <tag>
 #                      after the tag's workflow attached its build to the draft (#158): the draft's
 #                      files are this PC's build byte for byte, their SHA256SUMS fit, and the
@@ -102,6 +102,10 @@ check)
 ready)
   # the whole check (files there, clean, HEAD, fresh, develop's tip), then main
   bash "$SELF" check || { echo "NOT READY: main stays where it is (back to step 1 with develop's tip)"; exit 1; }
+  # moving main marks the release PR merged, and with this setting on GitHub then deletes its head
+  # branch, develop, and moves the open PRs on it to main (v0.5.0)
+  del=$(gh api 'repos/{owner}/{repo}' --jq .delete_branch_on_merge)     || { echo "NOT READY: could not read the repository's settings (gh)"; exit 1; }
+  [ "$del" = false ] || { echo "NOT READY: moving main would delete develop: turn off Settings, General, \"Automatically delete head branches\""; exit 1; }
   commit=$(sed -n 's/^COMMIT=//p' "$REL/dlzmod-$VER/package.env" | tr -d '\r')
   full=$(git rev-parse "$commit^{commit}")
   [ "$(git rev-parse origin/main)" != "$full" ] || { echo "NOT READY: origin/main is already the build's commit"; exit 1; }
