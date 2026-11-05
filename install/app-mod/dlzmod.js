@@ -3085,3 +3085,33 @@ function DLZMOD_bgNeeded(w) {
       return true;
   }
 }
+
+// #245: a strip's name plate in the strip's own colour: in a full redraw that colour is already under
+// it, whether the strip painted it or its page did. Redrawn on its own the strip paints both anyway. Not
+// so the mix bars and the fader's panel in that same colour: they hide the marks and the colour band
+// the strip draws first (1411 pixels differ without them).
+function DLZMOD_plateNeeded(strip, c) {
+  return !DLZMOD_fullRedraw || !!strip._CACHING
+    || DLZMOD_drawColor("fillStyle", c) !== DLZMOD_drawColor("fillStyle", strip.bgColor);
+}
+
+// #245: the Overview's background in a full redraw, without the columns of the strips with a colour
+// of their own (on an XS in Mackie's look the stereo strips and LR, a quarter of a layer): each of
+// these paints its whole height right after this. Between and beside them the page still paints:
+// the strips' margins. False: nothing to leave out, the page paints as Mackie's does. Not under a
+// see-through colour, which needs what is under it.
+function DLZMOD_ovFill(mixer, t) {
+  if (!DLZMOD_fullRedraw || mixer._CACHING || mixer.dx || mixer.showScroll) return false;
+  const own = mixer.widgets.filter((s) => s.visible && !s._CACHING && s.y === 0 && s.h >= mixer.h
+    && DLZMOD_bgNeeded(s) && /^#[0-9a-f]{6}$/i.test(DLZMOD_drawColor("fillStyle", s.bgColor)))
+    .sort((a, b) => a.x - b.x);
+  if (!own.length) return false;
+  t.fillStyle = mixer.bgColor;
+  let x = 0;
+  for (const s of own) {
+    if (s.x > x) t.fillRect(x, 0, s.x - x, mixer.h);
+    x = Math.max(x, s.x + s.w);
+  }
+  if (x < mixer.w) t.fillRect(x, 0, mixer.w - x, mixer.h);
+  return true;
+}

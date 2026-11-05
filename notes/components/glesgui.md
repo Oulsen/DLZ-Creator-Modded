@@ -149,7 +149,17 @@ has this fault, as has the conclusion that the largest stage is in app.js. Measu
   full layer, on every page before and after these patches. The order varies, so take the larger of the two jobs after a
   page read, not the first. Page job before → after all patches: 14 KiB 80 → 51, 18 KiB 103 → 69, 20 KiB 83 → 55, 26 KiB 69 → 49,
   Overview (60 KiB) 99 → 63 ms; the second job stays. That job is `clearFg`'s `fctx.clearRect(0,0,w,h)` in `UI.clear`, the
-  overlay's clear (next point, and timed below it). Only 5 of the 8 strips left out their background; the other 3 not looked at.
+  overlay's clear (next point, and timed below it). Only 5 of the 8 strips left out their background; why, and what that left: next point.
+- **The Overview's unseen paint** (#245) [static + sandbox + device, XS, `962dd3c`, 2026-11-05]: the other 3 strips are right to
+  paint: the two stereo strips (`#1A1A1A`) and LR (`#171E0D`) have a colour of their own in Mackie's look [static]. What nobody
+  sees is the page's black under them, 3 x 107 x 504 px, a quarter of a layer: `DLZMOD_ovFill` leaves those columns out and paints
+  the margins between them. A strip's name plate in the strip's colour goes too (`DLZMOD_plateNeeded`, 7 x 107 x 84 px, a tenth
+  of a layer). In a look that gives these strips the page's colour, only the plates. The mix bars and the fader's panel, in that same
+  colour, must stay: they hide marks and the colour band the strip draws first (1411 pixels differ without them) [sandbox]. No
+  pixel changed, magenta painted under the redraw, none showing, on 36 Overview screens (the themes, Tinted, the fader colours, the
+  selection on strips 1, 6 and 8) and all 6 tabs [sandbox]. GPU job, 40 s of tabs, before → after: 63.3-64.1 → 61.0-62.0 ms, about 2 ms
+  for 36 % of a layer, not the ~7 the 20 ms per layer above would give [device; the tab told apart by its steady job, and that it
+  moved; why so little: unknown]. The other tab's 55 and 69 ms stayed, so the change is real. The screen looks the same [user].
 - **The top sheet is a framebuffer of its own** (#243) [static, the command handler `0x27500` and the frame code in `main`
   around `0x17474`-`0x17978`]: glesgui keeps two offscreen framebuffers, the main picture's (`0x28d0334`) and the top sheet's
   (`0x28d0338`). Normally `ctx` paints straight on the screen and only `fctx` goes to its framebuffer. Each change of target

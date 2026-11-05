@@ -163,6 +163,18 @@ APP_PATCHES = [
         "paint(t){let e=this.w/2|0;this.h,this.w,this.h;if(DLZMOD_bgNeeded(this)&&t.fRect(this.bgColor,0,0,this.w,this.h),this.bg&&t.drawImg(this.bg,0,0)",
     ),
     (
+        # #245: the page's own paint under the strips with a colour of their own
+        "full redraw: the Overview's background",
+        "this.arrange()}paint(t){super.paint(t)}},ChSelector",
+        "this.arrange()}paint(t){DLZMOD_ovFill(this,t)||super.paint(t)}},ChSelector",
+    ),
+    (
+        # #245: in the strip's own colour; the channel selector's copy of the name (a) stays
+        "full redraw: a strip's name plate",
+        "t.fRect(E,e,i,s,this.botHeight)",
+        "(a||DLZMOD_plateNeeded(this,E))&&t.fRect(E,e,i,s,this.botHeight)",
+    ),
+    (
         # the mixer's screen: every drawing property set is sent to glesgui from here (in a browser
         # the mod wraps the canvas itself, DLZMOD_tokens)
         "theme: colours written into the code",
