@@ -778,11 +778,13 @@ function DLZMOD_rtaAnim() {
 // when a point moved a pixel or more since the last one, and none while the screen program is behind
 // (DLZMOD_rtaBacklog): app.js does not wait for it, so frames it cannot keep up with pile up in memory
 // and the screen lags more and more. A redraw for something else (a knob, a dragged dot) or a touch
-// (DLZMOD_rtaHookTouch) within the last step counts as this step's frame: it shows the picture too, so
-// a second one right behind it would only make the touch or the knob wait. Standing still (no
+// (DLZMOD_rtaHookTouch) within DLZMOD_RTA_BUSY ms, about one frame of the graphics chip, counts as this
+// step's frame: it shows the picture too, so a second one right behind it would only make the touch or
+// the knob wait. Standing still (no
 // point half a pixel off): a slower check. No message for 300 ms (silence, the switch off, another
 // channel measured) or a silent one: it sinks to the bottom and goes. now: ms (tests), else the clock.
 const DLZMOD_RTA_STEP = 33;   // the app's own tick, the one the meters move on
+const DLZMOD_RTA_BUSY = 66;
 
 function DLZMOD_rtaTick(now) {
   const a = DLZMOD_rtaAnim();
@@ -805,7 +807,7 @@ function DLZMOD_rtaTick(now) {
     a.shown = gone ? null : next;
     if (moved || gone) eq.rtaData = a.shown;
     const far = gone || !a.drawn || next.some((v, k) => Math.abs(v - (a.drawn[k] || 0)) * px >= 1);
-    if (far && (now - a.busyAt >= DLZMOD_RTA_STEP || gone) && (gone || !DLZMOD_rtaBacklog())) {
+    if (far && (now - a.busyAt >= DLZMOD_RTA_BUSY || gone) && (gone || !DLZMOD_rtaBacklog())) {
       a.drawn = a.shown;
       a.drawing = true;
       try {
@@ -933,7 +935,7 @@ function DLZMOD_rtaEqShape(eq, n) {
   const same = c.n === n && c.ps && c.ps.length === ps.length
     && ps.every((p, i) => p[0] === c.ps[i][0] && p[1] === c.ps[i][1]);
   if (same) return c.shape;
-  const m = 4 * (n - 1) + 1, octaves = Math.log2(1000), mid = Math.round(0.5 * eq.h), db = new Array(m);
+  const m = 2 * (n - 1) + 1, octaves = Math.log2(1000), mid = Math.round(0.5 * eq.h), db = new Array(m);
   let j = 0;
   for (let i = 0; i < m; i++) {
     const x = eq.freqToX(20 * Math.pow(1000, i / (m - 1)));
@@ -942,7 +944,7 @@ function DLZMOD_rtaEqShape(eq, n) {
     const y = x1 > x0 ? y0 + (y1 - y0) * Math.max(0, Math.min(1, (x - x0) / (x1 - x0))) : y0;
     db[i] = (mid - y) / (0.5 * eq.h / eq.gainRange);
   }
-  const reach = Math.ceil((m - 1) / octaves * 4);   // four octaves to each side
+  const reach = Math.ceil((m - 1) / octaves * 3);   // three octaves to each side
   const power = db.map((v) => Math.pow(10, v / 10));
   if (c.m !== m) {
     c.m = m;
@@ -954,7 +956,7 @@ function DLZMOD_rtaEqShape(eq, n) {
   }
   c.shape = new Array(n);
   for (let k = 0; k < n; k++) {
-    const g = 4 * k;
+    const g = 2 * k;
     let sum = 0, weight = 0;
     for (let i = Math.max(0, g - reach); i <= Math.min(m - 1, g + reach); i++) {
       const w = c.weights[i - g + reach];

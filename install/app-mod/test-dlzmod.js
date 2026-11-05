@@ -2527,7 +2527,10 @@ test("EQ spectrum: a redraw for a knob or a dragged dot counts as this step's fr
   assert.notDeepStrictEqual(plain(pg.eq.rtaData), before, "but the picture moved on, for Mackie's next redraw");
   ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-20)), 1060);
   ctx.DLZMOD_rtaTick(1066);
-  assert.strictEqual(pg.eq.got.length, 3, "a step later: frames again");
+  assert.strictEqual(pg.eq.got.length, 2, "within a frame of the graphics chip: still its frame");
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-20)), 1099);
+  ctx.DLZMOD_rtaTick(1099);
+  assert.strictEqual(pg.eq.got.length, 3, "then frames again");
 });
 test("EQ spectrum: silence or no message for 300 ms: the picture sinks and goes; a closed page clears it", () => {
   rtaReset();
@@ -2739,8 +2742,8 @@ test("EQ spectrum: a touch counts as this step's frame; Mackie's touch handlers 
     ctx.DLZMOD_rtaAnim().busyAt = 1000;
     rtaAt(rtaMsg(Array(20).fill(-20)), 1010);
     assert.strictEqual(pg.eq.got.length, 0, "right after a touch: no frame of its own");
-    rtaAt(rtaMsg(Array(20).fill(-20)), 1040);
-    assert.strictEqual(pg.eq.got.length, 1, "a step later: frames again");
+    rtaAt(rtaMsg(Array(20).fill(-20)), 1070);
+    assert.strictEqual(pg.eq.got.length, 1, "a frame later: frames again");
     ctx.DLZMOD_rtaAnim().later = () => { throw new Error("broken"); };
     assert.doesNotThrow(() => ctx.Events.eventPointerDown(1, 1, 0), "the wrapper never throws into Mackie's handler");
   } finally {

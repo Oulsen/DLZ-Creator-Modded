@@ -201,8 +201,8 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   adds what the bands miss when drawing, from the curve Mackie's widget has (`graphPoints`): the curve
   minus the curve as a band sees it, not with the EQ bypassed or `procBypass` on. The fine shape of a
   cut is calculated from the curve, not measured; 128 points so a narrow one fits. Each frame
-  redraws the whole EQ widget (grid, curve, knobs). A redraw for something else or a touch counts as
-  that step's frame, so the picture keeps moving while a knob turns and the knobs felt good [device].
+  redraws the whole EQ widget (grid, curve, knobs). A redraw for something else or a touch within 66 ms counts
+  as that step's frame, so the picture keeps moving while a knob turns without adding to it [device].
 - **What limits its frames** (#217) [device, XS, GPU trace, 2026-11-05, music, hands off]: not the
   processor (glesgui ~10 % of a core, cores 0-2 mostly idle) and not the mod (28 frames/s sent, none
   skipped) but the graphics chip, 96 % busy. A frame is ~23 ms of Xwayland and Weston whatever it
