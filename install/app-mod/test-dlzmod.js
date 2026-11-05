@@ -2395,8 +2395,8 @@ const rtaReset = () => {
   ctx.DLZMOD_rtaShown.page = null;
   ctx.DLZMOD_rtaShown.prefix = "";
   ctx.DLZMOD_rtaStop(true);
-  ctx.DLZMOD_rtaRange.code = ctx.DLZMOD_rtaSmooth.code = undefined;
-  ctx.DLZMOD_rtaRange.top = ctx.DLZMOD_rtaSmooth.levels = undefined;
+  ctx.DLZMOD_rtaRange.code = ctx.DLZMOD_rtaSmooth.code = ctx.DLZMOD_rtaGlideTop.code = undefined;
+  ctx.DLZMOD_rtaRange.top = ctx.DLZMOD_rtaSmooth.levels = ctx.DLZMOD_rtaGlideTop.top = undefined;
   delete ctx.wstream;
   Object.assign(ctx.DLZMOD_rtaAnim(), { busyAt: -1e9, at: 0, later: (f, ms) => (ui.later = ms, 1) });
 };
@@ -2600,19 +2600,19 @@ test("EQ spectrum: the fill reaches the bottom on its own path, the line is draw
   const ctx2 = new Proxy({}, { get: (o, k) => (k in o ? o[k] : (...a) => calls.push([k, ...a])),
     set: (o, k, v) => (calls.push(["set " + String(k), v]), true) });
   const pg = eqPage();
-  Object.assign(pg.eq, { w: 101, h: 52, freqToX: (f) => Math.round(100 * Math.log10(f / 20) / 3), rtaFillColor: "F", rtaStrokeColor: "S" });
+  Object.assign(pg.eq, { w: 101, h: 52, freqToX: (f) => Math.round(100 * Math.log10(f / 20) / 3), rtaStrokeColor: "S" });
   ctx.DLZMOD_rtaShown(pg, true);
   pg.eq.rtaData = [0, 0.5, 1];
   pg.eq.paintRTA(ctx2);
   const names = calls.map((c) => c[0]);
-  const fill = names.indexOf("fill"), stroke = names.indexOf("stroke");
-  assert.ok(fill > 0 && stroke > fill, "fill first, then the line");
-  assert.deepStrictEqual(calls[names.indexOf("moveTo")], ["moveTo", 0, 50], "the fill starts at the bottom left");
-  const beforeFill = calls.slice(0, fill);
-  assert.deepStrictEqual(beforeFill[beforeFill.map((c) => c[0]).lastIndexOf("lineTo")], ["lineTo", 100, 50], "and closes at the bottom right");
+  assert.ok(!names.includes("fill"), "no filled area: the graphics chip's dearest part");
+  assert.deepStrictEqual(calls[names.indexOf("moveTo")], ["moveTo", 0, 50], "the line starts at the first point");
   assert.deepStrictEqual(plain(calls.find((c) => c[0] === "lineToArray")[1]), [[0, 50], [50, 25], [100, 0]], "points on the widget's own frequency scale");
-  assert.strictEqual(names.slice(fill, stroke).filter((n) => n === "beginPath").length, 1, "a fresh path for the line");
-  assert.ok(calls.some((c) => c[0] === "set fillStyle" && c[1] === "F") && calls.some((c) => c[0] === "set strokeStyle" && c[1] === "S"));
+  assert.ok(calls.some((c) => c[0] === "set strokeStyle" && c[1] === "S") && calls.some((c) => c[0] === "set lineWidth" && c[1] === 4), "thick, in the look's colour");
+  pg.eq.rtaData = [0, 0.333, 1];
+  calls.length = 0;
+  pg.eq.paintRTA(ctx2);
+  assert.strictEqual(calls.find((c) => c[0] === "lineToArray")[1][1][1], 50 * 0.667, "at the exact height, no whole pixels");
   pg.eq.rtaData = null;
   calls.length = 0;
   pg.eq.paintRTA(ctx2);
@@ -2644,6 +2644,18 @@ test("EQ spectrum: the scale's top 6-12 dB above the loudest band, steady while 
   assert.strictEqual(R([10, 0, 0], 2), 6, "over 0 dBFS: the highest");
   t += 1500;
   assert.strictEqual(R([-40, -14, -30], 2), -6, "after a pause of over a second: afresh (the page left, silence)");
+});
+test("EQ spectrum: a step of the scale moves the picture in about half a second, no jump", () => {
+  const G = (top, code, now) => ctx.DLZMOD_rtaGlideTop(top, code, now);
+  ctx.DLZMOD_rtaGlideTop.code = undefined;
+  assert.strictEqual(G(-6, 1, 1000), -6, "starts on the top");
+  const once = G(6, 1, 1033);
+  assert.ok(once > -6 && once < -5, "a 12 dB step: under a dB in one step");
+  let v = once;
+  for (let t = 1066; t <= 3000; t += 33) v = G(6, 1, t);
+  assert.ok(Math.abs(v - 6) < 0.3, "as good as there in two seconds");
+  assert.strictEqual(G(-12, 2, 3033), -12, "another channel: afresh");
+  assert.strictEqual(G(-30, 2, 4500), -30, "after a pause of over a second: afresh");
 });
 test("EQ spectrum: on the EQ curve's dB scale, so a -15 dB cut dips as far as the curve", () => {
   rtaReset();
@@ -2772,16 +2784,16 @@ test("EQ spectrum: in the meters' colour of the look on screen, stronger with Hi
   const saved = ctx.DLZMOD_applyTheme.look;
   try {
     ctx.DLZMOD_applyTheme.look = undefined;
-    assert.deepStrictEqual(plain(ctx.DLZMOD_rtaColors()), ["rgba(156, 204, 86, 0.85)", "rgba(156, 204, 86, 0.25)"], "Mackie's look");
+    assert.strictEqual(ctx.DLZMOD_rtaColor(), "rgba(156, 204, 86, 0.85)", "Mackie's look");
     ctx.DLZMOD_applyTheme.look = { colors: { green: "#3ab0e0" } };
     const pg = eqPage();
     ctx.DLZMOD_rtaShown(pg, true);
     ctx.DLZMOD_rtaSync(pg, "i.0.");
     ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1000);
-    assert.deepStrictEqual([pg.eq.rtaStrokeColor, pg.eq.rtaFillColor], ["rgba(58, 176, 224, 0.85)", "rgba(58, 176, 224, 0.25)"], "the owner's colour");
+    assert.strictEqual(pg.eq.rtaStrokeColor, "rgba(58, 176, 224, 0.85)", "the owner's colour");
     settings({ "dlzmod.rta": 1, "dlzmod.theme": 1 });
     ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 2000);
-    assert.deepStrictEqual([pg.eq.rtaStrokeColor, pg.eq.rtaFillColor], ["rgba(58, 176, 224, 1)", "rgba(58, 176, 224, 0.35)"], "High contrast, at the next message");
+    assert.strictEqual(pg.eq.rtaStrokeColor, "rgba(58, 176, 224, 1)", "High contrast, at the next message");
   } finally {
     ctx.DLZMOD_applyTheme.look = saved;
   }
