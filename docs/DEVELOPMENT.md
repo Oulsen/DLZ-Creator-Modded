@@ -421,7 +421,10 @@ issue's technical notes point to the note section instead of copying it.
 - **Branches**: `develop` for work and tests, `main` for releases (and patches to them, below). Nothing is committed to
   either directly: every change gets its own branch from `develop` (`fix/...`, `feature/...`,
   `docs/...`) and a PR into `develop`, **squash-merged** (one commit per change; the `develop`
-  ruleset allows nothing else). The one exception is a patch ("Patches" below).
+  ruleset allows nothing else). The one exception is a patch ("Patches" below). The maintainer
+  bypasses the rulesets `develop` and `main`, so each also has a ruleset without any bypass, `develop
+  stays` and `main stays`: nobody can delete the branch or force-push it, fast-forward pushes go
+  through. To really delete one, change that ruleset first.
 - **Review**: every PR into `develop` gets a review before it is merged, also a small one that only
   changes docs. A contributor's PR: the maintainer reviews it (`.github/CODEOWNERS` requests that
   once the repo is public; a ruleset makes it required). The maintainer's own PRs: right after the
