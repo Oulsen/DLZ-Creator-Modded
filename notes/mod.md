@@ -194,7 +194,9 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   draws the EQ from the curve Mackie's widget has (`graphPoints`): the curve as a band sees it comes
   off on the sound's scale and the curve goes on, on its own scale (at 60 dB alone a cut looked half as
   deep [device: "moves, but does not reflect what it is doing"]); not with the EQ bypassed or
-  `procBypass` on. So a cut dips as far as the curve; its shape is calculated, not measured. Each frame
+  `procBypass` on, and fading out under -54 dBFS, so a boost never shows sound that is not there. So a
+  cut dips as far as the curve; its shape is calculated, not measured. The audio's cost:
+  [components/dspserver.md](components/dspserver.md). Each frame
   redraws the whole EQ widget (grid, curve, knobs). A redraw for something else or a touch within 66 ms counts
   as that step's frame, so the picture keeps moving while a knob turns without adding to it [device].
 - **What limits its frames** (#217) [device, XS, GPU trace, 2026-11-05, music, hands off]: not the
@@ -205,31 +207,22 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   took ~20-25 ms, measured with a finger on the screen, so not cleanly; line only won on the look.
   glesgui merges frames that arrive while it is busy, so sending more than it shows is harmless.
   A faster processor would not help (#5); the GPU clock is fixed at 408 MHz.
-  So a frame is drawn only when a point moved a pixel since the last one, within 400 ms of a touch
-  anywhere on the screen (`Events.eventPointerDown/Move/Up` wrapped, `DLZMOD_rtaHookTouch`; app.js's
-  touch input from glesgui and a browser's mouse call them on `Events` by name at each event [static],
-  and the lag while touching went [device]) or a
-  redraw for something else (a knob, a dragged dot; `eq.update` wrapped) none of its own (the picture
-  moves on in `rtaData` and shows with those redraws; a touch's frame does not wait behind the
-  spectrum's), and none while the screen program is behind
-  (`DLZMOD_rtaBacklog`): app.js writes each frame into glesgui's pipe without waiting (`wstream.write`,
-  its return value ignored), so frames glesgui cannot keep up with pile up in app.js's memory and the
-  screen falls further behind the longer it lasts [static; the lag that grew with the spectrum on:
-  device]; more than 16 KiB waiting (`wstream.writableLength`) skips the spectrum's frames until it
-  has caught up. Measured on the build before the touch pause (frames every 50 ms), EQ page with music, 10 s each over SSH (`/proc`
-  of app.js and glesgui): Spectrum off, app.js wrote ~0 B/s at ~5 % of a core, glesgui ~2 %; on,
-  ~160 KB/s, ~18 %, glesgui ~10 %; app.js's memory steady at 57-59 MB either way: no backlog left
-  and no process short of CPU, yet the screen still felt a little behind [device]. The cost is the
-  frames' path to the panel, hence 10 frames a second and none while touching: with those the rest
-  of the screen no longer lags, the spectrum itself moves less smoothly [device: felt, not measured]. Tried and dropped:
-  the spectrum alone on Mackie's top sheet (the overlay layer, `rtaOverlay` on): the mod sent 28
+  So a frame is drawn only when a point moved a pixel since the last one. A touch anywhere on the screen
+  (`Events.eventPointerDown/Move/Up` wrapped, `DLZMOD_rtaHookTouch`; app.js's touch input from glesgui
+  and a browser's mouse call them on `Events` by name at each event [static]) or a redraw for something
+  else (a knob, a dragged dot; `eq.update` wrapped) within 66 ms counts as the step's frame, and none is
+  drawn while the screen program is behind (`DLZMOD_rtaBacklog`): app.js writes each frame into glesgui's
+  pipe without waiting (`wstream.write`, its return value ignored), so frames glesgui cannot keep up
+  with pile up in app.js's memory and the screen falls further behind the longer it lasts [static; the
+  lag that grew with the spectrum on: device]; more than 16 KiB waiting (`wstream.writableLength`)
+  skips the spectrum's frames until it has caught up.
+  Tried and dropped: the spectrum alone on Mackie's top sheet (the overlay layer, `rtaOverlay` on): the mod sent 28
   frames a second, 36 ms apart, yet the screen lagged far more, as on the mixer every clear of the
   top sheet clears all of it and glesgui lays the whole sheet over the screen for each frame
   ([components/node-backend.md](components/node-backend.md)) [device]. Colours
   (`DLZMOD_rtaColor`): the meters' colour of the look on screen (theme or own fader colour, #21),
   85 %, High contrast 100 %, set at each message so a change of look shows
   at once; Mackie's own greys were too dim [sandbox].
-- Open: the DSP thread's cost of the 14 taps and 20 filters [guess: small; measure on the mixer].
 
 ## The fourth EQ band (#25)
 

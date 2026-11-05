@@ -2633,6 +2633,39 @@ test("EQ spectrum: up in about 0.1 s, down in about 0.3 s; afresh for another ch
   assert.deepStrictEqual(S([0.1, 0.1], 2, 4200), [0.1, 0.1], "another channel: afresh");
   assert.deepStrictEqual(S([0, 0], 2, 5800), [0, 0], "after a pause of over a second: afresh");
 });
+test("EQ spectrum: a picture after silence glides in, it does not catch up on the pause", () => {
+  rtaReset();
+  const pg = eqPage();
+  ctx.DLZMOD_rtaShown(pg, true);
+  ctx.DLZMOD_rtaSync(pg, "m.");
+  rtaAt(rtaMsg(Array(20).fill(-20)), 1000);
+  let t = 1000;
+  for (; t < 3000 && ctx.DLZMOD_rtaAnim().shown; t += 33) ctx.DLZMOD_rtaTick(t);
+  assert.strictEqual(ctx.DLZMOD_rtaAnim().shown, null, "gone");
+  rtaAt(rtaMsg(Array(20).fill(-20)), t + 2000);
+  const goal = plain(ctx.DLZMOD_rtaAnim().target), first = plain(pg.eq.rtaData);
+  const part = 1 - Math.pow(0.2, 0.33);
+  assert.ok(first.every((v, k) => Math.abs(v - part * goal[k]) < 1e-9), "one step of the way, from the bottom");
+});
+test("EQ spectrum: the EQ's shape follows the widget's size and range; none where there is no sound", () => {
+  rtaReset();
+  const ps = [[0, 50], [500, 90], [1000, 50]];
+  const eq = { h: 100, gainRange: 15, freqToX: (f) => 1000 * Math.log10(f / 20) / 3, graphPoints: ps };
+  const a = plain(ctx.DLZMOD_rtaEqShape(eq, 33));
+  assert.notDeepStrictEqual(plain(ctx.DLZMOD_rtaEqShape({ ...eq, gainRange: 30 }, 33)), a, "another range: worked out again");
+  assert.notDeepStrictEqual(plain(ctx.DLZMOD_rtaEqShape({ ...eq, h: 200 }, 33)), a, "another height: worked out again");
+  const pg = eqPage();
+  Object.assign(pg.eq, eq, { h: 102, graphPoints: [[0, 10], [1000, 10]], rtaStrokeColor: "S" });
+  ctx.DLZMOD_rtaShown(pg, true);
+  ctx.DLZMOD_rtaSync(pg, "m.");
+  const heights = () => {
+    let got = null;
+    pg.eq.paintRTA(new Proxy({}, { get: (o, k) => (k === "lineToArray" ? (p) => (got = p) : () => {}), set: () => true }));
+    return plain(got).map((p) => p[1]);
+  };
+  pg.eq.rtaData = Array(33).fill(0);
+  assert.ok(heights().every((y) => y === 100), "a boost where nothing plays: the line stays at the bottom");
+});
 test("EQ spectrum: a narrow cut shows as deep as the curve, from the curve; not with the EQ or the channel's processing off", () => {
   rtaReset();
   // a curve on a 1000 px wide widget, 200 px high, ±15 dB: -15 dB at 4 kHz, Q 4, in RBJ's peak form
@@ -2730,7 +2763,7 @@ test("EQ spectrum: a move under a pixel draws no frame but stays in the data, an
   for (let t = 500; t < 2000; t += 100) rtaAt(rtaMsg(Array(20).fill(-20)), t);
   const n = pg.eq.got.length, a = ctx.DLZMOD_rtaAnim();
   a.drawn = a.shown;
-  a.target = a.shown.map((v) => v + 0.6 / 200);   // 0.6 px up: 60 % of it per step
+  a.target = a.shown.map((v) => v + 0.6 / 200);   // 0.6 px up: under a pixel
   a.at = 2000;
   ctx.DLZMOD_rtaTick(2000);
   assert.strictEqual(pg.eq.got.length, n, "under a pixel since the last frame: none");
