@@ -924,12 +924,15 @@ function DLZMOD_rtaPoints(levels, n = 64, top = 0, span = 60, quiet = true) {
 // says. So the spectrum takes the fine shape from the curve: a cut shows as deep and narrow as it is.
 // A band sees the curve as a power average through its two filters (dlzmod-graph.js: high-pass and
 // low-pass a quarter octave from its centre, Q 0.707). From the curve Mackie's widget draws (graphPoints: [x, y] pixels, 0 dB in the
-// middle), again only when that changes. null: nothing to add (no curve, the EQ bypassed).
+// middle). The widget makes that list anew for each redraw, so its contents say whether it changed:
+// worked out again only then. null: nothing to add (no curve, the EQ bypassed).
 function DLZMOD_rtaEqShape(eq, n) {
   const ps = eq.graphPoints;
   if (eq.bypass || !ps || ps.length < 2 || !(eq.gainRange > 0) || typeof eq.freqToX !== "function") return null;
   const c = DLZMOD_rtaEqShape;
-  if (c.ps === ps && c.n === n) return c.shape;
+  const same = c.n === n && c.ps && c.ps.length === ps.length
+    && ps.every((p, i) => p[0] === c.ps[i][0] && p[1] === c.ps[i][1]);
+  if (same) return c.shape;
   const m = 4 * (n - 1) + 1, octaves = Math.log2(1000), mid = Math.round(0.5 * eq.h), db = new Array(m);
   let j = 0;
   for (let i = 0; i < m; i++) {
@@ -940,14 +943,22 @@ function DLZMOD_rtaEqShape(eq, n) {
     db[i] = (mid - y) / (0.5 * eq.h / eq.gainRange);
   }
   const reach = Math.ceil((m - 1) / octaves * 4);   // four octaves to each side
+  const power = db.map((v) => Math.pow(10, v / 10));
+  if (c.m !== m) {
+    c.m = m;
+    c.weights = [];
+    for (let i = -reach; i <= reach; i++) {
+      const d = i * octaves / (m - 1);
+      c.weights.push(1 / ((1 + Math.pow(2, 4 * (d - 0.25))) * (1 + Math.pow(2, -4 * (d + 0.25)))));
+    }
+  }
   c.shape = new Array(n);
   for (let k = 0; k < n; k++) {
     const g = 4 * k;
     let sum = 0, weight = 0;
     for (let i = Math.max(0, g - reach); i <= Math.min(m - 1, g + reach); i++) {
-      const d = (i - g) * octaves / (m - 1);
-      const w = 1 / ((1 + Math.pow(2, 4 * (d - 0.25))) * (1 + Math.pow(2, -4 * (d + 0.25))));
-      sum += w * Math.pow(10, db[i] / 10);
+      const w = c.weights[i - g + reach];
+      sum += w * power[i];
       weight += w;
     }
     c.shape[k] = db[g] - 10 * Math.log10(sum / weight);

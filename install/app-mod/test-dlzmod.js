@@ -2663,7 +2663,10 @@ test("EQ spectrum: a narrow cut shows as deep as the curve, from the curve; not 
   const at = Math.round(128 * Math.log(4000 / 20) / Math.log(1000));
   assert.ok(Math.abs(shape[at] + 11.8) < 1.5, "at the cut: what the band misses of -15 dB, about 12 dB, got " + shape[at]);
   assert.ok(Math.abs(shape[20]) < 0.1, "far from it: nothing");
-  assert.strictEqual(ctx.DLZMOD_rtaEqShape(eq, 129), ctx.DLZMOD_rtaEqShape(eq, 129), "worked out once per curve");
+  const again = { ...eq, graphPoints: ps.map((p) => p.slice()) };
+  assert.strictEqual(ctx.DLZMOD_rtaEqShape(again, 129), ctx.DLZMOD_rtaEqShape(eq, 129), "the same curve in a new list: not worked out again");
+  const moved = { ...eq, graphPoints: ps.map((p, i) => (i === 300 ? [p[0], p[1] + 1] : p)) };
+  assert.notStrictEqual(ctx.DLZMOD_rtaEqShape(moved, 129), ctx.DLZMOD_rtaEqShape(eq, 129), "a changed curve: again");
   assert.strictEqual(ctx.DLZMOD_rtaEqShape({ ...eq, bypass: true }, 129), null, "EQ off: the sound has no cut");
   const pg = eqPage();
   Object.assign(pg.eq, eq, { rtaStrokeColor: "S", rtaData: Array(129).fill(0.5) });
