@@ -28,8 +28,8 @@ whole start from the kernel's first line, a start that hangs included, with no l
   renderer string" in the network log, at 25-33 s with #140; its "Client connected." when that line
   was lost), not in the first 300 s of a start whose
   screen does not come (a stall: read the network log instead), and without a network log not
-  before ~90 s into the start (that one is a rule for Claude: the wrapper cannot see the start). Wait for the user to say it is up, then one login with all reads in
-  it. The wrapper refuses `run` and `get` by the newest network log (exit 4); `DLZ_SSH_EARLY=1` only
+  before 30 s after the user says the screen is up (that one is a rule for Claude: the wrapper
+  cannot see the start). Wait for the user to say it is up, then one login with all reads in it. The wrapper refuses `run` and `get` by the newest network log (exit 4); `DLZ_SSH_EARLY=1` only
   when the user agrees to an earlier login. The guard cannot see a start whose first lines have not
   arrived yet (before Wi-Fi, ~15-25 s; the log still shows the previous start), so the rule stands
   without it. In a worktree the log is in the main checkout: `DLZ_NETLOG_DIR=<repo>/build/device-logs`.
