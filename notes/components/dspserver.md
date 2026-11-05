@@ -164,6 +164,22 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   (limiter, a fuller compressor or de-esser) cost little next to that [guess, from the ~1 point of
   a processed channel].
 
+  The fourth EQ band (#25) [device, XS, 2026-11-05]: EQ page, Spectrum on, every channel unmuted, EQ
+  on everywhere; mic 1 also had bands 1-3 on, all other channels only band 4.
+
+  | State | Mean waiting | Worst block left |
+  |---|---|---|
+  | EQ on, band 4 flat | 59.1 % | 28.2 % |
+  | EQ on, band 4 at +6 dB on 14 blocks | 56.6 % | 31.6 % |
+
+  An active `EqBand` costs ~0.18 points of a block (~5 µs), and an earlier run with 3 active blocks
+  gave the same rate (60.8 → 60.3 %). A flat band costs nothing measurable. The 4 master blocks of
+  the USB and NDI mix-minus did not run, so all 18 would cost ~3.2 points. The worst block does not
+  follow the band: it went up with the band on, and moved between 28 and 32 % across these runs.
+  Every band of all channels on (56 active on these channels, 17 here) was not measured: at the same
+  rate about 50 % waiting [guess]. Bands of channels with their EQ on but gain 0 stay skipped, so a
+  normal mixer sits well above that.
+
 ## Recordings
 
 - Recordings: the file named by the hub key `recFile` (see [node-backend.md](node-backend.md)).

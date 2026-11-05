@@ -66,7 +66,7 @@ Owned by package `faderlink` 521 (binary, flash scripts, firmware, bitstreams). 
   - Not `i.2.*`/`i.3.*`: real channels on the full-size, whose graph binds their mix, pan and gain.
     Not `a.2.pan`/`a.3.pan`: not on the XS. Not `eqBand`: one key, in use by the EQ page. Keys with
     min = max (`eq.hp.gain`, `eq.hp.q`, `eq.b*.slope`) cannot move.
-  - In the mod (#25, not on a page yet): a panel entry with `stepKey` goes through `DLZMOD_knobs` for
+  - In the mod (#25, band 4 on the EQ page): a panel entry with `stepKey` goes through `DLZMOD_knobs` for
     `SET_KNOBS`, which puts its knob on the stand-in of its place in the list. `DLZMOD_knobCatch` (from
     `la()`'s key loop) drops the change, so it reaches neither the hub's state, the broadcast nor the
     3-second save, and sends the screen `DLZMOD_KNOB` with the steps; `DLZMOD_knobStep` applies them

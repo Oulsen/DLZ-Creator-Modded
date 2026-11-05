@@ -942,6 +942,14 @@ function DLZMOD_knobs(list) {
   });
 }
 
+// #25: PageEQ's knobs (patch.py; knob 1 the HP filter, 2-4 frequency, gain and Q of the selected
+// band): faderlink's table has no eq.b4.*, so band 4's three go through the stand-ins
+function DLZMOD_eqKnobs(list, prefix, band) {
+  if (band !== "b4") return DLZMOD_knobs(list);
+  const on = { 1: "freq", 2: "gain", 3: "q" };
+  return DLZMOD_knobs(list.map((e, n) => (e && on[n] ? Object.assign({}, e, { stepKey: prefix + "eq.b4." + on[n] }) : e)));
+}
+
 function DLZMOD_knobStep(t) {
   const key = t && (DLZMOD_knobs.steps || [])[t.knob];
   if (!key || DLZMOD_external()) return;

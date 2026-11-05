@@ -2872,6 +2872,18 @@ test("eq band 4: a preset without it means the band flat, in both forms, on Data
   assert.strictEqual(ui.applied.pop()[1], eq, "raw 0-1 values: no dB value goes in");
 });
 
+test("eq band 4: its knobs sit on the stand-ins, bands 1-3 and the HP filter on their own keys", () => {
+  const { DLZMOD_eqKnobs: knobs } = ctx;
+  const panel = () => ["eq.hp.freq", "eq.bX.freq", "eq.bX.gain", "eq.bX.q", "eqBand"].map((key) => ({ control: { key } }));
+  const b4 = knobs(panel(), "i.1.", "b4");
+  assert.deepStrictEqual(Array.from(b4, (e) => e.control.key), ["eq.hp.freq", "a.1.pan", "f.0.pan", "f.1.pan", "eqBand"]);
+  assert.deepStrictEqual(Array.from(ctx.DLZMOD_knobs.steps).slice(1), ["i.1.eq.b4.freq", "i.1.eq.b4.gain", "i.1.eq.b4.q"]);
+  assert.strictEqual(0 in ctx.DLZMOD_knobs.steps, false, "knob 1 stays the HP filter");
+  const b3 = knobs(panel(), "i.1.", "b3");
+  assert.deepStrictEqual(Array.from(b3, (e) => e.control.key), panel().map((e) => e.control.key));
+  assert.strictEqual(ctx.DLZMOD_knobs.steps.length, 0, "back on band 3 no knob steps band 4");
+});
+
 test("knobs: a panel entry with stepKey sits on the stand-in of its place, the steps move the setting", () => {
   const { DLZMOD_knobs: knobs, DLZMOD_knobStep: step, Data } = ctx;
   const mine = { title: "Ceiling", stepKey: "dlzmod.x", control: { key: "dlzmod.x", color: "c" } };

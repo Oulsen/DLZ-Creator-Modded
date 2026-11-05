@@ -812,7 +812,7 @@ exec 3>&-
 exec setpriv --reuid=65533 --regid=65533 --clear-groups --bounding-set=-all --inh-caps=-all --no-new-privs \
   /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME=/ TMPDIR=/run/sb/tmp PYTHONDONTWRITEBYTECODE=1 \
   /bin/bash -c 'set -Eeuo pipefail; MNT=/run/sb/stage; TOOLS=/run/pkg/mod
-    for t in app:srv/app.js server:srv/server.js graph:usr/local/share/evolve-a1/mixergraph-dlzlite.js; do
+    for t in app:srv/app.js server:srv/server.js graph:usr/local/share/evolve-a1/mixergraph-dlzlite.js graph-full:usr/local/share/evolve-a1/mixergraph.js; do
       python3 -B -E -s "$TOOLS/patch.py" --check "${t%%:*}" "$MNT/${t#*:}" || exit 213
     done
     . "$TOOLS/apply-mod.sh"; install_sd_system; apply_patches; set_mod_defaults; record_version'

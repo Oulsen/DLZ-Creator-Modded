@@ -101,10 +101,10 @@ headphone 1 and 2 mixes.
   master fader [static; device: the meter stays put when the master fader is pulled down]. The mod's
   Both meter mode computes the level after it in the app (#134, [../mod.md](../mod.md)).
 - **EQ**: 3 `EqBand`s + HPF per strip, keys `eq.b1-3.*`, `eq.hp.*`; app.js and the faderlink knob
-  table know only b1-b3. The mod adds a fourth on the XS (#25, [../mod.md](../mod.md)). A band is
+  table know only b1-b3. The mod adds a fourth on both models (#25, [../mod.md](../mod.md)). A band is
   skipped while its gain is 0 (`!@...gain` in `bypass`); the band's own `bypass` key is not read.
   The lists of bands: 4 strips and 6 for the master (L, R of the main mix, the USB and the NDI
-  mix-minus), 18 band blocks more in all on the XS [static].
+  mix-minus), 18 band blocks more in all on the XS; the full-size's `mixergraph.js` has 9 lists [static].
 
 ## Features in the graph
 

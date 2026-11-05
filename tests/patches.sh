@@ -26,7 +26,7 @@ dnode() { QEMU_LD_PREFIX=$DUMP LD_LIBRARY_PATH=$L/blas:$L/lapack:$L qemu-arm "$D
 dnode --version > /dev/null 2>&1 || { echo "the dump's node does not run (qemu-arm?)"; exit 2; }
 echo "node: the dump's $(dnode --version)"
 
-for t in app:srv/app.js server:srv/server.js graph:usr/local/share/evolve-a1/mixergraph-dlzlite.js; do
+for t in app:srv/app.js server:srv/server.js graph:usr/local/share/evolve-a1/mixergraph-dlzlite.js graph-full:usr/local/share/evolve-a1/mixergraph.js; do
   src=$DUMP/${t#*:}
   t=${t%%:*}
   out=$(python3 install/patch.py --check $t "$src" 2>&1) && ok "$t.js: every anchor once" || bad "$t.js anchors: $out"
@@ -54,6 +54,15 @@ if [ -f "$TMP/graph.js.orig" ]; then
   fi
 else
   bad "graph.js: no patched graph, tests/graph-check.js not run"
+fi
+if [ -f "$TMP/graph-full.js.orig" ]; then
+  if dnode tests/graph-check.js "$TMP/graph-full.js.orig" "$TMP/graph-full.js" > "$TMP/graph-full.check" 2>&1; then
+    ok "graph-full.js: $(grep -c '^ok' "$TMP/graph-full.check") checks of the patched graph (tests/graph-check.js)"
+  else
+    bad "graph-full.js: $(grep -v '^ok' "$TMP/graph-full.check" | head -5)"
+  fi
+else
+  bad "graph-full.js: no patched graph, tests/graph-check.js not run"
 fi
 # #243: the top sheet's clear in Mackie's own code, as patched
 if [ -f "$TMP/app.js" ]; then

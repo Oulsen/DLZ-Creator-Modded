@@ -2,7 +2,7 @@
 // its QuickJS), appended by install/patch.py. Only function declarations: they are hoisted, so the
 // patched lines above can call them. The file calls compileGraph(graph) itself, above this part, so
 // what goes into the graph is patched in before that call (DLZMOD_rtaAnalyser too), never pushed
-// here. The full-size's mixergraph.js is not patched: there the EQ page simply shows no spectrum.
+// here. The full-size's mixergraph.js does not get this: there the EQ page simply shows no spectrum.
 
 // #131 the sound behind the EQ curve. The channel whose EQ page the mixer's screen shows (hub key
 // dlzmod.rta, the codes in DLZMOD_rtaTap's callers; 0 = no EQ page open) is mixed into one mono
