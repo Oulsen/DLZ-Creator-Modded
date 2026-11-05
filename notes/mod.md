@@ -176,17 +176,10 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   channel. In `DLZMOD_keys` (so app.js knows it and the card's state has it from the install), not a
   setting [sandbox: 3 for channel 3/4, 8 for LR, 0 after leaving the page].
 - **Drawing**: every VU message (`parseVuData`, patched) goes to `DLZMOD_rtaVu`: the band bytes
-  (Mackie's VU scale, 1/80 per dB) as 64 points over the curve's 20 Hz - 20 kHz, interpolated in dB
-  between bands (Catmull-Rom, never beyond the two nearest bands), on the **EQ curve's own dB
-  scale**: the graph's height is twice its `gainRange` (Mackie's ±15 dB: 30 dB), so a -15 dB cut
-  that the bands see in full dips half the height, as the curve does. Before, the height was 60 dB
-  (-60 to 0 dBFS), and an EQ change looked half as deep as the curve's [device: "moves, but does not
-  reflect what it is doing"]. The top follows the loudest band (`DLZMOD_rtaRange`): 6-12 dB above
-  it in 6 dB steps, moving up when a band reaches it and down when all stay more than 18 dB below,
-  so a boost or cut of a few dB does not move the scale; afresh for another channel or after a
-  second without a message. The drawn top follows those steps in about half a second
-  (`DLZMOD_rtaGlideTop`, #217): a step used to move the whole picture at once. That is the target of
-  an animation of the mod's own (`DLZMOD_rtaTick`), which moves the EQ widget's spectrum data
+  (Mackie's VU scale, 1/80 per dB) as 128 points over the curve's 20 Hz - 20 kHz, interpolated in dB
+  between bands (Catmull-Rom, never beyond the two nearest bands), on a **fixed scale** of its own,
+  -60 to 0 dBFS, as analysers have (Pro-Q: 60, 90 or 120 dB, set by hand). An automatic scale, tried
+  in #131 and #217, moved the whole picture and put it against the top when music started. That is the target of an animation of the mod's own (`DLZMOD_rtaTick`), which moves the EQ widget's spectrum data
   (`rtaData`, as Mackie's `setRTA` would set it) 80 % of the way per 100 ms of real time, a step
   every 33 ms like the meters' tick; on silence (judged on the message itself, not
   the average) or no message for 300 ms it sinks to the bottom and goes. With `rtaOverlay` off the
@@ -198,9 +191,10 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   bands soften an EQ change (2nd-order filters, neighbours leak in), and more bands do not help: a
   -15 dB cut at 4 kHz Q 4 on pink noise reads -2.9 dB with 10 bands, -3.2 with 20 or 30, -3.3 with 60;
   twice the filters per band, -4.6 [static: a simulation of the filters]. So `DLZMOD_rtaEqShape`
-  adds what the bands miss when drawing, from the curve Mackie's widget has (`graphPoints`): the curve
-  minus the curve as a band sees it, not with the EQ bypassed or `procBypass` on. The fine shape of a
-  cut is calculated from the curve, not measured; 128 points so a narrow one fits. Each frame
+  draws the EQ from the curve Mackie's widget has (`graphPoints`): the curve as a band sees it comes
+  off on the sound's scale and the curve goes on, on its own scale (at 60 dB alone a cut looked half as
+  deep [device: "moves, but does not reflect what it is doing"]); not with the EQ bypassed or
+  `procBypass` on. So a cut dips as far as the curve; its shape is calculated, not measured. Each frame
   redraws the whole EQ widget (grid, curve, knobs). A redraw for something else or a touch within 66 ms counts
   as that step's frame, so the picture keeps moving while a knob turns without adding to it [device].
 - **What limits its frames** (#217) [device, XS, GPU trace, 2026-11-05, music, hands off]: not the

@@ -592,8 +592,8 @@ function DLZMOD_paintDbScale(t, sl, m) {
 // shows it when its EQ page has the same channel. Shown in the EQ widget's own spectrum data (rtaData),
 // drawn with the curve (rtaOverlay off: Mackie's overlay layer is not used) by the mod's
 // DLZMOD_rtaPaint instead of Mackie's paintRTA. Averaged like an analyser (DLZMOD_rtaSmooth) and on
-// the EQ curve's own dB scale (DLZMOD_rtaRange), so an EQ change shows as a dip or rise as deep as the
-// curve's, instead of drowning in every beat; animated towards each message's picture by a timer of
+// a fixed scale (DLZMOD_RTA_SPAN), with the EQ's own shape on top (DLZMOD_rtaEqShape), so an EQ
+// change shows as a dip or rise as deep as the curve's; animated towards each message's picture by a timer of
 // its own (DLZMOD_rtaTick).
 
 // the bands' centres in Hz, as the graph mod has them
@@ -741,11 +741,9 @@ function DLZMOD_rtaVu(t, now) {
     const a = DLZMOD_rtaAnim();
     if (a.eq !== page.eq) DLZMOD_rtaStop(true);
     a.eq = page.eq;
-    // the curve's own dB scale: gainRange above and below the middle line (Mackie's ±15 dB)
-    const span = 2 * (page.eq.gainRange > 0 ? page.eq.gainRange : 15);
     // null: silence (this message's, not the average's: the picture goes as soon as the sound stops)
     const sound = raw.slice(0, DLZMOD_rtaFreqs().length).some((v) => v > 20 / 80);   // above -60 dBFS
-    a.target = sound ? DLZMOD_rtaPoints(levels, 128, DLZMOD_rtaGlideTop(DLZMOD_rtaRange(levels, code, now), code, now), span, false) : null;
+    a.target = sound ? DLZMOD_rtaPoints(levels, 128, 0, DLZMOD_RTA_SPAN, false) : null;
     a.at = now;
     // the look's colour each time: a change of look shows at the next message
     page.eq.rtaStrokeColor = DLZMOD_rtaColor();
@@ -785,6 +783,7 @@ function DLZMOD_rtaAnim() {
 // channel measured) or a silent one: it sinks to the bottom and goes. now: ms (tests), else the clock.
 const DLZMOD_RTA_STEP = 33;   // the app's own tick, the one the meters move on
 const DLZMOD_RTA_BUSY = 66;
+const DLZMOD_RTA_SPAN = 60;   // the sound's fixed scale, in dB: 0 dBFS at the top, as analysers have
 
 function DLZMOD_rtaTick(now) {
   const a = DLZMOD_rtaAnim();
@@ -864,36 +863,6 @@ function DLZMOD_rtaSmooth(levels, code, now) {
   return st.levels;
 }
 
-// The top of the spectrum's scale in dBFS, in 6 dB steps: 6-12 dB above the loudest band, so a boost
-// of a few dB fits without the scale moving. It moves up when a band reaches it and down when every
-// band stays more than 18 dB below it; afresh for another channel or after a pause of more than a
-// second (no message: the page closed, silence, the switch off), as the average (ms: now). -48..+6 dBFS.
-function DLZMOD_rtaRange(levels, code, now) {
-  const st = DLZMOD_rtaRange;
-  const loud = Math.max(...levels.map((v) => (v - 1) * 80));
-  const fit = Math.max(-48, Math.min(6, Math.ceil((loud + 6) / 6) * 6));
-  const dt = now - (st.at || 0);
-  if (st.code !== code || typeof st.top !== "number" || !(dt >= 0) || dt > 1000 || loud > st.top || loud < st.top - 18) {
-    st.top = fit;
-  }
-  st.code = code;
-  st.at = now;
-  return st.top;
-}
-
-// The scale's top as drawn: it follows DLZMOD_rtaRange's steps in about half a second, so a step moves
-// the whole picture slowly instead of making it jump a fifth of its height or more. Afresh for another
-// channel or after a pause of more than a second, as the steps (ms: now).
-function DLZMOD_rtaGlideTop(top, code, now) {
-  const st = DLZMOD_rtaGlideTop;
-  const dt = now - (st.at || 0);
-  if (st.code !== code || typeof st.top !== "number" || !(dt >= 0) || dt > 1000) st.top = top;
-  else st.top += (1 - Math.exp(-dt / 500)) * (top - st.top);
-  st.code = code;
-  st.at = now;
-  return st.top;
-}
-
 // The band levels (0..1 over 80 dB, top = 0 dBFS) as the points DLZMOD_rtaPaint draws: evenly spread
 // over the curve's 20 Hz - 20 kHz (a log scale), each the level at its frequency, on a smooth curve
 // through the bands (Catmull-Rom in dB, never beyond its two nearest bands; outside them: the outer
@@ -920,14 +889,16 @@ function DLZMOD_rtaPoints(levels, n = 64, top = 0, span = 60, quiet = true) {
   return pts;
 }
 
-// What the EQ does that the bands cannot show, in dB per point of n: the curve itself minus the curve
-// as a band sees it. The bands' filters are too wide for a narrow cut (-15 dB at 4 kHz Q 4 reads -3 dB,
-// with 60 bands too; #217), and their width is the audio's time, but the EQ does exactly what its curve
-// says. So the spectrum takes the fine shape from the curve: a cut shows as deep and narrow as it is.
-// A band sees the curve as a power average through its two filters (dlzmod-graph.js: high-pass and
-// low-pass a quarter octave from its centre, Q 0.707). From the curve Mackie's widget draws (graphPoints: [x, y] pixels, 0 dB in the
-// middle). The widget makes that list anew for each redraw, so its contents say whether it changed:
-// worked out again only then. null: nothing to add (no curve, the EQ bypassed).
+// The EQ on the picture, as a part of its height per point of n. The sound has a fixed scale of its own
+// (DLZMOD_RTA_SPAN), the EQ curve its ±gainRange, so a cut in the sound alone would look half as deep
+// as the curve's, and the bands' filters are too wide for a narrow one (-15 dB at 4 kHz Q 4 reads -3 dB,
+// with 60 bands too; #217). But the EQ does exactly what its curve says: so what the bands saw of the
+// curve comes off on the sound's scale, and the curve goes on, on its own: a cut dips as deep and as
+// narrow as the curve. A band sees the curve as a power average through its two filters
+// (dlzmod-graph.js: high-pass and low-pass a quarter octave from its centre, Q 0.707). From the curve
+// Mackie's widget draws (graphPoints: [x, y] pixels, 0 dB in the middle). The widget makes that list
+// anew for each redraw, so its contents say whether it changed: worked out again only then. null:
+// nothing to add (no curve, the EQ bypassed).
 function DLZMOD_rtaEqShape(eq, n) {
   const ps = eq.graphPoints;
   if (eq.bypass || !ps || ps.length < 2 || !(eq.gainRange > 0) || typeof eq.freqToX !== "function") return null;
@@ -963,7 +934,7 @@ function DLZMOD_rtaEqShape(eq, n) {
       sum += w * power[i];
       weight += w;
     }
-    c.shape[k] = db[g] - 10 * Math.log10(sum / weight);
+    c.shape[k] = db[g] / (2 * eq.gainRange) - 10 * Math.log10(sum / weight) / DLZMOD_RTA_SPAN;
   }
   c.ps = ps;
   c.n = n;
@@ -979,9 +950,9 @@ function DLZMOD_rtaPaint(eq, t) {
   if (!d || !d.length) return;
   const bottom = eq.h - 2;
   const off = Data.get(DLZMOD_rtaShown.prefix + "procBypass");   // a channel that skips its EQ
-  const shape = off ? null : DLZMOD_rtaEqShape(eq, d.length), span = 2 * (eq.gainRange > 0 ? eq.gainRange : 15);
+  const shape = off ? null : DLZMOD_rtaEqShape(eq, d.length);
   const pts = d.map((v, k) => [eq.freqToX(20 * Math.pow(1000, k / (d.length - 1))),
-    bottom * (1 - Math.max(0, Math.min(1, v + (shape ? shape[k] / span : 0))))]);
+    bottom * (1 - Math.max(0, Math.min(1, v + (shape ? shape[k] : 0))))]);
   t.lineWidth = 4;
   t.lineJoin = "round";
   t.beginPath();

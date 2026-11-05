@@ -2395,8 +2395,8 @@ const rtaReset = () => {
   ctx.DLZMOD_rtaShown.page = null;
   ctx.DLZMOD_rtaShown.prefix = "";
   ctx.DLZMOD_rtaStop(true);
-  ctx.DLZMOD_rtaRange.code = ctx.DLZMOD_rtaSmooth.code = ctx.DLZMOD_rtaGlideTop.code = undefined;
-  ctx.DLZMOD_rtaRange.top = ctx.DLZMOD_rtaSmooth.levels = ctx.DLZMOD_rtaGlideTop.top = undefined;
+  ctx.DLZMOD_rtaSmooth.code = undefined;
+  ctx.DLZMOD_rtaSmooth.levels = undefined;
   delete ctx.wstream;
   Object.assign(ctx.DLZMOD_rtaAnim(), { busyAt: -1e9, at: 0, later: (f, ms) => (ui.later = ms, 1) });
 };
@@ -2633,21 +2633,6 @@ test("EQ spectrum: up in about 0.1 s, down in about 0.3 s; afresh for another ch
   assert.deepStrictEqual(S([0.1, 0.1], 2, 4200), [0.1, 0.1], "another channel: afresh");
   assert.deepStrictEqual(S([0, 0], 2, 5800), [0, 0], "after a pause of over a second: afresh");
 });
-test("EQ spectrum: the scale's top 6-12 dB above the loudest band, steady while the bands move a little", () => {
-  let t = 1000;
-  const R = (dbs, code = 1) => ctx.DLZMOD_rtaRange(dbs.map((db) => 1 + db / 80), code, t += 100);
-  ctx.DLZMOD_rtaRange.code = undefined;
-  assert.strictEqual(R([-40, -14, -30]), -6, "loudest -14: top -6 dBFS");
-  assert.strictEqual(R([-40, -8, -30]), -6, "a boost of 6 dB: the same top");
-  assert.strictEqual(R([-40, -23, -30]), -6, "a cut of 9 dB: the same top");
-  assert.strictEqual(R([-40, -3, -30]), 6, "a band over the top: up");
-  assert.strictEqual(R([-40, -10, -30]), 6, "not down yet (16 dB below)");
-  assert.strictEqual(R([-40, -13, -30], 2), -6, "another channel: afresh");
-  assert.strictEqual(R([-80, -80, -80], 2), -48, "silence: the lowest top");
-  assert.strictEqual(R([10, 0, 0], 2), 6, "over 0 dBFS: the highest");
-  t += 1500;
-  assert.strictEqual(R([-40, -14, -30], 2), -6, "after a pause of over a second: afresh (the page left, silence)");
-});
 test("EQ spectrum: a narrow cut shows as deep as the curve, from the curve; not with the EQ or the channel's processing off", () => {
   rtaReset();
   // a curve on a 1000 px wide widget, 200 px high, ±15 dB: -15 dB at 4 kHz, Q 4, in RBJ's peak form
@@ -2664,8 +2649,9 @@ test("EQ spectrum: a narrow cut shows as deep as the curve, from the curve; not 
   const eq = { h: 200, gainRange: 15, freqToX: toX, graphPoints: ps };
   const shape = plain(ctx.DLZMOD_rtaEqShape(eq, 129));
   const at = Math.round(128 * Math.log(4000 / 20) / Math.log(1000));
-  assert.ok(Math.abs(shape[at] + 11.8) < 1.5, "at the cut: what the band misses of -15 dB, about 12 dB, got " + shape[at]);
-  assert.ok(Math.abs(shape[20]) < 0.1, "far from it: nothing");
+  // the curve's half of the height, less what the band already read, about 3 dB of the 60
+  assert.ok(Math.abs(shape[at] + 0.5 - 3.2 / 60) < 0.02, "at the cut: half the height, as the curve, got " + shape[at]);
+  assert.ok(Math.abs(shape[20]) < 0.003, "far from it: nothing");
   const again = { ...eq, graphPoints: ps.map((p) => p.slice()) };
   assert.strictEqual(ctx.DLZMOD_rtaEqShape(again, 129), ctx.DLZMOD_rtaEqShape(eq, 129), "the same curve in a new list: not worked out again");
   const moved = { ...eq, graphPoints: ps.map((p, i) => (i === 300 ? [p[0], p[1] + 1] : p)) };
@@ -2687,32 +2673,17 @@ test("EQ spectrum: a narrow cut shows as deep as the curve, from the curve; not 
   delete ctx.Data.data["m.procBypass"];
   assert.strictEqual(off[at], off[20], "the channel skips its EQ: flat");
 });
-test("EQ spectrum: a step of the scale moves the picture in about half a second, no jump", () => {
-  const G = (top, code, now) => ctx.DLZMOD_rtaGlideTop(top, code, now);
-  ctx.DLZMOD_rtaGlideTop.code = undefined;
-  assert.strictEqual(G(-6, 1, 1000), -6, "starts on the top");
-  const once = G(6, 1, 1033);
-  assert.ok(once > -6 && once < -5, "a 12 dB step: under a dB in one step");
-  let v = once;
-  for (let t = 1066; t <= 3000; t += 33) v = G(6, 1, t);
-  assert.ok(Math.abs(v - 6) < 0.3, "as good as there in two seconds");
-  assert.strictEqual(G(-12, 2, 3033), -12, "another channel: afresh");
-  assert.strictEqual(G(-30, 2, 4500), -30, "after a pause of over a second: afresh");
-});
-test("EQ spectrum: on the EQ curve's dB scale, so a -15 dB cut dips as far as the curve", () => {
+test("EQ spectrum: a fixed scale, -60 to 0 dBFS, whatever the music does; a silent message: gone at once", () => {
   rtaReset();
   const pg = eqPage();
-  pg.eq.gainRange = 15;
   ctx.DLZMOD_rtaShown(pg, true);
   ctx.DLZMOD_rtaSync(pg, "m.");
-  const dbs = Array(20).fill(-20);
-  ctx.DLZMOD_rtaVu(rtaMsg(dbs), 1000);
-  const flat = plain(ctx.DLZMOD_rtaAnim().target);
-  dbs[5] = -35;
-  ctx.DLZMOD_rtaVu(rtaMsg(dbs), 2100);   // after a pause of over a second: afresh, the cut at once
-  const cut = plain(ctx.DLZMOD_rtaAnim().target);
-  const k = cut.indexOf(Math.min(...cut));
-  assert.ok(Math.abs(flat[k] - cut[k] - 0.5) < 0.01, "15 dB = half the height, as the curve's ±15 dB (" + (flat[k] - cut[k]) + ")");
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-30)), 1000);
+  const low = plain(ctx.DLZMOD_rtaAnim().target);
+  assert.ok(low.every((v) => Math.abs(v - 0.5) < 1e-9), "-30 dBFS: halfway up");
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-6)), 2100);   // after a pause of over a second: afresh
+  const loud = plain(ctx.DLZMOD_rtaAnim().target);
+  assert.ok(loud.every((v) => Math.abs(v - 0.9) < 1e-9), "-6 dBFS: nine tenths up, not at the top");
   ctx.DLZMOD_rtaVu(rtaMsg(Array(20).fill(-70)), 2200);
   assert.strictEqual(ctx.DLZMOD_rtaAnim().target, null, "silent message: gone at once, not after the average");
   const quiet = Array(20).fill(-70);
