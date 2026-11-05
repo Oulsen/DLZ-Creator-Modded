@@ -777,9 +777,9 @@ function DLZMOD_rtaAnim() {
 // it, so one is drawn only
 // when a point moved a pixel or more since the last one, and none while the screen program is behind
 // (DLZMOD_rtaBacklog): app.js does not wait for it, so frames it cannot keep up with pile up in memory
-// and the screen lags more and more. Within 400 ms of a touch (DLZMOD_rtaHookTouch) or a redraw for
-// something else (a knob, a dragged dot) the picture only moves along in the widget's data, drawn with
-// those redraws, so touching, turning and dragging stay as quick as without it. Standing still (no
+// and the screen lags more and more. A redraw for something else (a knob, a dragged dot) or a touch
+// (DLZMOD_rtaHookTouch) within the last step counts as this step's frame: it shows the picture too, so
+// a second one right behind it would only make the touch or the knob wait. Standing still (no
 // point half a pixel off): a slower check. No message for 300 ms (silence, the switch off, another
 // channel measured) or a silent one: it sinks to the bottom and goes. now: ms (tests), else the clock.
 const DLZMOD_RTA_STEP = 33;   // the app's own tick, the one the meters move on
@@ -805,7 +805,19 @@ function DLZMOD_rtaTick(now) {
     a.shown = gone ? null : next;
     if (moved || gone) eq.rtaData = a.shown;
     const far = gone || !a.drawn || next.some((v, k) => Math.abs(v - (a.drawn[k] || 0)) * px >= 1);
-    if (far && (now - a.busyAt >= 400 || gone) && (gone || !DLZMOD_rtaBacklog())) {
+    // TEMP #217: why a step drew no frame, a journal line every 5 s
+    const c = a.count || (a.count = { at: now, ticks: 0, frames: 0, still: 0, busy: 0, behind: 0, most: 0 });
+    c.ticks++;
+    c.most = Math.max(c.most, typeof wstream !== "undefined" && wstream ? wstream.writableLength : 0);
+    if (!far) c.still++;
+    else if (now - a.busyAt < DLZMOD_RTA_STEP && !gone) c.busy++;
+    else if (!gone && DLZMOD_rtaBacklog()) c.behind++;
+    else c.frames++;
+    if (now - c.at >= 5000) {
+      console.log("dlzmod: rta " + JSON.stringify(c));
+      a.count = null;
+    }
+    if (far && (now - a.busyAt >= DLZMOD_RTA_STEP || gone) && (gone || !DLZMOD_rtaBacklog())) {
       a.drawn = a.shown;
       a.drawing = true;
       try {

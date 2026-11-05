@@ -2510,7 +2510,7 @@ test("EQ spectrum: the glide keeps its speed: two short steps go as far as one l
   assert.ok(Math.abs(glide([200]) - 0.84) < 1e-6, "a late timer goes further");
   assert.ok(Math.abs(glide([250]) - 0.84) < 1e-6, "but no more than 200 ms's worth");
 });
-test("EQ spectrum: while the widget redraws for a knob or a dragged dot, the picture moves without frames of its own", () => {
+test("EQ spectrum: a redraw for a knob or a dragged dot counts as this step's frame, the next step draws again", () => {
   rtaReset();
   const pg = eqPage();
   ctx.DLZMOD_rtaShown(pg, true);
@@ -2525,12 +2525,9 @@ test("EQ spectrum: while the widget redraws for a knob or a dragged dot, the pic
   ctx.DLZMOD_rtaTick(1033);
   assert.strictEqual(pg.eq.got.length, 2, "no frame of its own");
   assert.notDeepStrictEqual(plain(pg.eq.rtaData), before, "but the picture moved on, for Mackie's next redraw");
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1250);
-  ctx.DLZMOD_rtaTick(1260);
-  assert.strictEqual(pg.eq.got.length, 2, "250 ms after it: still none");
-  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1400);
-  ctx.DLZMOD_rtaTick(1410);
-  assert.strictEqual(pg.eq.got.length, 3, "400 ms after the last one: frames again");
+  ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), 1060);
+  ctx.DLZMOD_rtaTick(1066);
+  assert.strictEqual(pg.eq.got.length, 3, "a step later: frames again");
 });
 test("EQ spectrum: silence or no message for 300 ms: the picture sinks and goes; a closed page clears it", () => {
   rtaReset();
@@ -2670,7 +2667,7 @@ test("EQ spectrum: on the EQ curve's dB scale, so a -15 dB cut dips as far as th
   ctx.DLZMOD_rtaVu(rtaMsg(quiet), 3000);
   assert.ok(ctx.DLZMOD_rtaAnim().target, "sound after a quiet stretch: shown at once, while the average still rises");
 });
-test("EQ spectrum: a touch anywhere on the screen pauses its frames; Mackie's touch handlers still run", () => {
+test("EQ spectrum: a touch counts as this step's frame; Mackie's touch handlers still run", () => {
   rtaReset();
   const calls = [];
   const saved = ctx.Events;
@@ -2689,10 +2686,10 @@ test("EQ spectrum: a touch anywhere on the screen pauses its frames; Mackie's to
     assert.deepStrictEqual(plain(calls), [["down", true, 10, 20, 0], ["move"], ["up"]], "each once, on Events, with its arguments");
     assert.ok(ctx.DLZMOD_rtaAnim().busyAt >= before, "the touch's time taken");
     ctx.DLZMOD_rtaAnim().busyAt = 1000;
-    rtaAt(rtaMsg(Array(10).fill(-20)), 1100);
-    assert.strictEqual(pg.eq.got.length, 0, "100 ms after a touch: no frame of its own");
-    rtaAt(rtaMsg(Array(10).fill(-20)), 1400);
-    assert.strictEqual(pg.eq.got.length, 1, "400 ms after: frames again");
+    rtaAt(rtaMsg(Array(10).fill(-20)), 1010);
+    assert.strictEqual(pg.eq.got.length, 0, "right after a touch: no frame of its own");
+    rtaAt(rtaMsg(Array(10).fill(-20)), 1040);
+    assert.strictEqual(pg.eq.got.length, 1, "a step later: frames again");
     ctx.DLZMOD_rtaAnim().later = () => { throw new Error("broken"); };
     assert.doesNotThrow(() => ctx.Events.eventPointerDown(1, 1, 0), "the wrapper never throws into Mackie's handler");
   } finally {
