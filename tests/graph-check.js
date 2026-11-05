@@ -3,9 +3,8 @@
 // stringRange and its flattenGraph, which keeps each nested list's current buffer to itself), and the
 // flat block lists are compared.
 //   node tests/graph-check.js <stock mixergraph-dlzlite.js> <patched one> <install/app-mod/dlzmod.js>
-//   node tests/graph-check.js <stock mixergraph.js> <patched one>     the full-size's: no spectrum, so
-//   only Mackie's blocks and band 4
-// Checks (#131, graph-mod/dlzmod-graph.js):
+//   node tests/graph-check.js <stock mixergraph.js> <patched one> <install/app-mod/dlzmod.js>
+// Checks (#131, graph-mod/dlzmod-graph.js), on both models' graphs:
 // - every block of Mackie's is there, in the same order, on the same buffer, with the same parameters
 // - the mod's blocks write only the mod's own buffers; nothing of Mackie's writes them
 // - one tap per channel buffer, right after that channel's "dynin" meter, with the dlzmod.rta value
@@ -19,8 +18,8 @@ const vm = require("vm");
 const assert = require("assert");
 
 const [stockFile, patchedFile, appFile] = process.argv.slice(2);
-if (!patchedFile) {
-  console.error("usage: node graph-check.js <stock graph> <patched graph> [<dlzmod.js>]");
+if (!appFile) {
+  console.error("usage: node graph-check.js <stock graph> <patched graph> <dlzmod.js>");
   process.exit(2);
 }
 
@@ -110,19 +109,6 @@ function checkB4() {
   check(withB4.filter(usesB4).length === b3s.length, "band 4: nothing else reads its keys");
 }
 
-if (!appFile) {   // the full-size's graph: with band 4 taken out, exactly Mackie's
-  let same = true;
-  try {
-    assert.deepStrictEqual(patched.blocks, stock.blocks);
-  } catch (e) {
-    same = false;
-  }
-  check(same, `graph: Mackie's ${stock.blocks.length} blocks unchanged, in the same order, on the same buffers`);
-  check(JSON.stringify(patched.vus) === JSON.stringify(stock.vus), `Mackie's ${Object.keys(stock.vus).length} VU groups as they were`);
-  checkB4();
-  process.exit(fail);
-}
-
 const app = fs.readFileSync(appFile, "utf8");
 const list = (fn) => {
   const m = new RegExp("function " + fn + "\\([^)]*\\) \\{\\s*return (\\[[^\\]]*\\])").exec(app);
@@ -157,10 +143,20 @@ const mine = patched.blocks.filter(ours);
 check(mine.every((b) => writes(b).every((w) => OWN.has(w))), `graph: the mod's ${mine.length} blocks write only its own buffers`);
 
 // the taps: after which meter, and the channel's code as the app's EQ page has it
-const prefixes = list("DLZMOD_rtaCode");   // the app's list, index + 1 = the code
-const meterOf = { "i.0.": "vuInDynIn0", "i.1.": "vuInDynIn1", "p.0.": "vuPlDynIn0", "p.1.": "vuPlDynIn1",
+const codes = list("DLZMOD_rtaCode");   // the app's list, index + 1 = the code, for both models
+const meterOf = { "i.0.": "vuInDynIn0", "i.1.": "vuInDynIn1", "i.2.": "vuInDynIn2", "i.3.": "vuInDynIn3",
+  "p.0.": "vuPlDynIn0", "p.1.": "vuPlDynIn1", "p.2.": "vuPlDynIn2",
   "v.0.": "vuViDynIn0", "v.1.": "vuViDynIn1", "s.": "vuSmpDynIn", "m.": "vuMasterDynIn" };
-check(prefixes.length === 8 && prefixes.every((p) => meterOf[p]), "app: the 8 channels with an EQ page: " + prefixes.join(" "));
+check(codes.length === 11 && codes.every((p) => meterOf[p]), "app: the 11 channels with an EQ page on either model: " + codes.join(" "));
+// this model's: those whose meter this graph has, which must be every "dynin" meter it has
+const stockMeters = new Set(stock.blocks.filter((b) => b.type === "MaxMeter").map((b) => b.p.vu));
+const prefixes = codes.filter((p) => stockMeters.has(meterOf[p]));
+const unknown = [...stockMeters].filter((m) => /DynIn/.test(m) && !prefixes.some((p) => meterOf[p] === m));
+const model = stockMeters.has("vuViDynIn0")
+  ? ["XS", ["i.0.", "i.1.", "p.0.", "p.1.", "v.0.", "v.1.", "s.", "m."]]
+  : ["full-size", ["i.0.", "i.1.", "p.0.", "p.1.", "s.", "m.", "i.2.", "i.3.", "p.2."]];
+check(unknown.length === 0 && JSON.stringify(prefixes) === JSON.stringify(model[1]),
+  `${model[0]}: ${prefixes.length} channels with a meter after the EQ: ${prefixes.join(" ")}${unknown.length ? "; none for " + unknown : ""}`);
 const taps = [];
 patched.blocks.forEach((b, i) => {
   if (b.p.dest !== "buffer:dlzmodRta") return;
@@ -169,7 +165,7 @@ patched.blocks.forEach((b, i) => {
   taps.push({ i, b, after: patched.blocks[j] });
 });
 for (const p of prefixes) {
-  const code = prefixes.indexOf(p) + 1;
+  const code = codes.indexOf(p) + 1;
   const t = taps.filter((x) => x.b.p.bypass === `@dlzmod.rta != ${code}`);
   const stereo = !p.startsWith("i.");
   const okTap = t.length === (stereo ? 2 : 1) && t.every((x) => x.b.type === "GainWithLinMixTo"
@@ -181,7 +177,8 @@ for (const p of prefixes) {
   const metered = new Set(stock.blocks.filter((b) => b.type === "MaxMeter" && b.p.vu === meterOf[p]).map((b) => "buffer:" + b.buf));
   check(t.length === metered.size && t.every((x) => metered.has(x.b.p.src)), `tap ${p}: reads the buffer(s) that meter reads`);
 }
-check(taps.length === 14, `taps: 14 (${taps.length})`);
+const wantTaps = prefixes.reduce((n, p) => n + (p.startsWith("i.") ? 1 : 2), 0);
+check(taps.length === wantTaps, `taps: ${wantTaps} (${taps.length}), none for a channel this model has not`);
 const clear = patched.blocks.findIndex((b) => b.type === "Clear" && b.buf === "dlzmodRta");
 check(clear >= 0 && clear < Math.min(...taps.map((t) => t.i)), "the mod's buffer cleared before the first tap");
 

@@ -13,7 +13,7 @@ The first run keeps the original as <file>.orig; every run patches from that ori
 be re-run after changing the patches. Each anchor must occur exactly once in the original,
 otherwise nothing is written (a different firmware build needs its anchors checked). Our own code
 is appended afterwards: app-mod/dlzmod.js (with the mod version and its CHANGELOG.md section stamped in),
-server-mod/dlzmod-server.js or graph-mod/dlzmod-graph.js; the full-size's graph gets no code of ours.
+server-mod/dlzmod-server.js or graph-mod/dlzmod-graph.js, the latter on both models' graphs.
 
 The patched server.js only ever runs from the SD card, where the only SD slot holds the boot card
 (FORMAT SD would wipe its bootloader and partition table) and Mackie updates must not be installed
@@ -716,8 +716,8 @@ SERVER_PATCHES = [
 
 # #131 the sound behind the EQ curve (graph-mod/dlzmod-graph.js): its meters, its buffer cleared at
 # the start of each cycle, and a tap right after each channel's EQ (after Mackie's "dynin" meter, on
-# the buffer(s) that meter reads)
-GRAPH_PATCHES = [
+# the buffer(s) that meter reads). Both models; only the XS has virtual channels (below)
+GRAPH_SPECTRUM_PATCHES = [
     (
         "eq spectrum: its meters as the VU group dlzmod.rta",
         "configureVU({\n",
@@ -733,7 +733,7 @@ GRAPH_PATCHES = [
         "eq spectrum: mics",
         "        {type: 'MaxMeter', vu: `vuInDynIn${i}`, threshold: VU_THRESHOLD},\n",
         "        {type: 'MaxMeter', vu: `vuInDynIn${i}`, threshold: VU_THRESHOLD},\n"
-        "        DLZMOD_rtaTap(1 + i, [workBuf]),\n",
+        "        DLZMOD_rtaTap(DLZMOD_rtaMicCode(i), [workBuf]),\n",
     ),
     (
         "eq spectrum: samples",
@@ -745,13 +745,7 @@ GRAPH_PATCHES = [
         "eq spectrum: players",
         "        workBufR, {type: 'MaxMeter', vu: `vuPlDynIn${i}`, threshold: VU_THRESHOLD},\n",
         "        workBufR, {type: 'MaxMeter', vu: `vuPlDynIn${i}`, threshold: VU_THRESHOLD},\n"
-        "        DLZMOD_rtaTap(3 + i, [workBuf, workBufR]),\n",
-    ),
-    (
-        "eq spectrum: virtual channels",
-        "        workBufR, {type: 'MaxMeter', vu: `vuViDynIn${i}`, threshold: VU_THRESHOLD},\n",
-        "        workBufR, {type: 'MaxMeter', vu: `vuViDynIn${i}`, threshold: VU_THRESHOLD},\n"
-        "        DLZMOD_rtaTap(5 + i, [workBuf, workBufR]),\n",
+        "        DLZMOD_rtaTap(DLZMOD_rtaPlayerCode(i), [workBuf, workBufR]),\n",
     ),
     (
         "eq spectrum: master",
@@ -765,6 +759,15 @@ GRAPH_PATCHES = [
         "\ncompileGraph(graph)\n",
         "\ngraph.push(DLZMOD_rtaAnalyser())\n\ncompileGraph(graph)\n",
     ),
+]
+
+GRAPH_PATCHES = GRAPH_SPECTRUM_PATCHES + [
+    (
+        "eq spectrum: virtual channels",
+        "        workBufR, {type: 'MaxMeter', vu: `vuViDynIn${i}`, threshold: VU_THRESHOLD},\n",
+        "        workBufR, {type: 'MaxMeter', vu: `vuViDynIn${i}`, threshold: VU_THRESHOLD},\n"
+        "        DLZMOD_rtaTap(5 + i, [workBuf, workBufR]),\n",
+    ),
     (
         # #25 the fourth EQ band: every list of bands, the 4 strips' and the master's 6 (L and R of
         # the main mix, the USB and the NDI mix-minus). Its keys: "eq, four bands" in the app and
@@ -776,9 +779,8 @@ GRAPH_PATCHES = [
     ),
 ]
 
-# #25 the full-size's graph: the same fourth band, in its 9 lists of bands. No spectrum here, so none
-# of the graph mod: only this patch
-GRAPH_FULL_PATCHES = [
+# the full-size's graph: the spectrum, and #25's fourth band in its 9 lists of bands
+GRAPH_FULL_PATCHES = GRAPH_SPECTRUM_PATCHES + [
     (
         "eq, four bands: the full-size's graph",
         "['b1', 'b2', 'b3']",
@@ -792,7 +794,7 @@ TARGETS = {
     "app": (APP_PATCHES, HERE / "app-mod" / "dlzmod.js", True),
     "server": (SERVER_PATCHES, HERE / "server-mod" / "dlzmod-server.js", False),
     "graph": (GRAPH_PATCHES, HERE / "graph-mod" / "dlzmod-graph.js", False),
-    "graph-full": (GRAPH_FULL_PATCHES, None, False),
+    "graph-full": (GRAPH_FULL_PATCHES, HERE / "graph-mod" / "dlzmod-graph.js", False),
 }
 
 

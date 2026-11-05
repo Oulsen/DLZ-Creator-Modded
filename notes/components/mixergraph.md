@@ -147,11 +147,14 @@ headphone 1 and 2 mixes.
 
 ## Modding it
 
-- Hook: `install/patch.py graph` patches `mixergraph-dlzlite.js` by anchor and appends
-  `graph-mod/dlzmod-graph.js` (function declarations only: hoisted, so the patched lines can call
+- Hook: `install/patch.py graph` patches `mixergraph-dlzlite.js` by anchor, `graph-full` the
+  same for `mixergraph.js`, and both append `graph-mod/dlzmod-graph.js` (function declarations only: hoisted, so the patched lines can call
   them), keeps a `.orig`; the installer and the update check the anchors first. A changed graph
   needs a `dspserver` restart (audio drops briefly; an update applies at a start). Overwritten by a
   `dspserver` package update. First user: the EQ spectrum (#131).
+- Compiled size, stock: 583 blocks on the XS, 676 on the full-size; the spectrum adds 95 on either
+  (14 taps, the analyser), and the tap count is the same because the full-size has no virtual
+  channels [static, `tests/graph-check.js`].
 - Own state keys work: the hub stores and broadcasts any key, the graph binds to it, and an unset
   key leaves the block at its default. A Mod page toggle can thus drive a new block.
 - Own meters work the same way: `configureVU` takes any group name and makes a `VU` per name; the

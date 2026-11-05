@@ -57,12 +57,12 @@ function DLZMOD_layoutTabs(page) {
 // factory reset). app.js refuses keys its Data store does not know yet ([NOT IN DATA]), so ours
 // are added with their defaults before use; the hub's INIT then brings the saved values. Plain JSON
 // (apply-mod.sh's set_mod_defaults reads it). dlzmod.spectrum: the EQ pages' Spectrum switch (#131),
-// on at first; dlzmod.rta is no setting: the channel the spectrum measures (DLZMOD_rtaMeasure), none
+// off at first; dlzmod.rta is no setting: the channel the spectrum measures (DLZMOD_rtaMeasure), none
 // at first.
 function DLZMOD_keys() {
   return { "dlzmod.hideHeader": 0, "dlzmod.meterMode": 0, "dlzmod.preColor": 0, "dlzmod.preLevel": 0,
     "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0, "dlzmod.recDate": 0,
-    "dlzmod.spectrum": 1, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "" };
+    "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "" };
 }
 
 // The owner's own colours on top of the theme (#21): the background, and an accent colour for the
@@ -601,10 +601,11 @@ function DLZMOD_rtaFreqs() {
   return [22.4, 31.5, 45, 63, 90, 125, 180, 250, 355, 500, 710, 1000, 1400, 2000, 2800, 4000, 5600, 8000, 11200, 16000];
 }
 
-// a channel's dlzmod.rta value from its key prefix (the graph mod's taps have the same numbers);
-// 0: none (an FX return, no EQ page open)
+// a channel's dlzmod.rta value from its key prefix (the graph mod's taps have the same numbers), for
+// both models: the XS has no i.2., i.3., p.2., the full-size no v.; 0: none (an FX return, no EQ page
+// open)
 function DLZMOD_rtaCode(prefix) {
-  return ["i.0.", "i.1.", "p.0.", "p.1.", "v.0.", "v.1.", "s.", "m."].indexOf(prefix) + 1;
+  return ["i.0.", "i.1.", "p.0.", "p.1.", "v.0.", "v.1.", "s.", "m.", "i.2.", "i.3.", "p.2."].indexOf(prefix) + 1;
 }
 
 // the spectrum's line and fill in the meters' colour of the look on screen (the theme's or the
@@ -682,24 +683,19 @@ function DLZMOD_rtaSync(page, prefix) {
 
 // The Spectrum switch: one setting for every channel, on each EQ page under Mackie's EQ switch, which
 // moves up for it in its box (patch.py: DLZMOD_rtaSwitchY, DLZMOD_rtaSwitch, DLZMOD_rtaLabel). Off:
-// nothing measured or drawn, the audio graph's spectrum blocks bypassed. Only on the XS: the
-// full-size's audio graph is not patched.
+// nothing measured or drawn, the audio graph's spectrum blocks bypassed. Off by default, on both
+// models: its processor load is not known on the full-size, and a key not set yet counts as off.
 function DLZMOD_rtaOn() {
-  return Data.get("dlzmod.spectrum") !== 0;
+  return !!Data.get("dlzmod.spectrum");
 }
 
-function DLZMOD_rtaXs() {
-  return typeof LITE_MODE !== "undefined" && !!LITE_MODE;
-}
-
-// the EQ switch's top: Mackie's 55, or higher in its box (14..137) to make room for the Spectrum switch
+// the EQ switch's top: higher than Mackie's 55 in its box (14..137), to make room for the Spectrum switch
 function DLZMOD_rtaSwitchY() {
-  return DLZMOD_rtaXs() ? 22 : 55;
+  return 22;
 }
 
-// the switch, like Mackie's EQ switch in the page's colour (null on the full-size)
+// the switch, like Mackie's EQ switch in the page's colour
 function DLZMOD_rtaSwitch(page) {
-  if (!DLZMOD_rtaXs()) return null;
   return new Switcher(page, {
     anchors: [116, 80], size: [76, 48], bgColors: [Color.buttonBg, page.color], knobMargin: 2,
     key: "dlzmod.spectrum", onToggleON: DLZMOD_rtaSwitched, onToggleOFF: DLZMOD_rtaSwitched,
