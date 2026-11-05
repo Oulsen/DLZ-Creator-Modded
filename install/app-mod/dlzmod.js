@@ -724,10 +724,13 @@ function DLZMOD_rtaMeasure(code) {
 
 // every VU message (parseVuData, patched): the bands onto the open EQ page, when they are its
 // channel's. Runs before Mackie's meters in the same call: nothing of it may throw into them.
+// With no EQ page open nothing is measured: the key is saved, so a mixer switched off on an EQ page
+// starts with it still set.
 // now: ms (tests), else the clock.
 function DLZMOD_rtaVu(t, now) {
   try {
     const page = DLZMOD_rtaShown.page, s = t && t["dlzmod.rta"];
+    if (!page) DLZMOD_rtaMeasure(0);
     if (!page || !page.eq || typeof s !== "string") return;
     const code = DLZMOD_rtaCode(DLZMOD_rtaShown.prefix);
     if (!code || Data.get("dlzmod.rta") !== code) return;

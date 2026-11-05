@@ -154,9 +154,10 @@ sandbox, not yet on a mixer, so its processor load is unknown]. A **Spectrum** s
 page, under Mackie's EQ switch (which moves up in its box for it, patched `PageEQ.initWidgets` and
 `paint`), turns it on or off for all channels at once: hub key `dlzmod.spectrum`, off by default on both models (its load on a full-size is not known); off,
 no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) and nothing is drawn
-[sandbox].
+[sandbox]. `dlzmod.rta` is saved with the other keys, so a mixer switched off on an EQ page starts with
+it set; the first VU message on the screen with no EQ page open clears it (`DLZMOD_rtaVu`) [static].
 
-- **Graph** (`graph-mod/dlzmod-graph.js`, patched into `mixergraph-dlzlite.js`): the mod's first
+- **Graph** (`graph-mod/dlzmod-graph.js`, patched into `mixergraph-dlzlite.js` and `mixergraph.js`): the mod's first
   change to the audio engine. A mono buffer of its own (`dlzmodRta`), cleared at the start of each
   cycle; a tap (`GainWithLinMixTo`, stereo -6 dB per side) right after each channel's EQ, behind
   Mackie's "dynin" meter, bypassed unless hub key `dlzmod.rta` names that channel; at the end, before
@@ -166,8 +167,8 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   `dlzmod.rta`. `EqBand`'s own band-pass (`T_BP`, which Mackie never uses) read silence on every band
   [device]. Each tap is a nested list, so Mackie's next block keeps its buffer.
   `tests/graph-check.js` (from `tests/patches.sh`) builds both graphs in a stand-in for dspserver's
-  prelude: Mackie's 583 blocks unchanged and in order, the mod's 55 writing only its own two
-  buffers [static; the spectrum follows the EQ on the mixer: device].
+  prelude: Mackie's 583 blocks (XS) or 676 (full-size) unchanged and in order, the mod's 95 writing
+  only its own two buffers [static; the spectrum follows the EQ on the mixer: device].
 - A channel with **Bypass All Processing** on (its Setup page, `<prefix>procBypass`) skips its EQ,
   high-pass and dynamics in Mackie's graph: EQ changes are neither heard nor seen in the spectrum
   there. Stock behaviour, easy to miss: the EQ page does not show it [device: 9/10].

@@ -2556,6 +2556,22 @@ test("EQ spectrum: silence or no message for 300 ms: the picture sinks and goes;
   ctx.DLZMOD_rtaTick(4033);
   assert.strictEqual(pg.eq.rtaData, null);
 });
+test("EQ spectrum: a start with the measured channel still saved stops measuring, on the screen only", () => {
+  rtaReset();
+  ctx.Data.data["dlzmod.rta"] = 3;
+  ctx.DLZMOD_rtaVu({}, 1000);
+  assert.deepStrictEqual(ui.sets, [["dlzmod.rta", 0]], "no EQ page open: nothing measured");
+  ui.sets.length = 0;
+  ctx.Data.data["dlzmod.rta"] = 3;
+  const before = ctx.DLZMOD_external;
+  ctx.DLZMOD_external = () => true;
+  try {
+    ctx.DLZMOD_rtaVu({}, 1000);
+  } finally {
+    ctx.DLZMOD_external = before;
+  }
+  assert.deepStrictEqual(ui.sets, [], "a browser leaves the key alone");
+});
 test("EQ spectrum: the Spectrum switch off measures and shows nothing; on again, the open page measures", () => {
   rtaReset();
   const pg = eqPage();
