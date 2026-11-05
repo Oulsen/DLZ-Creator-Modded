@@ -931,28 +931,39 @@ function DLZMOD_rtaPaint(eq, t) {
     if (typeof t.lineToArray === "function") t.lineToArray(ps);
     else ps.forEach((p) => t.lineTo(p[0], p[1]));
   };
-  // TEMP #217: on the mixer, 6 s each of fill and line, line only, neither, for the GPU trace
-  const variant = typeof wstream !== "undefined" && wstream ? Math.floor(DLZMOD_rtaNow() / 6000) % 3 : 0;
+  // TEMP #217: on the mixer, 6 s each of the fill in slices, a thin line only, a thick line only, for
+  // the GPU trace
+  const mixer = typeof wstream !== "undefined" && !!wstream;
+  const variant = mixer ? Math.floor(DLZMOD_rtaNow() / 6000) % 3 : -1;
   if (DLZMOD_rtaPaint.variant !== variant) console.log("dlzmod: rta variant " + variant);
   DLZMOD_rtaPaint.variant = variant;
-  t.lineWidth = 1;
+  t.lineWidth = variant === 2 ? 3 : 1;
   t.lineJoin = "round";
-  if (variant === 0) {
+  t.fillStyle = eq.rtaFillColor;
+  if (variant === -1) {
     t.beginPath();
     t.moveTo(pts[0][0], bottom);
     line(pts);
     t.lineTo(pts[n - 1][0], bottom);
     t.closePath();
-    t.fillStyle = eq.rtaFillColor;
     t.fill();
+  } else if (variant === 0) {
+    for (let k = 0; k + 1 < n; k++) {
+      if (pts[k + 1][0] <= pts[k][0]) continue;
+      t.beginPath();
+      t.moveTo(pts[k][0], bottom);
+      t.lineTo(pts[k][0], pts[k][1]);
+      t.lineTo(pts[k + 1][0], pts[k + 1][1]);
+      t.lineTo(pts[k + 1][0], bottom);
+      t.closePath();
+      t.fill();
+    }
   }
-  if (variant < 2) {
-    t.beginPath();
-    t.moveTo(pts[0][0], pts[0][1]);
-    line(pts);
-    t.strokeStyle = eq.rtaStrokeColor;
-    t.stroke();
-  }
+  t.beginPath();
+  t.moveTo(pts[0][0], pts[0][1]);
+  line(pts);
+  t.strokeStyle = eq.rtaStrokeColor;
+  t.stroke();
 }
 
 // #238: a knob panel for a page with the mod's own settings: an entry with stepKey (that setting) has
