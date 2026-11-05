@@ -764,16 +764,17 @@ function DLZMOD_rtaNow() {
 // redrew for something else (busyAt).
 function DLZMOD_rtaAnim() {
   if (!DLZMOD_rtaAnim.s) {
-    DLZMOD_rtaAnim.s = { eq: null, target: null, shown: null, drawn: null, at: 0, busyAt: -1e9, timer: null,
+    DLZMOD_rtaAnim.s = { eq: null, target: null, shown: null, drawn: null, at: 0, stepAt: 0, busyAt: -1e9, timer: null,
       drawing: false, later: (f, ms) => setTimeout(f, ms) };
   }
   return DLZMOD_rtaAnim.s;
 }
 
-// One step every 100 ms while the picture moves (at most 10 frames a second; the average moves slowly
-// enough for that): each point 60 % of the way to the target, so a new message glides in instead of
-// jumping. A frame redraws the whole widget (grid, curve, knobs) and goes all the way to the panel
-// (glesgui, XWayland, Weston, a page flip), and a touch's frame waits behind it, so one is drawn only
+// One step every DLZMOD_RTA_STEP ms while the picture moves: each point part of the way to the target,
+// 60 % per 100 ms of real time whatever the step (a late timer moves it further, not slower), so a new
+// message glides in instead of jumping. A frame redraws the whole widget (grid, curve, knobs) and goes
+// all the way to the panel (glesgui, XWayland, Weston, a page flip), and a touch's frame waits behind
+// it, so one is drawn only
 // when a point moved a pixel or more since the last one, and none while the screen program is behind
 // (DLZMOD_rtaBacklog): app.js does not wait for it, so frames it cannot keep up with pile up in memory
 // and the screen lags more and more. Within 400 ms of a touch (DLZMOD_rtaHookTouch) or a redraw for
@@ -781,6 +782,8 @@ function DLZMOD_rtaAnim() {
 // those redraws, so touching, turning and dragging stay as quick as without it. Standing still (no
 // point half a pixel off): a slower check. No message for 300 ms (silence, the switch off, another
 // channel measured) or a silent one: it sinks to the bottom and goes. now: ms (tests), else the clock.
+const DLZMOD_RTA_STEP = 33;   // the app's own tick, the one the meters move on
+
 function DLZMOD_rtaTick(now) {
   const a = DLZMOD_rtaAnim();
   a.timer = null;
@@ -793,7 +796,10 @@ function DLZMOD_rtaTick(now) {
     const goal = target || a.shown.map(() => 0);
     const from = a.shown || goal.map(() => 0);   // a new picture rises from the bottom
     const px = Math.max(1, (eq.h || 0) - 2);
-    const next = from.map((v, k) => (Math.abs(goal[k] - v) * px < 0.5 ? goal[k] : v + 0.6 * (goal[k] - v)));
+    const dt = a.stepAt ? Math.min(Math.max(now - a.stepAt, 1), 200) : DLZMOD_RTA_STEP;
+    a.stepAt = now;
+    const share = 1 - Math.pow(0.4, dt / 100);
+    const next = from.map((v, k) => (Math.abs(goal[k] - v) * px < 0.5 ? goal[k] : v + share * (goal[k] - v)));
     const moved = next.some((v, k) => v !== from[k]) || !a.shown;
     const gone = !target && next.every((v) => v * px < 0.5);
     a.shown = gone ? null : next;
@@ -808,7 +814,7 @@ function DLZMOD_rtaTick(now) {
         a.drawing = false;
       }
     }
-    if (!gone) a.timer = a.later(DLZMOD_rtaTick, moved ? 100 : 200);
+    if (!gone) a.timer = a.later(DLZMOD_rtaTick, moved ? DLZMOD_RTA_STEP : 200);
   } catch (e) {
     console.log("dlzmod: EQ spectrum: " + e);
   }
@@ -824,6 +830,7 @@ function DLZMOD_rtaStop(clear) {
   a.shown = null;
   a.drawn = null;
   a.target = null;
+  a.stepAt = 0;
 }
 
 // The screen program (glesgui) behind: app.js writes each frame into its pipe without waiting
@@ -838,7 +845,7 @@ function DLZMOD_rtaBacklog() {
   }
 }
 
-// The band levels averaged like an analyser's (in dB, about 0.4 s), so a steady EQ change stands out
+// The band levels averaged like an analyser's (in dB, about 0.15 s), so a steady EQ change stands out
 // from the music's own ups and downs instead of drowning in every beat. Starts afresh for another
 // channel or after a pause of more than a second (ms: now).
 function DLZMOD_rtaSmooth(levels, code, now) {
@@ -847,7 +854,7 @@ function DLZMOD_rtaSmooth(levels, code, now) {
   if (st.code !== code || !st.levels || st.levels.length !== levels.length || !(dt >= 0) || dt > 1) {
     st.levels = levels.slice();
   } else {
-    const k = 1 - Math.exp(-dt / 0.4);
+    const k = 1 - Math.exp(-dt / 0.15);
     st.levels = levels.map((v, i) => st.levels[i] + k * (v - st.levels[i]));
   }
   st.code = code;

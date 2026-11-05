@@ -2467,7 +2467,7 @@ test("EQ spectrum: the bands go onto the open page, not without one, another cha
   ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-10)), 1033);
   assert.strictEqual(ctx.DLZMOD_rtaAnim().at, 1000, "not taken");
 });
-test("EQ spectrum: each message's picture glides in, a step every 100 ms, no frame while it stands still", () => {
+test("EQ spectrum: each message's picture glides in, a step every 33 ms, no frame while it stands still", () => {
   rtaReset();
   const pg = eqPage();
   ctx.DLZMOD_rtaShown(pg, true);
@@ -2476,10 +2476,11 @@ test("EQ spectrum: each message's picture glides in, a step every 100 ms, no fra
   const goal = plain(ctx.DLZMOD_rtaAnim().target);
   ctx.DLZMOD_rtaTick(1000);
   const first = pg.eq.got[0];
-  assert.ok(first.every((v, k) => Math.abs(v - 0.6 * goal[k]) < 1e-9), "from the bottom, 60 % of the way");
-  assert.strictEqual(ui.later, 100, "the next step in 100 ms");
-  for (let t = 1100; t < 1900; t += 100) {
-    if (t % 200 === 0) ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), t);
+  const part = 1 - Math.pow(0.4, 0.33);
+  assert.ok(first.every((v, k) => Math.abs(v - part * goal[k]) < 1e-9), "from the bottom, a third of 100 ms's 60 %");
+  assert.strictEqual(ui.later, 33, "the next step in 33 ms");
+  for (let t = 1033; t < 1890; t += 33) {
+    ctx.DLZMOD_rtaVu(rtaMsg(Array(10).fill(-20)), t);
     ctx.DLZMOD_rtaTick(t);
   }
   const n = pg.eq.got.length;
@@ -2489,6 +2490,25 @@ test("EQ spectrum: each message's picture glides in, a step every 100 ms, no fra
   ctx.DLZMOD_rtaTick(1900);
   assert.strictEqual(pg.eq.got.length, n, "standing still: no frame");
   assert.strictEqual(ui.later, 200, "a slower check");
+});
+test("EQ spectrum: the glide keeps its speed: two short steps go as far as one long, a late timer catches up", () => {
+  const glide = (steps) => {
+    rtaReset();
+    const pg = eqPage();
+    ctx.DLZMOD_rtaShown(pg, true);
+    ctx.DLZMOD_rtaSync(pg, "m.");
+    for (let t = 1000; t <= 1600; t += 50) rtaAt(rtaMsg(Array(10).fill(-20)), t);
+    const a = ctx.DLZMOD_rtaAnim(), from = plain(pg.eq.rtaData);
+    a.target = from.map((v) => v + 0.2);
+    a.at = 1600;
+    let t = 1600;
+    for (const ms of steps) ctx.DLZMOD_rtaTick(t += ms);
+    return (pg.eq.rtaData[0] - from[0]) / 0.2;
+  };
+  assert.ok(Math.abs(glide([100]) - 0.6) < 1e-6, "60 % in 100 ms");
+  assert.ok(Math.abs(glide([50, 50]) - 0.6) < 1e-6, "the same in two steps");
+  assert.ok(Math.abs(glide([200]) - 0.84) < 1e-6, "a late timer goes further");
+  assert.ok(Math.abs(glide([250]) - 0.84) < 1e-6, "but no more than 200 ms's worth");
 });
 test("EQ spectrum: while the widget redraws for a knob or a dragged dot, the picture moves without frames of its own", () => {
   rtaReset();
@@ -2528,7 +2548,7 @@ test("EQ spectrum: silence or no message for 300 ms: the picture sinks and goes;
   ctx.DLZMOD_rtaTick(t);
   assert.strictEqual(ui.later, undefined, "and the timer stops");
   rtaAt(rtaMsg(Array(10).fill(-20)), 3000);
-  for (t = 3033; t < 3600; t += 33) ctx.DLZMOD_rtaTick(t);
+  for (t = 3033; t < 3990; t += 33) ctx.DLZMOD_rtaTick(t);
   assert.strictEqual(pg.eq.got[pg.eq.got.length - 1], null, "no message for 300 ms: gone too");
   rtaAt(rtaMsg(Array(10).fill(-20)), 4000);
   ctx.DLZMOD_rtaShown(pg, false);
@@ -2601,12 +2621,12 @@ test("EQ spectrum: the fill reaches the bottom on its own path, the line is draw
   pg.eq.paintRTA(ctx2);
   assert.strictEqual(calls.length, 0, "nothing without data");
 });
-test("EQ spectrum: averaged over about 0.4 s; afresh for another channel or after a pause", () => {
+test("EQ spectrum: averaged over about 0.15 s; afresh for another channel or after a pause", () => {
   const S = (lv, code, now) => plain(ctx.DLZMOD_rtaSmooth(lv, code, now));
   S([0.5, 0.5], 1, 1000);
-  const k = 1 - Math.exp(-0.1 / 0.4);
+  const k = 1 - Math.exp(-0.1 / 0.15);
   const got = S([0.9, 0.1], 1, 1100);
-  assert.ok(Math.abs(got[0] - (0.5 + 0.4 * k)) < 1e-9 && Math.abs(got[1] - (0.5 - 0.4 * k)) < 1e-9, "a fifth of the way after 0.1 s, up and down alike");
+  assert.ok(Math.abs(got[0] - (0.5 + 0.4 * k)) < 1e-9 && Math.abs(got[1] - (0.5 - 0.4 * k)) < 1e-9, "half of the way after 0.1 s, up and down alike");
   for (let t = 1200; t <= 4000; t += 100) S([0.9, 0.1], 1, t);
   const there = S([0.9, 0.1], 1, 4100);
   assert.ok(Math.abs(there[0] - 0.9) < 1e-3 && Math.abs(there[1] - 0.1) < 1e-3, "a steady level reached");
@@ -2685,9 +2705,9 @@ test("EQ spectrum: a move under a pixel draws no frame but stays in the data, an
   const pg = eqPage();
   ctx.DLZMOD_rtaShown(pg, true);
   ctx.DLZMOD_rtaSync(pg, "m.");
-  rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
-  for (let t = 1100; t < 2000; t += 100) rtaAt(rtaMsg(Array(10).fill(-20)), t);
+  for (let t = 500; t < 2000; t += 100) rtaAt(rtaMsg(Array(10).fill(-20)), t);
   const n = pg.eq.got.length, a = ctx.DLZMOD_rtaAnim();
+  a.drawn = a.shown;
   a.target = a.shown.map((v) => v + 0.6 / 200);   // 0.6 px up: 60 % of it per step
   a.at = 2000;
   ctx.DLZMOD_rtaTick(2000);
@@ -2719,7 +2739,7 @@ test("EQ spectrum: while the screen program is behind, no frames of its own, the
   rtaAt(rtaMsg(Array(10).fill(-20)), 1000);
   assert.strictEqual(pg.eq.got.length, 0, "behind: no frame");
   assert.ok(pg.eq.rtaData && pg.eq.rtaData.length === 64, "but the data moved, for Mackie's next redraw");
-  assert.strictEqual(ui.later, 100, "and it checks again");
+  assert.strictEqual(ui.later, 33, "and it checks again");
   ctx.wstream.writableLength = 2000;
   ctx.DLZMOD_rtaTick(1050);
   assert.strictEqual(pg.eq.got.length, 1, "caught up: frames again");
