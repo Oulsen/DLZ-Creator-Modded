@@ -2904,19 +2904,23 @@ test("a strip's name plate: left out over the strip's own colour, only in a full
   assert.strictEqual(need(strip, "#1a1a1a", false), true, "redrawn on its own it wipes its old contents");
   assert.strictEqual(need(strip, "#aaaaaa", true), true, "another colour: the selected strip's name plate");
   assert.strictEqual(need({ ...strip, _CACHING: true }, "#1a1a1a", true), true, "its own cache");
+  const map = ctx.DLZMOD_drawColor.map;
+  ctx.DLZMOD_drawColor.map = { "#1a1a1a": "#223344", "#000003": "#223344" };
+  assert.strictEqual(need(strip, "#000003", true), false, "two colours that a look draws the same");
+  ctx.DLZMOD_drawColor.map = map;
 });
 
 test("the Overview's background: not under the strips with a colour of their own", () => {
   const fill = (widgets, more = {}, full = true) => {
     const rects = [], t = { fillRect: (x, y, w, h) => rects.push([x, y, w, h, t.fillStyle]) };
     const mixer = { widgetName: "MainMixer", bgColor: "#000000", w: 871, h: 504, widgets, ...more };
-    for (const s of widgets) Object.assign(s, { parent: mixer, y: 0, h: 504, w: 107 });
+    for (const s of widgets) Object.assign(s, { parent: mixer, y: 0, h: 504, w: 107, ...s });
     ctx.DLZMOD_fullRedraw = full;
     const r = ctx.DLZMOD_ovFill(mixer, t);
     ctx.DLZMOD_fullRedraw = false;
     return r ? plain(rects) : false;
   };
-  const strip = (x, bgColor, visible = true) => ({ x, bgColor, visible });
+  const strip = (x, bgColor, visible = true, more = {}) => ({ x, bgColor, visible, ...more });
   assert.deepStrictEqual(fill([strip(0, "#000000"), strip(109, "#1A1A1A"), strip(218, "#1A1A1A"), strip(327, "#171E0D"), strip(436, "#000000")]),
     [[0, 0, 109, 504, "#000000"], [216, 0, 2, 504, "#000000"], [325, 0, 2, 504, "#000000"], [434, 0, 437, 504, "#000000"]],
     "the columns left out, the margins and the rest painted");
@@ -2927,6 +2931,12 @@ test("the Overview's background: not under the strips with a colour of their own
   assert.strictEqual(fill([strip(0, "#1a1a1a")], { dx: 10 }), false, "scrolled: as Mackie's");
   assert.strictEqual(fill([strip(0, "#1a1a1a")], { showScroll: true }), false, "with its scroll bar: as Mackie's");
   assert.strictEqual(fill([strip(0, "#1a1a1a", false)]), false, "a hidden strip paints nothing");
+  assert.strictEqual(fill([strip(0, "#1a1a1a")], { _CACHING: true }), false, "in its own cache: as Mackie's");
+  assert.strictEqual(fill([strip(0, "#1a1a1a", true, { _CACHING: true })]), false, "a strip in its own cache");
+  assert.strictEqual(fill([strip(0, "#1a1a1a", true, { h: 400 })]), false, "shorter than the page: the page shows under it");
+  assert.strictEqual(fill([strip(0, "#1a1a1a", true, { y: 4 })]), false, "lower than the page's top");
+  assert.deepStrictEqual(fill([strip(0, "#1a1a1a"), strip(50, "#1a1a1a"), strip(764, "#1a1a1a")]), [[157, 0, 607, 504, "#000000"]],
+    "overlapping strips, and nothing beyond the last one at the right edge");
   assert.strictEqual(fill([strip(0, "rgba(0,0,0,0.5)")]), false, "see-through: needs the page under it");
   const map = ctx.DLZMOD_drawColor.map;
   ctx.DLZMOD_drawColor.map = { "#1a1a1a": "#000000" };
