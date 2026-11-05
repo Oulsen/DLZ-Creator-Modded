@@ -158,8 +158,8 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   change to the audio engine. A mono buffer of its own (`dlzmodRta`), cleared at the start of each
   cycle; a tap (`GainWithLinMixTo`, stereo -6 dB per side) right after each channel's EQ, behind
   Mackie's "dynin" meter, bypassed unless hub key `dlzmod.rta` names that channel; at the end, before
-  the file's own `compileGraph(graph)`, per octave band (31.5 Hz - 16 kHz, 10 bands) a copy, a
-  high-pass half an octave below the centre and a low-pass half an octave above (`EqBand` `T_HP` and
+  the file's own `compileGraph(graph)`, per half-octave band (22.4 Hz - 16 kHz, 20 bands, #217) a copy, a
+  high-pass a quarter octave below the centre and a low-pass a quarter octave above (`EqBand` `T_HP` and
   `T_LP`, Q 0.707, bypassed with no channel measured) and a `MaxMeter`, reported as the VU group
   `dlzmod.rta`. `EqBand`'s own band-pass (`T_BP`, which Mackie never uses) read silence on every band
   [device]. Each tap is a nested list, so Mackie's next block keeps its buffer.
@@ -187,13 +187,13 @@ no channel is measured (`dlzmod.rta` 0, the graph's spectrum blocks bypassed) an
   second without a message. The drawn top follows those steps in about half a second
   (`DLZMOD_rtaGlideTop`, #217): a step used to move the whole picture at once. That is the target of
   an animation of the mod's own (`DLZMOD_rtaTick`), which moves the EQ widget's spectrum data
-  (`rtaData`, as Mackie's `setRTA` would set it) 60 % of the way per 100 ms of real time, a step
+  (`rtaData`, as Mackie's `setRTA` would set it) 90 % of the way per 100 ms of real time, a step
   every 33 ms like the meters' tick; on silence (judged on the message itself, not
   the average) or no message for 300 ms it sinks to the bottom and goes. With `rtaOverlay` off the
   widget draws it with the curve; Mackie's overlay layer is not used. Drawn by the mod's
   `DLZMOD_rtaPaint` instead of Mackie's `paintRTA`: a 4 pixel line at the points' exact height, no
-  fill (its cost below) [device]. Averaged like an analyser's (`DLZMOD_rtaSmooth`: in dB, about 0.15 s,
-  up and down alike; 0.4 s felt late on the mixer; before that: peaks held, falling 20 dB/s, which a
+  fill (its cost below) [device]. Averaged like a meter (`DLZMOD_rtaSmooth`: in dB, up in about 0.05 s, down in about
+  0.2 s; 0.4 s both ways felt late on the mixer; before that: peaks held, falling 20 dB/s, which a
   steady dip drowned in). The octave
   bands themselves soften an EQ change (2nd-order filters, neighbours leak in): for a -15 dB cut at
   1 kHz on pink noise they read -11.6 dB at Q 0.45, -5.0 dB at Q 2 and -2.9 dB at 4 kHz Q 4

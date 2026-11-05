@@ -598,7 +598,7 @@ function DLZMOD_paintDbScale(t, sl, m) {
 
 // the bands' centres in Hz, as the graph mod has them
 function DLZMOD_rtaFreqs() {
-  return [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+  return [22.4, 31.5, 45, 63, 90, 125, 180, 250, 355, 500, 710, 1000, 1400, 2000, 2800, 4000, 5600, 8000, 11200, 16000];
 }
 
 // a channel's dlzmod.rta value from its key prefix (the graph mod's taps have the same numbers);
@@ -771,7 +771,7 @@ function DLZMOD_rtaAnim() {
 }
 
 // One step every DLZMOD_RTA_STEP ms while the picture moves: each point part of the way to the target,
-// 60 % per 100 ms of real time whatever the step (a late timer moves it further, not slower), so a new
+// 90 % per 100 ms of real time whatever the step (a late timer moves it further, not slower), so a new
 // message glides in instead of jumping. A frame redraws the whole widget (grid, curve, knobs) and goes
 // all the way to the panel (glesgui, XWayland, Weston, a page flip), and a touch's frame waits behind
 // it, so one is drawn only
@@ -798,7 +798,7 @@ function DLZMOD_rtaTick(now) {
     const px = Math.max(1, (eq.h || 0) - 2);
     const dt = a.stepAt ? Math.min(Math.max(now - a.stepAt, 1), 200) : DLZMOD_RTA_STEP;
     a.stepAt = now;
-    const share = 1 - Math.pow(0.4, dt / 100);
+    const share = 1 - Math.pow(0.1, dt / 100);
     const next = from.map((v, k) => (Math.abs(goal[k] - v) * px < 0.5 ? goal[k] : v + share * (goal[k] - v)));
     const moved = next.some((v, k) => v !== from[k]) || !a.shown;
     const gone = !target && next.every((v) => v * px < 0.5);
@@ -845,8 +845,8 @@ function DLZMOD_rtaBacklog() {
   }
 }
 
-// The band levels averaged like an analyser's (in dB, about 0.15 s), so a steady EQ change stands out
-// from the music's own ups and downs instead of drowning in every beat. Starts afresh for another
+// The band levels averaged like a meter (in dB): up in about 0.05 s, so the picture answers the sound at
+// once, down in about 0.2 s, so a steady EQ change still stands out from the music's own ups and downs. Starts afresh for another
 // channel or after a pause of more than a second (ms: now).
 function DLZMOD_rtaSmooth(levels, code, now) {
   const st = DLZMOD_rtaSmooth;
@@ -854,8 +854,8 @@ function DLZMOD_rtaSmooth(levels, code, now) {
   if (st.code !== code || !st.levels || st.levels.length !== levels.length || !(dt >= 0) || dt > 1) {
     st.levels = levels.slice();
   } else {
-    const k = 1 - Math.exp(-dt / 0.15);
-    st.levels = levels.map((v, i) => st.levels[i] + k * (v - st.levels[i]));
+    const up = 1 - Math.exp(-dt / 0.05), down = 1 - Math.exp(-dt / 0.2);
+    st.levels = levels.map((v, i) => st.levels[i] + (v > st.levels[i] ? up : down) * (v - st.levels[i]));
   }
   st.code = code;
   st.at = now;
@@ -909,7 +909,7 @@ function DLZMOD_rtaPoints(levels, n = 64, top = 0, span = 60, quiet = true) {
   const pts = new Array(n);
   for (let k = 0; k < n; k++) {
     const f = 20 * Math.pow(1000, k / (n - 1));
-    const x = Math.max(0, Math.min(last, Math.log2(f / freqs[0])));
+    const x = Math.max(0, Math.min(last, last * Math.log(f / freqs[0]) / Math.log(freqs[last] / freqs[0])));
     const j = Math.min(last - 1, Math.floor(x)), u = x - j;
     const p0 = at(j - 1), p1 = at(j), p2 = at(j + 1), p3 = at(j + 2);
     const v = p1 + 0.5 * u * (p2 - p0 + u * (2 * p0 - 5 * p1 + 4 * p2 - p3 + u * (3 * (p1 - p2) + p3 - p0)));

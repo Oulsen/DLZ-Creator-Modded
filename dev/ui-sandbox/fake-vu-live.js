@@ -43,7 +43,7 @@
       msg[type + ".post"] = bytes(post);
       msg[type + ".pre"] = bytes(pre);
     }
-    // the EQ spectrum (#131): with an EQ page open (dlzmod.rta), its channel's octave bands as the
+    // the EQ spectrum (#131): with an EQ page open (dlzmod.rta), its channel's half-octave bands as the
     // graph mod sends them (one byte per band, 240 = 0 dBFS): falling towards the highs like music,
     // each band swinging on its own, plus the open EQ curve's gain at the band (read back from the
     // curve it draws, graphPoints: [x, y] pixels, 0 dB in the middle), as the mixer measures after the EQ
@@ -59,7 +59,7 @@
       const bands = DLZMOD_rtaFreqs().map((f, k) => {
         const c = chans[k + 3];
         const g = gainAt(f);
-        return (0.62 - 0.03 * k + g / 80 + 0.07 * Math.sin(now * c.speed * 1.5 + c.phase) + 0.02 * (Math.random() - 0.5)) * 240 / 254;
+        return (0.62 - 0.015 * k + g / 80 + 0.07 * Math.sin(now * c.speed * 1.5 + c.phase) + 0.02 * (Math.random() - 0.5)) * 240 / 254;
       });
       msg["dlzmod.rta"] = bytes(bands);
     }
