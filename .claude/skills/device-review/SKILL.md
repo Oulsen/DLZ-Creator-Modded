@@ -69,6 +69,10 @@ what in the diff answers it:
    `set -e`, a unit ordering or dependency that can hang the start?
 6. Do failure and fallback paths do something safe (no retry loop that writes, no silent continue)?
 
+**Both models** (every tier, not a brick point): does the change work on the XS and the full-size?
+A feature on one model only needs the maintainer's yes and an issue for the other; say so to the
+user first, whatever the tier. Check `LITE_MODE`, `DLZMOD_rtaXs` and `.dlzlite`-style branches in the diff.
+
 ## Procedure
 
 1. **Tests first**, on the build that will be flashed: the unit tests, `tests/guards.sh`, the fast

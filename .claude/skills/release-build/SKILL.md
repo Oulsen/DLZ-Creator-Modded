@@ -89,7 +89,8 @@ folder, never as WSL paths.
 Right before the maintainer runs `git push origin <commit>:main` (`docs/DEVELOPMENT.md`,
 "Releases", step 3), with `develop`'s tip checked out: `ready` runs the whole `check` and says
 `READY` with the push command only when it passes and `main` can fast-forward to the build. Otherwise
-`NOT READY` and why: `main` stays where it is.
+`NOT READY` and why: `main` stays where it is. It also refuses while GitHub's "Automatically delete
+head branches" is on: moving `main` would delete `develop` (v0.5.0).
 
 ## At the release: `compare`
 
