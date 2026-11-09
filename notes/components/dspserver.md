@@ -133,6 +133,16 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   ready ~29.3 s after power-on, ~0.8 s later than the ~28.5 s before. On the system log's one-second clock. It only
   helps at a start: a glesgui restart while dspserver runs still stops it, as stock does [static]. A dying
   glesgui can still hold `/dev/dri`, so a dspserver start during a glesgui restart may not wait [guess].
+- **Silent with the wait in place: dspserver's link to server.js dropped** (#257) [device, XS daily card, v0.5.0,
+  2026-11-09]: one silent start out of the 5 in its syslog. The wait worked (port 80 after 3.2 s, graphics after
+  13.4 s), the chips initialised normally without I2C errors. Only difference: ~50 ms after dspserver's websocket
+  `open`, `reconnect... cnt=1, delay=100` and `Disconnected websocket.`, then no more dspserver lines for the
+  whole start. No drop in the 4 starts with sound, nor in 9 starts of the dev card's network log (2026-11-03).
+  faderlink, with the same client, logs each retry until it gets through; dspserver logged only the first, and a
+  start with sound logs nothing after the open either, so whether its retry connected is not known. server.js
+  logs nothing about the connection. Open: why server.js closes the socket right away, and whether dspserver
+  mutes on a lost hub and unmutes only on the state of its first connect [guess]. A longer wait does not help
+  here: the wait had already ended normally.
 
 ## Audio loop and headroom
 
