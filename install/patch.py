@@ -204,9 +204,25 @@ APP_PATCHES = [
         "t.topBar.setVisible(!DLZMOD_headerHidden()),t.navBar.show(),t.panel.show(),e){case E_PAGE.EZASSISTANT:",
     ),
     (
+        # #23: on the XS the Overview's strips without a channel knob have the fader on the screen;
+        # stock gives it to the virtual strips and LR by type, here by the knobs' choice
+        # (DLZMOD_ctlScreen). The full-size keeps stock (no fader on the screen there)
+        "controls: the screen fader for a channel without a knob",
+        "(this.type===E_CH_TYPE.VIRTUAL||LITE_MODE&&this.type===E_CH_TYPE.MASTER)&&(this.mixPos2.hide(),this.sl.show())",
+        "DLZMOD_ctlScreen(this)&&(this.mixPos2.hide(),this.sl.show())",
+    ),
+    (
+        # the same strips get its layout (room for the fader, the mute/solo buttons when selected);
+        # a virtual strip or LR with a knob runs it unselected, back to the plain layout
+        "controls: the screen fader's layout follows the knobs",
+        "LITE_MODE)switch(this.type){case E_CH_TYPE.MASTER:case E_CH_TYPE.VIRTUAL:let t=this.isSelected()",
+        "LITE_MODE)switch(DLZMOD_ctlScreen(this)?E_CH_TYPE.MASTER:this.type){case E_CH_TYPE.MASTER:"
+        "case E_CH_TYPE.VIRTUAL:let t=DLZMOD_ctlScreen(this)&&this.isSelected()",
+    ),
+    (
         "settings: add Mod tab",
         "let t=[lang.SYSTEM,lang.BLUETOOTH_SD,lang.ROUTING_RECORDING,lang.ABOUT];",
-        'let t=[lang.SYSTEM,lang.BLUETOOTH_SD,lang.ROUTING_RECORDING,lang.ABOUT,DLZMOD_tabLabel()];',
+        'let t=[lang.SYSTEM,lang.BLUETOOTH_SD,lang.ROUTING_RECORDING,lang.ABOUT,DLZMOD_tabLabel(),DLZMOD_ctlTabLabel()];',
     ),
     (
         "settings: Mod tab in mod yellow (the accent colour with a theme)",
@@ -216,13 +232,14 @@ APP_PATCHES = [
     (
         "settings: show Mod page",
         "case 3:this.about.show(),this.about2.show()}",
-        "case 3:this.about.show(),this.about2.show();break;case 4:this.dlzmod.show()}",
+        "case 3:this.about.show(),this.about2.show();break;case 4:this.dlzmod.show();break;"
+        "case 5:this.dlzmodCtl[0].show(),this.dlzmodCtl[1].show()}",
     ),
     (
         "settings: create Mod page",
         "this.pages=[this.layout,this.bright,this.bt,this.sd,this.usb,this.rec2,this.rec,this.about,this.about2,this.stream]",
-        "this.dlzmod=DLZMOD_settingsPage(this,l),"
-        "this.pages=[this.layout,this.bright,this.bt,this.sd,this.usb,this.rec2,this.rec,this.about,this.about2,this.stream,this.dlzmod]",
+        "this.dlzmod=DLZMOD_settingsPage(this,l),this.dlzmodCtl=DLZMOD_controlsPage(this,l),"
+        "this.pages=[this.layout,this.bright,this.bt,this.sd,this.usb,this.rec2,this.rec,this.about,this.about2,this.stream,this.dlzmod,...this.dlzmodCtl]",
     ),
     (
         # Mackie's settings class: onResize (equal tab widths) + paint, directly followed by
@@ -531,12 +548,14 @@ SERVER_PATCHES = [
     ),
     (
         # each connection's send function says whether it comes from the mixer itself (127.0.0.1:
-        # the device's screen); DLZMOD_net only takes changes from those (DLZMOD_isLocal). #45:
+        # the device's screen); DLZMOD_net only takes changes from those (DLZMOD_isLocal). The
+        # socket.io ones also say so (dlzmodSio): from the mixer itself only faderlink and dspserver
+        # come that way, the screen over TCP :89, so a level there is a knob or fader (#23). #45:
         # another device only when paired (stamped dlzmodPaired), else it is dropped before anything
         # of it runs
         "network: socket.io connections marked local or paired, others dropped",
         '};Xt(),e.on("message",(async e=>await la(e,t)))}',
-        '};t.send.dlzmodLocal=DLZMOD_isLocal(e.handshake&&e.handshake.address);'
+        '};t.send.dlzmodLocal=DLZMOD_isLocal(e.handshake&&e.handshake.address);t.send.dlzmodSio=!0;'
         'if(!DLZMOD_remoteAdmit(e,t.send))return;'
         'Xt(),e.on("message",(async e=>await la(e,t)))}',
     ),
@@ -560,10 +579,11 @@ SERVER_PATCHES = [
         # plain key/value messages: no prototype keys; file paths dspserver opens only from the screen.
         # A refused key is also taken out of the message: after this loop stock passes the whole
         # message on to every socket.io client, dspserver included (entries() is a copy, so deleting
-        # while looping is safe). The same for a knob's stand-in key caught for a mod page (#238)
+        # while looping is safe). The same for a knob's stand-in key caught for a mod page (#238).
+        # Before it, a level from a channel knob or fader goes to the channel chosen for it (#23)
         "files: data keys checked (DLZMOD_keyAllowed)",
         "for(const[a,i]of Object.entries(e))if(null!=a){",
-        "for(const[a,i]of Object.entries(e))if(null!=a&&(DLZMOD_keyAllowed(a,i,t.send)||(delete e[a],!1))&&(!DLZMOD_knobCatch(a,i,t)||(delete e[a],!1))){",
+        "DLZMOD_ctlRemap(e,t);for(const[a,i]of Object.entries(e))if(null!=a&&(DLZMOD_keyAllowed(a,i,t.send)||(delete e[a],!1))&&(!DLZMOD_knobCatch(a,i,t)||(delete e[a],!1))){",
     ),
     (
         # stock builds a shell line from file names on the card or stick: a name with ; would run

@@ -36,21 +36,45 @@ function DLZMOD_tabLabel() {
 // Settings tab bar: About (short label) and the Mod tab (last) get fixed widths, Mackie's other
 // tabs share the rest equally. Same 2 px gaps as the original; the last tab takes the rounding
 // remainder.
+// #23: the Knobs/Faders tab (index 5, so Mackie's indices and the Mod tab's 4 stay) sits before
+// About, and About is an (i) icon to make room.
 function DLZMOD_layoutTabs(page) {
   if (!page.banks) return;
   const gap = 2;
-  const aboutW = 120;
-  const modW = 230;
-  const n = page.banks.length - 1;
-  const each = (page.w - aboutW - modW - gap * n) / (n - 1) | 0;
+  const widths = { 3: 50, 4: 230, 5: 100 };
+  const order = [0, 1, 2, 5, 3, 4].filter((i) => page.banks[i]);
+  const fixed = order.reduce((s, i) => s + (widths[i] || 0), 0);
+  const free = order.filter((i) => !widths[i]).length;
+  const each = (page.w - fixed - gap * (order.length - 1)) / free | 0;
   let x = 0;
-  page.banks.forEach((b, i) => {
-    const w = i === n ? page.w - x : i === n - 1 ? aboutW : each;
+  order.forEach((i, k) => {
+    const b = page.banks[i];
+    const w = k === order.length - 1 ? page.w - x : widths[i] || each;
     b.setGeometry(x, null, w, null);
     x += w + gap;
   });
+  DLZMOD_infoTab(page.banks[3]);
   // #55: the Mod tab's dot for a new version (DLZMOD_dot)
-  if (!page.banks[n].dlzmodDot) page.banks[n].dlzmodDot = DLZMOD_dot(page.banks[n]);
+  if (page.banks[4] && !page.banks[4].dlzmodDot) page.banks[4].dlzmodDot = DLZMOD_dot(page.banks[4]);
+}
+
+// About's tab as an (i): a ring with an i, in the tab's text colour
+function DLZMOD_infoTab(b) {
+  if (!b || b.dlzmodInfo) return;
+  b.dlzmodInfo = !0;
+  b.text = "";
+  const paint = b.paint;
+  b.paint = function (t) {
+    paint.call(this, t);
+    const on = !!(this.getVal && this.getVal());
+    const c = on ? Color.black : Color.subNavButtonText;
+    const cx = this.w / 2 | 0, cy = 21;
+    t.fillStyle = c;
+    t.fillCircle(cx, cy, 12);
+    t.fillStyle = on ? Color.main : Color.subNavButtonBg;
+    t.fillCircle(cx, cy, 10);
+    t.drawText("i", cx, cy + 1, { color: c, font: Font.font(600, "16px"), align: "center", valign: "middle" });
+  };
 }
 
 // Mod settings live in the hub state like Mackie's own keys (saved in srv_data.json, cleared by a
@@ -62,7 +86,8 @@ function DLZMOD_layoutTabs(page) {
 function DLZMOD_keys() {
   return { "dlzmod.hideHeader": 0, "dlzmod.meterMode": 0, "dlzmod.preColor": 0, "dlzmod.preLevel": 0,
     "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0, "dlzmod.recDate": 0,
-    "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "" };
+    "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "",
+    "dlzmod.controls": "" };
 }
 
 // The owner's own colours on top of the theme (#21): the background, and an accent colour for the
@@ -1677,6 +1702,284 @@ function DLZMOD_settingsPage(parent, y) {
       $NET.cmd("DLZMOD_TIME", { op: "status" });
       $NET.cmd("DLZMOD_RELEASE", { op: "status" });
       if (this.sub === 5) setTimeout(DLZMOD_releaseSeen, 0);
+    },
+  });
+}
+
+// #23: which channel each channel knob (XS) or fader (full-size) controls (Settings, Knobs / Faders;
+// the server moves the levels, DLZMOD_ctlRemap in dlzmod-server.js). The channels with a level, as
+// the Overview numbers them, and the controls as printed on the mixer with the channel each controls
+// in stock (faderlink's table, notes/components/faderlink.md "Faders").
+function DLZMOD_ctlChannels() {
+  return LITE_MODE
+    ? [["i.0", "1"], ["i.1", "2"], ["p.0", "3/4"], ["p.1", "5/6"], ["s", "7/8"], ["v.0", "9/10"], ["v.1", "11/12"],
+      ["m", "LR"]]
+    : [["i.0", "1"], ["i.1", "2"], ["i.2", "3"], ["i.3", "4"], ["p.0", "5/6"], ["p.1", "7/8"], ["p.2", "9/10"],
+      ["s", "11/12"], ["m", "LR"]];
+}
+
+function DLZMOD_ctlControls() {
+  return LITE_MODE
+    ? [["Knob 1", "i.0"], ["Knob 2", "i.1"], ["Knob 3", "p.0"], ["Knob 4", "p.1"], ["Knob 5", "s"]]
+    : [["Fader 1", "i.0"], ["Fader 2", "i.1"], ["Fader 3", "i.2"], ["Fader 4", "i.3"], ["Fader 5/6", "p.0"],
+      ["Fader 7/8", "p.1"], ["Fader 9/10", "p.2"], ["Fader 11/12", "s"], ["Master fader", "m"]];
+}
+
+function DLZMOD_ctlTabLabel() {
+  return LITE_MODE ? "Knobs" : "Faders";
+}
+
+// The channel each control controls, in the order of DLZMOD_ctlControls. dlzmod.controls holds the
+// controls set elsewhere as "stock=channel" pairs ("s=m,m=s"; "" = stock), keyed by the stock channel
+// so a backup means the same on both models. As the server reads it (DLZMOD_ctlMap there): a pair
+// that does not fit this model is left out, and a value that gives one channel two controls counts
+// as stock.
+function DLZMOD_ctlMap() {
+  const stock = DLZMOD_ctlControls().map((c) => c[1]);
+  const chans = DLZMOD_ctlChannels().map((c) => c[0]);
+  const map = stock.slice();
+  for (const pair of String(Data.get("dlzmod.controls") || "").split(",")) {
+    const [from, to] = pair.split("=");
+    const n = stock.indexOf(from);
+    if (n >= 0 && chans.includes(to)) map[n] = to;
+  }
+  return new Set(map).size === map.length ? map : stock;
+}
+
+function DLZMOD_ctlGet(n) {
+  return DLZMOD_ctlMap()[n];
+}
+
+// A channel another control has already: the two swap, so no two controls ever fight over one
+// level (they send absolute positions: each move would jump it) and no channel loses its control
+// by accident.
+function DLZMOD_ctlSet(n, prefix) {
+  const stock = DLZMOD_ctlControls().map((c) => c[1]);
+  const l = DLZMOD_ctlMap();
+  const other = l.indexOf(prefix);
+  if (other >= 0 && other !== n) l[other] = l[n];
+  l[n] = prefix;
+  Data.set("dlzmod.controls", l.map((p, i) => (p === stock[i] ? "" : stock[i] + "=" + p)).filter((x) => x).join(","));
+}
+
+// XS: a strip whose channel has no knob gets the fader on the screen (stock: the virtual strips and
+// LR), one with a knob not (patch.py, the strip's sync). The full-size keeps stock: a fader for every
+// channel, none on the screen. Strips seen here are synced again when the choice changes.
+function DLZMOD_ctlScreen(strip) {
+  const stockScreen = strip.type === E_CH_TYPE.VIRTUAL || (LITE_MODE && strip.type === E_CH_TYPE.MASTER);
+  const prefix = String(strip.prefix || "").replace(/\.$/, "");
+  if (!LITE_MODE || !DLZMOD_ctlChannels().some((c) => c[0] === prefix)) return stockScreen;
+  (DLZMOD_ctlScreen.strips || (DLZMOD_ctlScreen.strips = new Set())).add(strip);
+  if (!DLZMOD_ctlScreen.hooked) {
+    DLZMOD_ctlScreen.hooked = !0;
+    Data.regWidget("dlzmod.controls", () => DLZMOD_ctlScreen.strips.forEach((s) => s.sync && s.sync(!0)));
+  }
+  return !DLZMOD_ctlMap().includes(prefix);
+}
+
+// the channel's colour as the Overview's strips have it (Mackie's palette); a light grey when none
+function DLZMOD_ctlColor(prefix) {
+  return (Data.has(prefix + ".color") && Color.channel[Data.get(prefix + ".color")]) || "#c2c2c2";
+}
+
+// the channel's text: its number and the name the owner gave it, as on the Overview (only the
+// number when it has none)
+function DLZMOD_ctlName(c, max) {
+  const name = String((Data.has(c[0] + ".name") && Data.get(c[0] + ".name")) || "");
+  return name ? c[1] + "  " + (max && name.length > max ? name.slice(0, max - 1).trimEnd() + ".." : name) : c[1];
+}
+
+// The Knobs/Faders page under Settings: two of Mackie's windows. Left, a row per control with a
+// chooser in the style of Language; right, which channels then have no control (they get a fader
+// on the screen) and a button back to stock.
+function DLZMOD_controlsPage(parent, y) {
+  DLZMOD_initKeys();
+  const ctls = DLZMOD_ctlControls();
+  const rowH = ctls.length > 5 ? 41 : 64;
+  const top = ctls.length > 5 ? 14 : 34;
+  const win = { bgColor: Color.bgDark, paint: PAINT_WINDOW_BG };
+  const left = new Widget(parent, {
+    anchors: [0, y, null, null, !0, !0], size: [430, 392], ...win,
+    _constructor: function () {
+      this.regKey(["dlzmod.controls"]);
+      ctls.forEach((c, n) => {
+        new E1Button(this, {
+          anchors: [170, top + n * rowH], size: [230, rowH - 8], text: "",
+          colors: [Color.buttonBg, Color.red2], textColorON: Color.white,
+          textStyle: { font: Font.font(500, ctls.length > 5 ? "13pt" : "15pt") },
+          regKey: ["dlzmod.controls"],
+          paintOverlay: function (t) {
+            t.fillStyle = "rgba(255,255,255,0.30)";
+            t.fillPolygon(this.w - 14, this.h / 2 | 0, 6, 3, 0);
+          },
+          getState: function () {
+            const p = DLZMOD_ctlGet(n);
+            this.text = DLZMOD_ctlName(DLZMOD_ctlChannels().find((ch) => ch[0] === p), 13);
+          },
+          onPress: () => DLZMOD_ctlPicker(n),
+        });
+      });
+    },
+    // each control's name with a bar under it in its channel's colour, as the XS's LED bars
+    paint: function (t) {
+      PAINT_WINDOW_BG.call(this, t);
+      ctls.forEach((c, n) => {
+        const cy = top + n * rowH + (rowH - 8) / 2 | 0;
+        t.drawText(c[0], 30, cy - 4, { color: Color.white, font: Font.font(500, ctls.length > 5 ? "14pt" : "16pt"),
+          align: "left", valign: "middle" });
+        t.fRect(DLZMOD_ctlColor(DLZMOD_ctlGet(n)), 30, cy + (ctls.length > 5 ? 9 : 13), 40, 4);
+      });
+    },
+  });
+  const right = new Widget(parent, {
+    anchors: [0, y, null, null, !0, !0], size: [390, 392], ...win,
+    _constructor: function () {
+      this.regKey(["dlzmod.controls"]);
+      new E1Button(this, {
+        anchors: [30, null, 30, 30], size: [null, 50], text: "Back to Default",
+        textStyle: { font: Font.font(500, "14pt") }, colors: [Color.buttonBg, Color.main],
+        onPress: () => Data.set("dlzmod.controls", ""),
+        getState: function () {
+          this.enabled = !!Data.get("dlzmod.controls");
+        },
+      });
+    },
+    paint: function (t) {
+      PAINT_WINDOW_BG.call(this, t);
+      // every channel in the Overview's order, with what controls it: a knob/fader (accent) or
+      // only the fader on the screen (grey)
+      t.drawText("Channels", this.w / 2 | 0, 40,
+        { color: Color.white, font: Font.font(600, "16pt"), align: "center", valign: "middle" });
+      const ctls = DLZMOD_ctlControls();
+      const chans = DLZMOD_ctlChannels();
+      const holder = (p) => ctls.findIndex((x, j) => DLZMOD_ctlGet(j) === p);
+      // XS 8 channels in 2 rows of 4; full-size 9 in 3 rows of 3, wide enough for "Fader 11/12"
+      const big = chans.length > 8;
+      const cols = big ? 3 : 4, gap = big ? 6 : 8, x0 = 24, tw = (this.w - 2 * x0 - (cols - 1) * gap) / cols | 0;
+      const th = big ? 58 : 74, y0 = big ? 64 : 70;
+      chans.forEach((c, i) => {
+        const x = x0 + (i % cols) * (tw + gap), y = y0 + (i / cols | 0) * (th + gap);
+        const k = holder(c[0]);
+        const col = k >= 0 ? DLZMOD_ctlColor(c[0]) : "#3a3a3a";
+        t.fRect(col, x, y, tw, th);
+        t.fRect(Color.buttonBg, x + 2, y + 2, tw - 4, th - 4);
+        t.drawText(c[1], x + tw / 2 | 0, y + (big ? 20 : 24), { color: Color.white, font: Font.font(600, "15pt"),
+          align: "center", valign: "middle" });
+        t.drawText(k >= 0 ? ctls[k][0] : "Screen", x + tw / 2 | 0, y + (big ? 42 : 52),
+          { color: k >= 0 ? col : "#888888", font: Font.font(500, "12pt"), align: "center", valign: "middle" });
+      });
+      // only when a channel has no control (always on the XS; never on the full-size, 9 for 9)
+      const rows = Math.ceil(chans.length / cols);
+      if (chans.some((c) => holder(c[0]) < 0)) t.drawText("Screen: controlled with its fader on the screen", this.w / 2 | 0, y0 + rows * (th + gap) + 14,
+        { color: "#888888", font: Font.font(500, "11pt"), align: "center", valign: "middle" });
+    },
+  });
+  return [left, right];
+}
+
+// One Mackie popup with two views, so going back and forth repaints nothing behind it:
+// - pick: the channels as buttons like the Overview's strips (number and name, the channel's colour
+//   along the bottom), the one the control has now in Mackie's green (a Mackie page, not the Mod
+//   page), a taken one with its control's name in the corner. A free channel is set at once; a taken
+//   one goes to
+// - swap: what each of the two controls will control, old and new; Swap, or Back to pick.
+function DLZMOD_ctlPicker(n) {
+  if (DLZMOD_ctlPicker.popup) return;
+  const ctls = DLZMOD_ctlControls();
+  const chans = DLZMOD_ctlChannels();
+  const ch = (p) => chans.find((c) => c[0] === p);
+  const holder = (p) => ctls.findIndex((x, k) => DLZMOD_ctlGet(k) === p);
+  const what = LITE_MODE ? "knob" : "fader";
+  const COLS = 3, BW = 260, BH = 64, GAP = 10, TOP = 70;
+  const rows = Math.ceil(chans.length / COLS);
+  const W = COLS * BW + (COLS - 1) * GAP + 48, H = TOP + rows * (BH + GAP) + 84;
+  DLZMOD_ctlPicker.popup = new PopupWindow(app, {
+    w: W, h: H, bgColor: Color.bgPopup, swap: null,
+    initWidgets: function () {
+      this.pickers = chans.map((c, i) => new E1Button(this, {
+        anchors: [24 + (i % COLS) * (BW + GAP), TOP + (i / COLS | 0) * (BH + GAP)], size: [BW, BH],
+        text: DLZMOD_ctlName(c), textStyle: { font: Font.font(500, "15pt") },
+        colors: [Color.buttonBg, Color.main], textColorON: Color.black,
+        getState: function () {
+          this.state = holder(c[0]) === n;
+        },
+        paintOverlay: function (t) {
+          t.fRect(DLZMOD_ctlColor(c[0]), 0, this.h - 5, this.w, 5);
+          const k = holder(c[0]);
+          if (k >= 0 && k !== n) t.drawText(ctls[k][0], this.w - 10, 15, { color: "#888888",
+            font: Font.font(500, "11pt"), align: "right", valign: "middle" });
+        },
+        onPress: () => {
+          const k = holder(c[0]);
+          if (k === n) return this.close();
+          if (k < 0) {
+            DLZMOD_ctlSet(n, c[0]);
+            return this.close();
+          }
+          this.view({ other: k, prefix: c[0], was: DLZMOD_ctlGet(n) });
+        },
+      }));
+      this.cancel = new E1Button(this, {
+        anchors: [null, null, 24, 20], size: [180, 50], text: lang.CANCEL,
+        onPress: () => this.close(),
+      });
+      this.back = new E1Button(this, {
+        anchors: [24, null, null, 20], size: [180, 50], text: "Back",
+        onPress: () => this.view(null),
+      });
+      this.ok = new E1Button(this, {
+        anchors: [null, null, 24, 20], size: [180, 50], text: "Swap",
+        colors: [Color.main, Color.main], textColor: Color.black, textColorON: Color.black,
+        onPress: () => {
+          DLZMOD_ctlSet(n, this.swap.prefix);
+          this.close();
+        },
+      });
+      this.view(null);
+    },
+    view: function (swap) {
+      this.swap = swap;
+      this.pickers.forEach((b) => b.setVisible(!swap));
+      this.cancel.setVisible(!swap);
+      this.back.setVisible(!!swap);
+      this.ok.setVisible(!!swap);
+      this.update();
+    },
+    onDestroy: function () {
+      DLZMOD_ctlPicker.popup = null;
+      PopupWindow.prototype.onDestroy.call(this);
+      DLZMOD_repaintSoon();
+    },
+    paint: function (t) {
+      PopupWindow.prototype.paint.call(this, t);
+      const sw = this.swap;
+      if (!sw) {
+        t.drawText(ctls[n][0] + " controls", this.w / 2 | 0, 36, { color: Color.white,
+          font: Font.font(600, "18pt"), align: "center", valign: "middle" });
+        t.drawText("A channel another " + what + " controls: you can swap the two " + what + "s.", 24, this.h - 45,
+          { color: "#888888", font: Font.font(500, "12pt"), align: "left", valign: "middle" });
+        return;
+      }
+      t.drawText("Swap " + ctls[n][0] + " and " + ctls[sw.other][0] + "?", this.w / 2 | 0, 36, { color: Color.white,
+        font: Font.font(600, "18pt"), align: "center", valign: "middle" });
+      t.drawText(ch(sw.prefix)[1] + " is on " + ctls[sw.other][0] + " now: that " + what + " gets " + ch(sw.was)[1] +
+        " instead.", this.w / 2 | 0, 74, { color: "#888888", font: Font.font(500, "13pt"), align: "center", valign: "middle" });
+      [[ctls[n][0], sw.was, sw.prefix], [ctls[sw.other][0], sw.prefix, sw.was]].forEach(([name, from, to], i) => {
+        const y = 112 + i * 72;
+        t.drawText(name, 60, y + 27, { color: Color.white, font: Font.font(600, "16pt"), align: "left", valign: "middle" });
+        // both dark with the channel's colour along the bottom; the new one framed in it, white text
+        const box = (p, x, on) => {
+          const col = DLZMOD_ctlColor(p);
+          t.fRect(on ? col : Color.buttonBg, x, y, 240, 54);
+          t.fRect(Color.buttonBg, x + 2, y + 2, 236, 50);
+          t.fRect(col, x, y + 49, 240, 5);
+          t.drawText(DLZMOD_ctlName(ch(p), 12), x + 120, y + 25, { color: on ? Color.white : "#888888",
+            font: Font.font(500, "14pt"), align: "center", valign: "middle" });
+        };
+        box(from, 230, !1);
+        t.drawText("→", 510, y + 27, { color: Color.white, font: Font.font(600, "20pt"), align: "center", valign: "middle" });
+        box(to, 550, !0);
+      });
     },
   });
 }

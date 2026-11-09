@@ -135,7 +135,7 @@ const ctx = vm.createContext({
   $NET: { cmd: (c, a) => ui.cmds.push([c, plain(a)]) },
   deconvertVU: (c) => c / 100,
   // the fader position as its dB (here: position - 1 in tens of dB), a level moved by dB (here: 1/100 per dB)
-  E_CH_TYPE: { INPUT: 0, MASTER: 4 },
+  E_CH_TYPE: { INPUT: 0, MASTER: 4, VIRTUAL: 5 },
   VtoMix: (v) => (v - 1) * 10,
   modVuByDb: (v, db) => Math.round((v + db / 100) * 1000) / 1000,
   lang: { CURRENT_VERSION: "Current version", UPDATE_VERSION: "Update version", CANCEL: "Cancel" },
@@ -3065,6 +3065,95 @@ test("knobs: a panel entry with stepKey sits on the stand-in of its place, the s
   knobs([stock]);
   step({ knob: 1, steps: 1 });
   assert.strictEqual(ui.sets.length, before, "the next page's panel replaces them");
+});
+
+// #23: which channel each channel knob (XS) or fader (full-size) controls
+const ctlWith = (lite, raw, fn) => {
+  const had = Data.data["dlzmod.controls"];
+  if (lite) ctx.LITE_MODE = 1;
+  Data.data["dlzmod.controls"] = raw;
+  try {
+    return fn();
+  } finally {
+    delete ctx.LITE_MODE;
+    Data.data["dlzmod.controls"] = had;
+  }
+};
+const ctlMap = () => plain(ctx.DLZMOD_ctlMap());
+
+test("controls: stock until set, both models", () => {
+  ctlWith(true, "", () => assert.deepStrictEqual(ctlMap(), ["i.0", "i.1", "p.0", "p.1", "s"]));
+  ctlWith(false, undefined, () => assert.deepStrictEqual(ctlMap(),
+    ["i.0", "i.1", "i.2", "i.3", "p.0", "p.1", "p.2", "s", "m"]));
+});
+
+test("controls: stored by the stock channel, so a backup means the same on both models", () => {
+  ctlWith(true, "s=m", () => assert.deepStrictEqual(ctlMap(), ["i.0", "i.1", "p.0", "p.1", "m"]));
+  // on the full-size the samples fader gets LR; the master fader keeps it too: two on one, so stock
+  ctlWith(false, "s=m", () => assert.deepStrictEqual(ctlMap(),
+    ["i.0", "i.1", "i.2", "i.3", "p.0", "p.1", "p.2", "s", "m"]));
+  ctlWith(false, "s=m,m=s", () => assert.deepStrictEqual(ctlMap(),
+    ["i.0", "i.1", "i.2", "i.3", "p.0", "p.1", "p.2", "m", "s"]));
+});
+
+test("controls: pairs that do not fit the model are left out", () => {
+  // the full-size has no virtual strips; the XS no i.2, no master fader of its own
+  ctlWith(false, "i.0=v.0", () => assert.strictEqual(ctlMap()[0], "i.0"));
+  ctlWith(true, "i.2=m,m=s,i.0=x,junk", () => assert.deepStrictEqual(ctlMap(), ["i.0", "i.1", "p.0", "p.1", "s"]));
+  ctlWith(true, "i.0=s", () => assert.deepStrictEqual(ctlMap(), ["i.0", "i.1", "p.0", "p.1", "s"],
+    "two knobs on Samples: stock"));
+});
+
+test("controls: a free channel is set, a taken one swaps the two, back to stock stores nothing", () => {
+  ctlWith(true, "", () => {
+    ctx.DLZMOD_ctlSet(4, "m");
+    assert.strictEqual(Data.data["dlzmod.controls"], "s=m", "knob 5 on LR, Samples on the screen");
+    ctx.DLZMOD_ctlSet(0, "m");
+    assert.strictEqual(Data.data["dlzmod.controls"], "i.0=m,s=i.0", "knob 1 takes LR, knob 5 gets Mic 1");
+    assert.deepStrictEqual(ctlMap(), ["m", "i.1", "p.0", "p.1", "i.0"]);
+    ctx.DLZMOD_ctlSet(0, "i.0");
+    assert.strictEqual(Data.data["dlzmod.controls"], "s=m");
+    ctx.DLZMOD_ctlSet(4, "s");
+    assert.strictEqual(Data.data["dlzmod.controls"], "");
+  });
+});
+
+test("controls: on the XS a channel without a knob has the fader on the screen", () => {
+  const strip = (type, prefix) => ({ type, prefix, synced: 0, sync() {
+    this.synced++;
+  } });
+  const T = ctx.E_CH_TYPE;
+  ctlWith(true, "", () => {
+    assert.strictEqual(ctx.DLZMOD_ctlScreen(strip(T.INPUT, "s.")), false);
+    assert.strictEqual(ctx.DLZMOD_ctlScreen(strip(T.MASTER, "m.")), true, "stock: LR on the screen");
+    assert.strictEqual(ctx.DLZMOD_ctlScreen(strip(T.VIRTUAL, "v.0.")), true);
+  });
+  ctlWith(true, "s=m", () => {
+    const samples = strip(T.INPUT, "s.");
+    assert.strictEqual(ctx.DLZMOD_ctlScreen(samples), true, "Samples lost its knob");
+    assert.strictEqual(ctx.DLZMOD_ctlScreen(strip(T.MASTER, "m.")), false, "LR has knob 5");
+    (regs["dlzmod.controls"] || []).forEach((f) => f());
+    assert.ok(samples.synced > 0, "a change syncs the strips again");
+  });
+  // the full-size keeps stock whatever is set, and a strip that is no channel (an FX return) too
+  ctlWith(false, "s=m,m=s", () => {
+    assert.strictEqual(ctx.DLZMOD_ctlScreen(strip(T.INPUT, "s.")), false);
+    assert.strictEqual(ctx.DLZMOD_ctlScreen(strip(T.MASTER, "m.")), false);
+  });
+  ctlWith(true, "", () => assert.strictEqual(ctx.DLZMOD_ctlScreen(strip(T.INPUT, "f.0.")), false));
+});
+
+test("controls: the channel's text is its number and the owner's name, as on the Overview", () => {
+  const had = Data.data["p.1.name"];
+  Data.data["p.1.name"] = "DJ Cue / Bluetooth";
+  try {
+    assert.strictEqual(ctx.DLZMOD_ctlName(["p.1", "5/6"]), "5/6  DJ Cue / Bluetooth");
+    assert.strictEqual(ctx.DLZMOD_ctlName(["p.1", "5/6"], 13), "5/6  DJ Cue / Blu..");
+    assert.strictEqual(ctx.DLZMOD_ctlName(["v.1", "11/12"]), "11/12", "no name: only the number");
+  } finally {
+    if (had === undefined) delete Data.data["p.1.name"];
+    else Data.data["p.1.name"] = had;
+  }
 });
 
 (async () => {

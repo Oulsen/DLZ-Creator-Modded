@@ -426,6 +426,51 @@ function DLZMOD_keyAllowed(key, value, send) {
   return true;
 }
 
+// #23: which channel each channel knob (XS) or fader (full-size) controls. faderlink sends a move as
+// the level key of the control's stock channel (its table, notes/components/faderlink.md "Faders"),
+// over its socket.io connection; the screen talks over TCP :89. dlzmod.controls (Settings, Knobs /
+// Faders) holds the controls set elsewhere as "stock=channel" pairs, e.g. "s=m,m=s", so a backup
+// means the same on both models. The stock channels per model and the channels with a level; a
+// value that does not fit the model, or gives one channel two controls, counts as stock.
+function DLZMOD_ctlStock(lite) {
+  return lite ? ["i.0", "i.1", "p.0", "p.1", "s"] : ["i.0", "i.1", "i.2", "i.3", "p.0", "p.1", "p.2", "s", "m"];
+}
+
+function DLZMOD_ctlChannels(lite) {
+  return lite ? ["i.0", "i.1", "p.0", "p.1", "s", "v.0", "v.1", "m"] : DLZMOD_ctlStock(!1);
+}
+
+// the channel each control controls, in the order of DLZMOD_ctlStock
+function DLZMOD_ctlMap(raw, lite) {
+  const stock = DLZMOD_ctlStock(lite), chans = DLZMOD_ctlChannels(lite);
+  const map = stock.slice();
+  for (const pair of String(raw || "").split(",")) {
+    const [from, to] = pair.split("=");
+    const n = stock.indexOf(from);
+    if (n >= 0 && chans.includes(to)) map[n] = to;
+  }
+  return new Set(map).size === map.length ? map : stock;
+}
+
+// A level from faderlink goes to the channel its control is set to. Only from a local socket.io
+// connection (faderlink; dspserver sends no levels) and only keys of a control's stock channel. All
+// renames first, then the new keys, so two controls that swapped do not overwrite each other.
+function DLZMOD_ctlRemap(msg, conn, get = globalThis.getDataKey, lite = globalThis.isDLZLite) {
+  const send = conn && conn.send;
+  if (!msg || typeof msg !== "object" || !(send && send.dlzmodLocal === true && send.dlzmodSio === true)) return;
+  const stock = DLZMOD_ctlStock(!!lite);
+  const map = DLZMOD_ctlMap(get("dlzmod.controls"), !!lite);
+  const moved = [];
+  for (const key of Object.keys(msg)) {
+    const m = /^(.+)\.mix$/.exec(key);
+    const n = m ? stock.indexOf(m[1]) : -1;
+    if (n < 0 || map[n] === stock[n]) continue;
+    moved.push([map[n] + ".mix", msg[key]]);
+    delete msg[key];
+  }
+  for (const [key, value] of moved) msg[key] = value;
+}
+
 // #238: a knob only drives keys in faderlink's own table, so a mod page points knob N at
 // DLZMOD_KNOB_KEYS[N] (listed there, on both models, used by neither audio graph; faderlink.md, "Knob
 // stand-ins"). Its changes are caught here: they stay out of the state, the broadcast and the save,
