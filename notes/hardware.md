@@ -17,7 +17,7 @@ The board, Mackie's device tree, the boot chain, the eMMC layout and the SD slot
 - Controls per model [device: XS; static and Mackie's photos: full-size]. Both send channel levels the
   same way (`slider.N`, [components/faderlink.md](components/faderlink.md), "Faders"):
   - XS: five channel knobs with end stops in the bottom row (1 Mic 1, 2 Mic 2, 3 = 3/4, 4 = 5/6,
-    5 Samples), each with solo/mute buttons; no master control. Top right four endless knobs with
+    5 Samples); knobs 1-4 with mute and solo buttons, knob 5 with solo only [device]; no master control. Top right four endless knobs with
     light rings (`K.0-3`)
   - Full-size: nine faders (1-4 the mics, 5/6, 7/8, 9/10, Samples next to the pads, Master on the
     right). Top right five endless knobs with light rings (`K.0-4`)

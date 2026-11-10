@@ -41,6 +41,23 @@ Owned by package `faderlink` 521 (binary, flash scripts, firmware, bitstreams). 
     from localhost are faderlink and dspserver; the screen (app.js) talks over TCP :89 [device: `ss
     -tnp`]. So a `*.mix` on a local socket.io connection is a fader or channel knob, one over :89 the
     screen (#23)
+- **Mute and solo buttons**: the GD32 sends `{"<channel>.mute":v}` / `{"<channel>.solo":v}` for the
+  button's own channel, and faderlink passes the line on to the hub unchanged [static: both GD32
+  firmwares build these strings]. `v` is the new state, the opposite of what the GD32 last got for
+  that key from the hub (its LED): a mute pressed twice sent 0 then 1 on a muted channel, a solo 1 then
+  0 [device, XS, read on a paired device's broadcast]
+  - XS: knobs 1-4 have mute and solo (`i.0 i.1 p.0 p.1`), knob 5 only solo (`s.solo`) [device]
+  - `la()` in `server.js` flips `i.N.mute` / `p.N.mute` whatever the value (a pad can hold a mute
+    too: its own count per channel, list `i.0 i.1 p.0 p.1 s v.0 v.1 m` on the XS, `i.0-3 p.0-2 s m`
+    on the full-size); `s.mute` and `m.solo` are refused ("not supported"); other solos and mutes are
+    stored as sent [static]
+  - The LEDs show the hub key of the button's own channel (`*.mute`, `*.solo`, `*.colorhex` pass the
+    forward filter below) [static]
+  - Telling faderlink from dspserver: both connect to `ws://localhost:80/socket.io/` with the same
+    `User-Agent` and both send `INIT`; only faderlink sends `{"btStatus":%d, "bt":%d}`, when the hub
+    gives it `settings.bt.enabled` (in the state right after it connects) [static: `0x395b0`;
+    dspserver has no such string]. The mod (#23) takes the local socket.io connection that sends it
+    as faderlink's and sends LED keys to that one only: to dspserver a mute is the channel's sound
 - **Knobs**: app.js's knob panel writes `K.N.key` (the hub key knob N drives), `K.N.color` (LED ring
   colour) and `K.N.blink` for N = 0-3, plus `K.4`. The panel only sends the key name; faderlink does
   the rest [static, read with REA/Ghidra, #201]:

@@ -586,6 +586,24 @@ SERVER_PATCHES = [
         "DLZMOD_ctlRemap(e,t);for(const[a,i]of Object.entries(e))if(null!=a&&(DLZMOD_keyAllowed(a,i,t.send)||(delete e[a],!1))&&(!DLZMOD_knobCatch(a,i,t)||(delete e[a],!1))){",
     ),
     (
+        # #23: the LEDs under a knob or fader follow the channel chosen for it. Every way stock sends
+        # keys out (a client's message passed on, setDataKey, ra) also tells DLZMOD_ctlLeds, which
+        # sends faderlink alone the chosen channel's mute, solo and colour under the control's keys
+        "controls: LEDs after a client's message",
+        'console.error("m.solo or s.mute is not supported"),console.error(e)}t.broadcast("message",e)}',
+        'console.error("m.solo or s.mute is not supported"),console.error(e)}t.broadcast("message",e),DLZMOD_ctlLeds(e,t)}',
+    ),
+    (
+        "controls: LEDs after setDataKey",
+        "ct.send({[e]:t}),bt(0,{[e]:t}),a&&(mt=!0)}",
+        "ct.send({[e]:t}),bt(0,{[e]:t}),a&&(mt=!0),DLZMOD_ctlLeds({[e]:t})}",
+    ),
+    (
+        "controls: LEDs after ra",
+        'function ra(e){ct&&ct.emit("message",e),bt(0,e)}',
+        'function ra(e){ct&&ct.emit("message",e),bt(0,e),DLZMOD_ctlLeds(e)}',
+    ),
+    (
         # stock builds a shell line from file names on the card or stick: a name with ; would run
         "files: wavfinalizer without a shell",
         'try{await b("wavfinalizer "+t+"/"+e+" "+t+"/"+a)}',
