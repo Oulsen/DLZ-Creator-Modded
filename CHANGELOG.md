@@ -2,6 +2,8 @@
 
 ## v0.6.0
 
+- (DLZ FEATURE) Choose which fader controls which channel
+
 ## v0.5.0
 
 - (DLZ FEATURE) See the sound behind the EQ curve
