@@ -227,6 +227,20 @@ APP_PATCHES = [
         "SET_KNOBS(DLZMOD_ctlSideKnobs(t))}initStrips(){",
     ),
     (
+        # #259: the Overview's strips in the order of the channel knobs or faders, with a phones
+        # strip for one on a phones mix (DLZMOD_ctlPhonesStrips, DLZMOD_ctlArrange)
+        "controls: the Overview's strips follow the knobs or faders",
+        "masterStrips.push(e),allStrips.push(e),this.arrange()}",
+        "masterStrips.push(e),allStrips.push(e),DLZMOD_ctlPhonesStrips(this),this.arrange()}",
+    ),
+    (
+        # the order again whenever the Overview shows (its width known by then: the strips narrower
+        # when more than fit)
+        "controls: the strips' order when the Overview shows",
+        "MainMixer\",this.applyParams.apply(this,arguments)}onShow(){this.setKnobs()}",
+        "MainMixer\",this.applyParams.apply(this,arguments)}onShow(){DLZMOD_ctlArrange(this),this.setKnobs()}",
+    ),
+    (
         "settings: add Mod tab",
         "let t=[lang.SYSTEM,lang.BLUETOOTH_SD,lang.ROUTING_RECORDING,lang.ABOUT];",
         'let t=[lang.SYSTEM,lang.BLUETOOTH_SD,lang.ROUTING_RECORDING,lang.ABOUT,DLZMOD_tabLabel(),DLZMOD_ctlTabLabel()];',

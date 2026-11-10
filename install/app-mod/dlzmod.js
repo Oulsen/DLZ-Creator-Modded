@@ -1714,7 +1714,7 @@ function DLZMOD_settingsPage(parent, y) {
 // (faderlink's table, notes/components/faderlink.md "Faders"), then the knobs next to the screen as
 // the Overview sets them (MainMixer's setKnobs: the phones, on the XS also 9/10 and 11/12).
 function DLZMOD_ctlChannels() {
-  // the phones by number, with a headphone drawn before it (DLZMOD_ctlDraw)
+  // the phones by number, with a headphone before it (DLZMOD_ctlIcon)
   const ph = (n) => ["a." + n, String(n + 1)];
   return LITE_MODE
     ? [["i.0", "1"], ["i.1", "2"], ["p.0", "3/4"], ["p.1", "5/6"], ["s", "7/8"], ["v.0", "9/10"], ["v.1", "11/12"],
@@ -1820,6 +1820,107 @@ function DLZMOD_ctlSideKnobs(list) {
   return DLZMOD_knobs(out);
 }
 
+// #259: the Overview's strips in the order of the channel knobs or faders (the first strip is what
+// knob or fader 1 has, ...), then the strips without one in stock order. A channel knob or fader on
+// a phones mix gets a phones strip in its place (DLZMOD_ctlPhonesStrips); phones strips without one
+// stay hidden. The order goes to Mackie's GenericMixer (its order, as arrange reads it): indexes into
+// the mixer's strips.
+function DLZMOD_ctlOrder(mixer) {
+  const ws = (mixer && mixer.widgets) || [], map = DLZMOD_ctlMap();
+  const at = (p) => ws.findIndex((w) => w && String(w.prefix || "") === p + ".");
+  const order = [];
+  for (let n = 0; n < DLZMOD_ctlKnobs(); n++) {
+    const i = at(map[n]);
+    if (i >= 0 && !order.includes(i)) order.push(i);
+  }
+  ws.forEach((w, i) => {
+    if (w && !w.DLZMOD_phones && !order.includes(i)) order.push(i);
+  });
+  return order;
+}
+
+// The order applied; more strips than fit (a phones strip on the XS) all get narrower, as Mackie's
+// Aux page does with its strips (w, then calcAnchors), so none ends up off the screen. Never throws:
+// the Overview stays as it is.
+function DLZMOD_ctlArrange(mixer) {
+  try {
+    const ws = mixer.widgets, m = mixer.margin || 0, order = DLZMOD_ctlOrder(mixer);
+    ws.forEach((w) => {
+      if (w.DLZMOD_w == null) w.DLZMOD_w = w.w;
+    });
+    const need = order.reduce((s, i) => s + ws[i].DLZMOD_w + m, -m);
+    const fit = mixer.w > 0 && need > mixer.w ? Math.floor((mixer.w + m) / order.length) - m : 0;
+    ws.forEach((w, i) => {
+      const nw = fit && order.includes(i) ? Math.min(fit, w.DLZMOD_w) : w.DLZMOD_w;
+      if (w.w !== nw) {
+        w.w = nw;
+        w.calcAnchors && w.calcAnchors();
+      }
+    });
+    mixer.setOrder(order);
+  } catch (e) {
+    console.error("DLZMOD_ctlArrange", e);
+  }
+}
+
+// The phones strips, added to the Overview's mixer after Mackie's (MainMixer's initStrips,
+// patch.py): one for each phones mix, the width of a strip, in the phones' colour, with the level
+// as a position (as the strips' own) and in dB, the headphone and its number. No meter: the mixer
+// sends none for the phones. Not in allStrips (Mackie's lists stay as they are), not selectable.
+function DLZMOD_ctlPhonesStrips(mixer) {
+  try {
+    const n = typeof chConfig === "object" && chConfig.aux > 0 ? chConfig.aux : LITE_MODE ? 2 : 4;
+    const w0 = (mixer.widgets[0] && mixer.widgets[0].w) || (LITE_MODE ? _DimsLite.stripWidth : _Dims.stripWidth);
+    for (let a = 0; a < n; a++) {
+      const key = "a." + a + ".";
+      const s = new Widget(mixer, { w: w0, bgColor: Color.stripBg, paint: function (t) {
+        DLZMOD_ctlPhonesPaint(this, t, a);
+      } });
+      s.setAnchors(null, 0, null, 0);
+      s.prefix = key;
+      s.DLZMOD_phones = !0;
+      s.isSelected = () => !1;
+      s.select = () => {};
+      s.regKey(key + "mix");
+      s.regKey(key + "color");
+    }
+    mixer.order = DLZMOD_ctlOrder(mixer);
+    Data.regWidget("dlzmod.controls", () => DLZMOD_ctlArrange(mixer));
+  } catch (e) {
+    console.error("DLZMOD_ctlPhonesStrips", e);
+  }
+}
+
+function DLZMOD_ctlPhonesPaint(s, t, a) {
+  const bh = _Dims.botNameHeight, w = s.w, top = s.h - bh;
+  const col = (typeof getAuxColor === "function" && getAuxColor(a)) || Color.gray;
+  const v = Math.min(Math.max(Number(Data.get("a." + a + ".mix")) || 0, 0), 1);
+  t.fRect(Color.stripBg, 0, 0, w, s.h);
+  t.fRect(col, 0, 1, w, 2);
+  // the level: a track with the position, as the strips' (mixPos), the dB under it
+  const tw = 24, tx = (w - tw) / 2 | 0, ty = 14, th = top - ty - 48;
+  t.fRect(Color.vuBg || "#3a3a3a", tx, ty, tw, th);
+  const y = ty + (th - 2) * (1 - v) | 0;
+  if (v > 0) t.fRect(col, tx, y, tw, ty + th - y);
+  t.fillStyle = Color.white;
+  t.fillPolygon(tx - 8, y + 1, 6, 3, 0);
+  t.drawText(v2mixText(v), w / 2 | 0, top - 24,
+    { color: Color.white, font: Font.font(500, "13pt"), align: "center", valign: "middle" });
+  // the name area, as the strips' (paintBot): number top left, the headphone in the middle
+  t.fRect(Color.menuSeparator, 0, top, w, 2);
+  t.strokeStyle = Color.stripBorder;
+  t.lineWidth = 1;
+  t.beginPath();
+  t.rect(.5, top + 2.5, w - 1, bh - 3);
+  t.stroke();
+  t.drawText(String(a + 1), 4, s.h - 70,
+    { color: Color.stripNameText, font: Font.font(500, "13pt"), align: "left", valign: "middle" });
+  t.drawText(String.fromCharCode(0xe310), w / 2 | 0, s.h - 37,
+    { color: col, font: Font.mi("40px"), align: "center", valign: "middle" });
+  t.drawText("Phones", w / 2 | 0, s.h - 10,
+    { color: Color.white, font: Font.font(600, "10pt"), align: "center", valign: "middle" });
+}
+
 // the channel's text: its number and the name the owner gave it, as on the Overview (only the
 // number when it has none)
 function DLZMOD_ctlName(c, max) {
@@ -1827,26 +1928,30 @@ function DLZMOD_ctlName(c, max) {
   return name ? c[1] + "  " + (max && name.length > max ? name.slice(0, max - 1).trimEnd() + ".." : name) : c[1];
 }
 
-// A level's text centred on cx, cy; the phones' with a headphone before it in the text's own colour:
-// MaterialIcons' "headset" (U+E310), a font Mackie's app loads (Font.mi). Mackie's own sign (lang.PHONES_)
-// is a colour emoji, which a selected button, black on green, would leave white. Buttons with a phones
-// leave their own text empty and draw it here.
+// The phones get a headphone before their number, in the text's own colour: MaterialIcons' "headset"
+// (U+E310), a font Mackie's app loads (Font.mi). Mackie's own sign (lang.PHONES_) is a colour emoji,
+// which a selected button, black on green, would leave white. On buttons through E1Button's own icon
+// (Mackie places it by the text's width, which the mixer's renderer gives there); elsewhere by the
+// number of characters, as Mackie wraps its popups on the mixer (no measureText there).
 function DLZMOD_ctlPhones(p) {
   return /^a\./.test(p);
 }
 
-function DLZMOD_ctlDraw(t, p, text, font, cx, cy, color) {
-  if (!DLZMOD_ctlPhones(p)) return t.drawText(text, cx, cy, { color: color, font: font, align: "center", valign: "middle" });
-  const icon = String.fromCharCode(0xe310), iconFont = Font.mi("22px");
-  t.save();
-  t.font = font;
-  const w = t.measureText(text).width;
-  t.font = iconFont;
-  const iw = t.measureText(icon).width;
-  t.restore();
-  const gap = 6, x0 = cx - (iw + gap + w) / 2;
-  t.drawText(icon, x0, cy, { color: color, font: iconFont, align: "left", valign: "middle" });
-  t.drawText(text, x0 + iw + gap, cy, { color: color, font: font, align: "left", valign: "middle" });
+function DLZMOD_ctlIcon(p) {
+  return DLZMOD_ctlPhones(p) ? String.fromCharCode(0xe310) : null;
+}
+
+function DLZMOD_ctlIconParams() {
+  return { iconFont: Font.mi("22px"), iconX: null, iconY: null, iconAlign: "center" };
+}
+
+// a level's text centred on cx, cy, with the headphone for the phones (about 0.55 em a character)
+function DLZMOD_ctlDraw(t, p, text, font, px, cx, cy, color) {
+  const icon = DLZMOD_ctlIcon(p);
+  const x = icon ? cx + 12 : cx;
+  t.drawText(text, x, cy, { color: color, font: font, align: "center", valign: "middle" });
+  if (icon) t.drawText(icon, x - String(text).length * px * 0.55 / 2 - 14, cy - 1,
+    { color: color, font: Font.mi("22px"), align: "center", valign: "middle" });
 }
 
 // The Knobs/Faders page under Settings: two of Mackie's windows. Left the channel knobs or faders,
@@ -1865,19 +1970,16 @@ function DLZMOD_controlsPage(parent, y) {
         anchors: [cx, top + (n - from) * rowH], size: [w.w - cx - 30, rowH - 8], text: "",
         colors: [Color.buttonBg, Color.red2], textColorON: Color.white,
         textStyle: { font: Font.font(500, rowH < 50 ? "13pt" : "15pt") },
+        ...DLZMOD_ctlIconParams(),
         regKey: ["dlzmod.controls"],
         paintOverlay: function (t) {
           t.fillStyle = "rgba(255,255,255,0.30)";
           t.fillPolygon(this.w - 14, this.h / 2 | 0, 6, 3, 0);
-          if (this.phones) DLZMOD_ctlDraw(t, this.phones, this.phonesText, this.textStyle.font, this.w / 2, this.h / 2,
-            this.state ? this.textColorON : this.textColor || Color.white);
         },
         getState: function () {
           const p = DLZMOD_ctlGet(n);
-          const text = DLZMOD_ctlName(DLZMOD_ctlChannels().find((ch) => ch[0] === p), 13);
-          this.phones = DLZMOD_ctlPhones(p) && p;
-          this.phonesText = text;
-          this.text = this.phones ? "" : text;
+          this.text = DLZMOD_ctlName(DLZMOD_ctlChannels().find((ch) => ch[0] === p), 13);
+          this.icon = DLZMOD_ctlIcon(p);
         },
         onPress: () => DLZMOD_ctlPicker(n),
       });
@@ -1923,13 +2025,12 @@ function DLZMOD_controlsPage(parent, y) {
       t.drawText("Overview page", this.w / 2 | 0, 34,
         { color: Color.white, font: Font.font(600, "16pt"), align: "center", valign: "middle" });
       labels(t, k, ctls.length, rTop, rRow);
-      // what has no control (on the XS one level, LR in stock: only its fader on the screen); on the
-      // full-size, once a fader is swapped, that the screen's strips stay in their own order
+      // what has no control (on the XS one level, LR in stock: only its fader on the screen); the
+      // strips on the Overview follow the controls (DLZMOD_ctlOrder)
       const map = DLZMOD_ctlMap();
       const none = DLZMOD_ctlChannels().filter((c) => !map.includes(c[0]))
         .map((c) => (DLZMOD_ctlPhones(c[0]) ? "Phones " : "") + c[1]);
-      const note = none.length ? "On the screen only: " + none.join(", ")
-        : map.slice(0, k).some((p, j) => p !== ctls[j][1]) ? "The strips on the screen keep their own order" : "";
+      const note = none.length ? "On the screen only: " + none.join(", ") : "";
       if (note) t.drawText(note, this.w / 2 | 0, rTop + (ctls.length - k) * rRow + 8,
         { color: "#888888", font: Font.font(500, "12pt"), align: "center", valign: "middle" });
     },
@@ -1957,14 +2058,13 @@ function DLZMOD_ctlPicker(n) {
     initWidgets: function () {
       this.pickers = chans.map((c, i) => new E1Button(this, {
         anchors: [24 + (i % COLS) * (BW + GAP), TOP + (i / COLS | 0) * (BH + GAP)], size: [BW, BH],
-        text: DLZMOD_ctlPhones(c[0]) ? "" : DLZMOD_ctlName(c), textStyle: { font: Font.font(500, "15pt") },
+        text: DLZMOD_ctlName(c), textStyle: { font: Font.font(500, "15pt") },
+        icon: DLZMOD_ctlIcon(c[0]), ...DLZMOD_ctlIconParams(),
         colors: [Color.buttonBg, Color.main], textColorON: Color.black,
         getState: function () {
           this.state = holder(c[0]) === n;
         },
         paintOverlay: function (t) {
-          if (DLZMOD_ctlPhones(c[0])) DLZMOD_ctlDraw(t, c[0], DLZMOD_ctlName(c), this.textStyle.font, this.w / 2, this.h / 2,
-            this.state ? this.textColorON : this.textColor || Color.white);
           t.fRect(DLZMOD_ctlColor(c[0]), 0, this.h - 5, this.w, 5);
           const k = holder(c[0]);
           if (k >= 0 && k !== n) t.drawText(ctls[k][0], this.w - 10, 15, { color: "#888888",
@@ -2036,7 +2136,7 @@ function DLZMOD_ctlPicker(n) {
           t.fRect(on ? col : Color.buttonBg, x, y, 240, 54);
           t.fRect(Color.buttonBg, x + 2, y + 2, 236, 50);
           t.fRect(col, x, y + 49, 240, 5);
-          DLZMOD_ctlDraw(t, p, DLZMOD_ctlName(ch(p), 12), Font.font(500, "14pt"), x + 120, y + 25,
+          DLZMOD_ctlDraw(t, p, DLZMOD_ctlName(ch(p), 12), Font.font(500, "14pt"), 19, x + 120, y + 25,
             on ? Color.white : "#888888");
         };
         box(from, 230, !1);

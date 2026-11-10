@@ -3190,6 +3190,51 @@ test("controls: the Overview's side knobs: stock entries kept, a moved one on it
     "side knob 1 on LR"));
 });
 
+// the Overview's mixer as MainMixer builds it, plus the phones strips (DLZMOD_ctlPhonesStrips)
+const ovMixer = (lite, w) => {
+  const pre = lite ? ["i.0", "i.1", "p.0", "p.1", "s", "v.0", "v.1", "m", "a.0", "a.1"]
+    : ["i.0", "i.1", "i.2", "i.3", "p.0", "p.1", "p.2", "s", "m", "a.0", "a.1", "a.2", "a.3"];
+  return { w, margin: 2, order: null, widgets: pre.map((p) => ({ prefix: p + ".", w: 112, anchored: 0,
+    DLZMOD_phones: /^a\./.test(p), calcAnchors() {
+      this.anchored++;
+    } })), setOrder(o) {
+    this.order = o;
+  } };
+};
+const ovPrefixes = (m) => m.order.map((i) => m.widgets[i].prefix.slice(0, -1));
+
+test("controls: the Overview's strips follow the channel knobs or faders, the rest in stock order (#259)", () => {
+  ctlWith(true, "", () => assert.deepStrictEqual(plain(ctx.DLZMOD_ctlOrder(ovMixer(true))), [0, 1, 2, 3, 4, 5, 6, 7],
+    "stock: Mackie's order, no phones strip"));
+  ctlWith(true, "s=v.0,v.0=s", () => assert.deepStrictEqual(
+    plain(ctx.DLZMOD_ctlOrder(ovMixer(true)).map((i) => ovMixer(true).widgets[i].prefix)),
+    ["i.0.", "i.1.", "p.0.", "p.1.", "v.0.", "s.", "v.1.", "m."], "knob 5 on 9/10: its strip fifth"));
+  ctlWith(true, "i.0=m,s=i.0", () => assert.deepStrictEqual(
+    plain(ctx.DLZMOD_ctlOrder(ovMixer(true)).map((i) => ovMixer(true).widgets[i].prefix)),
+    ["m.", "i.1.", "p.0.", "p.1.", "i.0.", "s.", "v.0.", "v.1."], "LR first"));
+  ctlWith(true, "s=a.0,a.0=s", () => assert.deepStrictEqual(
+    plain(ctx.DLZMOD_ctlOrder(ovMixer(true)).map((i) => ovMixer(true).widgets[i].prefix)),
+    ["i.0.", "i.1.", "p.0.", "p.1.", "a.0.", "s.", "v.0.", "v.1.", "m."], "knob 5 on Phones 1: a phones strip fifth"));
+  ctlWith(false, "s=m,m=s,i.0=a.2,a.2=i.0", () => assert.deepStrictEqual(
+    plain(ctx.DLZMOD_ctlOrder(ovMixer(false)).map((i) => ovMixer(false).widgets[i].prefix)),
+    ["a.2.", "i.1.", "i.2.", "i.3.", "p.0.", "p.1.", "p.2.", "m.", "s.", "i.0."], "full-size: the faders' order"));
+});
+
+test("controls: more strips than fit all get narrower, back to their width when they fit again (#259)", () => {
+  const m = ovMixer(true, 918);
+  ctlWith(true, "s=a.0,a.0=s", () => ctx.DLZMOD_ctlArrange(m));
+  assert.deepStrictEqual(ovPrefixes(m).length, 9);
+  const w = m.widgets[m.order[0]].w;
+  assert.ok(9 * w + 8 * 2 <= 918 && w >= 98, "nine fit: " + w);
+  assert.strictEqual(m.widgets[8].w, w, "the phones strip too");
+  assert.ok(m.widgets[0].anchored > 0, "laid out again");
+  ctlWith(true, "", () => ctx.DLZMOD_ctlArrange(m));
+  assert.deepStrictEqual(plain(ovPrefixes(m)), ["i.0", "i.1", "p.0", "p.1", "s", "v.0", "v.1", "m"]);
+  assert.ok(m.widgets.every((s) => s.w === 112), "stock width back");
+  // a broken mixer leaves the Overview as it is
+  ctlWith(true, "", () => assert.doesNotThrow(() => ctx.DLZMOD_ctlArrange({})));
+});
+
 test("controls: the channel's text is its number and the owner's name, as on the Overview", () => {
   const had = ctx.Data.data["p.1.name"];
   ctx.Data.data["p.1.name"] = "DJ Cue / Bluetooth";
