@@ -476,21 +476,25 @@ function DLZMOD_ctlLedOf(ch, what, get) {
 // not have (LR's solo) does nothing, and its LED is put back. All renames first, then the new keys, so
 // two controls that swapped do not overwrite each other.
 function DLZMOD_ctlRemap(msg, conn, get = globalThis.getDataKey, lite = globalThis.isDLZLite) {
-  if (!msg || typeof msg !== "object" || !DLZMOD_ctlLocalSio(conn)) return;
-  const stock = DLZMOD_ctlStock(!!lite);
-  const map = DLZMOD_ctlMap(get("dlzmod.controls"), !!lite);
-  const moved = [], back = {};
-  for (const key of Object.keys(msg)) {
-    const m = /^(.+)\.(mix|mute|solo)$/.exec(key);
-    const n = m ? stock.indexOf(m[1]) : -1;
-    if (n < 0 || map[n] === stock[n]) continue;
-    const to = map[n] + "." + m[2];
-    if (DLZMOD_CTL_NONE.includes(to)) back[key] = DLZMOD_ctlLedOf(map[n], m[2], get);
-    else moved.push([to, msg[key]]);
-    delete msg[key];
+  try {
+    if (!msg || typeof msg !== "object" || !DLZMOD_ctlLocalSio(conn)) return;
+    const stock = DLZMOD_ctlStock(!!lite);
+    const map = DLZMOD_ctlMap(get("dlzmod.controls"), !!lite);
+    const moved = [], back = {};
+    for (const key of Object.keys(msg)) {
+      const m = /^(.+)\.(mix|mute|solo)$/.exec(key);
+      const n = m ? stock.indexOf(m[1]) : -1;
+      if (n < 0 || map[n] === stock[n]) continue;
+      const to = map[n] + "." + m[2];
+      if (DLZMOD_CTL_NONE.includes(to)) back[key] = DLZMOD_ctlLedOf(map[n], m[2], get);
+      else moved.push([to, msg[key]]);
+      delete msg[key];
+    }
+    for (const [key, value] of moved) msg[key] = value;
+    DLZMOD_ctlFaderSend(back);
+  } catch (e) {
+    console.error("dlzmod: controls:", e.message);
   }
-  for (const [key, value] of moved) msg[key] = value;
-  DLZMOD_ctlFaderSend(back);
 }
 
 // faderlink's connection: the local socket.io one that sends btStatus, which faderlink does when the
@@ -513,26 +517,32 @@ function DLZMOD_ctlFaderSend(msg, fader = DLZMOD_ctlFader) {
 // The LEDs under a control (mute, solo, colour) show its chosen channel: faderlink gets that channel's
 // state under the control's stock keys, whenever either changes, after a change of dlzmod.controls
 // (all of them; back to stock: the stock values again), and when faderlink (re)connects. Called with
-// every message stock sends out.
+// every message stock sends out, inside stock's own paths (setDataKey): an error of ours is caught.
+// A faderlink that restarts sends btStatus again and takes the place of the old connection.
 function DLZMOD_ctlLeds(msg, conn, get = globalThis.getDataKey, lite = globalThis.isDLZLite) {
-  if (!msg || typeof msg !== "object" || !DLZMOD_CTL_LED) return;
-  const keys = Object.keys(msg);
-  const fader = "btStatus" in msg && DLZMOD_ctlLocalSio(conn);
-  if (!fader && !(DLZMOD_ctlFader && keys.some((k) => k === "dlzmod.controls" || /\.(mute|solo|colorhex)$/.test(k)))) return;
-  const stock = DLZMOD_ctlStock(!!lite);
-  const map = DLZMOD_ctlMap(get("dlzmod.controls"), !!lite);
-  // a change of the choice: every control (back to stock too); faderlink (re)connected: the moved ones
-  const all = "dlzmod.controls" in msg;
-  if (fader) DLZMOD_ctlFader = conn;
-  if (!DLZMOD_ctlFader) return;
-  const out = {};
-  stock.forEach((s, n) => {
-    if (!all && map[n] === s) return;
-    for (const what of DLZMOD_CTL_LED) {
-      if (all || fader || s + "." + what in msg || map[n] + "." + what in msg) out[s + "." + what] = DLZMOD_ctlLedOf(map[n], what, get);
-    }
-  });
-  DLZMOD_ctlFaderSend(out);
+  try {
+    // DLZMOD_CTL_LED still undefined: setDataKey ran before this file's lines did; nothing set yet
+    if (!msg || typeof msg !== "object" || !DLZMOD_CTL_LED) return;
+    const keys = Object.keys(msg);
+    const fader = "btStatus" in msg && DLZMOD_ctlLocalSio(conn);
+    if (!fader && !(DLZMOD_ctlFader && keys.some((k) => k === "dlzmod.controls" || /\.(mute|solo|colorhex)$/.test(k)))) return;
+    const stock = DLZMOD_ctlStock(!!lite);
+    const map = DLZMOD_ctlMap(get("dlzmod.controls"), !!lite);
+    // a change of the choice: every control (back to stock too); faderlink (re)connected: the moved ones
+    const all = "dlzmod.controls" in msg;
+    if (fader) DLZMOD_ctlFader = conn;
+    if (!DLZMOD_ctlFader) return;
+    const out = {};
+    stock.forEach((s, n) => {
+      if (!all && map[n] === s) return;
+      for (const what of DLZMOD_CTL_LED) {
+        if (all || fader || s + "." + what in msg || map[n] + "." + what in msg) out[s + "." + what] = DLZMOD_ctlLedOf(map[n], what, get);
+      }
+    });
+    DLZMOD_ctlFaderSend(out);
+  } catch (e) {
+    console.error("dlzmod: controls:", e.message);
+  }
 }
 
 // #238: a knob only drives keys in faderlink's own table, so a mod page points knob N at

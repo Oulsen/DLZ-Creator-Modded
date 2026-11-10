@@ -3368,6 +3368,58 @@ test("controls: the LEDs under a knob show its channel, only on faderlink's conn
   }
 });
 
+test("controls: full-size LEDs: the samples and master faders swapped show each other's channel", async () => {
+  const sent = [];
+  const fader = { send: (m) => sent.push(plain(m)) };
+  fader.send.dlzmodLocal = true;
+  fader.send.dlzmodSio = true;
+  const state = { "dlzmod.controls": "s=m,m=s", "m.mute": 1, "s.solo": 1, "s.colorhex": "#a276b3" };
+  const get = (k) => state[k];
+  ctx.DLZMOD_ctlFader = null;
+  try {
+    ctx.DLZMOD_ctlLeds({ btStatus: 1, bt: 0, "dlzmod.controls": "s=m,m=s" }, fader, get, 0);
+    await new Promise((r) => setImmediate(r));
+    assert.strictEqual(sent.length, 1);
+    assert.deepStrictEqual([sent[0]["s.mute"], sent[0]["s.solo"], sent[0]["s.colorhex"]], [1, 0, "#c2c2c2"],
+      "the samples fader shows LR: muted, no solo, no colour of its own");
+    assert.deepStrictEqual([sent[0]["m.mute"], sent[0]["m.solo"], sent[0]["m.colorhex"]], [0, 1, "#a276b3"],
+      "the master fader shows Samples (its LED keys; stock has no m.solo LED to worry about)");
+    assert.strictEqual(Object.keys(sent[0]).length, 27, "a change of the choice with the connect: all nine");
+  } finally {
+    ctx.DLZMOD_ctlFader = null;
+  }
+});
+
+test("controls: before the file's lines ran, or with a failing state, stock's paths go on", () => {
+  const had = ctx.DLZMOD_CTL_LED;
+  ctx.DLZMOD_CTL_LED = undefined;
+  try {
+    ctx.DLZMOD_ctlLeds({ "i.0.mute": 1 }, undefined, () => {
+      throw new Error("not called");
+    }, 1);
+  } finally {
+    ctx.DLZMOD_CTL_LED = had;
+  }
+  const errs = [];
+  const err = ctx.console.error;
+  ctx.console.error = (...a) => errs.push(a.join(" "));
+  ctx.DLZMOD_ctlFader = { send() {} };
+  try {
+    const boom = () => {
+      throw new Error("state");
+    };
+    ctx.DLZMOD_ctlLeds({ "i.0.mute": 1 }, undefined, boom, 1);
+    const sio = () => {};
+    sio.dlzmodLocal = true;
+    sio.dlzmodSio = true;
+    ctx.DLZMOD_ctlRemap({ "s.mix": 1 }, { send: sio }, boom, 1);
+  } finally {
+    ctx.console.error = err;
+    ctx.DLZMOD_ctlFader = null;
+  }
+  assert.strictEqual(errs.length, 2, "both said so: " + errs.join(" | "));
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {
