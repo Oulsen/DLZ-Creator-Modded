@@ -1766,7 +1766,7 @@ function DLZMOD_ctlSet(n, prefix) {
 // LR), one with a knob not (patch.py, the strip's sync). The full-size keeps stock: a fader for every
 // channel, none on the screen. Strips seen here are synced again when the choice changes.
 function DLZMOD_ctlScreen(strip) {
-  const stockScreen = strip.type === E_CH_TYPE.VIRTUAL || (LITE_MODE && strip.type === E_CH_TYPE.MASTER);
+  const stockScreen = strip.type === E_CH_TYPE.VIRTUAL || (!!LITE_MODE && strip.type === E_CH_TYPE.MASTER);
   const prefix = String(strip.prefix || "").replace(/\.$/, "");
   if (!LITE_MODE || !DLZMOD_ctlChannels().some((c) => c[0] === prefix)) return stockScreen;
   (DLZMOD_ctlScreen.strips || (DLZMOD_ctlScreen.strips = new Set())).add(strip);
@@ -1868,9 +1868,12 @@ function DLZMOD_controlsPage(parent, y) {
         t.drawText(k >= 0 ? ctls[k][0] : "Screen", x + tw / 2 | 0, y + (big ? 42 : 52),
           { color: k >= 0 ? col : "#888888", font: Font.font(500, "12pt"), align: "center", valign: "middle" });
       });
-      // only when a channel has no control (always on the XS; never on the full-size, 9 for 9)
+      // only when a channel has no control (always on the XS; never on the full-size, 9 for 9); on
+      // the full-size, once a fader is swapped, that the screen's strips stay in their own order
       const rows = Math.ceil(chans.length / cols);
-      if (chans.some((c) => holder(c[0]) < 0)) t.drawText("Screen: controlled with its fader on the screen", this.w / 2 | 0, y0 + rows * (th + gap) + 14,
+      const note = chans.some((c) => holder(c[0]) < 0) ? "Screen: controlled with its fader on the screen"
+        : ctls.some((x, j) => DLZMOD_ctlGet(j) !== x[1]) ? "The strips on the screen keep their own order" : "";
+      if (note) t.drawText(note, this.w / 2 | 0, y0 + rows * (th + gap) + 14,
         { color: "#888888", font: Font.font(500, "11pt"), align: "center", valign: "middle" });
     },
   });

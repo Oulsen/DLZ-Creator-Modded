@@ -736,7 +736,7 @@ test("files: data keys: no prototype keys, file paths only from the screen, trac
 });
 test("files: a refused key is taken out of the message stock passes on to dspserver (patch.py's loop)", () => {
   const src = fs.readFileSync(path.join(__dirname, "..", "patch.py"), "utf8");
-  const m = /"(for\(const\[a,i\]of Object\.entries\(e\)\)if\(null!=a&&\(DLZMOD_keyAllowed[^"]*)"/.exec(src);
+  const m = /"(?:DLZMOD_ctlRemap\(e,t\);)?(for\(const\[a,i\]of Object\.entries\(e\)\)if\(null!=a&&\(DLZMOD_keyAllowed[^"]*)"/.exec(src);
   assert.ok(m, "key loop patch found in patch.py");
   const loop = new vm.Script(m[1] + "stored.push(a)}");
   const run = (e, send) => {
@@ -3265,6 +3265,41 @@ test("knob stand-in: a jump no turn makes moves nothing", () => {
   assert.deepStrictEqual(hub.resets, [["a.0.pan", 0.5]]);
   hub.turn("a.0.pan", 0.5125);
   assert.deepStrictEqual(hub.steps(), [1]);
+});
+
+// #23: a level from faderlink goes to the channel its knob (XS) or fader (full-size) is set to
+test("controls: patch.py remaps a message before stock's key loop, on socket.io connections only", () => {
+  const src = fs.readFileSync(path.join(__dirname, "..", "patch.py"), "utf8");
+  assert.ok(/"DLZMOD_ctlRemap\(e,t\);for\(const\[a,i\]of Object\.entries\(e\)\)/.test(src), "before the loop");
+  assert.ok(src.includes("t.send.dlzmodSio=!0;"), "socket.io connections stamped");
+});
+test("controls: a knob or fader moves its level to the chosen channel, both models", () => {
+  const sio = () => {};
+  sio.dlzmodLocal = true;
+  sio.dlzmodSio = true;
+  const remap = (msg, raw, lite, send = sio) => {
+    ctx.DLZMOD_ctlRemap(msg, { send }, (k) => (k === "dlzmod.controls" ? raw : undefined), lite);
+    return plain(msg);
+  };
+  assert.deepStrictEqual(remap({ "s.mix": -10 }, "", 1), { "s.mix": -10 }, "stock: as it came");
+  assert.deepStrictEqual(remap({ "s.mix": -10, "i.0.mute": 1 }, "s=m", 1), { "i.0.mute": 1, "m.mix": -10 });
+  assert.deepStrictEqual(remap({ "i.0.mix": -5, "s.mix": -20 }, "i.0=s,s=i.0", 1), { "s.mix": -5, "i.0.mix": -20 },
+    "a swap in one message: neither overwrites the other");
+  assert.deepStrictEqual(remap({ "s.mix": -10 }, "s=m,m=s", 0), { "m.mix": -10 }, "full-size: samples fader on LR");
+  assert.deepStrictEqual(remap({ "m.mix": -3 }, "s=m,m=s", 0), { "s.mix": -3 });
+  assert.deepStrictEqual(remap({ "v.0.mix": -10 }, "s=v.0", 1), { "v.0.mix": -10 }, "only a control's stock channel");
+  assert.deepStrictEqual(remap({ "s.mix": -10 }, "s=v.0", 0), { "s.mix": -10 }, "no virtual strips on the full-size");
+  assert.deepStrictEqual(remap({ "s.mix": -10 }, "i.0=s", 1), { "s.mix": -10 }, "two on one: stock");
+  // the screen (TCP), a phone, a socket.io connection from elsewhere: as they came
+  const screen = () => {};
+  screen.dlzmodLocal = true;
+  const far = () => {};
+  far.dlzmodSio = true;
+  for (const send of [screen, far, () => {}]) {
+    assert.deepStrictEqual(remap({ "s.mix": -10 }, "s=m", 1, send), { "s.mix": -10 });
+  }
+  ctx.DLZMOD_ctlRemap(null, { send: sio });
+  ctx.DLZMOD_ctlRemap({ "s.mix": 1 }, null);
 });
 
 (async () => {

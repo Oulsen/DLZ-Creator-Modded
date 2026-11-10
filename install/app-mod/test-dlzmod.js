@@ -536,7 +536,8 @@ test("header: hidden or shown at once, but not on full-screen pages; saved setti
   ctx.DLZMOD_initKeys();
   assert.deepStrictEqual(ctx.Data.data, { "dlzmod.hideHeader": 1, "dlzmod.meterMode": 0, "dlzmod.preColor": 0,
     "dlzmod.preLevel": 0, "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0,
-    "dlzmod.recDate": 0, "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "" });
+    "dlzmod.recDate": 0, "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "",
+    "dlzmod.controls": "" });
 });
 
 // #14: the date and time switch on Settings, Recording / Routing
@@ -1669,16 +1670,23 @@ test("browser: what only the mixer's own screen may do says so in a browser, and
     ctx.EXTERNAL = false;
   }
 });
-test("Settings tabs: About and the Mod tab fixed, Mackie's tabs share the rest alike, edge to edge", () => {
-  const geo = [];
-  const banks = Array.from({ length: 7 }, () => ({ setGeometry: (x, y, w) => geo.push([x, w]) }));
+test("Settings tabs: Knobs/Faders, the (i) of About and the Mod tab fixed, Mackie's tabs share the rest alike, edge to edge", () => {
+  const geo = {};
+  const banks = Array.from({ length: 6 }, (_, i) => ({ text: "t" + i, setGeometry: (x, y, w) => {
+    geo[i] = [x, w];
+  } }));
   ctx.DLZMOD_layoutTabs({ w: 938, banks });
-  const widths = geo.map((g) => g[1]);
-  assert.strictEqual(widths[5], 120, "About");
-  assert.ok(Math.abs(widths[6] - 230) <= 5, "the Mod tab last, 230 and the rounding: " + widths[6]);
-  assert.strictEqual(new Set(widths.slice(0, 5)).size, 1, "Mackie's tabs alike");
-  for (let i = 1; i < geo.length; i++) assert.strictEqual(geo[i][0], geo[i - 1][0] + widths[i - 1] + 2, "2 px gaps");
-  assert.strictEqual(geo[6][0] + widths[6], 938, "the last one ends at the edge");
+  const order = [0, 1, 2, 5, 3, 4];
+  const w = (i) => geo[i][1];
+  assert.strictEqual(w(5), 100, "Knobs / Faders");
+  assert.strictEqual(w(3), 50, "About as an (i)");
+  assert.strictEqual(banks[3].text, "", "About's tab without its word");
+  assert.ok(Math.abs(w(4) - 230) <= 5, "the Mod tab last, 230 and the rounding: " + w(4));
+  assert.strictEqual(new Set([w(0), w(1), w(2)]).size, 1, "Mackie's tabs alike");
+  for (let k = 1; k < order.length; k++) {
+    assert.strictEqual(geo[order[k]][0], geo[order[k - 1]][0] + w(order[k - 1]) + 2, "2 px gaps");
+  }
+  assert.strictEqual(geo[4][0] + w(4), 938, "the last one ends at the edge");
   ctx.DLZMOD_layoutTabs({ w: 938 });   // before Mackie's tabs are built: nothing
 });
 
@@ -3069,14 +3077,14 @@ test("knobs: a panel entry with stepKey sits on the stand-in of its place, the s
 
 // #23: which channel each channel knob (XS) or fader (full-size) controls
 const ctlWith = (lite, raw, fn) => {
-  const had = Data.data["dlzmod.controls"];
-  if (lite) ctx.LITE_MODE = 1;
-  Data.data["dlzmod.controls"] = raw;
+  const had = ctx.Data.data["dlzmod.controls"];
+  ctx.LITE_MODE = lite ? 1 : 0;
+  ctx.Data.data["dlzmod.controls"] = raw;
   try {
     return fn();
   } finally {
     delete ctx.LITE_MODE;
-    Data.data["dlzmod.controls"] = had;
+    ctx.Data.data["dlzmod.controls"] = had;
   }
 };
 const ctlMap = () => plain(ctx.DLZMOD_ctlMap());
@@ -3107,14 +3115,14 @@ test("controls: pairs that do not fit the model are left out", () => {
 test("controls: a free channel is set, a taken one swaps the two, back to stock stores nothing", () => {
   ctlWith(true, "", () => {
     ctx.DLZMOD_ctlSet(4, "m");
-    assert.strictEqual(Data.data["dlzmod.controls"], "s=m", "knob 5 on LR, Samples on the screen");
+    assert.strictEqual(ctx.Data.data["dlzmod.controls"], "s=m", "knob 5 on LR, Samples on the screen");
     ctx.DLZMOD_ctlSet(0, "m");
-    assert.strictEqual(Data.data["dlzmod.controls"], "i.0=m,s=i.0", "knob 1 takes LR, knob 5 gets Mic 1");
+    assert.strictEqual(ctx.Data.data["dlzmod.controls"], "i.0=m,s=i.0", "knob 1 takes LR, knob 5 gets Mic 1");
     assert.deepStrictEqual(ctlMap(), ["m", "i.1", "p.0", "p.1", "i.0"]);
     ctx.DLZMOD_ctlSet(0, "i.0");
-    assert.strictEqual(Data.data["dlzmod.controls"], "s=m");
+    assert.strictEqual(ctx.Data.data["dlzmod.controls"], "s=m");
     ctx.DLZMOD_ctlSet(4, "s");
-    assert.strictEqual(Data.data["dlzmod.controls"], "");
+    assert.strictEqual(ctx.Data.data["dlzmod.controls"], "");
   });
 });
 
@@ -3144,15 +3152,15 @@ test("controls: on the XS a channel without a knob has the fader on the screen",
 });
 
 test("controls: the channel's text is its number and the owner's name, as on the Overview", () => {
-  const had = Data.data["p.1.name"];
-  Data.data["p.1.name"] = "DJ Cue / Bluetooth";
+  const had = ctx.Data.data["p.1.name"];
+  ctx.Data.data["p.1.name"] = "DJ Cue / Bluetooth";
   try {
     assert.strictEqual(ctx.DLZMOD_ctlName(["p.1", "5/6"]), "5/6  DJ Cue / Bluetooth");
     assert.strictEqual(ctx.DLZMOD_ctlName(["p.1", "5/6"], 13), "5/6  DJ Cue / Blu..");
     assert.strictEqual(ctx.DLZMOD_ctlName(["v.1", "11/12"]), "11/12", "no name: only the number");
   } finally {
-    if (had === undefined) delete Data.data["p.1.name"];
-    else Data.data["p.1.name"] = had;
+    if (had === undefined) delete ctx.Data.data["p.1.name"];
+    else ctx.Data.data["p.1.name"] = had;
   }
 });
 
