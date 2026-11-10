@@ -3420,6 +3420,36 @@ test("controls: before the file's lines ran, or with a failing state, stock's pa
   assert.strictEqual(errs.length, 2, "both said so: " + errs.join(" | "));
 });
 
+test("controls: 9/10, 11/12 and LR light in their colour by number; faderlink's own level copy kept current", async () => {
+  const sent = [];
+  const tick = () => new Promise((r) => setImmediate(r));
+  const fader = { send: (m) => sent.push(plain(m)) };
+  fader.send.dlzmodLocal = true;
+  fader.send.dlzmodSio = true;
+  const state = { "dlzmod.controls": "s=v.0", "v.0.color": 5, "s.mix": -20, "v.0.mix": -30 };
+  const get = (k) => state[k];
+  ctx.DLZMOD_ctlFader = null;
+  try {
+    ctx.DLZMOD_ctlLeds({ btStatus: 1, bt: 0 }, fader, get, 1);
+    await tick();
+    assert.strictEqual(sent[0]["s.colorhex"], "#ffc909", "knob 5 on 9/10: colour 5, as the screen draws it");
+    sent.length = 0;
+    state["v.0.color"] = 2;
+    ctx.DLZMOD_ctlLeds({ "v.0.color": 2 }, undefined, get, 1);
+    await tick();
+    assert.deepStrictEqual(sent, [{ "s.colorhex": "#ee3524" }], "a new colour for 9/10 follows");
+    sent.length = 0;
+    const msg = { "s.mix": -5 };
+    ctx.DLZMOD_ctlRemap(msg, { send: fader.send }, get, 1);
+    assert.deepStrictEqual(plain(msg), { "v.0.mix": -5 });
+    await tick();
+    assert.deepStrictEqual(sent, [{ "v.0.mix": -5, "s.mix": -20 }],
+      "faderlink's copy: 9/10 where the knob put it (a side knob steps from there), Samples its own");
+  } finally {
+    ctx.DLZMOD_ctlFader = null;
+  }
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {

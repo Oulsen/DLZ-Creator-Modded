@@ -461,11 +461,16 @@ function DLZMOD_ctlLocalSio(conn) {
 // (DLZMOD_ctlLeds) may run before this file's lines do
 var DLZMOD_CTL_NONE = ["s.mute", "m.solo"];
 var DLZMOD_CTL_LED = ["mute", "solo", "colorhex"];
+// the channel colours by their number (`<ch>.color`, 1-10), as the screen draws them. Stock keeps a
+// colorhex only for the inputs, players and Samples; 9/10, 11/12 and LR have the number alone
+var DLZMOD_CTL_COLORS = ["#ea1a5b", "#ee3524", "#f0582a", "#f9a42b", "#ffc909", "#9ccc56", "#85cca9", "#21baac",
+  "#1ba9d5", "#a276b3"];
 
-// what a control's LED shows for its chosen channel: that channel's state (none: off, the grey of a
-// channel without a colour)
+// what a control's LED shows for its chosen channel: that channel's state (none: off; the colour from
+// its number, else the grey of a channel without a colour)
 function DLZMOD_ctlLedOf(ch, what, get) {
   const v = get(ch + "." + what);
+  if (what === "colorhex" && v === undefined) return DLZMOD_CTL_COLORS[Number(get(ch + ".color")) - 1] || "#c2c2c2";
   return v === undefined || DLZMOD_CTL_NONE.includes(ch + "." + what) ? (what === "colorhex" ? "#c2c2c2" : 0) : v;
 }
 
@@ -474,7 +479,9 @@ function DLZMOD_ctlLedOf(ch, what, get) {
 // channel. A button sends the new state, the opposite of its LED, and the LED shows the chosen channel
 // (DLZMOD_ctlLeds), so the value is right for any channel. A button for what the chosen channel does
 // not have (LR's solo) does nothing, and its LED is put back. All renames first, then the new keys, so
-// two controls that swapped do not overwrite each other.
+// two controls that swapped do not overwrite each other. faderlink keeps its own copy of the levels,
+// which a side knob (K.N) steps from: it gets the moved level under the chosen channel's key, and the
+// stock channel's own level back, or that knob's next click jumps to the old value.
 function DLZMOD_ctlRemap(msg, conn, get = globalThis.getDataKey, lite = globalThis.isDLZLite) {
   try {
     if (!msg || typeof msg !== "object" || !DLZMOD_ctlLocalSio(conn)) return;
@@ -488,6 +495,10 @@ function DLZMOD_ctlRemap(msg, conn, get = globalThis.getDataKey, lite = globalTh
       const to = map[n] + "." + m[2];
       if (DLZMOD_CTL_NONE.includes(to)) back[key] = DLZMOD_ctlLedOf(map[n], m[2], get);
       else moved.push([to, msg[key]]);
+      if (m[2] === "mix") {
+        back[to] = msg[key];
+        if (get(key) !== undefined) back[key] = get(key);
+      }
       delete msg[key];
     }
     for (const [key, value] of moved) msg[key] = value;
@@ -525,7 +536,7 @@ function DLZMOD_ctlLeds(msg, conn, get = globalThis.getDataKey, lite = globalThi
     if (!msg || typeof msg !== "object" || !DLZMOD_CTL_LED) return;
     const keys = Object.keys(msg);
     const fader = "btStatus" in msg && DLZMOD_ctlLocalSio(conn);
-    if (!fader && !(DLZMOD_ctlFader && keys.some((k) => k === "dlzmod.controls" || /\.(mute|solo|colorhex)$/.test(k)))) return;
+    if (!fader && !(DLZMOD_ctlFader && keys.some((k) => k === "dlzmod.controls" || /\.(mute|solo|colorhex|color)$/.test(k)))) return;
     const stock = DLZMOD_ctlStock(!!lite);
     const map = DLZMOD_ctlMap(get("dlzmod.controls"), !!lite);
     // a change of the choice: every control (back to stock too); faderlink (re)connected: the moved ones
@@ -536,7 +547,8 @@ function DLZMOD_ctlLeds(msg, conn, get = globalThis.getDataKey, lite = globalThi
     stock.forEach((s, n) => {
       if (!all && map[n] === s) return;
       for (const what of DLZMOD_CTL_LED) {
-        if (all || fader || s + "." + what in msg || map[n] + "." + what in msg) out[s + "." + what] = DLZMOD_ctlLedOf(map[n], what, get);
+        const own = (c) => c + "." + what in msg || (what === "colorhex" && c + ".color" in msg);
+        if (all || fader || own(s) || own(map[n])) out[s + "." + what] = DLZMOD_ctlLedOf(map[n], what, get);
       }
     });
     DLZMOD_ctlFaderSend(out);
