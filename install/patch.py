@@ -220,6 +220,13 @@ APP_PATCHES = [
         "case E_CH_TYPE.VIRTUAL:let t=DLZMOD_ctlScreen(this)&&this.isSelected()",
     ),
     (
+        # the Overview's knobs next to the screen: one set to another level shows and moves that one
+        # (DLZMOD_ctlSideKnobs, through the stand-ins of #238)
+        "controls: the Overview's knobs next to the screen",
+        "SET_KNOBS(t)}initStrips(){",
+        "SET_KNOBS(DLZMOD_ctlSideKnobs(t))}initStrips(){",
+    ),
+    (
         "settings: add Mod tab",
         "let t=[lang.SYSTEM,lang.BLUETOOTH_SD,lang.ROUTING_RECORDING,lang.ABOUT];",
         'let t=[lang.SYSTEM,lang.BLUETOOTH_SD,lang.ROUTING_RECORDING,lang.ABOUT,DLZMOD_tabLabel(),DLZMOD_ctlTabLabel()];',

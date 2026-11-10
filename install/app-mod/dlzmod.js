@@ -1706,23 +1706,36 @@ function DLZMOD_settingsPage(parent, y) {
   });
 }
 
-// #23: which channel each channel knob (XS) or fader (full-size) controls (Settings, Knobs / Faders;
-// the server moves the levels, DLZMOD_ctlRemap in dlzmod-server.js). The channels with a level, as
-// the Overview numbers them, and the controls as printed on the mixer with the channel each controls
-// in stock (faderlink's table, notes/components/faderlink.md "Faders").
+// #23: which level each channel knob (XS) or fader (full-size), and each knob next to the screen on
+// the Overview, controls (Settings, Knobs / Faders; the server moves the channel knobs' levels,
+// DLZMOD_ctlRemap in dlzmod-server.js; the Overview's knob list here, DLZMOD_ctlSideKnobs). The
+// levels a control can take, as the Overview names them (the channels, then the phones), and the
+// controls with the level each has in stock: the channel knobs or faders as printed on the mixer
+// (faderlink's table, notes/components/faderlink.md "Faders"), then the knobs next to the screen as
+// the Overview sets them (MainMixer's setKnobs: the phones, on the XS also 9/10 and 11/12).
 function DLZMOD_ctlChannels() {
+  // the phones by number, with a headphone drawn before it (DLZMOD_ctlDraw)
+  const ph = (n) => ["a." + n, String(n + 1)];
   return LITE_MODE
     ? [["i.0", "1"], ["i.1", "2"], ["p.0", "3/4"], ["p.1", "5/6"], ["s", "7/8"], ["v.0", "9/10"], ["v.1", "11/12"],
-      ["m", "LR"]]
+      ["m", "LR"], ph(0), ph(1)]
     : [["i.0", "1"], ["i.1", "2"], ["i.2", "3"], ["i.3", "4"], ["p.0", "5/6"], ["p.1", "7/8"], ["p.2", "9/10"],
-      ["s", "11/12"], ["m", "LR"]];
+      ["s", "11/12"], ["m", "LR"], ph(0), ph(1), ph(2), ph(3)];
 }
 
 function DLZMOD_ctlControls() {
+  const side = (n, p) => ["Side knob " + n, p];
   return LITE_MODE
-    ? [["Knob 1", "i.0"], ["Knob 2", "i.1"], ["Knob 3", "p.0"], ["Knob 4", "p.1"], ["Knob 5", "s"]]
+    ? [["Knob 1", "i.0"], ["Knob 2", "i.1"], ["Knob 3", "p.0"], ["Knob 4", "p.1"], ["Knob 5", "s"],
+      side(1, "a.0"), side(2, "a.1"), side(3, "v.0"), side(4, "v.1")]
     : [["Fader 1", "i.0"], ["Fader 2", "i.1"], ["Fader 3", "i.2"], ["Fader 4", "i.3"], ["Fader 5/6", "p.0"],
-      ["Fader 7/8", "p.1"], ["Fader 9/10", "p.2"], ["Fader 11/12", "s"], ["Master fader", "m"]];
+      ["Fader 7/8", "p.1"], ["Fader 9/10", "p.2"], ["Fader 11/12", "s"], ["Master fader", "m"],
+      side(1, "a.0"), side(2, "a.1"), side(3, "a.2"), side(4, "a.3")];
+}
+
+// how many of the controls are channel knobs or faders (the rest are next to the screen)
+function DLZMOD_ctlKnobs() {
+  return LITE_MODE ? 5 : 9;
 }
 
 function DLZMOD_ctlTabLabel() {
@@ -1774,12 +1787,37 @@ function DLZMOD_ctlScreen(strip) {
     DLZMOD_ctlScreen.hooked = !0;
     Data.regWidget("dlzmod.controls", () => DLZMOD_ctlScreen.strips.forEach((s) => s.sync && s.sync(!0)));
   }
-  return !DLZMOD_ctlMap().includes(prefix);
+  return !DLZMOD_ctlMap().slice(0, DLZMOD_ctlKnobs()).includes(prefix);
 }
 
-// the channel's colour as the Overview's strips have it (Mackie's palette); a light grey when none
+// the colour as the Overview has it (Mackie's palette; the phones Mackie's getAuxColor); a light grey
+// when none
 function DLZMOD_ctlColor(prefix) {
+  const aux = /^a\.(\d)$/.exec(prefix);
+  if (aux && typeof getAuxColor === "function") return getAuxColor(Number(aux[1])) || "#c2c2c2";
   return (Data.has(prefix + ".color") && Color.channel[Data.get(prefix + ".color")]) || "#c2c2c2";
+}
+
+// The Overview's knobs next to the screen (MainMixer's setKnobs, patch.py): one set to another level
+// than stock shows and moves that one. Not with the level's own key: a channel knob that stock has on
+// that level sends the same key, and the server takes it for that knob's (DLZMOD_ctlRemap). So through
+// the stand-ins of #238 (DLZMOD_knobs), and the steps go on the level here, on the mixer's own law
+// (Data.get gives the level as the Overview's panel does, 0-1).
+function DLZMOD_ctlSideKnobs(list) {
+  const ctls = DLZMOD_ctlControls(), k = DLZMOD_ctlKnobs(), map = DLZMOD_ctlMap();
+  const chans = DLZMOD_ctlChannels();
+  const out = (list || []).slice();
+  for (let n = 0; k + n < ctls.length; n++) {
+    const p = map[k + n], c = chans.find((x) => x[0] === p);
+    if (!out[n] || p === ctls[k + n][1] || !c) continue;
+    const key = p + ".mix";
+    const col = () => DLZMOD_ctlColor(p);
+    const aux = /^a\.(\d)$/.exec(p);
+    const sub = p === "m" ? "LR" : aux ? lang.PHONES_ + " " + (Number(aux[1]) + 1) : lang.CHANNEL_ + " " + c[1];
+    out[n] = Object.assign({}, out[n], { title: () => "", subTitle: () => sub, value: () => Data.get(key),
+      keys: [key], color: col, control: { key: key, color: col() }, stepKey: key });
+  }
+  return DLZMOD_knobs(out);
 }
 
 // the channel's text: its number and the name the owner gave it, as on the Overview (only the
@@ -1789,54 +1827,90 @@ function DLZMOD_ctlName(c, max) {
   return name ? c[1] + "  " + (max && name.length > max ? name.slice(0, max - 1).trimEnd() + ".." : name) : c[1];
 }
 
-// The Knobs/Faders page under Settings: two of Mackie's windows. Left, a row per control with a
-// chooser in the style of Language; right, which channels then have no control (they get a fader
-// on the screen) and a button back to stock.
+// A level's text centred on cx, cy; the phones' with a headphone before it in the text's own colour:
+// MaterialIcons' "headset" (U+E310), a font Mackie's app loads (Font.mi). Mackie's own sign (lang.PHONES_)
+// is a colour emoji, which a selected button, black on green, would leave white. Buttons with a phones
+// leave their own text empty and draw it here.
+function DLZMOD_ctlPhones(p) {
+  return /^a\./.test(p);
+}
+
+function DLZMOD_ctlDraw(t, p, text, font, cx, cy, color) {
+  if (!DLZMOD_ctlPhones(p)) return t.drawText(text, cx, cy, { color: color, font: font, align: "center", valign: "middle" });
+  const icon = String.fromCharCode(0xe310), iconFont = Font.mi("22px");
+  t.save();
+  t.font = font;
+  const w = t.measureText(text).width;
+  t.font = iconFont;
+  const iw = t.measureText(icon).width;
+  t.restore();
+  const gap = 6, x0 = cx - (iw + gap + w) / 2;
+  t.drawText(icon, x0, cy, { color: color, font: iconFont, align: "left", valign: "middle" });
+  t.drawText(text, x0 + iw + gap, cy, { color: color, font: font, align: "left", valign: "middle" });
+}
+
+// The Knobs/Faders page under Settings: two of Mackie's windows. Left the channel knobs or faders,
+// right the knobs next to the screen (on the Overview), each a row with a chooser in the style of
+// Language and a bar in its level's colour, as the XS's LED bars; under them what has no control
+// (XS: only its fader on the screen) or, the full-size swapped, that the strips keep their order, and
+// a button back to stock.
 function DLZMOD_controlsPage(parent, y) {
   DLZMOD_initKeys();
-  const ctls = DLZMOD_ctlControls();
-  const rowH = ctls.length > 5 ? 41 : 64;
-  const top = ctls.length > 5 ? 14 : 34;
+  const ctls = DLZMOD_ctlControls(), k = DLZMOD_ctlKnobs();
   const win = { bgColor: Color.bgDark, paint: PAINT_WINDOW_BG };
+  // rows n = from .. to-1 of ctls, the chooser from x cx to 30 from the edge
+  const rows = (w, from, to, top, rowH, cx) => {
+    for (let n = from; n < to; n++) {
+      new E1Button(w, {
+        anchors: [cx, top + (n - from) * rowH], size: [w.w - cx - 30, rowH - 8], text: "",
+        colors: [Color.buttonBg, Color.red2], textColorON: Color.white,
+        textStyle: { font: Font.font(500, rowH < 50 ? "13pt" : "15pt") },
+        regKey: ["dlzmod.controls"],
+        paintOverlay: function (t) {
+          t.fillStyle = "rgba(255,255,255,0.30)";
+          t.fillPolygon(this.w - 14, this.h / 2 | 0, 6, 3, 0);
+          if (this.phones) DLZMOD_ctlDraw(t, this.phones, this.phonesText, this.textStyle.font, this.w / 2, this.h / 2,
+            this.state ? this.textColorON : this.textColor || Color.white);
+        },
+        getState: function () {
+          const p = DLZMOD_ctlGet(n);
+          const text = DLZMOD_ctlName(DLZMOD_ctlChannels().find((ch) => ch[0] === p), 13);
+          this.phones = DLZMOD_ctlPhones(p) && p;
+          this.phonesText = text;
+          this.text = this.phones ? "" : text;
+        },
+        onPress: () => DLZMOD_ctlPicker(n),
+      });
+    }
+  };
+  const labels = (t, from, to, top, rowH) => {
+    for (let n = from; n < to; n++) {
+      const cy = top + (n - from) * rowH + (rowH - 8) / 2 | 0;
+      t.drawText(ctls[n][0], 30, cy - 4, { color: Color.white, font: Font.font(500, rowH < 50 ? "14pt" : "16pt"),
+        align: "left", valign: "middle" });
+      t.fRect(DLZMOD_ctlColor(DLZMOD_ctlGet(n)), 30, cy + (rowH < 50 ? 9 : 13), 40, 4);
+    }
+  };
+  const lRow = k > 5 ? 41 : 64, lTop = k > 5 ? 14 : 34;
   const left = new Widget(parent, {
     anchors: [0, y, null, null, !0, !0], size: [430, 392], ...win,
     _constructor: function () {
       this.regKey(["dlzmod.controls"]);
-      ctls.forEach((c, n) => {
-        new E1Button(this, {
-          anchors: [170, top + n * rowH], size: [230, rowH - 8], text: "",
-          colors: [Color.buttonBg, Color.red2], textColorON: Color.white,
-          textStyle: { font: Font.font(500, ctls.length > 5 ? "13pt" : "15pt") },
-          regKey: ["dlzmod.controls"],
-          paintOverlay: function (t) {
-            t.fillStyle = "rgba(255,255,255,0.30)";
-            t.fillPolygon(this.w - 14, this.h / 2 | 0, 6, 3, 0);
-          },
-          getState: function () {
-            const p = DLZMOD_ctlGet(n);
-            this.text = DLZMOD_ctlName(DLZMOD_ctlChannels().find((ch) => ch[0] === p), 13);
-          },
-          onPress: () => DLZMOD_ctlPicker(n),
-        });
-      });
+      rows(this, 0, k, lTop, lRow, 170);
     },
-    // each control's name with a bar under it in its channel's colour, as the XS's LED bars
     paint: function (t) {
       PAINT_WINDOW_BG.call(this, t);
-      ctls.forEach((c, n) => {
-        const cy = top + n * rowH + (rowH - 8) / 2 | 0;
-        t.drawText(c[0], 30, cy - 4, { color: Color.white, font: Font.font(500, ctls.length > 5 ? "14pt" : "16pt"),
-          align: "left", valign: "middle" });
-        t.fRect(DLZMOD_ctlColor(DLZMOD_ctlGet(n)), 30, cy + (ctls.length > 5 ? 9 : 13), 40, 4);
-      });
+      labels(t, 0, k, lTop, lRow);
     },
   });
+  const rRow = 52, rTop = 66;
   const right = new Widget(parent, {
     anchors: [0, y, null, null, !0, !0], size: [390, 392], ...win,
     _constructor: function () {
       this.regKey(["dlzmod.controls"]);
+      rows(this, k, ctls.length, rTop, rRow, 170);
       new E1Button(this, {
-        anchors: [30, null, 30, 30], size: [null, 50], text: "Back to Default",
+        anchors: [30, null, 30, 24], size: [null, 50], text: "Back to Default",
         textStyle: { font: Font.font(500, "14pt") }, colors: [Color.buttonBg, Color.main],
         onPress: () => Data.set("dlzmod.controls", ""),
         getState: function () {
@@ -1846,35 +1920,18 @@ function DLZMOD_controlsPage(parent, y) {
     },
     paint: function (t) {
       PAINT_WINDOW_BG.call(this, t);
-      // every channel in the Overview's order, with what controls it: a knob/fader (accent) or
-      // only the fader on the screen (grey)
-      t.drawText("Channels", this.w / 2 | 0, 40,
+      t.drawText("Overview page", this.w / 2 | 0, 34,
         { color: Color.white, font: Font.font(600, "16pt"), align: "center", valign: "middle" });
-      const ctls = DLZMOD_ctlControls();
-      const chans = DLZMOD_ctlChannels();
-      const holder = (p) => ctls.findIndex((x, j) => DLZMOD_ctlGet(j) === p);
-      // XS 8 channels in 2 rows of 4; full-size 9 in 3 rows of 3, wide enough for "Fader 11/12"
-      const big = chans.length > 8;
-      const cols = big ? 3 : 4, gap = big ? 6 : 8, x0 = 24, tw = (this.w - 2 * x0 - (cols - 1) * gap) / cols | 0;
-      const th = big ? 58 : 74, y0 = big ? 64 : 70;
-      chans.forEach((c, i) => {
-        const x = x0 + (i % cols) * (tw + gap), y = y0 + (i / cols | 0) * (th + gap);
-        const k = holder(c[0]);
-        const col = k >= 0 ? DLZMOD_ctlColor(c[0]) : "#3a3a3a";
-        t.fRect(col, x, y, tw, th);
-        t.fRect(Color.buttonBg, x + 2, y + 2, tw - 4, th - 4);
-        t.drawText(c[1], x + tw / 2 | 0, y + (big ? 20 : 24), { color: Color.white, font: Font.font(600, "15pt"),
-          align: "center", valign: "middle" });
-        t.drawText(k >= 0 ? ctls[k][0] : "Screen", x + tw / 2 | 0, y + (big ? 42 : 52),
-          { color: k >= 0 ? col : "#888888", font: Font.font(500, "12pt"), align: "center", valign: "middle" });
-      });
-      // only when a channel has no control (always on the XS; never on the full-size, 9 for 9); on
-      // the full-size, once a fader is swapped, that the screen's strips stay in their own order
-      const rows = Math.ceil(chans.length / cols);
-      const note = chans.some((c) => holder(c[0]) < 0) ? "Screen: controlled with its fader on the screen"
-        : ctls.some((x, j) => DLZMOD_ctlGet(j) !== x[1]) ? "The strips on the screen keep their own order" : "";
-      if (note) t.drawText(note, this.w / 2 | 0, y0 + rows * (th + gap) + 14,
-        { color: "#888888", font: Font.font(500, "11pt"), align: "center", valign: "middle" });
+      labels(t, k, ctls.length, rTop, rRow);
+      // what has no control (on the XS one level, LR in stock: only its fader on the screen); on the
+      // full-size, once a fader is swapped, that the screen's strips stay in their own order
+      const map = DLZMOD_ctlMap();
+      const none = DLZMOD_ctlChannels().filter((c) => !map.includes(c[0]))
+        .map((c) => (DLZMOD_ctlPhones(c[0]) ? "Phones " : "") + c[1]);
+      const note = none.length ? "On the screen only: " + none.join(", ")
+        : map.slice(0, k).some((p, j) => p !== ctls[j][1]) ? "The strips on the screen keep their own order" : "";
+      if (note) t.drawText(note, this.w / 2 | 0, rTop + (ctls.length - k) * rRow + 8,
+        { color: "#888888", font: Font.font(500, "12pt"), align: "center", valign: "middle" });
     },
   });
   return [left, right];
@@ -1892,7 +1949,6 @@ function DLZMOD_ctlPicker(n) {
   const chans = DLZMOD_ctlChannels();
   const ch = (p) => chans.find((c) => c[0] === p);
   const holder = (p) => ctls.findIndex((x, k) => DLZMOD_ctlGet(k) === p);
-  const what = LITE_MODE ? "knob" : "fader";
   const COLS = 3, BW = 260, BH = 64, GAP = 10, TOP = 70;
   const rows = Math.ceil(chans.length / COLS);
   const W = COLS * BW + (COLS - 1) * GAP + 48, H = TOP + rows * (BH + GAP) + 84;
@@ -1901,12 +1957,14 @@ function DLZMOD_ctlPicker(n) {
     initWidgets: function () {
       this.pickers = chans.map((c, i) => new E1Button(this, {
         anchors: [24 + (i % COLS) * (BW + GAP), TOP + (i / COLS | 0) * (BH + GAP)], size: [BW, BH],
-        text: DLZMOD_ctlName(c), textStyle: { font: Font.font(500, "15pt") },
+        text: DLZMOD_ctlPhones(c[0]) ? "" : DLZMOD_ctlName(c), textStyle: { font: Font.font(500, "15pt") },
         colors: [Color.buttonBg, Color.main], textColorON: Color.black,
         getState: function () {
           this.state = holder(c[0]) === n;
         },
         paintOverlay: function (t) {
+          if (DLZMOD_ctlPhones(c[0])) DLZMOD_ctlDraw(t, c[0], DLZMOD_ctlName(c), this.textStyle.font, this.w / 2, this.h / 2,
+            this.state ? this.textColorON : this.textColor || Color.white);
           t.fRect(DLZMOD_ctlColor(c[0]), 0, this.h - 5, this.w, 5);
           const k = holder(c[0]);
           if (k >= 0 && k !== n) t.drawText(ctls[k][0], this.w - 10, 15, { color: "#888888",
@@ -1959,13 +2017,15 @@ function DLZMOD_ctlPicker(n) {
       if (!sw) {
         t.drawText(ctls[n][0] + " controls", this.w / 2 | 0, 36, { color: Color.white,
           font: Font.font(600, "18pt"), align: "center", valign: "middle" });
-        t.drawText("A channel another " + what + " controls: you can swap the two " + what + "s.", 24, this.h - 45,
+        t.drawText("Taken by another control: you can swap the two.", 24, this.h - 45,
           { color: "#888888", font: Font.font(500, "12pt"), align: "left", valign: "middle" });
         return;
       }
       t.drawText("Swap " + ctls[n][0] + " and " + ctls[sw.other][0] + "?", this.w / 2 | 0, 36, { color: Color.white,
         font: Font.font(600, "18pt"), align: "center", valign: "middle" });
-      t.drawText(ch(sw.prefix)[1] + " is on " + ctls[sw.other][0] + " now: that " + what + " gets " + ch(sw.was)[1] +
+      // in the sentence the phones by word (grey text: no room for a drawn headphone)
+      const word = (p) => (/^a\./.test(p) ? "Phones " : "") + ch(p)[1];
+      t.drawText(word(sw.prefix) + " is on " + ctls[sw.other][0] + " now: that one gets " + word(sw.was) +
         " instead.", this.w / 2 | 0, 74, { color: "#888888", font: Font.font(500, "13pt"), align: "center", valign: "middle" });
       [[ctls[n][0], sw.was, sw.prefix], [ctls[sw.other][0], sw.prefix, sw.was]].forEach(([name, from, to], i) => {
         const y = 112 + i * 72;
@@ -1976,8 +2036,8 @@ function DLZMOD_ctlPicker(n) {
           t.fRect(on ? col : Color.buttonBg, x, y, 240, 54);
           t.fRect(Color.buttonBg, x + 2, y + 2, 236, 50);
           t.fRect(col, x, y + 49, 240, 5);
-          t.drawText(DLZMOD_ctlName(ch(p), 12), x + 120, y + 25, { color: on ? Color.white : "#888888",
-            font: Font.font(500, "14pt"), align: "center", valign: "middle" });
+          DLZMOD_ctlDraw(t, p, DLZMOD_ctlName(ch(p), 12), Font.font(500, "14pt"), x + 120, y + 25,
+            on ? Color.white : "#888888");
         };
         box(from, 230, !1);
         t.drawText("→", 510, y + 27, { color: Color.white, font: Font.font(600, "20pt"), align: "center", valign: "middle" });

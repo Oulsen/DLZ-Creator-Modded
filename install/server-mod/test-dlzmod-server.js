@@ -3307,7 +3307,7 @@ test("controls: mute and solo go with the knob; one the channel does not have do
   const sio = () => {};
   sio.dlzmodLocal = true;
   sio.dlzmodSio = true;
-  const state = { "dlzmod.controls": "s=m,i.0=v.0", "m.mute": 1 };
+  const state = { "dlzmod.controls": "s=m,i.0=v.0,v.0=i.0", "m.mute": 1 };
   const get = (k) => state[k];
   ctx.DLZMOD_ctlFader = { send: (m) => sent.push(plain(m)) };
   try {
@@ -3426,7 +3426,7 @@ test("controls: 9/10, 11/12 and LR light in their colour by number; faderlink's 
   const fader = { send: (m) => sent.push(plain(m)) };
   fader.send.dlzmodLocal = true;
   fader.send.dlzmodSio = true;
-  const state = { "dlzmod.controls": "s=v.0", "v.0.color": 5, "s.mix": -20, "v.0.mix": -30 };
+  const state = { "dlzmod.controls": "s=v.0,v.0=s", "v.0.color": 5, "s.mix": -20, "v.0.mix": -30 };
   const get = (k) => state[k];
   ctx.DLZMOD_ctlFader = null;
   try {
@@ -3445,6 +3445,30 @@ test("controls: 9/10, 11/12 and LR light in their colour by number; faderlink's 
     await tick();
     assert.deepStrictEqual(sent, [{ "v.0.mix": -5, "s.mix": -20 }],
       "faderlink's copy: 9/10 where the knob put it (a side knob steps from there), Samples its own");
+  } finally {
+    ctx.DLZMOD_ctlFader = null;
+  }
+});
+
+test("controls: a channel knob on a phones mix; a side knob's own key is never taken for a channel knob's", async () => {
+  const sent = [];
+  const fader = { send: (m) => sent.push(plain(m)) };
+  fader.send.dlzmodLocal = true;
+  fader.send.dlzmodSio = true;
+  const state = { "dlzmod.controls": "s=a.0,a.0=s", "a.0.mute": 1, "a.0.color": 0 };
+  const get = (k) => state[k];
+  ctx.DLZMOD_ctlFader = null;
+  try {
+    const msg = { "s.mix": -6, "s.solo": 1 };
+    ctx.DLZMOD_ctlRemap(msg, { send: fader.send }, get, 1);
+    assert.deepStrictEqual(plain(msg), { "a.0.mix": -6, "a.0.solo": 1 }, "knob 5 on Phones 1: level and solo");
+    const side = { "a.1.mix": -3, "v.0.mix": -2 };
+    ctx.DLZMOD_ctlRemap(side, { send: fader.send }, get, 1);
+    assert.deepStrictEqual(plain(side), { "a.1.mix": -3, "v.0.mix": -2 }, "the side knobs' keys as they came");
+    ctx.DLZMOD_ctlLeds({ btStatus: 1, bt: 0 }, fader, get, 1);
+    await new Promise((r) => setImmediate(r));
+    assert.deepStrictEqual(sent, [{ "s.mute": 1, "s.solo": 0, "s.colorhex": "#ea1a5b" }],
+      "knob 5's lights show Phones 1, in Mackie's own colour for it (no number set); only the channel knobs");
   } finally {
     ctx.DLZMOD_ctlFader = null;
   }

@@ -426,18 +426,27 @@ function DLZMOD_keyAllowed(key, value, send) {
   return true;
 }
 
-// #23: which channel each channel knob (XS) or fader (full-size) controls. faderlink sends a move as
-// the level key of the control's stock channel (its table, notes/components/faderlink.md "Faders"),
-// over its socket.io connection; the screen talks over TCP :89. dlzmod.controls (Settings, Knobs /
-// Faders) holds the controls set elsewhere as "stock=channel" pairs, e.g. "s=m,m=s", so a backup
-// means the same on both models. The stock channels per model and the channels with a level; a
-// value that does not fit the model, or gives one channel two controls, counts as stock.
+// #23: which level each channel knob (XS) or fader (full-size), and each knob next to the screen on
+// the Overview, controls. faderlink sends a knob or fader move as the level key of the control's stock
+// channel (its table, notes/components/faderlink.md "Faders"), over its socket.io connection; the
+// screen talks over TCP :89. The knobs next to the screen are the app's (MainMixer's knob list,
+// DLZMOD_ctlSideKnobs there): nothing to do here. dlzmod.controls (Settings, Knobs / Faders) holds the
+// controls set elsewhere as "stock=level" pairs, e.g. "s=m,m=s", so a backup means the same on both
+// models. Per model: every control's stock level (the channel knobs or faders first, then the knobs
+// next to the screen: the phones, on the XS also 9/10 and 11/12), and the levels a control can take;
+// a value that does not fit the model, or gives one level two controls, counts as stock.
 function DLZMOD_ctlStock(lite) {
-  return lite ? ["i.0", "i.1", "p.0", "p.1", "s"] : ["i.0", "i.1", "i.2", "i.3", "p.0", "p.1", "p.2", "s", "m"];
+  return lite ? ["i.0", "i.1", "p.0", "p.1", "s", "a.0", "a.1", "v.0", "v.1"]
+    : ["i.0", "i.1", "i.2", "i.3", "p.0", "p.1", "p.2", "s", "m", "a.0", "a.1", "a.2", "a.3"];
+}
+
+// how many of them are faderlink's channel knobs or faders
+function DLZMOD_ctlKnobs(lite) {
+  return lite ? 5 : 9;
 }
 
 function DLZMOD_ctlChannels(lite) {
-  return lite ? ["i.0", "i.1", "p.0", "p.1", "s", "v.0", "v.1", "m"] : DLZMOD_ctlStock(!1);
+  return lite ? ["i.0", "i.1", "p.0", "p.1", "s", "v.0", "v.1", "m", "a.0", "a.1"] : DLZMOD_ctlStock(!1);
 }
 
 // the channel each control controls, in the order of DLZMOD_ctlStock
@@ -465,12 +474,17 @@ var DLZMOD_CTL_LED = ["mute", "solo", "colorhex"];
 // colorhex only for the inputs, players and Samples; 9/10, 11/12 and LR have the number alone
 var DLZMOD_CTL_COLORS = ["#ea1a5b", "#ee3524", "#f0582a", "#f9a42b", "#ffc909", "#9ccc56", "#85cca9", "#21baac",
   "#1ba9d5", "#a276b3"];
+var DLZMOD_CTL_AUX = ["#ea1a5b", "#ffc909", "#85cca9", "#a276b3"];
 
 // what a control's LED shows for its chosen channel: that channel's state (none: off; the colour from
 // its number, else the grey of a channel without a colour)
 function DLZMOD_ctlLedOf(ch, what, get) {
   const v = get(ch + "." + what);
-  if (what === "colorhex" && v === undefined) return DLZMOD_CTL_COLORS[Number(get(ch + ".color")) - 1] || "#c2c2c2";
+  if (what === "colorhex" && v === undefined) {
+    // the phones without a colour number: Mackie's own for each (app.js, getAuxColor)
+    const aux = /^a\.(\d)$/.exec(ch);
+    return DLZMOD_CTL_COLORS[Number(get(ch + ".color")) - 1] || (aux && DLZMOD_CTL_AUX[aux[1]]) || "#c2c2c2";
+  }
   return v === undefined || DLZMOD_CTL_NONE.includes(ch + "." + what) ? (what === "colorhex" ? "#c2c2c2" : 0) : v;
 }
 
@@ -491,7 +505,8 @@ function DLZMOD_ctlRemap(msg, conn, get = globalThis.getDataKey, lite = globalTh
     for (const key of Object.keys(msg)) {
       const m = /^(.+)\.(mix|mute|solo)$/.exec(key);
       const n = m ? stock.indexOf(m[1]) : -1;
-      if (n < 0 || map[n] === stock[n]) continue;
+      // a knob next to the screen on its own level sends that level's key too: not a channel knob's
+      if (n < 0 || n >= DLZMOD_ctlKnobs(!!lite) || map[n] === stock[n]) continue;
       const to = map[n] + "." + m[2];
       if (DLZMOD_CTL_NONE.includes(to)) back[key] = DLZMOD_ctlLedOf(map[n], m[2], get);
       else moved.push([to, msg[key]]);
@@ -544,7 +559,7 @@ function DLZMOD_ctlLeds(msg, conn, get = globalThis.getDataKey, lite = globalThi
     if (fader) DLZMOD_ctlFader = conn;
     if (!DLZMOD_ctlFader) return;
     const out = {};
-    stock.forEach((s, n) => {
+    stock.slice(0, DLZMOD_ctlKnobs(!!lite)).forEach((s, n) => {
       if (!all && map[n] === s) return;
       for (const what of DLZMOD_CTL_LED) {
         const own = (c) => c + "." + what in msg || (what === "colorhex" && c + ".color" in msg);
