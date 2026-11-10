@@ -3279,6 +3279,30 @@ test("controls: a tap on a phones strip or a moved side knob's box opens its lev
   }
 });
 
+test("controls: a phones strip is selected by a tap, as Mackie's strips; another channel selected ends it (#259)", () => {
+  const keep = { SELECTED: ctx.SELECTED };
+  let sel = "mic";
+  ctx.SELECTED = () => sel;
+  const m = { widgets: [{ synced: 0, sync() {
+    this.synced++;
+  } }], updated: 0, update() {
+    this.updated++;
+  } };
+  try {
+    ctx.DLZMOD_ctlMark(m, 1);
+    assert.strictEqual(ctx.DLZMOD_ctlMarked(), 1);
+    assert.ok(m.widgets[0].synced && m.updated, "the strips laid out and painted again");
+    sel = "samples";
+    assert.strictEqual(ctx.DLZMOD_ctlMarked(), -1, "a knob or the Channel page selected another channel");
+    ctx.DLZMOD_ctlMark(m, 0);
+    ctx.DLZMOD_ctlMark(m, -1);
+    assert.strictEqual(ctx.DLZMOD_ctlMarked(), -1, "a tap on a channel strip");
+  } finally {
+    ctx.SELECTED = keep.SELECTED;
+    ctx.DLZMOD_ctlMark(m, -1);
+  }
+});
+
 test("controls: the channel's text is its number and the owner's name, as on the Overview", () => {
   const had = ctx.Data.data["p.1.name"];
   ctx.Data.data["p.1.name"] = "DJ Cue / Bluetooth";

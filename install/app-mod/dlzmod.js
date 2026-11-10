@@ -1866,7 +1866,8 @@ function DLZMOD_ctlArrange(mixer) {
 // The phones strips, added to the Overview's mixer after Mackie's (MainMixer's initStrips,
 // patch.py): one for each phones mix, the width of a strip, in the phones' colour, with the level
 // as a position (as the strips' own) and in dB, the headphone and its number. No meter: the mixer
-// sends none for the phones. Not in allStrips (Mackie's lists stay as they are), not selectable.
+// sends none for the phones. Not in allStrips (Mackie's lists stay as they are). A tap selects it and
+// a double tap opens its page, as Mackie's strips (DLZMOD_ctlMark).
 function DLZMOD_ctlPhonesStrips(mixer) {
   try {
     const n = typeof chConfig === "object" && chConfig.aux > 0 ? chConfig.aux : LITE_MODE ? 2 : 4;
@@ -1879,11 +1880,24 @@ function DLZMOD_ctlPhonesStrips(mixer) {
       s.setAnchors(null, 0, null, 0);
       s.prefix = key;
       s.DLZMOD_phones = !0;
-      s.isSelected = () => !1;
+      s.isSelected = () => DLZMOD_ctlMarked() === a;
       s.select = () => {};
-      s.ondown = () => DLZMOD_ctlOpen(key.slice(0, -1));
+      s.ondown = () => IS_LOCKED() || DLZMOD_ctlMark(mixer, a);
+      s.ondouble = () => DLZMOD_ctlOpen(key.slice(0, -1));
       s.regKey(key + "mix");
       s.regKey(key + "color");
+    }
+    // Mackie's strips: not shown selected while a phones strip is, and a tap on one ends that
+    for (const w of mixer.widgets) {
+      if (w.DLZMOD_phones || typeof w.ondown !== "function") continue;
+      const down = w.ondown;
+      w.isSelected = function () {
+        return DLZMOD_ctlMarked() < 0 && SELECTED() === this;
+      };
+      w.ondown = function () {
+        DLZMOD_ctlMark(mixer, -1);
+        return down.apply(this, arguments);
+      };
     }
     mixer.order = DLZMOD_ctlOrder(mixer);
     Data.regWidget("dlzmod.controls", () => DLZMOD_ctlArrange(mixer));
@@ -1892,8 +1906,28 @@ function DLZMOD_ctlPhonesStrips(mixer) {
   }
 }
 
-// A tap on a level's place (a phones strip, a box of the knobs next to the screen): its page, as
-// stock opens it. Phones: Mackie's Aux page for that mix (the box's own tap in stock; a second tap
+// The phones strip shown selected: which (-1 none), and the channel selected then; another channel
+// selected since (a knob, the Channel page) ends it.
+var DLZMOD_ctlSel = { a: -1, was: null };
+
+function DLZMOD_ctlMarked() {
+  return DLZMOD_ctlSel.a >= 0 && typeof SELECTED === "function" && SELECTED() === DLZMOD_ctlSel.was ? DLZMOD_ctlSel.a : -1;
+}
+
+function DLZMOD_ctlMark(mixer, a) {
+  try {
+    if (DLZMOD_ctlMarked() === a) return;
+    DLZMOD_ctlSel = { a: a, was: SELECTED() };
+    // the strips' layout follows their selection (the screen fader's buttons)
+    mixer.widgets.forEach((w) => !w.DLZMOD_phones && w.sync && w.sync(!0));
+    mixer.update();
+  } catch (e) {
+    console.error("DLZMOD_ctlMark", e);
+  }
+}
+
+// A level's page, as stock opens it: a phones strip's double tap, a tap on a box of the knobs next
+// to the screen. Phones: Mackie's Aux page for that mix (the box's own tap in stock; a second tap
 // from there goes back to the Overview); a channel: selected, and its Channel page (a strip's
 // double tap). Pro mode and unlocked only, as stock's box tap.
 function DLZMOD_ctlOpen(p) {
@@ -1951,19 +1985,24 @@ function DLZMOD_ctlPhonesPaint(s, t, a) {
   t.fillPolygon(tx - 8, y + 1, 6, 3, 0);
   t.drawText(v2mixText(v), w / 2 | 0, top - 24,
     { color: Color.white, font: Font.font(500, "13pt"), align: "center", valign: "middle" });
-  // the name area, as the strips' (paintBot): number top left, the headphone in the middle
+  // the name area, as the strips' (paintBot): number top left, the headphone in the middle; selected
+  // in Mackie's selected colours
+  const sel = DLZMOD_ctlMarked() === a, txt = sel ? Color.black : Color.stripNameText;
+  t.fRect(sel ? Color.stripNameBgSelected : Color.stripBg, 0, top, w, bh);
   t.fRect(Color.menuSeparator, 0, top, w, 2);
-  t.strokeStyle = Color.stripBorder;
-  t.lineWidth = 1;
-  t.beginPath();
-  t.rect(.5, top + 2.5, w - 1, bh - 3);
-  t.stroke();
+  if (!sel) {
+    t.strokeStyle = Color.stripBorder;
+    t.lineWidth = 1;
+    t.beginPath();
+    t.rect(.5, top + 2.5, w - 1, bh - 3);
+    t.stroke();
+  }
   t.drawText(String(a + 1), 4, s.h - 70,
-    { color: Color.stripNameText, font: Font.font(500, "13pt"), align: "left", valign: "middle" });
+    { color: txt, font: Font.font(500, "13pt"), align: "left", valign: "middle" });
   t.drawText(String.fromCharCode(0xe310), w / 2 | 0, s.h - 37,
-    { color: col, font: Font.mi("40px"), align: "center", valign: "middle" });
+    { color: sel ? Color.black : col, font: Font.mi("40px"), align: "center", valign: "middle" });
   t.drawText("Phones", w / 2 | 0, s.h - 10,
-    { color: Color.white, font: Font.font(600, "10pt"), align: "center", valign: "middle" });
+    { color: sel ? Color.black : Color.white, font: Font.font(600, "10pt"), align: "center", valign: "middle" });
 }
 
 // the channel's text: its number and the name the owner gave it, as on the Overview (only the

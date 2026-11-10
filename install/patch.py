@@ -212,12 +212,13 @@ APP_PATCHES = [
         "DLZMOD_ctlScreen(this)&&(this.mixPos2.hide(),this.sl.show())",
     ),
     (
-        # the same strips get its layout (room for the fader, the mute/solo buttons when selected);
+        # the same strips get its layout (room for the fader, the mute/solo buttons when selected:
+        # only the strips that have them, the virtual strips and LR, else a gap under the strip);
         # a virtual strip or LR with a knob runs it unselected, back to the plain layout
         "controls: the screen fader's layout follows the knobs",
         "LITE_MODE)switch(this.type){case E_CH_TYPE.MASTER:case E_CH_TYPE.VIRTUAL:let t=this.isSelected()",
         "LITE_MODE)switch(DLZMOD_ctlScreen(this)?E_CH_TYPE.MASTER:this.type){case E_CH_TYPE.MASTER:"
-        "case E_CH_TYPE.VIRTUAL:let t=DLZMOD_ctlScreen(this)&&this.isSelected()",
+        "case E_CH_TYPE.VIRTUAL:let t=DLZMOD_ctlScreen(this)&&!!this.bMute&&this.isSelected()",
     ),
     (
         # the Overview's knobs next to the screen: one set to another level shows and moves that one
