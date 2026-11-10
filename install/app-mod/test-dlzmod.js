@@ -3303,6 +3303,24 @@ test("controls: a phones strip is selected by a tap, as Mackie's strips; another
   }
 });
 
+test("controls: the Channel page's row follows the knobs, a channel in a phones strip's place (#259)", () => {
+  const xs = ["i.0", "i.1", "p.0", "p.1", "s", "v.0", "v.1", "m"].map((p) => ({ prefix: p + "." }));
+  const row = (raw, lite = true, list = xs) => ctlWith(lite, raw, () => {
+    const sel = { DLZMOD_hooked: true };
+    return plain(ctx.DLZMOD_ctlChOrder(sel, list).map((s) => s.prefix.slice(0, -1)));
+  });
+  assert.deepStrictEqual(row(""), ["i.0", "i.1", "p.0", "p.1", "s", "v.0", "v.1", "m"], "stock: Mackie's order");
+  assert.deepStrictEqual(row("s=m"), ["i.0", "i.1", "p.0", "p.1", "m", "s", "v.0", "v.1"], "LR on knob 5");
+  assert.deepStrictEqual(row("i.1=a.0,a.0=i.1"), ["i.0", "i.1", "p.0", "p.1", "s", "v.0", "v.1", "m"],
+    "Phones 1 on knob 2: Mic 2 in its place");
+  assert.deepStrictEqual(row("s=a.0,a.0=s"), ["i.0", "i.1", "p.0", "p.1", "s", "v.0", "v.1", "m"]);
+  const full = ["i.0", "i.1", "i.2", "i.3", "p.0", "p.1", "p.2", "s", "m"].map((p) => ({ prefix: p + "." }));
+  assert.deepStrictEqual(row("i.0=a.2,a.2=i.0,s=m,m=s", false, full),
+    ["i.0", "i.1", "i.2", "i.3", "p.0", "p.1", "p.2", "m", "s"], "full-size: every channel once");
+  ctlWith(true, "", () => assert.strictEqual(ctx.DLZMOD_ctlChOrder({ DLZMOD_hooked: true }, null), null,
+    "broken: the list as given"));
+});
+
 test("controls: the channel's text is its number and the owner's name, as on the Overview", () => {
   const had = ctx.Data.data["p.1.name"];
   ctx.Data.data["p.1.name"] = "DJ Cue / Bluetooth";

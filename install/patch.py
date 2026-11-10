@@ -248,6 +248,19 @@ APP_PATCHES = [
         "if(app.curPage===E_PAGE.AUX){let e=DLZMOD_ctlSideSlot(app.pageAux.aux);",
     ),
     (
+        # the Channel page's row of channels in the Overview's order, a channel in a phones strip's
+        # place (DLZMOD_ctlChOrder)
+        "controls: the Channel page's row follows the knobs or faders",
+        "setStrips(t){this.strips=t.filter((t=>t)),this.sync(),this.update()}",
+        "setStrips(t){this.strips=DLZMOD_ctlChOrder(this,t.filter((t=>t))),this.sync(),this.update()}",
+    ),
+    (
+        # and a tap on it selects the channel in that place (stock: by Mackie's list's place)
+        "controls: the Channel page's row taps by its own order",
+        "ondown(t,e){let i=t/this.ww|0;allStrips[i]&&allStrips[i].select(),this.update()}",
+        "ondown(t,e){let i=t/this.ww|0;this.strips[i]&&this.strips[i].select(),this.update()}",
+    ),
+    (
         # the order again whenever the Overview shows (its width known by then: the strips narrower
         # when more than fit)
         "controls: the strips' order when the Overview shows",

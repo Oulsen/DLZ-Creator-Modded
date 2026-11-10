@@ -1906,6 +1906,29 @@ function DLZMOD_ctlPhonesStrips(mixer) {
   }
 }
 
+// The Channel page's row of channels (Mackie's ChSelector, patch.py) in the Overview's order, with
+// a channel in each phones strip's place: the first one without a knob or fader (after a swap the
+// one that left that knob), so every other place still matches its knob or fader and the Overview,
+// and no channel is left out. The row is set again when the choice changes.
+function DLZMOD_ctlChOrder(sel, list) {
+  try {
+    if (!sel.DLZMOD_hooked) {
+      sel.DLZMOD_hooked = !0;
+      Data.regWidget("dlzmod.controls", () => sel.setStrips(sel.DLZMOD_all || []));
+    }
+    sel.DLZMOD_all = list.slice();
+    const map = DLZMOD_ctlMap(), k = DLZMOD_ctlKnobs();
+    const of = (p) => list.find((s) => s && s.prefix === p + ".");
+    const knobs = map.slice(0, k).map(of);
+    const rest = list.filter((s) => !knobs.includes(s));
+    const out = knobs.map((s) => s || rest.shift()).filter((s) => s);
+    return out.concat(rest);
+  } catch (e) {
+    console.error("DLZMOD_ctlChOrder", e);
+    return list;
+  }
+}
+
 // The phones strip shown selected: which (-1 none), and the channel selected then; another channel
 // selected since (a knob, the Channel page) ends it.
 var DLZMOD_ctlSel = { a: -1, was: null };
