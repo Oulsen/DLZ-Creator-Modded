@@ -3253,7 +3253,12 @@ test("controls: a tap on a phones strip or a moved side knob's box opens its lev
     ctx[k] = set[k];
   }
   try {
-    ctlWith(true, "", () => assert.strictEqual(ctx.DLZMOD_ctlSideTap(0), false, "stock: Mackie's own tap"));
+    ctlWith(true, "", () => {
+      assert.strictEqual(ctx.DLZMOD_ctlSideTap(0), false, "Phones 1's box: Mackie's own tap");
+      assert.strictEqual(ctx.DLZMOD_ctlSideTap(2), true);
+      assert.deepStrictEqual(log.splice(0), ["select v.0.", "channel page"], "9/10's box: its Channel page");
+    });
+    ctlWith(false, "", () => assert.strictEqual(ctx.DLZMOD_ctlSideTap(3), false, "full-size: Phones 4, stock"));
     ctlWith(true, "s=a.0,a.0=s", () => {
       assert.strictEqual(ctx.DLZMOD_ctlSideTap(0), true);
       assert.deepStrictEqual(log.splice(0), ["select s.", "channel page"], "side knob 1 on Samples: its Channel page");

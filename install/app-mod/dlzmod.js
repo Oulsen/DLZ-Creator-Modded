@@ -1919,11 +1919,12 @@ function DLZMOD_ctlOpen(p) {
   }
 }
 
-// The boxes of the knobs next to the screen (Mackie's RightPanel, patch.py): a tap on box n when its
-// knob has another level than stock opens that level's page (true); stock's tap otherwise (false).
+// The boxes of the knobs next to the screen (Mackie's RightPanel, patch.py): a tap on box n opens
+// the page of the level its knob has (true), a channel's too (stock: nothing for the XS's 9/10 and
+// 11/12); a box on its stock phones mix keeps stock's tap (false).
 function DLZMOD_ctlSideTap(n) {
   const k = DLZMOD_ctlKnobs(), ctls = DLZMOD_ctlControls(), map = DLZMOD_ctlMap();
-  if (!(n >= 0) || k + n >= ctls.length || map[k + n] === ctls[k + n][1]) return false;
+  if (!(n >= 0) || k + n >= ctls.length || (map[k + n] === ctls[k + n][1] && DLZMOD_ctlPhones(map[k + n]))) return false;
   DLZMOD_ctlOpen(map[k + n]);
   return true;
 }
