@@ -1870,6 +1870,8 @@ function DLZMOD_ctlArrange(mixer) {
 // a double tap opens its page, as Mackie's strips (DLZMOD_ctlMark).
 function DLZMOD_ctlPhonesStrips(mixer) {
   try {
+    if (mixer.DLZMOD_phonesDone) return;
+    mixer.DLZMOD_phonesDone = !0;
     const n = typeof chConfig === "object" && chConfig.aux > 0 ? chConfig.aux : LITE_MODE ? 2 : 4;
     const w0 = (mixer.widgets[0] && mixer.widgets[0].w) || (LITE_MODE ? _DimsLite.stripWidth : _Dims.stripWidth);
     for (let a = 0; a < n; a++) {
@@ -1890,9 +1892,9 @@ function DLZMOD_ctlPhonesStrips(mixer) {
     // Mackie's strips: not shown selected while a phones strip is, and a tap on one ends that
     for (const w of mixer.widgets) {
       if (w.DLZMOD_phones || typeof w.ondown !== "function") continue;
-      const down = w.ondown;
+      const down = w.ondown, own = w.isSelected;
       w.isSelected = function () {
-        return DLZMOD_ctlMarked() < 0 && SELECTED() === this;
+        return DLZMOD_ctlMarked() < 0 && (own ? own.apply(this, arguments) : SELECTED() === this);
       };
       w.ondown = function () {
         DLZMOD_ctlMark(mixer, -1);
@@ -1900,7 +1902,16 @@ function DLZMOD_ctlPhonesStrips(mixer) {
       };
     }
     mixer.order = DLZMOD_ctlOrder(mixer);
-    Data.regWidget("dlzmod.controls", () => DLZMOD_ctlArrange(mixer));
+    // a new choice (here or from a browser): the strips, and the knobs next to the screen when the
+    // Overview shows (their labels and what a tap on their box opens agree again)
+    Data.regWidget("dlzmod.controls", () => {
+      DLZMOD_ctlArrange(mixer);
+      try {
+        if (app.curPage === E_PAGE.OVERVIEW && mixer.setKnobs) mixer.setKnobs();
+      } catch (e) {
+        console.error("DLZMOD_ctlPhonesStrips", e);
+      }
+    });
   } catch (e) {
     console.error("DLZMOD_ctlPhonesStrips", e);
   }
@@ -1929,18 +1940,24 @@ function DLZMOD_ctlChOrder(sel, list) {
   }
 }
 
-// The phones strip shown selected: which (-1 none), and the channel selected then; another channel
-// selected since (a knob, the Channel page) ends it.
-var DLZMOD_ctlSel = { a: -1, was: null };
+// The phones strip shown selected: which (-1 none), the channel selected then, and its mixer;
+// another channel selected since (a knob, the Channel page) ends it for good, and the mixer is
+// painted again (Mackie repaints only the two channel strips).
+var DLZMOD_ctlSel = { a: -1, was: null, m: null };
 
 function DLZMOD_ctlMarked() {
-  return DLZMOD_ctlSel.a >= 0 && typeof SELECTED === "function" && SELECTED() === DLZMOD_ctlSel.was ? DLZMOD_ctlSel.a : -1;
+  const sel = DLZMOD_ctlSel;
+  if (sel.a < 0) return -1;
+  if (typeof SELECTED === "function" && SELECTED() === sel.was) return sel.a;
+  DLZMOD_ctlSel = { a: -1, was: null, m: null };
+  if (sel.m && sel.m.update) setTimeout(() => sel.m.update(), 0);
+  return -1;
 }
 
 function DLZMOD_ctlMark(mixer, a) {
   try {
     if (DLZMOD_ctlMarked() === a) return;
-    DLZMOD_ctlSel = { a: a, was: SELECTED() };
+    DLZMOD_ctlSel = { a: a, was: SELECTED(), m: mixer };
     // the strips' layout follows their selection (the screen fader's buttons)
     mixer.widgets.forEach((w) => !w.DLZMOD_phones && w.sync && w.sync(!0));
     mixer.update();
@@ -1993,7 +2010,16 @@ function DLZMOD_ctlSideSlot(n) {
   return i >= 0 ? i : -99;
 }
 
+// never throws: a paint that fails leaves the rest of the Overview painting
 function DLZMOD_ctlPhonesPaint(s, t, a) {
+  try {
+    DLZMOD_ctlPhonesDraw(s, t, a);
+  } catch (e) {
+    console.error("DLZMOD_ctlPhonesPaint", e);
+  }
+}
+
+function DLZMOD_ctlPhonesDraw(s, t, a) {
   const bh = _Dims.botNameHeight, w = s.w, top = s.h - bh;
   const col = (typeof getAuxColor === "function" && getAuxColor(a)) || Color.gray;
   const v = Math.min(Math.max(Number(Data.get("a." + a + ".mix")) || 0, 0), 1);

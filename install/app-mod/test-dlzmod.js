@@ -3294,6 +3294,8 @@ test("controls: a phones strip is selected by a tap, as Mackie's strips; another
     assert.ok(m.widgets[0].synced && m.updated, "the strips laid out and painted again");
     sel = "samples";
     assert.strictEqual(ctx.DLZMOD_ctlMarked(), -1, "a knob or the Channel page selected another channel");
+    sel = "mic";
+    assert.strictEqual(ctx.DLZMOD_ctlMarked(), -1, "and stays ended when the first channel is selected again");
     ctx.DLZMOD_ctlMark(m, 0);
     ctx.DLZMOD_ctlMark(m, -1);
     assert.strictEqual(ctx.DLZMOD_ctlMarked(), -1, "a tap on a channel strip");

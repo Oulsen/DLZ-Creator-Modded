@@ -3445,6 +3445,16 @@ test("controls: 9/10, 11/12 and LR light in their colour by number; faderlink's 
     await tick();
     assert.deepStrictEqual(sent, [{ "v.0.mix": -5, "s.mix": -20 }],
       "faderlink's copy: 9/10 where the knob put it (a side knob steps from there), Samples its own");
+    // two knobs that swapped, both in one message: each level where its knob put it, none put back
+    sent.length = 0;
+    state["dlzmod.controls"] = "i.0=p.0,p.0=i.0";
+    state["i.0.mix"] = -40;
+    state["p.0.mix"] = -50;
+    const both = { "i.0.mix": -1, "p.0.mix": -2 };
+    ctx.DLZMOD_ctlRemap(both, { send: fader.send }, get, 1);
+    assert.deepStrictEqual(plain(both), { "p.0.mix": -1, "i.0.mix": -2 });
+    await tick();
+    assert.deepStrictEqual(sent, [{ "p.0.mix": -1, "i.0.mix": -2 }], "no old level over a moved one");
   } finally {
     ctx.DLZMOD_ctlFader = null;
   }

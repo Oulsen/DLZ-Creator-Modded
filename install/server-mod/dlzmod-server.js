@@ -495,13 +495,14 @@ function DLZMOD_ctlLedOf(ch, what, get) {
 // not have (LR's solo) does nothing, and its LED is put back. All renames first, then the new keys, so
 // two controls that swapped do not overwrite each other. faderlink keeps its own copy of the levels,
 // which a side knob (K.N) steps from: it gets the moved level under the chosen channel's key, and the
-// stock channel's own level back, or that knob's next click jumps to the old value.
+// stock channel's own level back, or that knob's next click jumps to the old value (a level moved in
+// the same message, two knobs that swapped, wins over its old value).
 function DLZMOD_ctlRemap(msg, conn, get = globalThis.getDataKey, lite = globalThis.isDLZLite) {
   try {
     if (!msg || typeof msg !== "object" || !DLZMOD_ctlLocalSio(conn)) return;
     const stock = DLZMOD_ctlStock(!!lite);
     const map = DLZMOD_ctlMap(get("dlzmod.controls"), !!lite);
-    const moved = [], back = {};
+    const moved = [], back = {}, olds = [];
     for (const key of Object.keys(msg)) {
       const m = /^(.+)\.(mix|mute|solo)$/.exec(key);
       const n = m ? stock.indexOf(m[1]) : -1;
@@ -512,10 +513,11 @@ function DLZMOD_ctlRemap(msg, conn, get = globalThis.getDataKey, lite = globalTh
       else moved.push([to, msg[key]]);
       if (m[2] === "mix") {
         back[to] = msg[key];
-        if (get(key) !== undefined) back[key] = get(key);
+        olds.push(key);
       }
       delete msg[key];
     }
+    for (const key of olds) if (!(key in back) && get(key) !== undefined) back[key] = get(key);
     for (const [key, value] of moved) msg[key] = value;
     DLZMOD_ctlFaderSend(back);
   } catch (e) {
