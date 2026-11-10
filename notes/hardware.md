@@ -14,6 +14,13 @@ The board, Mackie's device tree, the boot chain, the eMMC layout and the SD slot
   codec (24-bit/192 kHz DAC), which the XS does not use for its audio path [static; guess: unused]
 - FPGA: GOWIN (on the digital board), loaded at every boot by `flash-fpga.sh`
 - MCU: GD32 (control surface), flashed over SWD with openocd by `flash-gd32.sh`
+- Controls per model [device: XS; static and Mackie's photos: full-size]. Both send channel levels the
+  same way (`slider.N`, [components/faderlink.md](components/faderlink.md), "Faders"):
+  - XS: five channel knobs with end stops in the bottom row (1 Mic 1, 2 Mic 2, 3 = 3/4, 4 = 5/6,
+    5 Samples); knobs 1-4 with mute and solo buttons, knob 5 with solo only [device]; no master control. Top right four endless knobs with
+    light rings (`K.0-3`)
+  - Full-size: nine faders (1-4 the mics, 5/6, 7/8, 9/10, Samples next to the pads, Master on the
+    right). Top right five endless knobs with light rings (`K.0-4`)
 - PMIC: X-Powers AXP221 on I2C @ 0x34 (U-Boot has a `poweroff` command for it; untested on this
   board [guess])
 - Storage: ~8 GB eMMC = U-Boot `mmc 1` (SD slot = `mmc 0`); under Linux the eMMC is `mmcblk1` and the

@@ -44,6 +44,13 @@ below. They all start as stock: turn on what you want.
   selected *(Colors)*
 - The mod's own startup screens
 
+### Knobs and faders
+
+- Choose which channel or headphone mix each channel knob (XS) or fader (full-size) and each knob
+  next to the screen on the Overview controls, for example the Samples knob for the main mix; its
+  mute and solo buttons and their lights go along, and the Overview's strips follow the knobs or
+  faders. On the XS a channel without a knob gets a fader on the screen *(Settings → Knobs / Faders)*
+
 ### Network and remote control
 
 - Wi-Fi from the mixer's screen, with a USB Wi-Fi stick *(Network)*

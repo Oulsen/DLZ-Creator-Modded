@@ -426,6 +426,154 @@ function DLZMOD_keyAllowed(key, value, send) {
   return true;
 }
 
+// #23: which level each channel knob (XS) or fader (full-size), and each knob next to the screen on
+// the Overview, controls. faderlink sends a knob or fader move as the level key of the control's stock
+// channel (its table, notes/components/faderlink.md "Faders"), over its socket.io connection; the
+// screen talks over TCP :89. The knobs next to the screen are the app's (MainMixer's knob list,
+// DLZMOD_ctlSideKnobs there): nothing to do here. dlzmod.controls (Settings, Knobs / Faders) holds the
+// controls set elsewhere as "stock=level" pairs, e.g. "s=m,m=s", so a backup means the same on both
+// models. Per model: every control's stock level (the channel knobs or faders first, then the knobs
+// next to the screen: the phones, on the XS also 9/10 and 11/12), and the levels a control can take;
+// a value that does not fit the model, or gives one level two controls, counts as stock.
+function DLZMOD_ctlStock(lite) {
+  return lite ? ["i.0", "i.1", "p.0", "p.1", "s", "a.0", "a.1", "v.0", "v.1"]
+    : ["i.0", "i.1", "i.2", "i.3", "p.0", "p.1", "p.2", "s", "m", "a.0", "a.1", "a.2", "a.3"];
+}
+
+// how many of them are faderlink's channel knobs or faders
+function DLZMOD_ctlKnobs(lite) {
+  return lite ? 5 : 9;
+}
+
+function DLZMOD_ctlChannels(lite) {
+  return lite ? ["i.0", "i.1", "p.0", "p.1", "s", "v.0", "v.1", "m", "a.0", "a.1"] : DLZMOD_ctlStock(!1);
+}
+
+// the channel each control controls, in the order of DLZMOD_ctlStock
+function DLZMOD_ctlMap(raw, lite) {
+  const stock = DLZMOD_ctlStock(lite), chans = DLZMOD_ctlChannels(lite);
+  const map = stock.slice();
+  for (const pair of String(raw || "").split(",")) {
+    const [from, to] = pair.split("=");
+    const n = stock.indexOf(from);
+    if (n >= 0 && chans.includes(to)) map[n] = to;
+  }
+  return new Set(map).size === map.length ? map : stock;
+}
+
+function DLZMOD_ctlLocalSio(conn) {
+  const send = conn && conn.send;
+  return !!(send && send.dlzmodLocal === true && send.dlzmodSio === true);
+}
+
+// Stock refuses these two ("not supported"): Samples has no mute, LR no solo. var, not const: setDataKey
+// (DLZMOD_ctlLeds) may run before this file's lines do
+var DLZMOD_CTL_NONE = ["s.mute", "m.solo"];
+var DLZMOD_CTL_LED = ["mute", "solo", "colorhex"];
+// the channel colours by their number (`<ch>.color`, 1-10), as the screen draws them. Stock keeps a
+// colorhex only for the inputs, players and Samples; 9/10, 11/12 and LR have the number alone
+var DLZMOD_CTL_COLORS = ["#ea1a5b", "#ee3524", "#f0582a", "#f9a42b", "#ffc909", "#9ccc56", "#85cca9", "#21baac",
+  "#1ba9d5", "#a276b3"];
+var DLZMOD_CTL_AUX = ["#ea1a5b", "#ffc909", "#85cca9", "#a276b3"];
+
+// what a control's LED shows for its chosen channel: that channel's state (none: off; the colour from
+// its number, else the grey of a channel without a colour)
+function DLZMOD_ctlLedOf(ch, what, get) {
+  const v = get(ch + "." + what);
+  if (what === "colorhex" && v === undefined) {
+    // the phones without a colour number: Mackie's own for each (app.js, getAuxColor)
+    const aux = /^a\.(\d)$/.exec(ch);
+    return DLZMOD_CTL_COLORS[Number(get(ch + ".color")) - 1] || (aux && DLZMOD_CTL_AUX[aux[1]]) || "#c2c2c2";
+  }
+  return v === undefined || DLZMOD_CTL_NONE.includes(ch + "." + what) ? (what === "colorhex" ? "#c2c2c2" : 0) : v;
+}
+
+// A level, mute or solo from faderlink goes to the channel its control is set to. Only from a local
+// socket.io connection (faderlink; dspserver sends none of these) and only keys of a control's stock
+// channel. A button sends the new state, the opposite of its LED, and the LED shows the chosen channel
+// (DLZMOD_ctlLeds), so the value is right for any channel. A button for what the chosen channel does
+// not have (LR's solo) does nothing, and its LED is put back. All renames first, then the new keys, so
+// two controls that swapped do not overwrite each other. faderlink keeps its own copy of the levels,
+// which a side knob (K.N) steps from: it gets the moved level under the chosen channel's key, and the
+// stock channel's own level back, or that knob's next click jumps to the old value (a level moved in
+// the same message, two knobs that swapped, wins over its old value).
+function DLZMOD_ctlRemap(msg, conn, get = globalThis.getDataKey, lite = globalThis.isDLZLite) {
+  try {
+    if (!msg || typeof msg !== "object" || !DLZMOD_ctlLocalSio(conn)) return;
+    const stock = DLZMOD_ctlStock(!!lite);
+    const map = DLZMOD_ctlMap(get("dlzmod.controls"), !!lite);
+    const moved = [], back = {}, olds = [];
+    for (const key of Object.keys(msg)) {
+      const m = /^(.+)\.(mix|mute|solo)$/.exec(key);
+      const n = m ? stock.indexOf(m[1]) : -1;
+      // a knob next to the screen on its own level sends that level's key too: not a channel knob's
+      if (n < 0 || n >= DLZMOD_ctlKnobs(!!lite) || map[n] === stock[n]) continue;
+      const to = map[n] + "." + m[2];
+      if (DLZMOD_CTL_NONE.includes(to)) back[key] = DLZMOD_ctlLedOf(map[n], m[2], get);
+      else moved.push([to, msg[key]]);
+      if (m[2] === "mix") {
+        back[to] = msg[key];
+        olds.push(key);
+      }
+      delete msg[key];
+    }
+    for (const key of olds) if (!(key in back) && get(key) !== undefined) back[key] = get(key);
+    for (const [key, value] of moved) msg[key] = value;
+    DLZMOD_ctlFaderSend(back);
+  } catch (e) {
+    console.error("dlzmod: controls:", e.message);
+  }
+}
+
+// faderlink's connection: the local socket.io one that sends btStatus, which faderlink does when the
+// hub gives it settings.bt.enabled, right after it connects; dspserver has no such message
+// (notes/components/faderlink.md). The LED keys go to it alone: to dspserver a mute is the sound.
+var DLZMOD_ctlFader = null;
+
+// after what stock sends, so the LED keys win over the stock channel's own
+function DLZMOD_ctlFaderSend(msg, fader = DLZMOD_ctlFader) {
+  if (!fader || !Object.keys(msg).length) return;
+  setImmediate(() => {
+    try {
+      fader.send(msg);
+    } catch (e) {
+      console.error("dlzmod: controls:", e.message);
+    }
+  });
+}
+
+// The LEDs under a control (mute, solo, colour) show its chosen channel: faderlink gets that channel's
+// state under the control's stock keys, whenever either changes, after a change of dlzmod.controls
+// (all of them; back to stock: the stock values again), and when faderlink (re)connects. Called with
+// every message stock sends out, inside stock's own paths (setDataKey): an error of ours is caught.
+// A faderlink that restarts sends btStatus again and takes the place of the old connection.
+function DLZMOD_ctlLeds(msg, conn, get = globalThis.getDataKey, lite = globalThis.isDLZLite) {
+  try {
+    // DLZMOD_CTL_LED still undefined: setDataKey ran before this file's lines did; nothing set yet
+    if (!msg || typeof msg !== "object" || !DLZMOD_CTL_LED) return;
+    const keys = Object.keys(msg);
+    const fader = "btStatus" in msg && DLZMOD_ctlLocalSio(conn);
+    if (!fader && !(DLZMOD_ctlFader && keys.some((k) => k === "dlzmod.controls" || /\.(mute|solo|colorhex|color)$/.test(k)))) return;
+    const stock = DLZMOD_ctlStock(!!lite);
+    const map = DLZMOD_ctlMap(get("dlzmod.controls"), !!lite);
+    // a change of the choice: every control (back to stock too); faderlink (re)connected: the moved ones
+    const all = "dlzmod.controls" in msg;
+    if (fader) DLZMOD_ctlFader = conn;
+    if (!DLZMOD_ctlFader) return;
+    const out = {};
+    stock.slice(0, DLZMOD_ctlKnobs(!!lite)).forEach((s, n) => {
+      if (!all && map[n] === s) return;
+      for (const what of DLZMOD_CTL_LED) {
+        const own = (c) => c + "." + what in msg || (what === "colorhex" && c + ".color" in msg);
+        if (all || fader || own(s) || own(map[n])) out[s + "." + what] = DLZMOD_ctlLedOf(map[n], what, get);
+      }
+    });
+    DLZMOD_ctlFaderSend(out);
+  } catch (e) {
+    console.error("dlzmod: controls:", e.message);
+  }
+}
+
 // #238: a knob only drives keys in faderlink's own table, so a mod page points knob N at
 // DLZMOD_KNOB_KEYS[N] (listed there, on both models, used by neither audio graph; faderlink.md, "Knob
 // stand-ins"). Its changes are caught here: they stay out of the state, the broadcast and the save,

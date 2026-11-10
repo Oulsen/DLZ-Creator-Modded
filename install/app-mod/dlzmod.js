@@ -36,21 +36,45 @@ function DLZMOD_tabLabel() {
 // Settings tab bar: About (short label) and the Mod tab (last) get fixed widths, Mackie's other
 // tabs share the rest equally. Same 2 px gaps as the original; the last tab takes the rounding
 // remainder.
+// #23: the Knobs/Faders tab (index 5, so Mackie's indices and the Mod tab's 4 stay) sits before
+// About, and About is an (i) icon to make room.
 function DLZMOD_layoutTabs(page) {
   if (!page.banks) return;
   const gap = 2;
-  const aboutW = 120;
-  const modW = 230;
-  const n = page.banks.length - 1;
-  const each = (page.w - aboutW - modW - gap * n) / (n - 1) | 0;
+  const widths = { 3: 50, 4: 230, 5: 100 };
+  const order = [0, 1, 2, 5, 3, 4].filter((i) => page.banks[i]);
+  const fixed = order.reduce((s, i) => s + (widths[i] || 0), 0);
+  const free = order.filter((i) => !widths[i]).length;
+  const each = (page.w - fixed - gap * (order.length - 1)) / free | 0;
   let x = 0;
-  page.banks.forEach((b, i) => {
-    const w = i === n ? page.w - x : i === n - 1 ? aboutW : each;
+  order.forEach((i, k) => {
+    const b = page.banks[i];
+    const w = k === order.length - 1 ? page.w - x : widths[i] || each;
     b.setGeometry(x, null, w, null);
     x += w + gap;
   });
+  DLZMOD_infoTab(page.banks[3]);
   // #55: the Mod tab's dot for a new version (DLZMOD_dot)
-  if (!page.banks[n].dlzmodDot) page.banks[n].dlzmodDot = DLZMOD_dot(page.banks[n]);
+  if (page.banks[4] && !page.banks[4].dlzmodDot) page.banks[4].dlzmodDot = DLZMOD_dot(page.banks[4]);
+}
+
+// About's tab as an (i): a ring with an i, in the tab's text colour
+function DLZMOD_infoTab(b) {
+  if (!b || b.dlzmodInfo) return;
+  b.dlzmodInfo = !0;
+  b.text = "";
+  const paint = b.paint;
+  b.paint = function (t) {
+    paint.call(this, t);
+    const on = !!(this.getVal && this.getVal());
+    const c = on ? Color.black : Color.subNavButtonText;
+    const cx = this.w / 2 | 0, cy = 21;
+    t.fillStyle = c;
+    t.fillCircle(cx, cy, 12);
+    t.fillStyle = on ? Color.main : Color.subNavButtonBg;
+    t.fillCircle(cx, cy, 10);
+    t.drawText("i", cx, cy + 1, { color: c, font: Font.font(600, "16px"), align: "center", valign: "middle" });
+  };
 }
 
 // Mod settings live in the hub state like Mackie's own keys (saved in srv_data.json, cleared by a
@@ -62,7 +86,8 @@ function DLZMOD_layoutTabs(page) {
 function DLZMOD_keys() {
   return { "dlzmod.hideHeader": 0, "dlzmod.meterMode": 0, "dlzmod.preColor": 0, "dlzmod.preLevel": 0,
     "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0, "dlzmod.recDate": 0,
-    "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "" };
+    "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "",
+    "dlzmod.controls": "" };
 }
 
 // The owner's own colours on top of the theme (#21): the background, and an accent colour for the
@@ -1677,6 +1702,580 @@ function DLZMOD_settingsPage(parent, y) {
       $NET.cmd("DLZMOD_TIME", { op: "status" });
       $NET.cmd("DLZMOD_RELEASE", { op: "status" });
       if (this.sub === 5) setTimeout(DLZMOD_releaseSeen, 0);
+    },
+  });
+}
+
+// #23: which level each channel knob (XS) or fader (full-size), and each knob next to the screen on
+// the Overview, controls (Settings, Knobs / Faders; the server moves the channel knobs' levels,
+// DLZMOD_ctlRemap in dlzmod-server.js; the Overview's knob list here, DLZMOD_ctlSideKnobs). The
+// levels a control can take, as the Overview names them (the channels, then the phones), and the
+// controls with the level each has in stock: the channel knobs or faders as printed on the mixer
+// (faderlink's table, notes/components/faderlink.md "Faders"), then the knobs next to the screen as
+// the Overview sets them (MainMixer's setKnobs: the phones, on the XS also 9/10 and 11/12).
+function DLZMOD_ctlChannels() {
+  // the phones by number, with a headphone before it (DLZMOD_ctlIcon)
+  const ph = (n) => ["a." + n, String(n + 1)];
+  return LITE_MODE
+    ? [["i.0", "1"], ["i.1", "2"], ["p.0", "3/4"], ["p.1", "5/6"], ["s", "7/8"], ["v.0", "9/10"], ["v.1", "11/12"],
+      ["m", "LR"], ph(0), ph(1)]
+    : [["i.0", "1"], ["i.1", "2"], ["i.2", "3"], ["i.3", "4"], ["p.0", "5/6"], ["p.1", "7/8"], ["p.2", "9/10"],
+      ["s", "11/12"], ["m", "LR"], ph(0), ph(1), ph(2), ph(3)];
+}
+
+function DLZMOD_ctlControls() {
+  const side = (n, p) => ["Side knob " + n, p];
+  return LITE_MODE
+    ? [["Knob 1", "i.0"], ["Knob 2", "i.1"], ["Knob 3", "p.0"], ["Knob 4", "p.1"], ["Knob 5", "s"],
+      side(1, "a.0"), side(2, "a.1"), side(3, "v.0"), side(4, "v.1")]
+    : [["Fader 1", "i.0"], ["Fader 2", "i.1"], ["Fader 3", "i.2"], ["Fader 4", "i.3"], ["Fader 5/6", "p.0"],
+      ["Fader 7/8", "p.1"], ["Fader 9/10", "p.2"], ["Fader 11/12", "s"], ["Master fader", "m"],
+      side(1, "a.0"), side(2, "a.1"), side(3, "a.2"), side(4, "a.3")];
+}
+
+// how many of the controls are channel knobs or faders (the rest are next to the screen)
+function DLZMOD_ctlKnobs() {
+  return LITE_MODE ? 5 : 9;
+}
+
+function DLZMOD_ctlTabLabel() {
+  return LITE_MODE ? "Knobs" : "Faders";
+}
+
+// The channel each control controls, in the order of DLZMOD_ctlControls. dlzmod.controls holds the
+// controls set elsewhere as "stock=channel" pairs ("s=m,m=s"; "" = stock), keyed by the stock channel
+// so a backup means the same on both models. As the server reads it (DLZMOD_ctlMap there): a pair
+// that does not fit this model is left out, and a value that gives one channel two controls counts
+// as stock.
+function DLZMOD_ctlMap() {
+  const stock = DLZMOD_ctlControls().map((c) => c[1]);
+  const chans = DLZMOD_ctlChannels().map((c) => c[0]);
+  const map = stock.slice();
+  for (const pair of String(Data.get("dlzmod.controls") || "").split(",")) {
+    const [from, to] = pair.split("=");
+    const n = stock.indexOf(from);
+    if (n >= 0 && chans.includes(to)) map[n] = to;
+  }
+  return new Set(map).size === map.length ? map : stock;
+}
+
+function DLZMOD_ctlGet(n) {
+  return DLZMOD_ctlMap()[n];
+}
+
+// A channel another control has already: the two swap, so no two controls ever fight over one
+// level (they send absolute positions: each move would jump it) and no channel loses its control
+// by accident.
+function DLZMOD_ctlSet(n, prefix) {
+  const stock = DLZMOD_ctlControls().map((c) => c[1]);
+  const l = DLZMOD_ctlMap();
+  const other = l.indexOf(prefix);
+  if (other >= 0 && other !== n) l[other] = l[n];
+  l[n] = prefix;
+  Data.set("dlzmod.controls", l.map((p, i) => (p === stock[i] ? "" : stock[i] + "=" + p)).filter((x) => x).join(","));
+}
+
+// XS: a strip whose channel has no knob gets the fader on the screen (stock: the virtual strips and
+// LR), one with a knob not (patch.py, the strip's sync). The full-size keeps stock: a fader for every
+// channel, none on the screen. Strips seen here are synced again when the choice changes.
+function DLZMOD_ctlScreen(strip) {
+  const stockScreen = strip.type === E_CH_TYPE.VIRTUAL || (!!LITE_MODE && strip.type === E_CH_TYPE.MASTER);
+  const prefix = String(strip.prefix || "").replace(/\.$/, "");
+  if (!LITE_MODE || !DLZMOD_ctlChannels().some((c) => c[0] === prefix)) return stockScreen;
+  (DLZMOD_ctlScreen.strips || (DLZMOD_ctlScreen.strips = new Set())).add(strip);
+  if (!DLZMOD_ctlScreen.hooked) {
+    DLZMOD_ctlScreen.hooked = !0;
+    Data.regWidget("dlzmod.controls", () => DLZMOD_ctlScreen.strips.forEach((s) => s.sync && s.sync(!0)));
+  }
+  return !DLZMOD_ctlMap().slice(0, DLZMOD_ctlKnobs()).includes(prefix);
+}
+
+// the colour as the Overview has it (Mackie's palette; the phones Mackie's getAuxColor); a light grey
+// when none
+function DLZMOD_ctlColor(prefix) {
+  const aux = /^a\.(\d)$/.exec(prefix);
+  if (aux && typeof getAuxColor === "function") return getAuxColor(Number(aux[1])) || "#c2c2c2";
+  return (Data.has(prefix + ".color") && Color.channel[Data.get(prefix + ".color")]) || "#c2c2c2";
+}
+
+// The Overview's knobs next to the screen (MainMixer's setKnobs, patch.py): one set to another level
+// than stock shows and moves that one. Not with the level's own key: a channel knob that stock has on
+// that level sends the same key, and the server takes it for that knob's (DLZMOD_ctlRemap). So through
+// the stand-ins of #238 (DLZMOD_knobs), and the steps go on the level here, on the mixer's own law
+// (Data.get gives the level as the Overview's panel does, 0-1).
+function DLZMOD_ctlSideKnobs(list) {
+  const ctls = DLZMOD_ctlControls(), k = DLZMOD_ctlKnobs(), map = DLZMOD_ctlMap();
+  const chans = DLZMOD_ctlChannels();
+  const out = (list || []).slice();
+  for (let n = 0; k + n < ctls.length; n++) {
+    const p = map[k + n], c = chans.find((x) => x[0] === p);
+    if (!out[n] || p === ctls[k + n][1] || !c) continue;
+    const key = p + ".mix";
+    const col = () => DLZMOD_ctlColor(p);
+    const aux = /^a\.(\d)$/.exec(p);
+    const sub = p === "m" ? "LR" : aux ? lang.PHONES_ + " " + (Number(aux[1]) + 1) : lang.CHANNEL_ + " " + c[1];
+    out[n] = Object.assign({}, out[n], { title: () => "", subTitle: () => sub, value: () => Data.get(key),
+      keys: [key], color: col, control: { key: key, color: col() }, stepKey: key });
+  }
+  return DLZMOD_knobs(out);
+}
+
+// #259: the Overview's strips in the order of the channel knobs or faders (the first strip is what
+// knob or fader 1 has, ...), then the strips without one in stock order. A channel knob or fader on
+// a phones mix gets a phones strip in its place (DLZMOD_ctlPhonesStrips); phones strips without one
+// stay hidden. The order goes to Mackie's GenericMixer (its order, as arrange reads it): indexes into
+// the mixer's strips.
+function DLZMOD_ctlOrder(mixer) {
+  const ws = (mixer && mixer.widgets) || [], map = DLZMOD_ctlMap();
+  const at = (p) => ws.findIndex((w) => w && String(w.prefix || "") === p + ".");
+  const order = [];
+  for (let n = 0; n < DLZMOD_ctlKnobs(); n++) {
+    const i = at(map[n]);
+    if (i >= 0 && !order.includes(i)) order.push(i);
+  }
+  ws.forEach((w, i) => {
+    if (w && !w.DLZMOD_phones && !order.includes(i)) order.push(i);
+  });
+  return order;
+}
+
+// The order applied; more strips than fit (a phones strip on the XS) all get narrower, as Mackie's
+// Aux page does with its strips (w, then calcAnchors), so none ends up off the screen. Never throws:
+// the Overview stays as it is.
+function DLZMOD_ctlArrange(mixer) {
+  try {
+    const ws = mixer.widgets, m = mixer.margin || 0, order = DLZMOD_ctlOrder(mixer);
+    ws.forEach((w) => {
+      if (w.DLZMOD_w == null) w.DLZMOD_w = w.w;
+    });
+    const need = order.reduce((s, i) => s + ws[i].DLZMOD_w + m, -m);
+    const fit = mixer.w > 0 && need > mixer.w ? Math.floor((mixer.w + m) / order.length) - m : 0;
+    ws.forEach((w, i) => {
+      const nw = fit && order.includes(i) ? Math.min(fit, w.DLZMOD_w) : w.DLZMOD_w;
+      if (w.w !== nw) {
+        w.w = nw;
+        w.calcAnchors && w.calcAnchors();
+      }
+    });
+    mixer.setOrder(order);
+  } catch (e) {
+    console.error("DLZMOD_ctlArrange", e);
+  }
+}
+
+// The phones strips, added to the Overview's mixer after Mackie's (MainMixer's initStrips,
+// patch.py): one for each phones mix, the width of a strip, in the phones' colour, with the level
+// as a position (as the strips' own) and in dB, the headphone and its number. No meter: the mixer
+// sends none for the phones. Not in allStrips (Mackie's lists stay as they are). A tap selects it and
+// a double tap opens its page, as Mackie's strips (DLZMOD_ctlMark).
+function DLZMOD_ctlPhonesStrips(mixer) {
+  try {
+    if (mixer.DLZMOD_phonesDone) return;
+    mixer.DLZMOD_phonesDone = !0;
+    const n = typeof chConfig === "object" && chConfig.aux > 0 ? chConfig.aux : LITE_MODE ? 2 : 4;
+    const w0 = (mixer.widgets[0] && mixer.widgets[0].w) || (LITE_MODE ? _DimsLite.stripWidth : _Dims.stripWidth);
+    for (let a = 0; a < n; a++) {
+      const key = "a." + a + ".";
+      const s = new Widget(mixer, { w: w0, bgColor: Color.stripBg, paint: function (t) {
+        DLZMOD_ctlPhonesPaint(this, t, a);
+      } });
+      s.setAnchors(null, 0, null, 0);
+      s.prefix = key;
+      s.DLZMOD_phones = !0;
+      s.isSelected = () => DLZMOD_ctlMarked() === a;
+      s.select = () => {};
+      s.ondown = () => IS_LOCKED() || DLZMOD_ctlMark(mixer, a);
+      s.ondouble = () => DLZMOD_ctlOpen(key.slice(0, -1));
+      s.regKey(key + "mix");
+      s.regKey(key + "color");
+    }
+    // Mackie's strips: not shown selected while a phones strip is, and a tap on one ends that
+    for (const w of mixer.widgets) {
+      if (w.DLZMOD_phones || typeof w.ondown !== "function") continue;
+      const down = w.ondown, own = w.isSelected;
+      w.isSelected = function () {
+        return DLZMOD_ctlMarked() < 0 && (own ? own.apply(this, arguments) : SELECTED() === this);
+      };
+      w.ondown = function () {
+        DLZMOD_ctlMark(mixer, -1);
+        return down.apply(this, arguments);
+      };
+    }
+    mixer.order = DLZMOD_ctlOrder(mixer);
+    // a new choice (here or from a browser): the strips, and the knobs next to the screen when the
+    // Overview shows (their labels and what a tap on their box opens agree again)
+    Data.regWidget("dlzmod.controls", () => {
+      DLZMOD_ctlArrange(mixer);
+      try {
+        if (app.curPage === E_PAGE.OVERVIEW && mixer.setKnobs) mixer.setKnobs();
+      } catch (e) {
+        console.error("DLZMOD_ctlPhonesStrips", e);
+      }
+    });
+  } catch (e) {
+    console.error("DLZMOD_ctlPhonesStrips", e);
+  }
+}
+
+// The Channel page's row of channels (Mackie's ChSelector, patch.py) in the Overview's order, with
+// a channel in each phones strip's place: the first one without a knob or fader (after a swap the
+// one that left that knob), so every other place still matches its knob or fader and the Overview,
+// and no channel is left out. The row is set again when the choice changes.
+function DLZMOD_ctlChOrder(sel, list) {
+  try {
+    if (!sel.DLZMOD_hooked) {
+      sel.DLZMOD_hooked = !0;
+      Data.regWidget("dlzmod.controls", () => sel.setStrips(sel.DLZMOD_all || []));
+    }
+    sel.DLZMOD_all = list.slice();
+    const map = DLZMOD_ctlMap(), k = DLZMOD_ctlKnobs();
+    const of = (p) => list.find((s) => s && s.prefix === p + ".");
+    const knobs = map.slice(0, k).map(of);
+    const rest = list.filter((s) => !knobs.includes(s));
+    const out = knobs.map((s) => s || rest.shift()).filter((s) => s);
+    return out.concat(rest);
+  } catch (e) {
+    console.error("DLZMOD_ctlChOrder", e);
+    return list;
+  }
+}
+
+// The phones strip shown selected: which (-1 none), the channel selected then, and its mixer;
+// another channel selected since (a knob, the Channel page) ends it for good, and the mixer is
+// painted again (Mackie repaints only the two channel strips).
+var DLZMOD_ctlSel = { a: -1, was: null, m: null };
+
+function DLZMOD_ctlMarked() {
+  const sel = DLZMOD_ctlSel;
+  if (sel.a < 0) return -1;
+  if (typeof SELECTED === "function" && SELECTED() === sel.was) return sel.a;
+  DLZMOD_ctlSel = { a: -1, was: null, m: null };
+  if (sel.m && sel.m.update) setTimeout(() => sel.m.update(), 0);
+  return -1;
+}
+
+function DLZMOD_ctlMark(mixer, a) {
+  try {
+    if (DLZMOD_ctlMarked() === a) return;
+    DLZMOD_ctlSel = { a: a, was: SELECTED(), m: mixer };
+    // the strips' layout follows their selection (the screen fader's buttons)
+    mixer.widgets.forEach((w) => !w.DLZMOD_phones && w.sync && w.sync(!0));
+    mixer.update();
+  } catch (e) {
+    console.error("DLZMOD_ctlMark", e);
+  }
+}
+
+// A level's page, as stock opens it: a phones strip's double tap, a tap on a box of the knobs next
+// to the screen. Phones: Mackie's Aux page for that mix (the box's own tap in stock; a second tap
+// from there goes back to the Overview); a channel: selected, and its Channel page (a strip's
+// double tap). Pro mode and unlocked only, as stock's box tap.
+function DLZMOD_ctlOpen(p) {
+  try {
+    if ((typeof UI_IS_PRO === "function" && !UI_IS_PRO()) || IS_LOCKED() || Data.get("lock")) return;
+    const aux = /^a\.(\d)$/.exec(p);
+    if (aux) {
+      const n = Number(aux[1]);
+      if (app.curPage === E_PAGE.AUX && app.pageAux.aux === n) return void app.setPage(E_PAGE.OVERVIEW);
+      app.pageAux.setAux(n);
+      app.pageAux.sync();
+      if (app.curPage !== E_PAGE.AUX) app.setPage(E_PAGE.AUX);
+      app.panel && app.panel.update && app.panel.update();
+      return;
+    }
+    const strip = allStrips.find((s) => s.prefix === p + ".");
+    if (strip) {
+      SELECT(strip);
+      app.navBar.btns[1].onPress();
+    }
+  } catch (e) {
+    console.error("DLZMOD_ctlOpen", e);
+  }
+}
+
+// The boxes of the knobs next to the screen (Mackie's RightPanel, patch.py): a tap on box n opens
+// the page of the level its knob has (true), a channel's too (stock: nothing for the XS's 9/10 and
+// 11/12); a box on its stock phones mix keeps stock's tap (false).
+function DLZMOD_ctlSideTap(n) {
+  const k = DLZMOD_ctlKnobs(), ctls = DLZMOD_ctlControls(), map = DLZMOD_ctlMap();
+  if (!(n >= 0) || k + n >= ctls.length || (map[k + n] === ctls[k + n][1] && DLZMOD_ctlPhones(map[k + n]))) return false;
+  DLZMOD_ctlOpen(map[k + n]);
+  return true;
+}
+
+// the box that has phones mix n now (the Aux page marks it); none has it (a channel knob or fader
+// has it): a place far above the panel, so the mark is drawn nowhere
+function DLZMOD_ctlSideSlot(n) {
+  const i = DLZMOD_ctlMap().slice(DLZMOD_ctlKnobs()).indexOf("a." + n);
+  return i >= 0 ? i : -99;
+}
+
+// never throws: a paint that fails leaves the rest of the Overview painting
+function DLZMOD_ctlPhonesPaint(s, t, a) {
+  try {
+    DLZMOD_ctlPhonesDraw(s, t, a);
+  } catch (e) {
+    console.error("DLZMOD_ctlPhonesPaint", e);
+  }
+}
+
+function DLZMOD_ctlPhonesDraw(s, t, a) {
+  const bh = _Dims.botNameHeight, w = s.w, top = s.h - bh;
+  const col = (typeof getAuxColor === "function" && getAuxColor(a)) || Color.gray;
+  const v = Math.min(Math.max(Number(Data.get("a." + a + ".mix")) || 0, 0), 1);
+  t.fRect(Color.stripBg, 0, 0, w, s.h);
+  t.fRect(col, 0, 1, w, 2);
+  // the level: a track with the position, as the strips' (mixPos), the dB under it
+  const tw = 24, tx = (w - tw) / 2 | 0, ty = 14, th = top - ty - 48;
+  t.fRect(Color.vuBg || "#3a3a3a", tx, ty, tw, th);
+  const y = ty + (th - 2) * (1 - v) | 0;
+  if (v > 0) t.fRect(col, tx, y, tw, ty + th - y);
+  t.fillStyle = Color.white;
+  t.fillPolygon(tx - 8, y + 1, 6, 3, 0);
+  t.drawText(v2mixText(v), w / 2 | 0, top - 24,
+    { color: Color.white, font: Font.font(500, "13pt"), align: "center", valign: "middle" });
+  // the name area, as the strips' (paintBot): number top left, the headphone in the middle; selected
+  // in Mackie's selected colours
+  const sel = DLZMOD_ctlMarked() === a, txt = sel ? Color.black : Color.stripNameText;
+  t.fRect(sel ? Color.stripNameBgSelected : Color.stripBg, 0, top, w, bh);
+  t.fRect(Color.menuSeparator, 0, top, w, 2);
+  if (!sel) {
+    t.strokeStyle = Color.stripBorder;
+    t.lineWidth = 1;
+    t.beginPath();
+    t.rect(.5, top + 2.5, w - 1, bh - 3);
+    t.stroke();
+  }
+  t.drawText(String(a + 1), 4, s.h - 70,
+    { color: txt, font: Font.font(500, "13pt"), align: "left", valign: "middle" });
+  t.drawText(String.fromCharCode(0xe310), w / 2 | 0, s.h - 37,
+    { color: sel ? Color.black : col, font: Font.mi("40px"), align: "center", valign: "middle" });
+  t.drawText("Phones", w / 2 | 0, s.h - 10,
+    { color: sel ? Color.black : Color.white, font: Font.font(600, "10pt"), align: "center", valign: "middle" });
+}
+
+// the channel's text: its number and the name the owner gave it, as on the Overview (only the
+// number when it has none)
+function DLZMOD_ctlName(c, max) {
+  const name = String((Data.has(c[0] + ".name") && Data.get(c[0] + ".name")) || "");
+  return name ? c[1] + "  " + (max && name.length > max ? name.slice(0, max - 1).trimEnd() + ".." : name) : c[1];
+}
+
+// The phones get a headphone before their number, in the text's own colour: MaterialIcons' "headset"
+// (U+E310), a font Mackie's app loads (Font.mi). Mackie's own sign (lang.PHONES_) is a colour emoji,
+// which a selected button, black on green, would leave white. On buttons through E1Button's own icon
+// (Mackie places it by the text's width, which the mixer's renderer gives there); elsewhere by the
+// number of characters, as Mackie wraps its popups on the mixer (no measureText there).
+function DLZMOD_ctlPhones(p) {
+  return /^a\./.test(p);
+}
+
+function DLZMOD_ctlIcon(p) {
+  return DLZMOD_ctlPhones(p) ? String.fromCharCode(0xe310) : null;
+}
+
+function DLZMOD_ctlIconParams() {
+  return { iconFont: Font.mi("22px"), iconX: null, iconY: null, iconAlign: "center" };
+}
+
+// a level's text centred on cx, cy, with the headphone for the phones (about 0.55 em a character)
+function DLZMOD_ctlDraw(t, p, text, font, px, cx, cy, color) {
+  const icon = DLZMOD_ctlIcon(p);
+  const x = icon ? cx + 12 : cx;
+  t.drawText(text, x, cy, { color: color, font: font, align: "center", valign: "middle" });
+  if (icon) t.drawText(icon, x - String(text).length * px * 0.55 / 2 - 14, cy - 1,
+    { color: color, font: Font.mi("22px"), align: "center", valign: "middle" });
+}
+
+// The Knobs/Faders page under Settings: two of Mackie's windows. Left the channel knobs or faders,
+// right the knobs next to the screen (on the Overview), each a row with a chooser in the style of
+// Language and a bar in its level's colour, as the XS's LED bars; under them what has no control
+// (XS: only its fader on the screen) or, the full-size swapped, that the strips keep their order, and
+// a button back to stock.
+function DLZMOD_controlsPage(parent, y) {
+  DLZMOD_initKeys();
+  const ctls = DLZMOD_ctlControls(), k = DLZMOD_ctlKnobs();
+  const win = { bgColor: Color.bgDark, paint: PAINT_WINDOW_BG };
+  // rows n = from .. to-1 of ctls, the chooser from x cx to 30 from the edge
+  const rows = (w, from, to, top, rowH, cx) => {
+    for (let n = from; n < to; n++) {
+      new E1Button(w, {
+        anchors: [cx, top + (n - from) * rowH], size: [w.w - cx - 30, rowH - 8], text: "",
+        colors: [Color.buttonBg, Color.red2], textColorON: Color.white,
+        textStyle: { font: Font.font(500, rowH < 50 ? "13pt" : "15pt") },
+        ...DLZMOD_ctlIconParams(),
+        regKey: ["dlzmod.controls"],
+        paintOverlay: function (t) {
+          t.fillStyle = "rgba(255,255,255,0.30)";
+          t.fillPolygon(this.w - 14, this.h / 2 | 0, 6, 3, 0);
+        },
+        getState: function () {
+          const p = DLZMOD_ctlGet(n);
+          this.text = DLZMOD_ctlName(DLZMOD_ctlChannels().find((ch) => ch[0] === p), 13);
+          this.icon = DLZMOD_ctlIcon(p);
+        },
+        onPress: () => DLZMOD_ctlPicker(n),
+      });
+    }
+  };
+  const labels = (t, from, to, top, rowH) => {
+    for (let n = from; n < to; n++) {
+      const cy = top + (n - from) * rowH + (rowH - 8) / 2 | 0;
+      t.drawText(ctls[n][0], 30, cy - 4, { color: Color.white, font: Font.font(500, rowH < 50 ? "14pt" : "16pt"),
+        align: "left", valign: "middle" });
+      t.fRect(DLZMOD_ctlColor(DLZMOD_ctlGet(n)), 30, cy + (rowH < 50 ? 9 : 13), 40, 4);
+    }
+  };
+  const lRow = k > 5 ? 41 : 64, lTop = k > 5 ? 14 : 34;
+  const left = new Widget(parent, {
+    anchors: [0, y, null, null, !0, !0], size: [430, 392], ...win,
+    _constructor: function () {
+      this.regKey(["dlzmod.controls"]);
+      rows(this, 0, k, lTop, lRow, 170);
+    },
+    paint: function (t) {
+      PAINT_WINDOW_BG.call(this, t);
+      labels(t, 0, k, lTop, lRow);
+    },
+  });
+  const rRow = 52, rTop = 66;
+  const right = new Widget(parent, {
+    anchors: [0, y, null, null, !0, !0], size: [390, 392], ...win,
+    _constructor: function () {
+      this.regKey(["dlzmod.controls"]);
+      rows(this, k, ctls.length, rTop, rRow, 170);
+      new E1Button(this, {
+        anchors: [30, null, 30, 24], size: [null, 50], text: "Back to Default",
+        textStyle: { font: Font.font(500, "14pt") }, colors: [Color.buttonBg, Color.main],
+        onPress: () => Data.set("dlzmod.controls", ""),
+        getState: function () {
+          this.enabled = !!Data.get("dlzmod.controls");
+        },
+      });
+    },
+    paint: function (t) {
+      PAINT_WINDOW_BG.call(this, t);
+      t.drawText("Overview page", this.w / 2 | 0, 34,
+        { color: Color.white, font: Font.font(600, "16pt"), align: "center", valign: "middle" });
+      labels(t, k, ctls.length, rTop, rRow);
+      // what has no control (on the XS one level, LR in stock: only its fader on the screen); the
+      // strips on the Overview follow the controls (DLZMOD_ctlOrder)
+      const map = DLZMOD_ctlMap();
+      const none = DLZMOD_ctlChannels().filter((c) => !map.includes(c[0]))
+        .map((c) => (DLZMOD_ctlPhones(c[0]) ? "Phones " : "") + c[1]);
+      const note = none.length ? "On the screen only: " + none.join(", ") : "";
+      if (note) t.drawText(note, this.w / 2 | 0, rTop + (ctls.length - k) * rRow + 8,
+        { color: "#888888", font: Font.font(500, "12pt"), align: "center", valign: "middle" });
+    },
+  });
+  return [left, right];
+}
+
+// One Mackie popup with two views, so going back and forth repaints nothing behind it:
+// - pick: the channels as buttons like the Overview's strips (number and name, the channel's colour
+//   along the bottom), the one the control has now in Mackie's green (a Mackie page, not the Mod
+//   page), a taken one with its control's name in the corner. A free channel is set at once; a taken
+//   one goes to
+// - swap: what each of the two controls will control, old and new; Swap, or Back to pick.
+function DLZMOD_ctlPicker(n) {
+  if (DLZMOD_ctlPicker.popup) return;
+  const ctls = DLZMOD_ctlControls();
+  const chans = DLZMOD_ctlChannels();
+  const ch = (p) => chans.find((c) => c[0] === p);
+  const holder = (p) => ctls.findIndex((x, k) => DLZMOD_ctlGet(k) === p);
+  const COLS = 3, BW = 260, BH = 64, GAP = 10, TOP = 70;
+  const rows = Math.ceil(chans.length / COLS);
+  const W = COLS * BW + (COLS - 1) * GAP + 48, H = TOP + rows * (BH + GAP) + 84;
+  DLZMOD_ctlPicker.popup = new PopupWindow(app, {
+    w: W, h: H, bgColor: Color.bgPopup, swap: null,
+    initWidgets: function () {
+      this.pickers = chans.map((c, i) => new E1Button(this, {
+        anchors: [24 + (i % COLS) * (BW + GAP), TOP + (i / COLS | 0) * (BH + GAP)], size: [BW, BH],
+        text: DLZMOD_ctlName(c), textStyle: { font: Font.font(500, "15pt") },
+        icon: DLZMOD_ctlIcon(c[0]), ...DLZMOD_ctlIconParams(),
+        colors: [Color.buttonBg, Color.main], textColorON: Color.black,
+        getState: function () {
+          this.state = holder(c[0]) === n;
+        },
+        paintOverlay: function (t) {
+          t.fRect(DLZMOD_ctlColor(c[0]), 0, this.h - 5, this.w, 5);
+          const k = holder(c[0]);
+          if (k >= 0 && k !== n) t.drawText(ctls[k][0], this.w - 10, 15, { color: "#888888",
+            font: Font.font(500, "11pt"), align: "right", valign: "middle" });
+        },
+        onPress: () => {
+          const k = holder(c[0]);
+          if (k === n) return this.close();
+          if (k < 0) {
+            DLZMOD_ctlSet(n, c[0]);
+            return this.close();
+          }
+          this.view({ other: k, prefix: c[0], was: DLZMOD_ctlGet(n) });
+        },
+      }));
+      this.cancel = new E1Button(this, {
+        anchors: [null, null, 24, 20], size: [180, 50], text: lang.CANCEL,
+        onPress: () => this.close(),
+      });
+      this.back = new E1Button(this, {
+        anchors: [24, null, null, 20], size: [180, 50], text: "Back",
+        onPress: () => this.view(null),
+      });
+      this.ok = new E1Button(this, {
+        anchors: [null, null, 24, 20], size: [180, 50], text: "Swap",
+        colors: [Color.main, Color.main], textColor: Color.black, textColorON: Color.black,
+        onPress: () => {
+          DLZMOD_ctlSet(n, this.swap.prefix);
+          this.close();
+        },
+      });
+      this.view(null);
+    },
+    view: function (swap) {
+      this.swap = swap;
+      this.pickers.forEach((b) => b.setVisible(!swap));
+      this.cancel.setVisible(!swap);
+      this.back.setVisible(!!swap);
+      this.ok.setVisible(!!swap);
+      this.update();
+    },
+    onDestroy: function () {
+      DLZMOD_ctlPicker.popup = null;
+      PopupWindow.prototype.onDestroy.call(this);
+      DLZMOD_repaintSoon();
+    },
+    paint: function (t) {
+      PopupWindow.prototype.paint.call(this, t);
+      const sw = this.swap;
+      if (!sw) {
+        t.drawText(ctls[n][0] + " controls", this.w / 2 | 0, 36, { color: Color.white,
+          font: Font.font(600, "18pt"), align: "center", valign: "middle" });
+        t.drawText("Taken by another control: you can swap the two.", 24, this.h - 45,
+          { color: "#888888", font: Font.font(500, "12pt"), align: "left", valign: "middle" });
+        return;
+      }
+      t.drawText("Swap " + ctls[n][0] + " and " + ctls[sw.other][0] + "?", this.w / 2 | 0, 36, { color: Color.white,
+        font: Font.font(600, "18pt"), align: "center", valign: "middle" });
+      // in the sentence the phones by word (grey text: no room for a drawn headphone)
+      const word = (p) => (/^a\./.test(p) ? "Phones " : "") + ch(p)[1];
+      t.drawText(word(sw.prefix) + " is on " + ctls[sw.other][0] + " now: that one gets " + word(sw.was) +
+        " instead.", this.w / 2 | 0, 74, { color: "#888888", font: Font.font(500, "13pt"), align: "center", valign: "middle" });
+      [[ctls[n][0], sw.was, sw.prefix], [ctls[sw.other][0], sw.prefix, sw.was]].forEach(([name, from, to], i) => {
+        const y = 112 + i * 72;
+        t.drawText(name, 60, y + 27, { color: Color.white, font: Font.font(600, "16pt"), align: "left", valign: "middle" });
+        // both dark with the channel's colour along the bottom; the new one framed in it, white text
+        const box = (p, x, on) => {
+          const col = DLZMOD_ctlColor(p);
+          t.fRect(on ? col : Color.buttonBg, x, y, 240, 54);
+          t.fRect(Color.buttonBg, x + 2, y + 2, 236, 50);
+          t.fRect(col, x, y + 49, 240, 5);
+          DLZMOD_ctlDraw(t, p, DLZMOD_ctlName(ch(p), 12), Font.font(500, "14pt"), 19, x + 120, y + 25,
+            on ? Color.white : "#888888");
+        };
+        box(from, 230, !1);
+        t.drawText("→", 510, y + 27, { color: Color.white, font: Font.font(600, "20pt"), align: "center", valign: "middle" });
+        box(to, 550, !0);
+      });
     },
   });
 }

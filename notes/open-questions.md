@@ -48,8 +48,6 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
     components/mixergraph.md).
 22. How many playback channels does the PC see on the XS USB interface (Windows sound settings /
     `lsusb -v`)? More than 4 would let the graph expose extra PC inputs.
-23. Which faderlink fader-table entries do the XS faders send, and does faderlink read those keys
-    back? (Capture on port 89 while moving each fader.)
 24. Do `settings.brightness.screen/k/pad/button = 0` make the screen and LEDs fully dark? (For a
     sleep mode.)
 25. Bluetooth module (Actions ATS2853, `components/faderlink.md`): which profiles does Mackie's

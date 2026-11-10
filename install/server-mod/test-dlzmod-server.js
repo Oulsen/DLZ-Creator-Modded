@@ -6,7 +6,7 @@ const os = require("os");
 const path = require("path");
 const vm = require("vm");
 
-const ctx = vm.createContext({ require, process, Buffer, setTimeout, clearTimeout, setInterval, clearInterval,
+const ctx = vm.createContext({ require, process, Buffer, setTimeout, clearTimeout, setImmediate, setInterval, clearInterval,
   console: { log() {}, error() {} } });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "dlzmod-server.js"), "utf8"), ctx);
 // the pairing state (#45) in a folder of its own, never this PC's /var/lib; pairIn() gives a test a fresh one
@@ -736,7 +736,7 @@ test("files: data keys: no prototype keys, file paths only from the screen, trac
 });
 test("files: a refused key is taken out of the message stock passes on to dspserver (patch.py's loop)", () => {
   const src = fs.readFileSync(path.join(__dirname, "..", "patch.py"), "utf8");
-  const m = /"(for\(const\[a,i\]of Object\.entries\(e\)\)if\(null!=a&&\(DLZMOD_keyAllowed[^"]*)"/.exec(src);
+  const m = /"(?:DLZMOD_ctlRemap\(e,t\);)?(for\(const\[a,i\]of Object\.entries\(e\)\)if\(null!=a&&\(DLZMOD_keyAllowed[^"]*)"/.exec(src);
   assert.ok(m, "key loop patch found in patch.py");
   const loop = new vm.Script(m[1] + "stored.push(a)}");
   const run = (e, send) => {
@@ -3265,6 +3265,223 @@ test("knob stand-in: a jump no turn makes moves nothing", () => {
   assert.deepStrictEqual(hub.resets, [["a.0.pan", 0.5]]);
   hub.turn("a.0.pan", 0.5125);
   assert.deepStrictEqual(hub.steps(), [1]);
+});
+
+// #23: a level from faderlink goes to the channel its knob (XS) or fader (full-size) is set to
+test("controls: patch.py remaps a message before stock's key loop, on socket.io connections only", () => {
+  const src = fs.readFileSync(path.join(__dirname, "..", "patch.py"), "utf8");
+  assert.ok(/"DLZMOD_ctlRemap\(e,t\);for\(const\[a,i\]of Object\.entries\(e\)\)/.test(src), "before the loop");
+  assert.ok(src.includes("t.send.dlzmodSio=!0;"), "socket.io connections stamped");
+});
+test("controls: a knob or fader moves its level to the chosen channel, both models", () => {
+  const sio = () => {};
+  sio.dlzmodLocal = true;
+  sio.dlzmodSio = true;
+  const remap = (msg, raw, lite, send = sio) => {
+    ctx.DLZMOD_ctlRemap(msg, { send }, (k) => (k === "dlzmod.controls" ? raw : undefined), lite);
+    return plain(msg);
+  };
+  assert.deepStrictEqual(remap({ "s.mix": -10 }, "", 1), { "s.mix": -10 }, "stock: as it came");
+  assert.deepStrictEqual(remap({ "s.mix": -10, "i.0.mute": 1 }, "s=m", 1), { "i.0.mute": 1, "m.mix": -10 });
+  assert.deepStrictEqual(remap({ "i.0.mix": -5, "s.mix": -20 }, "i.0=s,s=i.0", 1), { "s.mix": -5, "i.0.mix": -20 },
+    "a swap in one message: neither overwrites the other");
+  assert.deepStrictEqual(remap({ "s.mix": -10 }, "s=m,m=s", 0), { "m.mix": -10 }, "full-size: samples fader on LR");
+  assert.deepStrictEqual(remap({ "m.mix": -3 }, "s=m,m=s", 0), { "s.mix": -3 });
+  assert.deepStrictEqual(remap({ "v.0.mix": -10 }, "s=v.0", 1), { "v.0.mix": -10 }, "only a control's stock channel");
+  assert.deepStrictEqual(remap({ "s.mix": -10 }, "s=v.0", 0), { "s.mix": -10 }, "no virtual strips on the full-size");
+  assert.deepStrictEqual(remap({ "s.mix": -10 }, "i.0=s", 1), { "s.mix": -10 }, "two on one: stock");
+  // the screen (TCP), a phone, a socket.io connection from elsewhere: as they came
+  const screen = () => {};
+  screen.dlzmodLocal = true;
+  const far = () => {};
+  far.dlzmodSio = true;
+  for (const send of [screen, far, () => {}]) {
+    assert.deepStrictEqual(remap({ "s.mix": -10 }, "s=m", 1, send), { "s.mix": -10 });
+  }
+  ctx.DLZMOD_ctlRemap(null, { send: sio });
+  ctx.DLZMOD_ctlRemap({ "s.mix": 1 }, null);
+});
+
+test("controls: mute and solo go with the knob; one the channel does not have does nothing, its LED put back", async () => {
+  const sent = [];
+  const sio = () => {};
+  sio.dlzmodLocal = true;
+  sio.dlzmodSio = true;
+  const state = { "dlzmod.controls": "s=m,i.0=v.0,v.0=i.0", "m.mute": 1 };
+  const get = (k) => state[k];
+  ctx.DLZMOD_ctlFader = { send: (m) => sent.push(plain(m)) };
+  try {
+    const msg = { "i.0.mute": 1, "i.0.solo": 0, "s.solo": 1, "i.1.mute": 0 };
+    ctx.DLZMOD_ctlRemap(msg, { send: sio }, get, 1);
+    assert.deepStrictEqual(plain(msg), { "i.1.mute": 0, "v.0.mute": 1, "v.0.solo": 0 }, "LR has no solo: dropped");
+    await new Promise((r) => setImmediate(r));
+    assert.deepStrictEqual(sent, [{ "s.solo": 0 }], "the knob's solo LED back to LR's (none)");
+  } finally {
+    ctx.DLZMOD_ctlFader = null;
+  }
+});
+
+test("controls: the LEDs under a knob show its channel, only on faderlink's connection", async () => {
+  const sent = [];
+  const tick = () => new Promise((r) => setImmediate(r));
+  const sio = () => {};
+  sio.dlzmodLocal = true;
+  sio.dlzmodSio = true;
+  const fader = { send: (m) => sent.push(plain(m)) };
+  fader.send.dlzmodLocal = true;
+  fader.send.dlzmodSio = true;
+  const state = { "dlzmod.controls": "s=m", "m.mute": 1, "s.mute": 0, "s.colorhex": "#a276b3", "i.0.mute": 1 };
+  const get = (k) => state[k];
+  const leds = (msg, conn) => ctx.DLZMOD_ctlLeds(msg, conn, get, 1);
+  ctx.DLZMOD_ctlFader = null;
+  try {
+    leds({ "m.mute": 1 });
+    leds({ btStatus: 1, bt: 0 }, { send: () => {} });   // the screen or a phone: not faderlink
+    const far = { send: () => {} };
+    far.send.dlzmodSio = true;
+    leds({ btStatus: 1, bt: 0 }, far);
+    await tick();
+    assert.strictEqual(ctx.DLZMOD_ctlFader, null, "no faderlink yet: nothing sent");
+    leds({ btStatus: 1, bt: 0 }, fader);
+    await tick();
+    assert.deepStrictEqual(sent, [{ "s.mute": 1, "s.solo": 0, "s.colorhex": "#c2c2c2" }],
+      "faderlink connects: knob 5's LEDs show LR (no solo, no colour of its own)");
+    sent.length = 0;
+    leds({ "m.mute": 0 });
+    leds({ "s.colorhex": "#a276b3" });   // Samples' own change would overwrite it
+    leds({ "i.0.mute": 1, recTime: 3 });   // knob 1 on its own channel: stock's message is right
+    await tick();
+    assert.deepStrictEqual(sent, [{ "s.mute": 1 }, { "s.colorhex": "#c2c2c2" }]);
+    sent.length = 0;
+    state["dlzmod.controls"] = "";
+    leds({ "dlzmod.controls": "" });
+    await tick();
+    assert.strictEqual(Object.keys(sent[0]).length, 15, "back to stock: every LED its own channel again");
+    assert.strictEqual(sent[0]["s.colorhex"], "#a276b3");
+    assert.strictEqual(sent[0]["i.0.mute"], 1);
+    sent.length = 0;
+    leds({ btStatus: 1, bt: 0 }, fader);
+    await tick();
+    assert.deepStrictEqual(sent, [], "stock: nothing extra when faderlink connects");
+  } finally {
+    ctx.DLZMOD_ctlFader = null;
+  }
+});
+
+test("controls: full-size LEDs: the samples and master faders swapped show each other's channel", async () => {
+  const sent = [];
+  const fader = { send: (m) => sent.push(plain(m)) };
+  fader.send.dlzmodLocal = true;
+  fader.send.dlzmodSio = true;
+  const state = { "dlzmod.controls": "s=m,m=s", "m.mute": 1, "s.solo": 1, "s.colorhex": "#a276b3" };
+  const get = (k) => state[k];
+  ctx.DLZMOD_ctlFader = null;
+  try {
+    ctx.DLZMOD_ctlLeds({ btStatus: 1, bt: 0, "dlzmod.controls": "s=m,m=s" }, fader, get, 0);
+    await new Promise((r) => setImmediate(r));
+    assert.strictEqual(sent.length, 1);
+    assert.deepStrictEqual([sent[0]["s.mute"], sent[0]["s.solo"], sent[0]["s.colorhex"]], [1, 0, "#c2c2c2"],
+      "the samples fader shows LR: muted, no solo, no colour of its own");
+    assert.deepStrictEqual([sent[0]["m.mute"], sent[0]["m.solo"], sent[0]["m.colorhex"]], [0, 1, "#a276b3"],
+      "the master fader shows Samples (its LED keys; stock has no m.solo LED to worry about)");
+    assert.strictEqual(Object.keys(sent[0]).length, 27, "a change of the choice with the connect: all nine");
+  } finally {
+    ctx.DLZMOD_ctlFader = null;
+  }
+});
+
+test("controls: before the file's lines ran, or with a failing state, stock's paths go on", () => {
+  const had = ctx.DLZMOD_CTL_LED;
+  ctx.DLZMOD_CTL_LED = undefined;
+  try {
+    ctx.DLZMOD_ctlLeds({ "i.0.mute": 1 }, undefined, () => {
+      throw new Error("not called");
+    }, 1);
+  } finally {
+    ctx.DLZMOD_CTL_LED = had;
+  }
+  const errs = [];
+  const err = ctx.console.error;
+  ctx.console.error = (...a) => errs.push(a.join(" "));
+  ctx.DLZMOD_ctlFader = { send() {} };
+  try {
+    const boom = () => {
+      throw new Error("state");
+    };
+    ctx.DLZMOD_ctlLeds({ "i.0.mute": 1 }, undefined, boom, 1);
+    const sio = () => {};
+    sio.dlzmodLocal = true;
+    sio.dlzmodSio = true;
+    ctx.DLZMOD_ctlRemap({ "s.mix": 1 }, { send: sio }, boom, 1);
+  } finally {
+    ctx.console.error = err;
+    ctx.DLZMOD_ctlFader = null;
+  }
+  assert.strictEqual(errs.length, 2, "both said so: " + errs.join(" | "));
+});
+
+test("controls: 9/10, 11/12 and LR light in their colour by number; faderlink's own level copy kept current", async () => {
+  const sent = [];
+  const tick = () => new Promise((r) => setImmediate(r));
+  const fader = { send: (m) => sent.push(plain(m)) };
+  fader.send.dlzmodLocal = true;
+  fader.send.dlzmodSio = true;
+  const state = { "dlzmod.controls": "s=v.0,v.0=s", "v.0.color": 5, "s.mix": -20, "v.0.mix": -30 };
+  const get = (k) => state[k];
+  ctx.DLZMOD_ctlFader = null;
+  try {
+    ctx.DLZMOD_ctlLeds({ btStatus: 1, bt: 0 }, fader, get, 1);
+    await tick();
+    assert.strictEqual(sent[0]["s.colorhex"], "#ffc909", "knob 5 on 9/10: colour 5, as the screen draws it");
+    sent.length = 0;
+    state["v.0.color"] = 2;
+    ctx.DLZMOD_ctlLeds({ "v.0.color": 2 }, undefined, get, 1);
+    await tick();
+    assert.deepStrictEqual(sent, [{ "s.colorhex": "#ee3524" }], "a new colour for 9/10 follows");
+    sent.length = 0;
+    const msg = { "s.mix": -5 };
+    ctx.DLZMOD_ctlRemap(msg, { send: fader.send }, get, 1);
+    assert.deepStrictEqual(plain(msg), { "v.0.mix": -5 });
+    await tick();
+    assert.deepStrictEqual(sent, [{ "v.0.mix": -5, "s.mix": -20 }],
+      "faderlink's copy: 9/10 where the knob put it (a side knob steps from there), Samples its own");
+    // two knobs that swapped, both in one message: each level where its knob put it, none put back
+    sent.length = 0;
+    state["dlzmod.controls"] = "i.0=p.0,p.0=i.0";
+    state["i.0.mix"] = -40;
+    state["p.0.mix"] = -50;
+    const both = { "i.0.mix": -1, "p.0.mix": -2 };
+    ctx.DLZMOD_ctlRemap(both, { send: fader.send }, get, 1);
+    assert.deepStrictEqual(plain(both), { "p.0.mix": -1, "i.0.mix": -2 });
+    await tick();
+    assert.deepStrictEqual(sent, [{ "p.0.mix": -1, "i.0.mix": -2 }], "no old level over a moved one");
+  } finally {
+    ctx.DLZMOD_ctlFader = null;
+  }
+});
+
+test("controls: a channel knob on a phones mix; a side knob's own key is never taken for a channel knob's", async () => {
+  const sent = [];
+  const fader = { send: (m) => sent.push(plain(m)) };
+  fader.send.dlzmodLocal = true;
+  fader.send.dlzmodSio = true;
+  const state = { "dlzmod.controls": "s=a.0,a.0=s", "a.0.mute": 1, "a.0.color": 0 };
+  const get = (k) => state[k];
+  ctx.DLZMOD_ctlFader = null;
+  try {
+    const msg = { "s.mix": -6, "s.solo": 1 };
+    ctx.DLZMOD_ctlRemap(msg, { send: fader.send }, get, 1);
+    assert.deepStrictEqual(plain(msg), { "a.0.mix": -6, "a.0.solo": 1 }, "knob 5 on Phones 1: level and solo");
+    const side = { "a.1.mix": -3, "v.0.mix": -2 };
+    ctx.DLZMOD_ctlRemap(side, { send: fader.send }, get, 1);
+    assert.deepStrictEqual(plain(side), { "a.1.mix": -3, "v.0.mix": -2 }, "the side knobs' keys as they came");
+    ctx.DLZMOD_ctlLeds({ btStatus: 1, bt: 0 }, fader, get, 1);
+    await new Promise((r) => setImmediate(r));
+    assert.deepStrictEqual(sent, [{ "s.mute": 1, "s.solo": 0, "s.colorhex": "#ea1a5b" }],
+      "knob 5's lights show Phones 1, in Mackie's own colour for it (no number set); only the channel knobs");
+  } finally {
+    ctx.DLZMOD_ctlFader = null;
+  }
 });
 
 (async () => {

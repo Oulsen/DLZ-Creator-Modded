@@ -18,10 +18,46 @@ Owned by package `faderlink` 521 (binary, flash scripts, firmware, bitstreams). 
 
 ### Keys it uses
 
-- **Faders**: a fixed table `i.0.mix i.1.mix i.2.mix i.3.mix p.0.mix p.1.mix p.2.mix s.mix m.mix`
-  (shared with the full-size model). No `v.N.mix`, so the XS virtual strips have no hardware fader
-  [static]. Which entries the XS faders use, and whether faderlink also *reads* these keys back
-  (e.g. fader pickup), needs a capture (open question 3).
+- **Faders** (the XS's five channel knobs, the full-size's nine faders: [../hardware.md](../hardware.md),
+  "Hardware"): the GD32 sends `{"slider.N":position}`, position 0-1. The fader handler (`0x602d0`,
+  anchor `"slider."`) takes N (clamped 0-8) and a key from one of two fixed tables, picked by model
+  (the flag set at "DLZ Lite detected") [static]:
+  - full-size, 9 entries: `i.0.mix i.1.mix i.2.mix i.3.mix p.0.mix p.1.mix p.2.mix s.mix m.mix`
+  - XS, 5 entries: `i.0.mix i.1.mix p.0.mix p.1.mix s.mix`; slots 5-8 empty. Knobs 1-5 move Mic 1,
+    Mic 2, 3/4, 5/6 and Samples on the screen, in that order [device]
+  - So the XS has no hardware control for the master (`m.mix`) and neither model one for the virtual
+    strips (`v.N.mix`)
+  - The position goes through the key's entry in the knob table (below) to dB, at or below -96 dB
+    becomes -200, above 9.995 becomes 10, and goes to the hub as `{"key":%.10f}`. Every move sends
+    the absolute position, so a level set on the screen jumps to the control's position at its next
+    move (stock) [static]
+  - **Nothing is read back** [static]: faderlink stores the move in its own copy of the state with the
+    flag that skips the GD32 forward (`0x5a1b4`, second argument 1). A `*.mix` from the hub does pass
+    the forward filter below and goes to the GD32 as `{"i.0.mix":value}`, but neither GD32 firmware
+    (`firmware-dlzlite-154.bin`, `firmware-evolve-154.bin`) has a `.mix` pattern, only
+    `*.blink *.colorhex *.lock *.mute *.solo`: no pickup, no motor
+  - The hub gets fader moves over faderlink's socket.io connection (`ws://localhost:80`, libhv's
+    WebSocket client, which sends libhv's fixed Chrome 63 `User-Agent`). The only socket.io clients
+    from localhost are faderlink and dspserver; the screen (app.js) talks over TCP :89 [device: `ss
+    -tnp`]. So a `*.mix` on a local socket.io connection is a fader or channel knob, one over :89 the
+    screen (#23)
+- **Mute and solo buttons**: the GD32 sends `{"<channel>.mute":v}` / `{"<channel>.solo":v}` for the
+  button's own channel, and faderlink passes the line on to the hub unchanged [static: both GD32
+  firmwares build these strings]. `v` is the new state, the opposite of what the GD32 last got for
+  that key from the hub (its LED): a mute pressed twice sent 0 then 1 on a muted channel, a solo 1 then
+  0 [device, XS, read on a paired device's broadcast]
+  - XS: knobs 1-4 have mute and solo (`i.0 i.1 p.0 p.1`), knob 5 only solo (`s.solo`) [device]
+  - `la()` in `server.js` flips `i.N.mute` / `p.N.mute` whatever the value (a pad can hold a mute
+    too: its own count per channel, list `i.0 i.1 p.0 p.1 s v.0 v.1 m` on the XS, `i.0-3 p.0-2 s m`
+    on the full-size); `s.mute` and `m.solo` are refused ("not supported"); other solos and mutes are
+    stored as sent [static]
+  - The LEDs show the hub key of the button's own channel (`*.mute`, `*.solo`, `*.colorhex` pass the
+    forward filter below) [static]
+  - Telling faderlink from dspserver: both connect to `ws://localhost:80/socket.io/` with the same
+    `User-Agent` and both send `INIT`; only faderlink sends `{"btStatus":%d, "bt":%d}`, when the hub
+    gives it `settings.bt.enabled` (in the state right after it connects) [static: `0x395b0`;
+    dspserver has no such string]. The mod (#23) takes the local socket.io connection that sends it
+    as faderlink's and sends LED keys to that one only: to dspserver a mute is the channel's sound
 - **Knobs**: app.js's knob panel writes `K.N.key` (the hub key knob N drives), `K.N.color` (LED ring
   colour) and `K.N.blink` for N = 0-3, plus `K.4`. The panel only sends the key name; faderlink does
   the rest [static, read with REA/Ghidra, #201]:
