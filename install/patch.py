@@ -234,6 +234,19 @@ APP_PATCHES = [
         "masterStrips.push(e),allStrips.push(e),DLZMOD_ctlPhonesStrips(this),this.arrange()}",
     ),
     (
+        # a tap on a box of the knobs next to the screen opens the page of the level its knob has
+        # (stock: the phones by the box's place); DLZMOD_ctlSideTap
+        "controls: a side knob's box opens its level's page",
+        "if(IS_LOCKED())return;let t=e/this.hh;",
+        "if(IS_LOCKED())return;let t=e/this.hh;if(DLZMOD_ctlSideTap(0|t))return;",
+    ),
+    (
+        # on the Aux page the box that has that phones mix is marked (DLZMOD_ctlSideSlot)
+        "controls: the Aux page marks the phones' box",
+        "if(app.curPage===E_PAGE.AUX){let e=app.pageAux.aux;",
+        "if(app.curPage===E_PAGE.AUX){let e=DLZMOD_ctlSideSlot(app.pageAux.aux);",
+    ),
+    (
         # the order again whenever the Overview shows (its width known by then: the strips narrower
         # when more than fit)
         "controls: the strips' order when the Overview shows",

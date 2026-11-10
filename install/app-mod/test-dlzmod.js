@@ -3235,6 +3235,45 @@ test("controls: more strips than fit all get narrower, back to their width when 
   ctlWith(true, "", () => assert.doesNotThrow(() => ctx.DLZMOD_ctlArrange({})));
 });
 
+test("controls: a tap on a phones strip or a moved side knob's box opens its level's page (#259)", () => {
+  const log = [];
+  const strips = ["i.0", "s", "v.0"].map((p) => ({ prefix: p + "." }));
+  const app = { curPage: 0, pageAux: { aux: 0, setAux(n) {
+    this.aux = n;
+    log.push("aux " + n);
+  }, sync() {} }, setPage(p) {
+    this.curPage = p;
+    log.push("page " + p);
+  }, navBar: { btns: [0, { onPress: () => log.push("channel page") }] } };
+  const keep = {};
+  const set = { app, E_PAGE: { OVERVIEW: 0, AUX: 7 }, allStrips: strips, SELECT: (s) => log.push("select " + s.prefix),
+    IS_LOCKED: () => false, UI_IS_PRO: () => true };
+  for (const k of Object.keys(set)) {
+    keep[k] = ctx[k];
+    ctx[k] = set[k];
+  }
+  try {
+    ctlWith(true, "", () => assert.strictEqual(ctx.DLZMOD_ctlSideTap(0), false, "stock: Mackie's own tap"));
+    ctlWith(true, "s=a.0,a.0=s", () => {
+      assert.strictEqual(ctx.DLZMOD_ctlSideTap(0), true);
+      assert.deepStrictEqual(log.splice(0), ["select s.", "channel page"], "side knob 1 on Samples: its Channel page");
+      assert.strictEqual(ctx.DLZMOD_ctlSideTap(1), false, "side knob 2 still Phones 2: stock");
+      assert.strictEqual(ctx.DLZMOD_ctlSideSlot(1), 1);
+      assert.ok(ctx.DLZMOD_ctlSideSlot(0) < -1, "Phones 1 on knob 5: no box marked");
+      ctx.DLZMOD_ctlOpen("a.0");
+      assert.deepStrictEqual(log.splice(0), ["aux 0", "page 7"], "the phones strip: Phones 1's page");
+      ctx.DLZMOD_ctlOpen("a.0");
+      assert.deepStrictEqual(log.splice(0), ["page 0"], "again from there: back to the Overview");
+      ctx.IS_LOCKED = () => true;
+      ctx.DLZMOD_ctlOpen("a.0");
+      assert.deepStrictEqual(log, [], "locked: nothing");
+    });
+    ctlWith(true, "a.1=v.1,v.1=a.1", () => assert.strictEqual(ctx.DLZMOD_ctlSideSlot(1), 3, "Phones 2 on side knob 4"));
+  } finally {
+    for (const k of Object.keys(set)) ctx[k] = keep[k];
+  }
+});
+
 test("controls: the channel's text is its number and the owner's name, as on the Overview", () => {
   const had = ctx.Data.data["p.1.name"];
   ctx.Data.data["p.1.name"] = "DJ Cue / Bluetooth";

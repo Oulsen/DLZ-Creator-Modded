@@ -1881,6 +1881,7 @@ function DLZMOD_ctlPhonesStrips(mixer) {
       s.DLZMOD_phones = !0;
       s.isSelected = () => !1;
       s.select = () => {};
+      s.ondown = () => DLZMOD_ctlOpen(key.slice(0, -1));
       s.regKey(key + "mix");
       s.regKey(key + "color");
     }
@@ -1889,6 +1890,49 @@ function DLZMOD_ctlPhonesStrips(mixer) {
   } catch (e) {
     console.error("DLZMOD_ctlPhonesStrips", e);
   }
+}
+
+// A tap on a level's place (a phones strip, a box of the knobs next to the screen): its page, as
+// stock opens it. Phones: Mackie's Aux page for that mix (the box's own tap in stock; a second tap
+// from there goes back to the Overview); a channel: selected, and its Channel page (a strip's
+// double tap). Pro mode and unlocked only, as stock's box tap.
+function DLZMOD_ctlOpen(p) {
+  try {
+    if ((typeof UI_IS_PRO === "function" && !UI_IS_PRO()) || IS_LOCKED() || Data.get("lock")) return;
+    const aux = /^a\.(\d)$/.exec(p);
+    if (aux) {
+      const n = Number(aux[1]);
+      if (app.curPage === E_PAGE.AUX && app.pageAux.aux === n) return void app.setPage(E_PAGE.OVERVIEW);
+      app.pageAux.setAux(n);
+      app.pageAux.sync();
+      if (app.curPage !== E_PAGE.AUX) app.setPage(E_PAGE.AUX);
+      app.panel && app.panel.update && app.panel.update();
+      return;
+    }
+    const strip = allStrips.find((s) => s.prefix === p + ".");
+    if (strip) {
+      SELECT(strip);
+      app.navBar.btns[1].onPress();
+    }
+  } catch (e) {
+    console.error("DLZMOD_ctlOpen", e);
+  }
+}
+
+// The boxes of the knobs next to the screen (Mackie's RightPanel, patch.py): a tap on box n when its
+// knob has another level than stock opens that level's page (true); stock's tap otherwise (false).
+function DLZMOD_ctlSideTap(n) {
+  const k = DLZMOD_ctlKnobs(), ctls = DLZMOD_ctlControls(), map = DLZMOD_ctlMap();
+  if (!(n >= 0) || k + n >= ctls.length || map[k + n] === ctls[k + n][1]) return false;
+  DLZMOD_ctlOpen(map[k + n]);
+  return true;
+}
+
+// the box that has phones mix n now (the Aux page marks it); none has it (a channel knob or fader
+// has it): a place far above the panel, so the mark is drawn nowhere
+function DLZMOD_ctlSideSlot(n) {
+  const i = DLZMOD_ctlMap().slice(DLZMOD_ctlKnobs()).indexOf("a." + n);
+  return i >= 0 ? i : -99;
 }
 
 function DLZMOD_ctlPhonesPaint(s, t, a) {
