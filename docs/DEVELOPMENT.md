@@ -430,19 +430,19 @@ issue's technical notes point to the note section instead of copying it.
 - **Review**: every PR into `develop` gets a review before it is merged, also a small one that only
   changes docs. A contributor's PR: the maintainer reviews it (`.github/CODEOWNERS` requests that
   once the repo is public; a ruleset makes it required). The maintainer's own PRs: right after the
-  PR opens, the maintainer runs one review pass by an AI reviewer on the opened PR (`/cr`, the
-  Claude Code review command, its reviewer on Sonnet), so the whole diff that will be merged is
-  read (bugs, failure paths, what the tests cannot see). A docs-only PR gets no reviewer agent:
+  PR opens, the maintainer runs one review pass by an AI reviewer on the opened PR (`/code-review`,
+  Claude Code's built-in review skill), so the whole diff that will be merged is read (bugs,
+  failure paths, what the tests cannot see). A docs-only PR gets no reviewer agent:
   Claude reads it itself for consistency with the other docs and correctness. Findings are fixed as
   new commits on the PR, or named in the PR description as accepted, before the merge; Claude
   checks the fixes itself, without a second reviewer pass. Reviews are kept lean on purpose (a Pro
   plan's usage).
 - **On the mixer before the merge**: only for a PR that changes the mod or anything else that runs
   on the mixer (the app or server mod, `patch.py`, units, the updater, `install/**`); docs and DEV
-  PRs go straight from the review to the merge. Such a PR goes `/pr` → `/cr` → fixes → device review
-  (`.claude/skills/device-review`, at the change's tier, on the PR's final diff) → a drop-in of the
-  PR branch on the dev card (`dev/push.sh`, "Dev card" above), where the maintainer looks at it →
-  merge. So `develop` only holds changes that were reviewed for the device and seen on the mixer. A
+  PRs go straight from the review to the merge. Such a PR goes `/pr` → `/code-review` → fixes →
+  device review (`.claude/skills/device-review`, at the change's tier, on the PR's final diff) → a
+  drop-in of the PR branch on the dev card (`dev/push.sh`, "Dev card" above), where the maintainer
+  looks at it → merge. So `develop` only holds changes that were reviewed for the device and seen on the mixer. A
   fix from the device review or the drop-in is a new commit on the PR; the device review reads it
   again at its tier, and the drop-in shows it. A change a drop-in cannot carry (a full install, see
   "Dev card") gets its device review before the merge and is tried with the next dev install image.
@@ -450,8 +450,8 @@ issue's technical notes point to the note section instead of copying it.
   card) still gets a device review for what it adds beyond the merged PRs: build scripts, the card,
   the installer.
 - **Release PR**: `develop` → `main` only carries reviewed changes, and still
-  gets one final `/cr` pass on the whole release diff before the fast-forward (how the PRs fit
-  together); besides that its check is the changelog section, the list of released issues and that
+  gets one final `/code-review` pass on the whole release diff before the fast-forward (how the PRs
+  fit together); besides that its check is the changelog section, the list of released issues and that
   the release files are the tested ones; it is fast-forwarded, not merged with the button
   ("Releases").
 - **Releases**: a PR `develop` → `main`, **fast-forwarded**, not merged with GitHub's button: its
@@ -464,7 +464,7 @@ issue's technical notes point to the note section instead of copying it.
      card: the `release-build` skill). The PC builds unsigned, in the same build environment as
      GitHub: the image is the one GitHub builds from the tag (step 5 compares them), so the mixer
      test holds for the published files.
-  2. Open the release PR `develop` → `main` and review it: a final `/cr` (or `/code-review`) on
+  2. Open the release PR `develop` → `main` and review it: a final `/code-review` on
      the PR, findings fixed (a fix PR into `develop`, then back to step 1) or named in the PR as
      accepted, before step 3.
   3. Right before it, `bash .claude/skills/release-build/release.sh ready`: `READY` with the push

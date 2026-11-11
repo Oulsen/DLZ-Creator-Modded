@@ -28,8 +28,8 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   its own issue in the next milestone.
 - Nothing new or changed runs on the mixer or lands on a card (mod changes, `install/**`, U-Boot
   scripts, `uboot.env`, initramfs, installer, spikes, rebuilt images) before the `device-review`
-  skill has run: on a PR that changes what runs on the mixer, after `/cr` and its fixes and before
-  the drop-in and the merge (below); on an image, spike or card, for what no merged PR's review
+  skill has run: on a PR that changes what runs on the mixer, after `/code-review` and its fixes and
+  before the drop-in and the merge (below); on an image, spike or card, for what no merged PR's review
   covered (build scripts, the card, the installer, a spike): as much review as the change's risk tier
   asks for (no agent for tests-covered changes and other mod logic, which Claude reads against the
   skill's brick checklist; 1 blind brick reviewer for a sensitive path; 2 reviewers, all at once,
@@ -71,8 +71,8 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   into `develop` (`/pr`, squash-merged by the user); a release is a PR `develop` → `main`,
   fast-forwarded by the user with `git push origin <commit>:main` (never the merge button), so `main`
   and `develop` stay one commit (`docs/DEVELOPMENT.md`, "Branches" and "Releases"). Every PR: `/pr`
-  → `/cr` → fixes → the user merges. Right after `/pr`, start `/cr` on the opened PR (the
-  `code-reviewer` agent with `model: sonnet`), so the whole diff is read; a docs-only PR gets no
+  → `/code-review` → fixes → the user merges. Right after `/pr`, run `/code-review` on the opened
+  PR (Claude Code's built-in review skill), so the whole diff is read; a docs-only PR gets no
   agent, Claude reads it for consistency and correctness instead; findings fixed as new commits on
   the PR or named in the PR description, before the merge; Claude checks the fixes itself, no
   second agent pass. Only a PR that changes the mod or anything else that runs on the mixer adds two
@@ -80,7 +80,7 @@ tag (**[device]** / **[static]** / **[guess]**) instead of leaving it in the con
   the dev card (`dev/push.sh`) that the user looks at; a fix from either is a new commit on the PR,
   which the device review reads again at its tier. Docs and DEV PRs skip both (`docs/DEVELOPMENT.md`,
   "Review" and "On the mixer before the merge"). The release PR `develop` → `main` too: once the milestone's
-  issues are done, one final `/cr` on it before the fast-forward ("Releases", step 2).
+  issues are done, one final `/code-review` on it before the fast-forward ("Releases", step 2).
 - A patch to the released version (a correction that should not wait for the next release): a
   `patch/...` branch from `main`, a PR into `main` (merge commit, the only method there; same review
   as into `develop`), then right after `main` merged into a `sync/...` branch from `develop`
