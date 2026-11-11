@@ -4,6 +4,7 @@
 
 - (DLZ FEATURE) Choose which fader controls which channel
 - (DLZ FEATURE) The Overview's strips follow the knobs or faders when they are swapped
+- (MOD FEATURE) Prepare the mixers so an update can be undone
 
 ## v0.5.0
 

@@ -17,3 +17,5 @@ VERSION text eol=lf
 install/keys/** text eol=lf
 # Windows batch files: cmd.exe needs CRLF (labels and goto misbehave with LF only)
 *.cmd text eol=crlf
+# except U-Boot scripts (the card's start-up script, #221: its text is also in dlzmod-update, LF)
+install/sd-system/*.cmd text eol=lf

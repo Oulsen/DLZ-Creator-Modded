@@ -78,6 +78,12 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
 35. Why does `glesgui` fail its first start with "Failed to init OpenGL" (about 11 s in) on 2 of the 3
     boots that reached the GUI on a full-size's mod card, then start at systemd's restart [device: owner's logs]?
     Not seen in our XS logs. Full-size timing, or does that mixer do it from the eMMC too?
+36. Is the full-size's stock `/boot/boot.scr` byte for byte the XS's (sha256 `19ddc05a…`, build
+    1731)? Same firmware build, so probably [guess]. The updater replaces only a script it knows
+    (#221, [updates.md](updates.md) "The card's start-up script by fixed text"): if it differs, a
+    full-size card keeps its own and says so once in an update report, and #56's script would not
+    reach it. Answer before #56 ships: `sha256sum /boot/boot.scr` on a full-size (owner, over SSH or
+    the boot report).
 
 ## Installer boot
 

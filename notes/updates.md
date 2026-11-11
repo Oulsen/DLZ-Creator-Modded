@@ -397,20 +397,52 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   copy without that block is refused [static; tests/update-checks.sh, also with the card's mawk].
 - **`boot.scr`**: the card keeps Armbian's stock `boot.scr`, and an update cannot place, change or
   remove anything under `boot/` (nothing there is on the allowlist: `boot.scr`, `armbianEnv.txt`,
-  the kernel, initrd, DTBs and overlays it loads): a new one comes only with a full install, where
-  the installer is reviewed as a boot route. U-Boot runs `boot.scr` before any guard, and a text
+  the kernel, initrd, DTBs and overlays it loads): a new `boot.scr` comes only as the updater's own
+  fixed text (next bullet, #221), or with a full install, where the installer is reviewed as a boot
+  route. U-Boot runs `boot.scr` before any guard, and a text
   check of a script cannot find every way it could write the eMMC or the PMIC (U-Boot's `mmc`,
   `i2c`, `mw`, `fatwrite`, ...), so the updater no longer places it at all. Like the other checks
   this stops a mistake, not a hostile signer: a signed root script could still rewrite `/boot` after
   the start (the signature is the trust boundary). It holds from the second update on: the update
   that brings this updater is still checked by the card's older one (whose list allowed
-  `boot.scr`; no package changes it). Later boot logic (a boot flag, a boot counter) needs a full
-  install, or first an update that brings an updater whose own list allows it. The snapshot still
+  `boot.scr`; no package changes it). Later boot logic (a boot flag, a boot counter) comes as the
+  updater's fixed text (next bullet). The snapshot still
   covers `boot/boot.scr`, so a try that an older updater cut off is put back whole.
+- **The card's start-up script by fixed text** (#221, decided 2026-11-11 instead of widening the
+  allowlist, so #56's script comes in one release): the updater carries the one `boot.cmd` text the
+  card's `boot.scr` may become (`BOOT_CMD`, the same as `sd-system/boot.cmd`), the sha256 of its
+  image (`BOOT_SUM`) and the scripts it may replace (`BOOT_KNOWN`: stock
+  `19ddc05a…` [static: XS dump, build 1731; the full-size's: open-questions.md], then every text an
+  earlier updater placed). At a start without an update file (as the #140/#141 drop-ins: not while a
+  cut-off try waits, not with the eMMC writable) it makes the image itself (`boot_image`: python3,
+  `mkimage -A arm -O linux -T script -C none` with time 0; the dump's `boot.cmd` made this way is its
+  `boot.scr` byte for byte, apart from the time stamp and so the header CRC [static: dump; rehearsal
+  case 77]), writes it next to `boot.scr`, checks its sum and renames it over (ext4: the old script
+  or the new one, never half). The script it replaces stays as a hard link, the stock one for good
+  as `boot.scr.dlzmod-stock` (for a card put back by hand), the last one as `boot.scr.dlzmod-prev`:
+  U-Boot reads ext4 without replaying the journal [guess: U-Boot's ext4 reader], so a power cut
+  before the final `sync` has written the new directory block in place leaves U-Boot the old entry,
+  which with its inode kept still reads the old script whole. A cut between the directory block and
+  the inode block gives a script whose CRC U-Boot refuses ("SCRIPT FAILED: continuing"):
+  `bootcmd_mmc_auto` then runs the eMMC's stock `boot.scr`, which boots the booted device
+  (`devnum ${mmc_bootdev}`), so the card's own kernel starts and replays the journal [static: the
+  dump's U-Boot environment and `boot.cmd`; device review of #266]. The text is checked for U-Boot
+  commands that write the eMMC or hardware (`bootscr-check.sh`: `mmc write/erase/...`, `mmc dev 1`,
+  `gpt`, `ums`, `fuse`, `mw`, `i2c`, a write to mmc 1): a mistake, not a hostile signer. Open for
+  #56: a stock script put back by hand is replaced again at the next start (it is in `BOOT_KNOWN`),
+  so #56 needs its own way back (a stop marker or its boot counter). A script it does not know is left as it is and reported once (`boot-left` in the
+  state folder). A normal start costs one sha256 of the 4 KiB file. It applies from the start after.
+  No package can still place `boot/`: the text is the updater's own, so a new script comes with a new
+  updater (a normal drop-in: its copy is placed last, the script at the start after). A fresh card
+  gets it the same way, at its first start. `mkpackage.sh` and `update-checks.sh` check the three
+  against `boot.cmd` (`install/release/bootscr-check.sh`). Until #56, `BOOT_CMD` is empty: nothing is
+  placed [static, PC rehearsal: `tests/update.sh` case 77, both models]. A drop-in never brings an
+  older updater (an older version is refused), so an updater never meets a newer one's script; #56's
+  Revert, which rebuilds with the previous package, must put back the script that package's updater
+  knows itself (its `BOOT_KNOWN` lacks the newer one, which it would leave).
 - **No full install before v1.0** (decided at v0.3.0, the last full install so far): the boot logic
-  of #56 and #19 takes the second way, two drop-ins (an updater that allows `boot/boot.scr`, then the
-  `boot.scr`), each at the highest device-review tier; a bad card `boot.scr` costs a reflash of the
-  card, never the mixer, which starts stock without it. DLZDATA stays FAT32: exFAT (#22) would change
+  of #56 and #19 comes as above, at the highest device-review tier; a bad card `boot.scr` costs a
+  reflash of the card, never the mixer, which starts stock without it. DLZDATA stays FAT32: exFAT (#22) would change
   the card layout. The rest of the roadmap fits drop-ins (allowlist gaps in two steps; exFAT,
   watchdog, CPU governors and the USB mass-storage gadget are modules or built into the stock
   kernel, no `/boot` change) [static, kernel config of the dump; #56 "Technical notes"].
@@ -629,8 +661,8 @@ mixer]:
 ## Not built yet
 
 - **Full update and undo** (#56), for what the drop-in cannot do (boot visuals, card layout):
-  "Install" on the Mod page sets a one-shot flag on DLZDATA and restarts; the card's `boot.scr` (one
-  that comes with a full install: an update cannot change it) sees it and boots the installer path (Mackie's kernel from the eMMC + the package's initramfs) in update
+  "Install" on the Mod page sets a one-shot flag on DLZDATA and restarts; the card's `boot.scr` (the
+  updater's fixed text, #221: "The sandbox and the trust boundary") sees it and boots the installer path (Mackie's kernel from the eMMC + the package's initramfs) in update
   mode: rebuild the system partition from the eMMC, carry over the state (`srv_data.json`, presets,
   NDI config, Wi-Fi, SSH keys, mod settings), leave DLZDATA untouched. Undo: the previous package
   stays in `dlzmod-update/previous/`; "Revert" rebuilds with it; `boot.scr` counts start attempts on
