@@ -11,7 +11,9 @@
 #          change to or from summer time with the kernel's time zone
 #   zone   gives the kernel the time zone's offset now (#9)
 #   save   saves the time once
-#   newest <dir> <now>  the time floor would set, or nothing (for the tests)
+#   newest <dir> <now> [<offset>]  the time floor would set, or nothing (for the tests; <offset> in
+#          seconds east of UTC, the kernel's time zone; DLZMOD_CLOCK_DEV: a FAT image to read instead
+#          of the device mounted at <dir>)
 # The saved file keeps fake-hwclock's format: its load at the next start (sysinit, forward only)
 # reads it. Written next to it and renamed over it, so a power cut leaves the old or the new time,
 # never an empty file. (fake-hwclock's own save at a clean shutdown still writes it in place, after
@@ -27,8 +29,10 @@ INTERVAL=${DLZMOD_CLOCK_INTERVAL:-60}
 AHEAD=120
 # the floor's whole search; a card that slow gives no answer, not a partial one
 FIND_LIMIT=10
-# the offset the kernel was last given (zone), +HHMM
+# the offset the kernel was last given (zone), +HHMM, and in seconds east of UTC (0: systemd leaves
+# the kernel's at UTC)
 ZONE=""
+KOFF=0
 
 log() { echo "dlzmod-clock: $*"; }
 
@@ -38,13 +42,159 @@ save() {
     && sync "$(dirname "$FILE")" || { rm -f "$tmp"; log "cannot save the time to $FILE"; return 1; }
 }
 
-# newest <dir> <now>: just past the newest file in <dir> that is ahead of <now> by at most AHEAD
-# seconds, nothing when there is none or the search took over FIND_LIMIT seconds. FAT keeps times
-# in steps of 2 s, rounded down: + 2 is past the real time.
+# fattimes <device> <offset>: the time of every file on a FAT16/32 file system, one per line, as the
+# kernel gives it (FAT keeps local times; the kernel takes them as <offset> seconds east of UTC). Read
+# from the device's folders in one pass, read-only (#234): a lookup of each file's time (find, stat)
+# reads its folder from the start on FAT, so the time grew with the square of the files in a folder
+# (notes/mod.md, "Clock"). Takes nothing but each entry's flags, start cluster and write time: no
+# names. Exit 2 when the device is not a FAT16/32 it can follow to the end (FAT12, exFAT, a broken
+# chain or boot sector): the caller then looks up each file instead, as the kernel sees them. 124:
+# over FIND_LIMIT.
+fattimes() {
+  timeout "$FIND_LIMIT" python3 -I -S - "$1" "$2" << 'PY'
+import os, struct, sys
+
+def fail(why):
+    sys.stderr.write("dlzmod-clock: " + why + "\n")
+    sys.exit(2)
+
+def days(y, m, d):  # days since 1970-01-01 (proleptic Gregorian)
+    y -= m <= 2
+    era = y // 400
+    yoe = y - era * 400
+    doy = (153 * (m + (-3 if m > 2 else 9)) + 2) // 5 + d - 1
+    return era * 146097 + yoe * 365 + yoe // 4 - yoe // 100 + doy - 719468
+
+def main():
+    dev, off = sys.argv[1], int(sys.argv[2])
+    fd = os.open(dev, os.O_RDONLY)
+
+    def rd(pos, n):
+        b = os.pread(fd, n, pos)
+        if len(b) != n:
+            fail("short read at %d" % pos)
+        return b
+
+    bs = rd(0, 512)
+    bps, spc, res, nfats, rootent, tot16, _, fsz16 = struct.unpack_from("<HBHBHHBH", bs, 11)
+    tot32, fsz32 = struct.unpack_from("<I", bs, 32)[0], struct.unpack_from("<I", bs, 36)[0]
+    if bs[510:512] != b"\x55\xaa" or bps not in (512, 1024, 2048, 4096) or spc not in (1, 2, 4, 8, 16, 32, 64, 128) \
+            or res < 1 or nfats < 1:
+        fail("no FAT boot sector")
+    fsz, tot = fsz16 or fsz32, tot16 or tot32
+    rootsec = (rootent * 32 + bps - 1) // bps
+    first = res + nfats * fsz + rootsec
+    if not fsz or tot <= first:
+        fail("no FAT boot sector")
+    nclus = (tot - first) // spc
+    if nclus < 4085:
+        fail("FAT12")
+    fat32 = nclus >= 65525
+    if fat32 != (fsz16 == 0) or fat32 != (rootent == 0):
+        fail("neither FAT16 nor FAT32")
+    last = nclus + 1  # the highest cluster number
+    eoc = 0x0FFFFFF8 if fat32 else 0xFFF8
+    esz = 4 if fat32 else 2
+    fat0 = res * bps
+    if (last + 1) * esz > fsz * bps:
+        fail("FAT too small")
+    blocks = {}
+
+    def nxt(c):
+        p = fat0 + c * esz
+        k = p // 65536
+        b = blocks.get(k)
+        if b is None:
+            b = blocks[k] = os.pread(fd, 65536, k * 65536)
+        p -= k * 65536
+        if fat32:
+            return struct.unpack_from("<I", b, p)[0] & 0x0FFFFFFF
+        return struct.unpack_from("<H", b, p)[0]
+
+    def folder(c):  # a folder's entries: its cluster chain, consecutive clusters read at once
+        if c < 2 or c > last:
+            fail("folder at cluster %d" % c)
+        runs, n = [[c, 1]], 1
+        while True:
+            v = nxt(c)
+            if v >= eoc:
+                break
+            if v < 2 or v > last:
+                fail("broken chain after cluster %d" % c)
+            n += 1
+            if n > nclus:
+                fail("chain loop after cluster %d" % c)
+            if v == c + 1:
+                runs[-1][1] += 1
+            else:
+                runs.append([v, 1])
+            c = v
+        csz = spc * bps
+        return b"".join(rd((first + (s - 2) * spc) * bps, k * csz) for s, k in runs)
+
+    if fat32:
+        todo = [folder(struct.unpack_from("<I", bs, 44)[0])]
+    else:
+        todo = [rd((res + nfats * fsz) * bps, rootsec * bps)]
+    seen, out = set(), []
+    while todo:
+        data = todo.pop()
+        for i in range(0, len(data) - 31, 32):
+            f, a = data[i], data[i + 11]
+            if f == 0:
+                break  # the end of the folder
+            if f == 0xE5 or a & 0x3F == 0x0F or a & 0x08:
+                continue  # deleted, a part of a long name, the volume label
+            if a & 0x10:
+                if f == 0x2E:
+                    continue  # . and ..
+                c = struct.unpack_from("<H", data, i + 26)[0]
+                if fat32:
+                    c |= struct.unpack_from("<H", data, i + 20)[0] << 16
+                if c not in seen:
+                    seen.add(c)
+                    todo.append(folder(c))
+                continue
+            t, d = struct.unpack_from("<HH", data, i + 22)
+            m = (d >> 5) & 15
+            if m > 12:
+                continue
+            # as the kernel's fat_time_fat2unix: month and day 0 count as 1, the rest unchecked
+            s = days(1980 + (d >> 9), max(m, 1), max(d & 31, 1)) * 86400 \
+                + (t >> 11) * 3600 + ((t >> 5) & 63) * 60 + (t & 31) * 2
+            out.append(s - off)
+    sys.stdout.write("".join("%d\n" % s for s in out))
+
+try:
+    main()
+except SystemExit:
+    raise
+except Exception as e:
+    fail("%s: %s" % (type(e).__name__, e))
+PY
+}
+
+# the device mounted at <dir> when it is FAT (vfat), else nothing
+mounted() { awk -v d="$1" '$2 == d && $3 == "vfat" { dev = $1 } END { print dev }' /proc/self/mounts; }
+
+# newest <dir> <now> [<offset>]: just past the newest file in <dir> that is ahead of <now> by at most
+# AHEAD seconds, nothing when there is none or the search took over FIND_LIMIT seconds. FAT keeps
+# times in steps of 2 s, rounded down: + 2 is past the real time. Read raw (fattimes); a file system
+# it cannot read is searched with find, which looks up each file (slow in big folders).
 newest() {
-  local times
-  times=$(timeout "$FIND_LIMIT" find "$1" -xdev -type f -printf '%T@\n' 2>/dev/null)
-  [ $? -ne 124 ] || return 0
+  local times rc dev
+  dev=${DLZMOD_CLOCK_DEV:-$(mounted "$1")}
+  rc=2
+  if [ -n "$dev" ]; then
+    times=$(fattimes "$dev" "${3:-$KOFF}")
+    rc=$?
+  fi
+  [ $rc -ne 124 ] || return 0
+  if [ $rc -ne 0 ]; then
+    [ -z "$dev" ] || echo "dlzmod-clock: $dev not read raw, looking up each file" >&2
+    times=$(timeout "$FIND_LIMIT" find "$1" -xdev -type f -printf '%T@\n' 2>/dev/null)
+    [ $? -ne 124 ] || return 0
+  fi
   printf '%s\n' "$times" | awk -v now="$2" -v ahead="$AHEAD" '
     $1 != "" { t = int($1) } t > now && t <= now + ahead && t > best { best = t }
     END { if (best) print best + 2 }'
@@ -62,7 +212,15 @@ zone() {
   z=$(date +%z)
   ZONE=$z
   hwclock --systz --utc 2> /dev/null || { log "cannot give the kernel the time zone"; return 1; }
+  KOFF=$(offset_s "$z")
   log "kernel time zone: $(date +%Z) (UTC$z)"
+}
+
+# offset_s <+HHMM>: seconds east of UTC
+offset_s() {
+  local hh mm
+  hh=${1#?}; mm=${hh#??}; hh=${hh%??}
+  case $1 in -*) echo $(( -(${hh#0} * 3600 + ${mm#0} * 60) )) ;; *) echo $(( ${hh#0} * 3600 + ${mm#0} * 60 )) ;; esac
 }
 
 # milliseconds since power-on: the time the floor took, not counting the jump it makes
@@ -99,6 +257,6 @@ case ${1:-} in
   save) save ;;
   run) run ;;
   zone) zone ;;
-  newest) newest "$2" "$3" ;;
-  *) echo "usage: dlzmod-clock floor <dir>|save|run|zone|newest <dir> <now>" >&2; exit 2 ;;
+  newest) newest "$2" "$3" "${4:-}" ;;
+  *) echo "usage: dlzmod-clock floor <dir>|save|run|zone|newest <dir> <now> [<offset>]" >&2; exit 2 ;;
 esac
