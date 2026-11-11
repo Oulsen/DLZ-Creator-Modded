@@ -111,6 +111,8 @@ def main():
         k = p // 65536
         b = blocks.get(k)
         if b is None:
+            if len(blocks) >= 64:  # at most 4 MiB of the FAT kept
+                blocks.clear()
             b = blocks[k] = os.pread(fd, 65536, k * 65536)
         p -= k * 65536
         if fat32:
@@ -146,15 +148,18 @@ def main():
             c = v
         return b"".join(rd((first + (s - 2) * spc) * bps, k * csz) for s, k in runs)
 
+    # the folders still to read, by start cluster (0: FAT16's root), each read when its turn comes,
+    # so one folder at a time is in memory
     seen, out = set(), []
     if fat32:
         root = struct.unpack_from("<I", bs, 44)[0]
         seen.add(root)
-        todo = [folder(root)]
+        todo = [root]
     else:
-        todo = [rd((res + nfats * fsz) * bps, rootsec * bps)]
+        todo = [0]
     while todo:
-        data = todo.pop()
+        c = todo.pop()
+        data = folder(c) if c else rd((res + nfats * fsz) * bps, rootsec * bps)
         for i in range(0, len(data) - 31, 32):
             f, a = data[i], data[i + 11]
             if f == 0:
@@ -167,9 +172,11 @@ def main():
                 c = struct.unpack_from("<H", data, i + 26)[0]
                 if fat32:
                     c |= struct.unpack_from("<H", data, i + 20)[0] << 16
-                if c not in seen:
+                if not c:
+                    warn("folder at cluster 0 left out")
+                elif c not in seen:
                     seen.add(c)
-                    todo.append(folder(c))
+                    todo.append(c)
                 continue
             s = fattime(*struct.unpack_from("<HH", data, i + 22)) - off
             if now < s <= now + ahead:
