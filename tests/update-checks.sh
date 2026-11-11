@@ -134,6 +134,39 @@ for u in dlzmod-update dlzmod-grow-data; do
     && ok "EARLY_CONF matches sd-system/$u.service.d/dlzmod.conf" || bad "EARLY_CONF differs from sd-system/$u.service.d/dlzmod.conf"
   grep -qF "$u.service.d:dlzmod.conf" "$NEW" && ok "allowlist takes $u.service.d/dlzmod.conf" || bad "allowlist lacks $u.service.d/dlzmod.conf"
 done
+# its copy of the card's start-up script (#221): the text that ships (none yet), its image's sum, and
+# the check itself catches each kind of mismatch (on copies)
+out=$(bash install/release/bootscr-check.sh "$NEW" install/sd-system/boot.cmd) && ok "start-up script: ${out#ok }" || bad "start-up script: $out"
+bc=$TMP/boot.cmd; bu=$TMP/dlzmod-update-boot
+printf 'setenv dlzmod 1\necho "dlzmod test"\n' > "$bc"
+withboot() {   # withboot <text> <sum>: the updater with that BOOT_CMD and BOOT_SUM
+  T=$1 S=$2 awk '/^BOOT_SUM="/ { print "BOOT_SUM=\"" ENVIRON["S"] "\""; next }
+    { print } /^BOOT_CMD=\$\(cat << .BOOT_EOF.$/ && ENVIRON["T"] != "" { print ENVIRON["T"] }' "$NEW" > "$bu"
+}
+withboot "$(cat "$bc")" ""; sum=$(bash install/release/bootscr-check.sh "$bu" "$bc" | sed -n 's/^BOOT_SUM is not the sha256 of the image of BOOT_CMD (\(.*\))$/\1/p')
+[ ${#sum} = 64 ] || bad "start-up script: no image sum from a test text"
+withboot "$(cat "$bc")" "$sum"
+out=$(bash install/release/bootscr-check.sh "$bu" "$bc") && ok "start-up script: a test text with its sum passes" || bad "start-up script: a test text with its sum refused: $out"
+# the image is U-Boot's: magic, both CRCs, script type, the text after its length table
+python3 -I - "$bu" "$bc" << 'EOF' && ok "start-up script: the image's header and CRCs" || bad "start-up script: the image is not a valid script image"
+import struct, subprocess, sys, tempfile, zlib
+with tempfile.NamedTemporaryFile() as f:
+    subprocess.run(["bash", "-c", 'eval "$(sed -n -e "/^BOOT_CMD=\\$(cat << .BOOT_EOF.$/,/^)$/p" -e "/^boot_image() {/,/^}$/p" "$1")"; boot_image "$2"', "-", sys.argv[1], f.name], check=True)
+    img = open(f.name, "rb").read()
+h, d = bytearray(img[:64]), img[64:]
+magic, hcrc, time, size, load, ep, dcrc, os_, arch, typ, comp = struct.unpack(">7I4B", h[:32])
+h[4:8] = b"\0\0\0\0"
+text = open(sys.argv[2], "rb").read()
+assert magic == 0x27051956 and hcrc == zlib.crc32(h) and size == len(d) and dcrc == zlib.crc32(d)
+assert (os_, arch, typ, comp, time, load, ep) == (5, 2, 6, 0, 0, 0, 0)
+assert d[:8] == struct.pack(">II", len(text), 0) and d[8:] == text
+EOF
+withboot "$(cat "$bc")" "$(printf '%064d' 0)"
+bash install/release/bootscr-check.sh "$bu" "$bc" > /dev/null && bad "start-up script: a wrong BOOT_SUM passes" || ok "start-up script: a wrong BOOT_SUM refused"
+withboot "$(cat "$bc")" "$sum"
+bash install/release/bootscr-check.sh "$bu" "$TMP/none.cmd" > /dev/null && bad "start-up script: a text with nothing to ship passes" || ok "start-up script: a text with nothing to ship refused"
+printf 'setenv dlzmod 2\n' > "$TMP/other.cmd"
+bash install/release/bootscr-check.sh "$bu" "$TMP/other.cmd" > /dev/null && bad "start-up script: a text unlike boot.cmd passes" || ok "start-up script: a text unlike boot.cmd refused"
 # v0.3.0's full install widens the allowlist for later drop-ins: #96's Weston drop-in, v0.5.0's audio
 # graph (and the graph in the snapshot, so a failed patch of it is put back)
 al=$(sed -n '/^allowed() {/,/^}/p' "$NEW")

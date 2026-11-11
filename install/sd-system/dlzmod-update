@@ -417,6 +417,54 @@ Conflicts=shutdown.target
 Before=shutdown.target
 EARLY_EOF
 )
+# #221: the card's start-up script (boot/boot.scr). U-Boot runs it before any guard, so no package may
+# place it (not on the allowlist); this copy carries the one text it may become instead (BOOT_CMD, the
+# same as sd-system/boot.cmd: mkpackage.sh checks), made into U-Boot's script image here (BOOT_SUM: the
+# image's sha256, checked against BOOT_CMD by mkpackage.sh and update-checks.sh), and writes it at a
+# start without an update file, as the drop-ins above, but only over a script it knows (BOOT_KNOWN:
+# stock, or a text an earlier updater placed; anything else is left as it is). A new text keeps the
+# old BOOT_SUM in BOOT_KNOWN. Empty BOOT_CMD: nothing to place (#56 brings the first script). A bad
+# script costs a card that does not start (the mixer then starts stock, from the eMMC), never the eMMC
+BOOT_KNOWN="19ddc05aab827c44cb055cdde67142c5e68594d5167cf341ce589161ab7867e8 stock (Mackie's build 1731)"
+BOOT_SUM=""
+BOOT_CMD=$(cat << 'BOOT_EOF'
+BOOT_EOF
+)
+boot_image() {   # boot_image <file>: BOOT_CMD as mkimage -A arm -O linux -T script -C none makes it, time 0
+  printf '%s\n' "$BOOT_CMD" | python3 -I -B -c '
+import struct, sys, zlib
+s = sys.stdin.buffer.read()
+d = struct.pack(">II", len(s), 0) + s
+h = struct.pack(">7I4B32s", 0x27051956, 0, 0, len(d), 0, 0, zlib.crc32(d), 5, 2, 6, 0, b"")
+sys.stdout.buffer.write(h[:4] + struct.pack(">I", zlib.crc32(h)) + h[8:] + d)' > "$1"
+}
+place_bootscr() {
+  local t=$ROOT/boot/boot.scr cur
+  [ -n "$BOOT_CMD" ] || return 0
+  # (a link or anything but a file is not the card's own script: left alone, below)
+  [ -f "$t" ] && [ ! -L "$t" ] && cur=$(sha256sum < "$t" | cut -d' ' -f1) || cur=none
+  [ "$cur" = "$BOOT_SUM" ] && return 0   # (every normal start: one sha256 of a 4 KiB file)
+  if ! grep -q "^$cur " <<< "$BOOT_KNOWN"; then
+    [ -e "$STATE/boot-left" ] && [ "$(cat "$STATE/boot-left")" = "$cur" ] && return 0   # said so already
+    echo "$cur" > "$STATE/boot-left"
+    log "the card's start-up script is not one this updater knows (sha256 $cur): left as it is, the new one (#56) not placed"
+    return 0
+  fi
+  rm -f "$STATE/boot-left"
+  # the stock script stays next to it, for a card put back by hand (only the first time: never overwritten)
+  if [ "${BOOT_KNOWN%% *}" = "$cur" ] && [ ! -e "$t.dlzmod-stock" ]; then
+    cp -p "$t" "$t.dlzmod-stock.new" && sync "$t.dlzmod-stock.new" && mv -f "$t.dlzmod-stock.new" "$t.dlzmod-stock" \
+      || { rm -f "$t.dlzmod-stock.new"; echo "dlzmod-update: the stock start-up script could not be kept: the new one not placed"; return 0; }
+  fi
+  # written next to it, checked, then renamed over it (ext4: the old or the new script, never half of one)
+  if boot_image "$t.dlzmod-new" && chmod 644 "$t.dlzmod-new" && sync "$t.dlzmod-new" \
+     && [ "$(sha256sum < "$t.dlzmod-new" | cut -d' ' -f1)" = "$BOOT_SUM" ] && mv -f "$t.dlzmod-new" "$t"; then
+    sync
+    log "placed the card's start-up script (#221, sha256 ${BOOT_SUM:0:12}); it applies from the next start"
+  else
+    rm -f "$t.dlzmod-new"; echo "dlzmod-update: the card's start-up script could not be placed"
+  fi
+}
 place_dropins() {   # place_dropins <what> <issue> <units> <text>
   local u t placed=""
   for u in $3; do
@@ -438,6 +486,7 @@ missing_dropins() {
   [ -z "$CHECK_ONLY" ] && [ ! -s "$STATE/inprogress" ] && emmc_locked || return 0
   place_dropins scheduling "#140" "$SCHED_UNITS" "$SCHED_CONF"
   place_dropins early-start "#141" "$EARLY_UNITS" "$EARLY_CONF"
+  place_bootscr
   # #188: glesgui's touch on a steady clock (a new card has it from card-core.sh; an updated one gets
   # it here, once: at later starts the script only reads 4 bytes). Its line goes to the journal: it
   # says something only when it patches or leaves glesgui alone

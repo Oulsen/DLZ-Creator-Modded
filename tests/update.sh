@@ -952,6 +952,47 @@ printf '@' | dd of=$G bs=1 seek=100 conv=notrunc 2> /dev/null; printf '\017\346\
 [ "$(sha $G)" = "$GPATCHED" ] || bad "could not put the patched glesgui back"
 fi
 
+if case_ "77: the card's start-up script (#221): the image as mkimage makes it; placed over stock at a start, stock kept; not while an update file waits or a put-back fails; an unknown one left alone, said once"; then
+B=$R/boot/boot.scr
+[ "$(sha $B)" = 19ddc05aab827c44cb055cdde67142c5e68594d5167cf341ce589161ab7867e8 ] && ok "the card's script is the stock one BOOT_KNOWN names" || bad "the card's script is not the stock one: $(sha $B)"
+# the updater's image maker, run on the card's own boot.cmd with stock's time stamp: stock's script
+# byte for byte (so U-Boot reads ours as it reads Mackie's)
+eval "$(sed -n -e "/^BOOT_CMD=\$(cat << 'BOOT_EOF'$/,/^)$/p" -e '/^boot_image() {/,/^}$/p' "$REPO/install/sd-system/dlzmod-update")"
+BOOT_CMD=$(cat $R/boot/boot.cmd); boot_image $W/stock.img
+python3 -I - $W/stock.img $B << 'EOF' && ok "the card's boot.cmd made into an image = its boot.scr" || bad "the image of the card's boot.cmd differs from its boot.scr"
+import struct, sys, zlib
+img, ref = bytearray(open(sys.argv[1], "rb").read()), open(sys.argv[2], "rb").read()
+img[8:12] = ref[8:12]; img[4:8] = b"\0\0\0\0"
+img[4:8] = struct.pack(">I", zlib.crc32(bytes(img[:64])))
+sys.exit(0 if bytes(img) == ref else 1)
+EOF
+# an updater with a text to place: the card's boot.cmd and one line more
+printf '%s\n# dlzmod rehearsal (#221)\n' "$(cat $R/boot/boot.cmd)" > $W/boot.cmd
+BOOT_CMD=$(cat $W/boot.cmd); boot_image $W/boot.img; BSUM=$(sha $W/boot.img)
+T="$(cat $W/boot.cmd)" S=$BSUM awk '/^BOOT_SUM="/ { print "BOOT_SUM=\"" ENVIRON["S"] "\""; next }
+  { print } /^BOOT_CMD=\$\(cat << .BOOT_EOF.$/ { print ENVIRON["T"] }' <<< "$NEWU" > $R/usr/local/sbin/dlzmod-update
+bash $REPO/install/release/bootscr-check.sh $R/usr/local/sbin/dlzmod-update $W/boot.cmd > /dev/null && ok "the test updater passes bootscr-check.sh" || bad "the test updater fails bootscr-check.sh"
+rm -f $B.dlzmod-stock $ST/boot-left
+put "$PKG"; rm -f $ST/approved; n1=$(reports); run_asking
+[ "$(sha $B)" = "$(sha $W/boot.scr.kept)" ] && ok "an update file waits: not placed" || bad "placed while an update file waits"
+rm -f $U/${PKG##*/} $U/${PKG##*/}.sig $ST/pending
+cutoff gone-package5; chattr +i $R/srv/app.js; run
+said "RESTORE INCOMPLETE" && [ "$(sha $B)" = "$(sha $W/boot.scr.kept)" ] && ok "a put-back fails: not placed" || bad "placed while a put-back was pending"
+chattr -i $R/srv/app.js; n1=$(reports); run
+said "previous files restored" && said "placed the card's start-up script (#221" && [ "$(sha $B)" = "$BSUM" ] && [ "$(stat -c %a $B)" = 644 ] \
+  && ok "put back, then placed in the same start (644, the updater's image)" || bad "not placed after the put-back ($(sha $B | cut -c1-12))"
+backnow "put-back before the start-up script"
+cmp -s $B.dlzmod-stock $W/boot.scr.kept && ok "stock kept as boot.scr.dlzmod-stock" || bad "stock not kept next to it"
+n1=$(reports); run; [ "$(reports)" = "$n1" ] && ! grep -q "start-up script" $W/run.out && ok "the start after: nothing to place, no report" || bad "the start after: placed again or reported"
+printf 'X' >> $B; before=$(sha $B); n1=$(reports); run
+[ "$(sha $B)" = "$before" ] && said "not one this updater knows" && [ "$(reports)" = "$((n1 + 1))" ] && ok "an unknown script: left as it is, one report" || bad "an unknown script changed or not reported"
+n1=$(reports); run; [ "$(sha $B)" = "$before" ] && [ "$(reports)" = "$n1" ] && ok "an unknown script: said once" || bad "an unknown script reported again"
+cmp -s $B.dlzmod-stock $W/boot.scr.kept && ok "the stock copy left as it was" || bad "the stock copy changed"
+cp -p $W/boot.scr.kept $B; rm -f $B.dlzmod-stock $ST/boot-left
+printf '%s\n' "$NEWU" > $R/usr/local/sbin/dlzmod-update; chmod 755 $R/usr/local/sbin/dlzmod-update
+n1=$(reports); run; [ "$(sha $B)" = "$(sha $W/boot.scr.kept)" ] && [ "$(reports)" = "$n1" ] && ok "the shipped updater (no text yet): stock left, no report" || bad "the shipped updater changed the script or reported"
+fi
+
 if case_ "63: stops before DLZDATA (not on an SD card): no report file left in /tmp"; then
 chroot $R /usr/local/sbin/dlzmod-update > $W/run.out 2>&1
 grep -q "not on an SD card" $W/run.out && ok "stopped: not on an SD card" || bad "did not stop at the SD check: $(cat $W/run.out)"
@@ -962,7 +1003,7 @@ if case_ "14: guards still as installed after all this"; then
 for f in flash-gd32 upgradedaemon upgraderun; do
   cmp -s $R/etc/systemd/system/$f.service.d/dlzmod.conf $REPO/install/sd-system/$f.service.d/dlzmod.conf && ok "$f guard" || bad "$f GUARD CHANGED"
 done
-find $R/etc $R/srv $R/usr/local/sbin $R/usr/local/bin $R/var/lib/dlzmod-update -name '*.dlzmod-new' 2>/dev/null | grep -q . && bad "temp files left" || ok "no temp files left"
+find $R/etc $R/srv $R/usr/local/sbin $R/usr/local/bin $R/var/lib/dlzmod-update $R/boot -name '*.dlzmod-new' 2>/dev/null | grep -q . && bad "temp files left" || ok "no temp files left"
 fi
 
 case_; times_summary

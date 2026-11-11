@@ -172,6 +172,10 @@ for u in dlzmod-update dlzmod-grow-data; do
   [ -n "$early" ] && [ "$early" = "$(cat "$INST/sd-system/$u.service.d/dlzmod.conf")" ] \
     || { echo "dlzmod-update: EARLY_CONF does not match sd-system/$u.service.d/dlzmod.conf" >&2; exit 1; }
 done
+# and of the card's start-up script (#221): the text of sd-system/boot.cmd (none yet: empty), and
+# BOOT_SUM the sha256 of the image it makes of it
+bootchk=$(bash "$INST/release/bootscr-check.sh" "$INST/sd-system/dlzmod-update" "$INST/sd-system/boot.cmd") \
+  || { echo "dlzmod-update: $bootchk" >&2; exit 1; }
 missing=$(grep -v '^#' "$INST/installer/applets.txt" | grep . | grep -vxF -f <(echo "$have") || true)
 [ -z "$missing" ] || { echo "busybox lacks applets:" $missing >&2; exit 1; }
 

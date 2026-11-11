@@ -407,10 +407,27 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   `boot.scr`; no package changes it). Later boot logic (a boot flag, a boot counter) needs a full
   install, or first an update that brings an updater whose own list allows it. The snapshot still
   covers `boot/boot.scr`, so a try that an older updater cut off is put back whole.
+- **The card's start-up script by fixed text** (#221, decided 2026-11-11 instead of widening the
+  allowlist, so #56's script comes in one release): the updater carries the one `boot.cmd` text the
+  card's `boot.scr` may become (`BOOT_CMD`, the same as `sd-system/boot.cmd`), the sha256 of its
+  image (`BOOT_SUM`) and the scripts it may replace (`BOOT_KNOWN`: stock
+  `19ddc05a…` [static: XS dump, build 1731; the full-size's: open-questions.md], then every text an
+  earlier updater placed). At a start without an update file (as the #140/#141 drop-ins: not while a
+  cut-off try waits, not with the eMMC writable) it makes the image itself (`boot_image`: python3,
+  `mkimage -A arm -O linux -T script -C none` with time 0; the dump's `boot.cmd` made this way is its
+  `boot.scr` byte for byte, apart from the time stamp and so the header CRC [static: dump; rehearsal
+  case 77]), writes it next to `boot.scr`, checks its sum, renames it over (ext4: the old script or
+  the new one, never half), and keeps the stock one once as `boot.scr.dlzmod-stock` (for a card put
+  back by hand). A script it does not know is left as it is and reported once (`boot-left` in the
+  state folder). A normal start costs one sha256 of the 4 KiB file. It applies from the start after.
+  No package can still place `boot/`: the text is the updater's own, so a new script comes with a new
+  updater (a normal drop-in: its copy is placed last, the script at the start after). A fresh card
+  gets it the same way, at its first start. `mkpackage.sh` and `update-checks.sh` check the three
+  against `boot.cmd` (`install/release/bootscr-check.sh`). Until #56, `BOOT_CMD` is empty: nothing is
+  placed [static, PC rehearsal: `tests/update.sh` case 77, both models].
 - **No full install before v1.0** (decided at v0.3.0, the last full install so far): the boot logic
-  of #56 and #19 takes the second way, two drop-ins (an updater that allows `boot/boot.scr`, then the
-  `boot.scr`), each at the highest device-review tier; a bad card `boot.scr` costs a reflash of the
-  card, never the mixer, which starts stock without it. DLZDATA stays FAT32: exFAT (#22) would change
+  of #56 and #19 comes as above, at the highest device-review tier; a bad card `boot.scr` costs a
+  reflash of the card, never the mixer, which starts stock without it. DLZDATA stays FAT32: exFAT (#22) would change
   the card layout. The rest of the roadmap fits drop-ins (allowlist gaps in two steps; exFAT,
   watchdog, CPU governors and the USB mass-storage gadget are modules or built into the stock
   kernel, no `/boot` change) [static, kernel config of the dump; #56 "Technical notes"].
@@ -629,8 +646,8 @@ mixer]:
 ## Not built yet
 
 - **Full update and undo** (#56), for what the drop-in cannot do (boot visuals, card layout):
-  "Install" on the Mod page sets a one-shot flag on DLZDATA and restarts; the card's `boot.scr` (one
-  that comes with a full install: an update cannot change it) sees it and boots the installer path (Mackie's kernel from the eMMC + the package's initramfs) in update
+  "Install" on the Mod page sets a one-shot flag on DLZDATA and restarts; the card's `boot.scr` (the
+  updater's fixed text, #221: "The sandbox and the trust boundary") sees it and boots the installer path (Mackie's kernel from the eMMC + the package's initramfs) in update
   mode: rebuild the system partition from the eMMC, carry over the state (`srv_data.json`, presets,
   NDI config, Wi-Fi, SSH keys, mod settings), leave DLZDATA untouched. Undo: the previous package
   stays in `dlzmod-update/previous/`; "Revert" rebuilds with it; `boot.scr` counts start attempts on
