@@ -164,6 +164,15 @@ withboot "$(cat "$bc")" "$sum"
 bash install/release/bootscr-check.sh "$bu" "$TMP/none.cmd" > /dev/null && bad "start-up script: a text with nothing to ship passes" || ok "start-up script: a text with nothing to ship refused"
 printf 'setenv dlzmod 2\n' > "$TMP/other.cmd"
 bash install/release/bootscr-check.sh "$bu" "$TMP/other.cmd" > /dev/null && bad "start-up script: a text unlike boot.cmd passes" || ok "start-up script: a text unlike boot.cmd refused"
+# no U-Boot command that writes the eMMC or hardware; a write to the card (mmc 0) passes
+for l in 'mmc dev 1' 'mmc write 0x42000000 0 100' 'fatwrite mmc 1:1 ${loadaddr} x 4' 'mw.l 0x1c20000 1' 'i2c dev 0' 'setenv a 1; gpt write mmc 0 x'; do
+  printf '%s\n' "$l" > "$TMP/w.cmd"; withboot "$l" ""
+  out=$(bash install/release/bootscr-check.sh "$bu" "$TMP/w.cmd")
+  [[ $out == *"may write the eMMC or hardware"* ]] && ok "start-up script: '$l' refused" || bad "start-up script: '$l' not refused ($out)"
+done
+l='fatwrite mmc 0:2 ${loadaddr} dlzmod-boots 4'; printf '%s\n' "$l" > "$TMP/w.cmd"; withboot "$l" ""
+out=$(bash install/release/bootscr-check.sh "$bu" "$TMP/w.cmd")
+[[ $out == "BOOT_SUM is not"* ]] && ok "start-up script: a write to the card passes the command check" || bad "start-up script: '$l': $out"
 # v0.3.0's full install widens the allowlist for later drop-ins: #96's Weston drop-in, v0.5.0's audio
 # graph (and the graph in the snapshot, so a failed patch of it is put back)
 al=$(sed -n '/^allowed() {/,/^}/p' "$NEW")

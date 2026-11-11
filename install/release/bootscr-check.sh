@@ -27,6 +27,11 @@ if [ ! -e "$CMD" ]; then
 fi
 grep -q $'\r' "$CMD" && no "${CMD##*/} has CR line ends (.gitattributes: LF)"
 [ -n "$BOOT_CMD" ] && [ "$BOOT_CMD" = "$(cat "$CMD")" ] || no "BOOT_CMD does not match ${CMD##*/}"
+# U-Boot runs it before any guard: no command that writes the eMMC (mmc 1) or hardware. A text check,
+# so it catches a mistake, not a hostile signer; the script itself gets the highest device review
+bad=$(sed 's/#.*//' <<< "$BOOT_CMD" | grep -nE \
+  '(^|[;[:space:]])(mmc[[:space:]]+(write|erase|swrite|partconf|bootbus|rst-function|hwpartition|wp|dev[[:space:]]+1)|gpt|ums|fuse|mw(\.[bwlq])?|nm|mm|i2c|pmic|regulator|sf|nand|ubi|bmode|reset|poweroff)([;[:space:]]|$)|(fatwrite|ext4write|save|env[[:space:]]+save|saveenv)[[:space:]]+mmc[[:space:]]+1' || true)
+[ -z "$bad" ] || no "BOOT_CMD has a command that may write the eMMC or hardware: $(head -1 <<< "$bad")"
 grep -q "^$BOOT_SUM " <<< "$BOOT_KNOWN" && no "BOOT_SUM is also in BOOT_KNOWN"
 t=$(mktemp); trap 'rm -f "$t"' EXIT
 boot_image "$t" || no "boot_image failed (python3?)"

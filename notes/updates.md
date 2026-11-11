@@ -421,8 +421,16 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   or the new one, never half). The script it replaces stays as a hard link, the stock one for good
   as `boot.scr.dlzmod-stock` (for a card put back by hand), the last one as `boot.scr.dlzmod-prev`:
   U-Boot reads ext4 without replaying the journal [guess: U-Boot's ext4 reader], so a power cut
-  before the kernel writes the new directory block back (~30 s, the writeback interval) leaves U-Boot
-  the old entry, which with its inode kept still reads the old script whole. A script it does not know is left as it is and reported once (`boot-left` in the
+  before the final `sync` has written the new directory block in place leaves U-Boot the old entry,
+  which with its inode kept still reads the old script whole. A cut between the directory block and
+  the inode block gives a script whose CRC U-Boot refuses ("SCRIPT FAILED: continuing"):
+  `bootcmd_mmc_auto` then runs the eMMC's stock `boot.scr`, which boots the booted device
+  (`devnum ${mmc_bootdev}`), so the card's own kernel starts and replays the journal [static: the
+  dump's U-Boot environment and `boot.cmd`; device review of #266]. The text is checked for U-Boot
+  commands that write the eMMC or hardware (`bootscr-check.sh`: `mmc write/erase/...`, `mmc dev 1`,
+  `gpt`, `ums`, `fuse`, `mw`, `i2c`, a write to mmc 1): a mistake, not a hostile signer. Open for
+  #56: a stock script put back by hand is replaced again at the next start (it is in `BOOT_KNOWN`),
+  so #56 needs its own way back (a stop marker or its boot counter). A script it does not know is left as it is and reported once (`boot-left` in the
   state folder). A normal start costs one sha256 of the 4 KiB file. It applies from the start after.
   No package can still place `boot/`: the text is the updater's own, so a new script comes with a new
   updater (a normal drop-in: its copy is placed last, the script at the start after). A fresh card

@@ -454,8 +454,10 @@ place_bootscr() {
   rm -f "$STATE/boot-left"
   # the script it replaces keeps its inode and blocks, as hard links: the stock one for good (for a card
   # put back by hand; made once, never replaced), the last one as -prev. U-Boot reads ext4 without
-  # replaying the journal, so until the kernel writes the new directory block back (~30 s) a power cut
-  # leaves U-Boot the old entry; with the old inode kept, that still reads the old script whole
+  # replaying the journal: a power cut before the sync below has written the new directory block in
+  # place leaves U-Boot the old entry, which with the old inode kept still reads the old script whole
+  # (one cut between the directory and the inode block gives a script U-Boot's CRC check refuses: it
+  # then runs the eMMC's stock script, which boots this card, whose kernel replays the journal)
   if [ "${BOOT_KNOWN%% *}" = "$cur" ] && [ ! -e "$t.dlzmod-stock" ] && ! ln "$t" "$t.dlzmod-stock"; then
     echo "dlzmod-update: the stock start-up script could not be kept: the new one not placed"; return 0
   fi
