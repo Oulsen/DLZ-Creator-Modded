@@ -6,6 +6,7 @@
 - (DLZ FEATURE) The Overview's strips follow the knobs or faders when they are swapped
 - (MOD FEATURE) Prepare the mixers so an update can be undone
 - (MOD FEATURE) Undo an update and go back to the previous version
+- (MOD BUG) Cards with many recordings start more slowly
 
 ## v0.5.0
 

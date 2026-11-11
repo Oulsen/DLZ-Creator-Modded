@@ -41,7 +41,10 @@ jobs:
         run: bash tests/guards.sh
 
       - name: Clock saver
-        run: bash tests/clock.sh
+        run: |
+          command -v mkfs.vfat > /dev/null && command -v mcopy > /dev/null \
+            || { sudo apt-get update -q && sudo apt-get install -yq dosfstools mtools; }
+          bash tests/clock.sh
 
       - name: dspserver's wait at a start
         run: bash tests/wait-hub.sh
