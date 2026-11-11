@@ -166,8 +166,8 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   node open no `/dev/mem`, `/proc/d2help` or shared memory, so the screen's meters only reach it through
   that link; in the silent starts all meters moved, pre and post fader [user]. Stopping dspserver for
   3 s and 10 s (`kill -STOP`/`-CONT`, as glesgui does) stops sound and meters, then both come back, with
-  no drop and no watchdog line. So the sound is lost after dspserver's mix: the codec path, or the
-  source. Open: in daily use the sound comes from the PC over USB (its own chip, `hardware.md`); a USB
+  no drop and no watchdog line. So neither the link nor dspserver's processing loses it: the sound is
+  lost on the codec path after the mix, or never reaches the mixer. Open: in daily use the sound comes from the PC over USB (its own chip, `hardware.md`); a USB
   link that comes up half-working (cf. #88) would silence the computer's audio while Bluetooth and
   mics work. Whether the USB channel's meter moved in the silent starts is not known.
 
