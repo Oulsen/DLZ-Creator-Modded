@@ -42,8 +42,11 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   its init (`Waiting for graphics to initialise... Done.`). Normally the server is up ~9 s earlier
   and dspserver then loads the pad samples (`/srv/bankPlayer/default/loaded/*.wav`). When dspserver
   is done first it never loads them: no audio, mic dead, REC_START ignored (no file), while the UI
-  works; a reboot fixes it. dspserver connects once to `ws://localhost:80/socket.io/` after
-  `Done.` and does not retry (faderlink does) [static + device]. What normally saves it is its
+  works; a reboot fixes it. dspserver connects to `ws://localhost:80/socket.io/` after `Done.`; it
+  does retry, like faderlink: libhv's reconnect from 100 ms, doubling to 1 s, unlimited, and its
+  connect callback sends `INIT` on every connect, retries included [static, #257]. The `open` line
+  is the attempt, not a made link; a failed retry logs `cnt=2`. Why a dspserver done first still
+  lost is open. What normally saves it is its
   own "Waiting for graphics" (it polls for Weston/glesgui, ~16 s into a normal boot). On the first
   boot after a flash, `dlzmod-grow-data` delayed both server.js and dspserver by ~8 s; by then the
   graphics were up, dspserver was `Done.` within 8 s, in the same second as `Server started`, and
@@ -51,11 +54,13 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   `dspserver.service.d/dlzmod.conf` runs `dlzmod-wait-hub` first (waits until something listens on
   port 80, then for glesgui's graphics, #239; max 50 s in all, then starts anyway). A crash-restart of evolve-node alone might still leave
   dspserver without its state [guess].
-- **No restart while the mixer runs** [device]: after `systemctl restart dspserver` (stock binary,
-  server.js up) the new one connects and loads the pad samples, the meters move, but every output
-  stays silent (main L/R, both headphones); `systemctl restart evolve-node` afterwards does not
-  bring it back; only a reboot does. What is set up once per boot is open: likely faderlink's side
-  (`Requires=faderlink`, it talks to the GD32), not restarted for that reason [guess].
+- **A restart while the mixer runs: silent once, with sound once** [device]: an earlier
+  `systemctl restart dspserver` (stock binary, server.js up) left every output silent (main L/R,
+  both headphones) with moving meters, and `systemctl restart evolve-node` did not bring it back;
+  only a reboot did. On 2026-11-11 (XS dev card at develop `9dfd5b9`, #257) the same restart kept
+  the sound (Bluetooth on 5/6, heard). The restarted dspserver logs no `Initialising AKM DAC/ADC/THAT`
+  lines: it skips the codec setup while PH2 is high (below). What differed the first time is not
+  known; it may have been a start that was silent already. Restarting it is no cure for a silent start.
 - Harmless at every boot: kernel stack dumps `set_cpus_allowed_ptr: core 4 is set in the mask`
   (from the kernel's own workqueue code, `worker_attach_to_pool`, once dspserver has set the
   workqueue cpumask; not from an affinity call of dspserver [static]), and
@@ -102,6 +107,21 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   for the AKM ADC at `0x26`, and dspserver carried on. Only `Couldn't initialise audio hardware,
   exiting` ends it [static]. So a chip that fails at start gives moving meters and a silent output
   until the next start [guess on the effect]. AKM DAC = I2C `0x22`, AKM ADC = `0x26` [device].
+- **The AKM setup runs only while GPIO PH2 is low** (#257) [static]: the XS's codec setup (function
+  `0x38288`, the `Initialising AKM DAC...` string) returns at once when bit 2 of `PH_DAT` is set (the
+  `/dev/mem` mapping's base + `0x2090c`; the PIO controller is at `0x01C20800`, `PH_DAT` at
+  `0x01C2090C`). dspserver's own start (`0x19fa0`) makes PH0 and PH1 outputs driven low and PH2 an
+  input with pull-up; no Mackie program drives PH2 (faderlink only PH12), and no kernel driver claims
+  PH0-PH5 (pinctrl debugfs [device]). So another chip on the board holds PH2 low after power-on and
+  lets it go [guess: the GD32 or the codec]. Each chip's setup first looks for an override script,
+  `/root/akmdac-i2c.js` / `/root/akmadc-i2c.js`, and the init has a `/root/post-i2c.js` hook; none
+  exists on the dump. An uncalled copy of the setup (`0x3a570`) also rewrites the CPU, DDR and GPU
+  PLLs and raises PH0 before the AKM lines and PH1 after them; which live code raises PH0/PH1 is not
+  found.
+- **PH2 rises during or soon after the setup** [device, XS dev card, 2026-11-11]: `PH_DAT` read
+  `0x1007` (PH0, PH1, PH2 and PH12 high; PH0/PH1 outputs, PH2 input with pull-up) 75 s into a start
+  with sound and 2.4 h into another; PH2 was low at the setup (29.1 s). The dev card logs these pins
+  through the first 120 s of each start (#261), to compare starts with sound and silent ones.
 - **Silent outputs with moving meters also come without either cause above** (see also glesgui's
   stop, below, which fits one of them) [device, XS dev card, 2026-11-04]: no sound while the meters moved, yet all three chips initialised without an
   I2C error and dspserver, faderlink and evolve-node had 0 restarts. A reboot usually clears it
@@ -138,11 +158,18 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   13.4 s), the chips initialised normally without I2C errors. Only difference: ~50 ms after dspserver's websocket
   `open`, `reconnect... cnt=1, delay=100` and `Disconnected websocket.`, then no more dspserver lines for the
   whole start. No drop in the 4 starts with sound, nor in 9 starts of the dev card's network log (2026-11-03).
-  faderlink, with the same client, logs each retry until it gets through; dspserver logged only the first, and a
-  start with sound logs nothing after the open either, so whether its retry connected is not known. server.js
-  logs nothing about the connection. Open: why server.js closes the socket right away, and whether dspserver
-  mutes on a lost hub and unmutes only on the state of its first connect [guess]. A longer wait does not help
-  here: the wait had already ended normally.
+  server.js logs nothing about the connection. A longer wait does not help here: the wait had already
+  ended normally.
+- **The drop is not the cause** (#257) [device, XS dev card, 2026-11-11]: dspserver's retry connects
+  (above: no `cnt=2`), and drops also come on stock (2 in 18 connects in the factory syslog), mostly when
+  glesgui stops dspserver. Apart from D-Bus, dspserver's only socket is that websocket, and glesgui and
+  node open no `/dev/mem`, `/proc/d2help` or shared memory, so the screen's meters only reach it through
+  that link; in the silent starts all meters moved, pre and post fader [user]. Stopping dspserver for
+  3 s and 10 s (`kill -STOP`/`-CONT`, as glesgui does) stops sound and meters, then both come back, with
+  no drop and no watchdog line. So neither the link nor dspserver's processing loses it: the sound is
+  lost on the codec path after the mix, or never reaches the mixer. Open: in daily use the sound comes from the PC over USB (its own chip, `hardware.md`); a USB
+  link that comes up half-working (cf. #88) would silence the computer's audio while Bluetooth and
+  mics work. Whether the USB channel's meter moved in the silent starts is not known.
 
 ## Audio loop and headroom
 
@@ -155,9 +182,9 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   between the two threads ~20 times per 30 s. So `top` shows core 3 busy ~99% whatever the load
   (`system.md`, "Load average").
 - **Headroom** [device, XS, `dev/dsp-headroom.sh`]: the share of each block spent waiting, 30 s each,
-  one mic channel with EQ, gate, compressor and de-esser. Measured after a restart of dspserver, so
-  with the outputs silent (above) but the meters moving; that the load equals a normal run is a
-  guess.
+  one mic channel with EQ, gate, compressor and de-esser. Measured after a restart of dspserver,
+  that time with the outputs silent but the meters moving ("A restart while the mixer runs",
+  above); that the load equals a normal run is a guess.
 
   | State | Mean waiting | Worst block left |
   |---|---|---|
