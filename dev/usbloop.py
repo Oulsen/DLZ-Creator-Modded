@@ -129,6 +129,11 @@ class Player:
         self.h = wintypes.HANDLE()
         ok(winmm.waveOutOpen(ctypes.byref(self.h), self.dev, ctypes.byref(FMT), 0, 0, 0), "open " + self.name)
 
+    def close(self):
+        if self.h:
+            winmm.waveOutClose(self.h)
+            self.h = None
+
     def play(self, frames):
         buf = ctypes.create_string_buffer(frames, len(frames))
         hdr = WAVEHDR(ctypes.cast(buf, ctypes.c_char_p), len(frames), 0, 0, 0, 0, None, 0)
@@ -137,15 +142,23 @@ class Player:
             ok(winmm.waveOutWrite(self.h, ctypes.byref(hdr), ctypes.sizeof(hdr)), "play")
             wait_done(hdr, len(frames) / 4 / RATE, winmm.waveOutReset, self.h)
         finally:
+            if not hdr.dwFlags & WHDR_DONE:  # Ctrl-C or an error with the buffer still queued
+                winmm.waveOutReset(self.h)
             winmm.waveOutUnprepareHeader(self.h, ctypes.byref(hdr), ctypes.sizeof(hdr))
-            winmm.waveOutClose(self.h)
+            self.close()
 
 
 class Recorder:
     def __init__(self, pair="1-2"):
         self.dev, self.name = find("in", pair)
         self.h = wintypes.HANDLE()
+        self.t0 = None  # time.monotonic() when recording started
         ok(winmm.waveInOpen(ctypes.byref(self.h), self.dev, ctypes.byref(FMT), 0, 0, 0), "open " + self.name)
+
+    def close(self):
+        if self.h:
+            winmm.waveInClose(self.h)
+            self.h = None
 
     def record(self, secs):
         """Half-second rows of (t, rms dBFS, tone dBFS), the louder channel of each."""
@@ -155,12 +168,15 @@ class Recorder:
         try:
             ok(winmm.waveInPrepareHeader(self.h, ctypes.byref(hdr), ctypes.sizeof(hdr)), "prepare")
             ok(winmm.waveInAddBuffer(self.h, ctypes.byref(hdr), ctypes.sizeof(hdr)), "add buffer")
+            self.t0 = time.monotonic()
             ok(winmm.waveInStart(self.h), "record")
             wait_done(hdr, secs, winmm.waveInReset, self.h)
             winmm.waveInStop(self.h)
         finally:
+            if not hdr.dwFlags & WHDR_DONE:
+                winmm.waveInReset(self.h)
             winmm.waveInUnprepareHeader(self.h, ctypes.byref(hdr), ctypes.sizeof(hdr))
-            winmm.waveInClose(self.h)
+            self.close()
         n = hdr.dwBytesRecorded // 4
         smp = struct.unpack("<%dh" % (2 * n), buf.raw[:4 * n])
         rows, step = [], RATE // 2
@@ -185,29 +201,39 @@ def number(s, lo, hi, what):
 
 
 def check():
-    # record 12 s, the tone from ~3 s to ~9 s; judged on its middle (4.5-7.5 s) against the quiet ends
-    # (before 2 s, from 10 s), so a late start or the tail cannot tip the verdict
+    # record 14 s and play a 6 s tone ~3 s in; the windows follow when the tone really started (on the
+    # recording's clock): its middle (1.5-4.5 s into it) against the quiet before (until 1 s ahead of
+    # it) and after (from 1.5 s past its end)
     frames = tone(6, -20)
-    rec, player = Recorder(), Player()
+    rec = Recorder()
+    try:
+        player = Player()
+    except BaseException:
+        rec.close()
+        raise
     rows, err = [], []
 
     def run():
         try:
-            rows.extend(rec.record(12))
-        except Fail as e:
+            rows.extend(rec.record(14))
+        except Exception as e:  # shown after the join, whatever it is
             err.append(e)
 
     t = threading.Thread(target=run)
     t.start()
     time.sleep(3)
     try:
+        start = time.monotonic()
         player.play(frames)
     finally:
         t.join()
     if err:
         raise err[0]
-    during = [tn for s, _, tn in rows if 4.5 <= s < 7.5]
-    outside = [tn for s, _, tn in rows if s < 2.0 or s >= 10.0]
+    if rec.t0 is None:
+        raise Fail("the recording did not start")
+    at = start - rec.t0  # the tone's start on the recording's clock
+    during = [tn for s, _, tn in rows if at + 1.5 <= s < at + 4.5]
+    outside = [tn for s, _, tn in rows if s < at - 1.0 or s >= at + 7.5]
     if not during or not outside:
         raise Fail("the recording is too short")
     level = max(rms for _, rms, _ in rows)

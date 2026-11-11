@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Codec pin log for the dev card (#261, for #257). Runs at every start once dev/pinlog.sh has put it
 # on the card, and writes to the journal (so the network log carries it) the first state and every
-# change of GPIO port H's pins 0-2 and 12 until 120 s after power-on, then exits.
+# change of GPIO port H's pins 0-2 and 12 until 120 s after the kernel starts (the clock of the log's
+# [uptime] stamps), then exits.
 #
 # dspserver makes PH0/PH1 outputs and PH2 an input with pull-up, pulses PH0 and raises PH1 around the
 # codec setup at its start, and gates a later AKM re-setup on PH2 (notes/components/dspserver.md,
@@ -9,7 +10,7 @@
 # bit says little.
 #
 # Read-only: one page of /dev/mem mapped PROT_READ; reading the PIO registers has no side effects.
-# Usage: dlzdev-pinlog            (the unit: until 120 s after power-on)
+# Usage: dlzdev-pinlog            (the unit: until 120 s after the kernel starts)
 #        dlzdev-pinlog --once     (one reading, for dev/pinlog.sh on)
 import mmap
 import os
@@ -22,7 +23,7 @@ REGS = (("cfg0", 0x8FC, 0x00000FFF),   # PH0-PH2 function, 4 bits each
         ("dat", 0x90C, 0x00001007),    # PH0, PH1, PH2, PH12
         ("pull0", 0x918, 0x0300003F))  # PH0-PH2 and PH12 pull, 2 bits each
 PINS = (0, 1, 2, 12)
-UNTIL = 120.0  # seconds since power-on
+UNTIL = 120.0  # seconds since the kernel started (CLOCK_BOOTTIME, as the journal's uptime)
 STEP = 0.005
 
 

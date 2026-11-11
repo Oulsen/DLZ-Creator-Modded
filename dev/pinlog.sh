@@ -70,7 +70,8 @@ case ${1:-} in
       sync /usr/local/sbin /etc/systemd/system
       systemctl daemon-reload; systemctl enable --quiet dlzdev-pinlog.service
       sync /etc/systemd/system/sysinit.target.wants
-      python3 $BIN --once || echo 'pinlog: installed and enabled, but the check reading failed (above)' >&2"
+      python3 $BIN --once || { echo 'pinlog: installed and enabled, but the check reading failed (above)' >&2; exit 4; }" \
+      || { [ $? -eq 4 ] && exit 4; exit 1; }
     echo "pinlog: on, from the next start (the line above is one reading now)"
     ;;
   off)

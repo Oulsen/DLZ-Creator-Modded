@@ -117,7 +117,7 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   `0x222aa0` points to) [static]: logs the old/new CPU, DDR and GPU PLLs (it changes them: `old CPU PLL:
   90001410`, `new CPU PLL: 90001510` in every start's log [device]), drives PH0 low for 50 ms, then by
   the `/root/.dlzlite` flag: **XS**: PH0 high, 20 ms, AKM DAC (`0x22`) and ADC (`0x26`), the
-  `/root/post-i2c.js` hook, PH1 high, the THAT preamps, `Audio initialisation is done.`; **full-size**:
+  `/root/post-i2c.js` hook, 50 ms, PH1 high, the THAT preamps, `Audio initialisation is done.`; **full-size**:
   PH0 high, 20 ms, PH1 high, an I2C bus scan, the Everest CODECs, the Sabre DAC and ADCs, the same hook.
   So PH0 is likely the codecs' reset and PH1 an enable [guess]. Neither branch reads PH2. Each AKM or
   Sabre chip's setup first looks for an override script (`/root/akmdac-i2c.js`, `/root/akmadc-i2c.js`,
