@@ -58,9 +58,10 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   `systemctl restart dspserver` (stock binary, server.js up) left every output silent (main L/R,
   both headphones) with moving meters, and `systemctl restart evolve-node` did not bring it back;
   only a reboot did. On 2026-11-11 (XS dev card at develop `9dfd5b9`, #257) the same restart kept
-  the sound (Bluetooth on 5/6, heard). The restarted dspserver logs no `Initialising AKM DAC/ADC/THAT`
-  lines, so it did not set up the codecs again (why: below). What differed the first time is not
-  known; it may have been a start that was silent already. Restarting it is no cure for a silent start.
+  the sound (Bluetooth on 5/6, heard). It ran the full codec setup again, PH0 pulse included: the
+  network log lacks those lines only because it lost them (below, "The restart's lines"). What
+  differed the first time is not known; it may have been a start that was silent already. Whether a
+  restart brings the sound back in a silent start is not tested yet (#257).
 - Harmless at every boot: kernel stack dumps `set_cpus_allowed_ptr: core 4 is set in the mask`
   (from the kernel's own workqueue code, `worker_attach_to_pool`, once dspserver has set the
   workqueue cpumask; not from an affinity call of dspserver [static]), and
@@ -122,14 +123,22 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   So PH0 is likely the codecs' reset and PH1 an enable [guess]. Neither branch reads PH2. Each AKM or
   Sabre chip's setup first looks for an override script (`/root/akmdac-i2c.js`, `/root/akmadc-i2c.js`,
   `/root/sabredac-i2c.js`, `/root/sabreadc1-i2c.js`, `/root/sabreadc2-i2c.js`); none exists on the dump.
-- **A second AKM setup, gated on PH2** [static]: `0x38288` sets up the AKM DAC and ADC again, but returns
-  at once while PH2 is high. A loop calls it (`0x19440`) when a flag is set; what sets that flag, and
-  when, is not known. No kernel or Mackie program drives PH2, so another chip on the board holds it
-  low and lets go [guess: the GD32 or the codec].
-- **The restart's missing lines are not explained** [device + static]: the restarted dspserver of
-  2026-11-11 logged `DLZ Lite detected` and `Audio initialisation is done.` but no PLL, AKM or THAT
-  setup lines, which the XS branch above logs before `done`. A branch at `0x3a9b4` reaches `done`
-  another way; that path was not followed.
+- **The AKM repair loop: PH2 low sets the codecs up again** (XS) [static]: dspserver's main loop
+  (`0x19304`) turns every 10 ms (`usleep 10000` at `0x19330`); while it is not stopping (flag
+  `0x2a250c`, read by `0x33880`) and on the XS (the `/root/.dlzlite` flag), each turn calls `0x38288`
+  (at `0x19440`). That returns at once while PH2 is high; while PH2 is low it sets up the AKM DAC and
+  ADC again, logging `Initialising AKM DAC...` / `ADC...` again. So PH2 is a hardware "codecs need
+  setting up" signal: low after power-on until the setup, high after it [device: see below]. No kernel
+  or Mackie program drives PH2, so another chip on the board holds it low and lets go [guess: the GD32
+  or the codec]. If a codec lost its settings while PH2 stayed high, this repair would not run and
+  the outputs would stay silent until a reboot [guess, a candidate for the silent starts]. A repair
+  leaves an extra `Initialising AKM` pair in the log: none so far, one setup per start in the network
+  logs of 2026-10-28, -29 and 2026-11-11 and the `syslog-last-boots` copies of #196 and #239 [device].
+- **The restart's lines were lost in the network log** [device]: the restarted dspserver of 2026-11-11
+  shows `DLZ Lite detected`, then the kernel's `set_cpus_allowed_ptr` dump cut off after 15 of its 26
+  lines, then `Audio initialisation is done.`; every other start in the same log has the 6 PLL and 2
+  AKM lines in between. A burst of ~24 lines was dropped (UDP, `docs/DEVELOPMENT.md` "Dev card: test builds over Wi-Fi"), so
+  a missing line in the network log proves nothing; the journal or the boot log copy on DLZDATA does.
 - **PH0, PH1 and PH2 high after the setup** [device, XS dev card, 2026-11-11]: `PH_DAT` read `0x1007`
   (PH0, PH1, PH2 and PH12 high; PH0/PH1 outputs, PH2 input with pull-up) 75 s into a start with sound
   and 2.4 h into another. The dev card logs these pins through the first 120 s of each start (#261),
