@@ -55,6 +55,13 @@ The board, Mackie's device tree, the boot chain, the eMMC layout and the SD slot
   [static], so the USB audio chip most likely has its own firmware [guess] (open question 8). Not
   seen again in 7 starts with the cable plugged in (6 with the switch, 1 software restart), with a
   watcher on the PC [device] (#88)
+- The Windows driver is Mackie's `Mackie_USB_Driver_v5.70.0_setup.exe`, signed by Thesycon Software
+  Solutions (their generic USB audio driver under Mackie's name) [device, 2026-11-11]. Without it
+  Windows leaves `0A73:003A` in error. With it, on the XS: playback endpoints 1-2 and 3-4, recording
+  endpoints 1-2 to 13-14 (seven stereo pairs). Playback 1-2 arrives on the mixer's computer channel
+  (9/10); recording 1-2 carries the main mix, the computer channel included only with its mix-minus
+  off; the other returns were silent with no mic in use [device, XS dev card, `dev/usbloop.py`,
+  #257]. The full-size's endpoints were not checked.
 
 ### Full-size DLZ Creator
 
