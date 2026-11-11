@@ -468,6 +468,8 @@ APP_PATCHES = [
         # #65: an update waits for Install (asked on the mixer's own screen), and Install's answer
         '$NET.addCallback("DLZMOD_UPDATE_ASK",(t=>DLZMOD_askUpdate(t))),'
         '$NET.addCallback("DLZMOD_UPDATE_APPROVED",(t=>DLZMOD_updateApproved(t))),'
+        # #56: Go Back's answer (to the version before the last update)
+        '$NET.addCallback("DLZMOD_UPDATE_REVERTED",(t=>DLZMOD_updateReverted(t))),'
         # the card is not in the mixer it was made for (sd-system/dlzmod-cardcheck): every start
         '$NET.addCallback("DLZMOD_CARD_NOTE",(t=>DLZMOD_showCardNote(t))),'
         # Network panel on the Mod page: status, Wi-Fi scan list, outcome of a change
@@ -753,11 +755,13 @@ SERVER_PATCHES = [
         """Ce("{ ip addr show eth0; ip addr show wlan0; } 2>/dev/null | grep -Pom 1 '[0-9.]{7,15}/'")""",
     ),
     (
-        "update: the popup's OK (DLZMOD_UPDATE_NOTE_OK); Install (DLZMOD_UPDATE_APPROVE); Network panel (DLZMOD_NET)",
+        "update: the popup's OK (DLZMOD_UPDATE_NOTE_OK); Install (DLZMOD_UPDATE_APPROVE); Go Back (DLZMOD_UPDATE_REVERT); Network panel (DLZMOD_NET)",
         "async FIRMWARE_UPDATE_SUCCESS_OK(){",
         "DLZMOD_UPDATE_NOTE_OK(){DLZMOD_updateNoteSeen()},"
         # #65: Install for the update waiting on the card, from the mixer's own screen only (i = its send)
         "DLZMOD_UPDATE_APPROVE(e,t,a,i){DLZMOD_updateApprove(e,i)},"
+        # #56: Go Back to the version before the last update, the same way (i = its send)
+        "DLZMOD_UPDATE_REVERT(e,t,a,i){DLZMOD_updateRevert(e,i)},"
         # Network panel (Wi-Fi, SSH): answers go to this screen only (i = its send); not awaited,
         # so a 45 s Wi-Fi connect does not hold up the screen's other commands
         "DLZMOD_NET(e,t,a,i){DLZMOD_net(e,i)},"

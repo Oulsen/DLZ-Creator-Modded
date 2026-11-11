@@ -995,6 +995,98 @@ printf '%s\n' "$NEWU" > $R/usr/local/sbin/dlzmod-update; chmod 755 $R/usr/local/
 n1=$(reports); run; [ "$(sha $B)" = "$(sha $W/boot.scr.kept)" ] && [ "$(reports)" = "$n1" ] && ok "the shipped updater (no text yet): stock left, no report" || bad "the shipped updater changed the script or reported"
 fi
 
+# #56: going back to the version before the last update. goback: an update with another build label
+# (so going back changes the version) and a changed updater (so its own copy going back shows)
+goback() {
+  once dlzmod-vgoback "printf '\n// goback test\n' >> mod/app-mod/dlzmod.js; printf '\n# goback test\n' >> mod/sd-system/dlzmod-update; sed -i 's/^BUILD=.*/BUILD=dev-goback/' package.env" \
+    "sed -i 's/^BUILD=.*/BUILD=dev-goback/' package.env"
+  rm -f $ST/revertable $ST/revert $ST/confirm $ST/revert-tries $ST/previous-settings.json $ST/failed
+  INST0=$(cat $ST/installed); SRV0=$(sha $R/srv/server.js); UPD0=$(sha $R/usr/local/sbin/dlzmod-update)
+  cp -p $R/srv/srv_data.json $W/srv_data.before
+  put $P; run
+  installed && grep -q "goback test" $R/srv/app.js && [ "$(cat $ST/installed)" != "$INST0" ] \
+    && ok "goback: installed ($(cat $ST/installed))" || bad "goback: not installed"
+}
+gone_back() {   # gone_back <what>: the card as before the update, the settings as they are now
+  [ "$(sha $R/srv/app.js)" = "$APP" ] && [ "$(sha $R/srv/server.js)" = "$SRV0" ] && [ "$(cat $ST/installed)" = "$INST0" ] \
+    && [ "$(sha $R/usr/local/sbin/dlzmod-update)" = "$UPD0" ] && ok "$1: app, server, version and the updater itself as before the update" \
+    || bad "$1: not as before the update"
+  [ ! -e $ST/previous.tar ] && [ ! -e $ST/previous.list ] && [ ! -e $ST/revert ] && [ ! -e $ST/confirm ] && [ ! -e $ST/revertable ] \
+    && [ ! -e $ST/revert-tries ] && ok "$1: the snapshot and the notes on it gone" || bad "$1: left: $(cd $ST && ls -d previous.* revert* confirm 2>/dev/null | tr '\n' ' ')"
+  cmp -s $ST/previous-settings.json $W/srv_data.before && [ "$(stat -c %a $ST/previous-settings.json)" = 600 ] \
+    && ok "$1: the settings from before the update kept aside (600)" || bad "$1: previous-settings.json missing, different or readable"
+}
+if case_ "78: Go Back (#56): an install notes the version before it; Go Back puts it back at the next start, the updater itself last, the settings as they are now; the start after says nothing"; then
+goback
+[ "$(cat $ST/revertable)" = "$(sha $ST/previous.tar) $INST0" ] && ok "revertable: the snapshot's sum and the version before" || bad "revertable: '$(cat $ST/revertable 2>/dev/null)'"
+[ "$(cat $ST/confirm)" = "$S 0" ] && ok "confirm: the file's record, no start counted yet" || bad "confirm: '$(cat $ST/confirm 2>/dev/null)'"
+rm -f $ST/confirm   # the screen loaded (the server mod)
+sed -i '0,/{/s//{"dlzmodGoBackTest": 1,/' $R/srv/srv_data.json; DATA1=$(sha $R/srv/srv_data.json)
+cut -d' ' -f1 $ST/revertable > $ST/revert; n1=$(reports); run
+said "GOING BACK to $INST0: Go Back was chosen" && said "GONE BACK to $INST0" && [ "$(reports)" = "$((n1 + 1))" ] \
+  && ok "gone back, one report ($(basename "$(last)"))" || bad "not gone back"
+gone_back "Go Back"
+[ "$(sha $R/srv/srv_data.json)" = "$DATA1" ] && ok "the settings changed since the update stay" || bad "the settings were put back"
+n1=$(reports); run; [ "$(reports)" = "$n1" ] && [ ! -e $ST/revertable ] && ok "the start after: nothing, no report" || bad "the start after: a report or a note"
+cp -p $W/srv_data.before $R/srv/srv_data.json; rm -f $ST/previous-settings.json
+fi
+
+if case_ "79: going back by itself (#56): a start that reaches the screen ends the count; 2 starts that do not go back, the file then failed; an old snapshot gets its note once"; then
+goback
+rm -f $ST/confirm; n1=$(reports); run   # the screen loaded at the install's start
+[ "$(reports)" = "$n1" ] && grep -q "goback test" $R/srv/app.js && [ ! -e $ST/confirm ] && ok "confirmed: no count, nothing done" || bad "went back or counted after the screen loaded"
+echo "$S 0" > $ST/confirm; n1=$(reports); run
+[ "$(cat $ST/confirm)" = "$S 1" ] && grep -q "goback test" $R/srv/app.js && [ "$(reports)" = "$n1" ] \
+  && ok "1 start without the screen: counted, not gone back" || bad "1 start: '$(cat $ST/confirm 2>/dev/null)', app.js $(grep -c 'goback test' $R/srv/app.js)"
+run
+said "GOING BACK to $INST0: the 2 starts after the update did not reach the mixer's screen" && ok "the 2nd: gone back by itself" || bad "not gone back after 2 starts"
+gone_back "by itself"
+[ "$(cat $ST/failed)" = "$S" ] && ok "the update's record is 'failed' (the popup)" || bad "failed: '$(cat $ST/failed 2>/dev/null)'"
+put $P; run
+grep -q "failed before, not tried again" $W/run.out && ! grep -q "goback test" $R/srv/app.js && ok "the same file again: not installed" || bad "the same file installed again"
+rm -f $U/${P##*/} $U/${P##*/}.sig $ST/failed $ST/pending $ST/previous-settings.json
+# by itself, but the put-back fails, and the screen then loads (takes "confirm"): it goes on anyway
+goback; RG=$(cut -d" " -f1 $ST/confirm); echo "$RG 1" > $ST/confirm; chattr +i $R/srv/app.js; run; chattr -i $R/srv/app.js
+rm -f $ST/confirm
+[ "$(head -n 1 $ST/revert)" = "$(sha $ST/previous.tar)" ] && [ "$(sed -n 2p $ST/revert)" = "$RG" ] \
+  && ok "by itself, put-back failed: carried on as a Go Back with the record" || bad "not carried on: revert '$(tr '\n' ' ' < $ST/revert 2>/dev/null)'"
+run; said "did not reach the mixer's screen (going on)" && ok "the start after: went on" || bad "the start after: did not go on"
+gone_back "by itself, the 2nd try"
+[ "$(cat $ST/failed)" = "$RG" ] && ok "the record 'failed' after the 2nd try" || bad "failed after the 2nd try: '$(cat $ST/failed 2>/dev/null)'"
+rm -f $ST/failed $ST/previous-settings.json
+# a snapshot an updater from before #56 left (no note): noted once, '-' for the same version
+chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
+n1=$(reports); run
+[ "$(cat $ST/revertable)" = "$(sha $ST/previous.tar) -" ] && [ "$(reports)" = "$n1" ] && ok "an old snapshot of the same version: noted '-', no report" || bad "old snapshot: '$(cat $ST/revertable 2>/dev/null)'"
+cp -p $ST/installed $W/installed.kept; echo "v9.9.9 (dev-later)" > $ST/installed; rm -f $ST/revertable; run
+[ "$(cat $ST/revertable)" = "$(sha $ST/previous.tar) $INST0" ] && ok "an old snapshot of another version: noted with it" || bad "old snapshot: '$(cat $ST/revertable 2>/dev/null)'"
+cp -p $W/installed.kept $ST/installed; rm -f $ST/revertable $ST/previous.tar $ST/previous.list
+fi
+
+if case_ "80: Go Back that cannot finish (#56): the updater stays, the next start goes on; given up after 3 starts; refused for another snapshot"; then
+goback
+GBU=$(sha $R/usr/local/sbin/dlzmod-update); rm -f $ST/confirm
+cut -d' ' -f1 $ST/revertable > $ST/revert; chattr +i $R/srv/app.js; run
+chattr -i $R/srv/app.js
+said "going back did not finish" && [ "$(sha $R/usr/local/sbin/dlzmod-update)" = "$GBU" ] && [ -s $ST/revert ] && [ "$(cat $ST/revert-tries)" = 1 ] \
+  && ok "a put-back that fails: this updater kept (not its old copy), Go Back kept, 1 try" || bad "after a failed put-back: updater $(sha $R/usr/local/sbin/dlzmod-update | cut -c1-12), tries '$(cat $ST/revert-tries 2>/dev/null)'"
+run; gone_back "the start after"
+rm -f $ST/previous-settings.json
+goback; rm -f $ST/confirm
+cut -d' ' -f1 $ST/revertable > $ST/revert; echo 3 > $ST/revert-tries; run
+said "putting the files back failed 3 times" && said "RESTORE INCOMPLETE" && [ ! -e $ST/revert ] && grep -q "goback test" $R/srv/app.js \
+  && ok "after 3 tries: given up, said so, nothing more written" || bad "not given up after 3 tries"
+printf 'c%.0s' {1..64} > $ST/revert; run
+said "not the one Go Back was chosen for" && [ ! -e $ST/revert ] && grep -q "goback test" $R/srv/app.js && ok "Go Back for another snapshot: refused, nothing changed" || bad "Go Back for another snapshot not refused"
+# back to the card as it was: the snapshot put back by hand
+echo "$(cut -d' ' -f1 $ST/revertable)" > $ST/revert; echo "x9" > $ST/revert-tries; run; gone_back "cleanup (a damaged try count read as 0)"
+rm -f $ST/previous-settings.json
+echo "nocount" > $ST/confirm; run
+[ "$(cat $ST/confirm)" = "nocount 0" ] && ! said "unbound variable" && ok "a damaged start count: started again, the updater went on" \
+  || bad "damaged start count: '$(cat $ST/confirm 2>/dev/null)'"
+rm -f $ST/confirm
+fi
+
 if case_ "63: stops before DLZDATA (not on an SD card): no report file left in /tmp"; then
 chroot $R /usr/local/sbin/dlzmod-update > $W/run.out 2>&1
 grep -q "not on an SD card" $W/run.out && ok "stopped: not on an SD card" || bad "did not stop at the SD check: $(cat $W/run.out)"

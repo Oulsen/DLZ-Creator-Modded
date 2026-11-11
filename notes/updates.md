@@ -24,8 +24,8 @@ previous release (judged by that release's updater, see "Versions and channels")
 needs a full install (it changes a guard, a file outside the updater's allowlist, or the updater's
 own checks; `REINSTALL=yes`) publishes only the image, so nobody tries an update that the card
 would refuse; its notes say so. The tag's build decides this from the package: no update file when
-`REINSTALL_BELOW` (`install/release/reinstall-below`) is the version itself (`ci-build.sh`). v0.1.0, the first release, is image only. Until the full update
-(#56) exists, a full install means copying the recordings off the card first.
+`REINSTALL_BELOW` (`install/release/reinstall-below`) is the version itself (`ci-build.sh`). v0.1.0, the first release, is image only. Until a full update exists
+("Not built yet"), a full install means copying the recordings off the card first.
 
 **A finished card image is never published**: it contains Mackie's system copied from the eMMC.
 Every card is built on its own mixer from that mixer's eMMC (the installer), so only our own files
@@ -428,18 +428,68 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   (`devnum ${mmc_bootdev}`), so the card's own kernel starts and replays the journal [static: the
   dump's U-Boot environment and `boot.cmd`; device review of #266]. The text is checked for U-Boot
   commands that write the eMMC or hardware (`bootscr-check.sh`: `mmc write/erase/...`, `mmc dev 1`,
-  `gpt`, `ums`, `fuse`, `mw`, `i2c`, a write to mmc 1): a mistake, not a hostile signer. Open for
-  #56: a stock script put back by hand is replaced again at the next start (it is in `BOOT_KNOWN`),
-  so #56 needs its own way back (a stop marker or its boot counter). A script it does not know is left as it is and reported once (`boot-left` in the
+  `gpt`, `ums`, `fuse`, `mw`, `i2c`, a write to mmc 1): a mistake, not a hostile signer. A stock
+  script put back by hand is replaced again at the next start (it is in `BOOT_KNOWN`) once a text
+  ships. A script it does not know is left as it is and reported once (`boot-left` in the
   state folder). A normal start costs one sha256 of the 4 KiB file. It applies from the start after.
   No package can still place `boot/`: the text is the updater's own, so a new script comes with a new
   updater (a normal drop-in: its copy is placed last, the script at the start after). A fresh card
   gets it the same way, at its first start. `mkpackage.sh` and `update-checks.sh` check the three
-  against `boot.cmd` (`install/release/bootscr-check.sh`). Until #56, `BOOT_CMD` is empty: nothing is
-  placed [static, PC rehearsal: `tests/update.sh` case 77, both models]. A drop-in never brings an
-  older updater (an older version is refused), so an updater never meets a newer one's script; #56's
-  Revert, which rebuilds with the previous package, must put back the script that package's updater
-  knows itself (its `BOOT_KNOWN` lacks the newer one, which it would leave).
+  against `boot.cmd` (`install/release/bootscr-check.sh`). `BOOT_CMD` is empty: nothing is placed
+  [static, PC rehearsal: `tests/update.sh` case 77, both models]; #56 turned out not to need a
+  script (next bullet), so it waits for #19 or later boot logic. A drop-in never brings an older
+  updater (an older version is refused), so an updater never meets a newer one's script; going back
+  (next bullet) puts back `boot/boot.scr` from the snapshot with the rest, so the older updater finds
+  the script it knows.
+- **Going back to the version before the last update** (#56, v0.6.0; decided 2026-11-11 instead of
+  the full route under "Not built yet"): step 3's snapshot (`previous.tar`/`previous.list`) holds
+  every file an update may change (`SNAP_GLOBS`: the app, the server, the units and drop-ins, the
+  version files, this updater, `boot/boot.scr`), and a drop-in can change nothing else, so putting
+  it back undoes the update whole, without a start-up script or an installer. It stays after an
+  install until the next update's snapshot. `go_back` in the updater, at a start before it looks at
+  update files (not while a cut-off try waits, not with the eMMC writable), with `restore
+  keep-settings`: file by file and atomically as a failed try's put-back, the mixer's settings
+  (`srv/srv_data.json`, its whole live state and the PIN) left as they are now, and the updater's
+  own files last and only when everything else went back, so a cut or failed Go Back leaves this
+  copy, which goes on at the next start (3 starts, then "RESTORE INCOMPLETE" as a failed put-back).
+  Once every file is back, the older updater is back too and knows none of the markers, so they go
+  then; this updater's guard check runs after it as a warning in the report only (the files are
+  the snapshot's, byte for byte, and no retry could change them). A damaged count in `confirm` or
+  `revert-tries` starts again at 0. Install is refused while Go Back is chosen (Go Back runs first
+  and would drop the approval). Order in `restore`: the other files, then what the update added is
+  removed (never `srv_data.json` with keep-settings), then this script's own files, so an older copy
+  never has to finish a put-back. An automatic one whose put-back fails goes on as a Go Back
+  (`revert` with the record on its second line): the screen may load on the half-put-back card and
+  take `confirm` away. The first update installed by an updater from before #56 writes no `confirm`
+  (that update has no automatic way back; Go Back is offered from the start after it). Device review
+  (2026-11-11, accepted): Go Back to a snapshot from an updater whose `SNAP_GLOBS` were narrower would
+  delete the files only the wider list has (v0.1/v0.2 lacked the audio graphs; unreachable, below
+  v0.3.0 only a full install updates; widening `SNAP_GLOBS` later must check this); a cut between the
+  renames of `previous.list` and `previous.tar` leaves a mismatched pair (an approved update then
+  takes a new snapshot at that start); `restore` puts `boot/boot.scr` back with a plain rename,
+  without `place_bootscr`'s kept copy: check before the first `BOOT_CMD` text ships.
+  The snapshot's settings are kept aside as `previous-settings.json` (root only, 600; not on DLZDATA:
+  the PIN); the snapshot itself is removed, so there is one step back, not a history. The state
+  files: `revertable` ("<sha256 of previous.tar> <installed label in it>", or `-` when going back
+  would not change the version; written by an install, or once at a start for a snapshot an updater
+  from before #56 took; removed with every new snapshot), `revert` (that sha256: **Go Back** on
+  the Mod page, the mixer's own screen only, refused while an approved update waits; **Don't Go
+  Back** takes it away; a sum that is not the snapshot's is refused at the start), `confirm` ("<the
+  installed file's record> <n>": an install writes it with 0, the server mod removes it when the
+  mixer's own screen loads (GUI_LOADED); each start without that counts one, and the third start
+  without it goes back by itself and writes the record to `failed`, so the screen shows "not
+  installed" with the report, and the same file is not installed again). The older version then
+  shows its own "Updated to" popup (manual Go Back). Limits: the automatic way back needs the new
+  updater and its count to run at all (a package whose updater cannot run cannot go back by
+  itself: remove the card, reinstall); two starts that hang at Mackie's loading screen for another
+  reason (#81) count too, and so do two starts switched off before the screen came (the update is then
+  undone and its file refused, the report says why; accepted: rare, and a safe way to be wrong); the
+  next update's snapshot replaces this one, also when that update fails, so after a failed update
+  Go Back offers only the version that was running. **Settings keys**: because going back keeps the settings, a version may
+  add keys to `srv_data.json` but never change what an existing key means; the older version's
+  server loads the file over its own defaults and ignores keys it does not know [static:
+  `node-backend.md`, "State persistence"; the mod only adds missing keys, `set_mod_defaults`]
+  [static, PC rehearsal: `tests/update.sh` cases 78-80, both models].
 - **No full install before v1.0** (decided at v0.3.0, the last full install so far): the boot logic
   of #56 and #19 comes as above, at the highest device-review tier; a bad card `boot.scr` costs a
   reflash of the card, never the mixer, which starts stock without it. DLZDATA stays FAT32: exFAT (#22) would change
@@ -660,7 +710,9 @@ mixer]:
 
 ## Not built yet
 
-- **Full update and undo** (#56), for what the drop-in cannot do (boot visuals, card layout):
+- **Full update** (no issue yet; going back for drop-ins is built, #56, "Going back to the version
+  before the last update" above), for what the drop-in cannot do (boot visuals, card layout), and a
+  way back that does not need the mod's updater to run:
   "Install" on the Mod page sets a one-shot flag on DLZDATA and restarts; the card's `boot.scr` (the
   updater's fixed text, #221: "The sandbox and the trust boundary") sees it and boots the installer path (Mackie's kernel from the eMMC + the package's initramfs) in update
   mode: rebuild the system partition from the eMMC, carry over the state (`srv_data.json`, presets,

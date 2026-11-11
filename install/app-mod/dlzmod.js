@@ -1184,6 +1184,35 @@ function DLZMOD_updateApproved(r) {
   });
 }
 
+// #56: the version before the last update, to go back to ({sum, version, asked}), or null
+// (dlzmod-server.js, DLZMOD_updateRevertFrom)
+function DLZMOD_updateRevertable() {
+  const r = (DLZMOD_setUpdateStatus.s || {}).revert;
+  return r && r.sum ? r : null;
+}
+
+// Go Back on the Mod page: asked first (the settings stay); once chosen, the same button takes it back
+function DLZMOD_askRevert(r) {
+  if (!r) return;
+  if (r.asked) return $NET.cmd("DLZMOD_UPDATE_REVERT", { sum: r.sum, cancel: true });
+  askConfirm("Go back to " + r.version + "?\nThe mixer's settings stay as they are.\nIt goes back at the next start.", {
+    title: DLZMOD_tabLabel() + " update", font: Font.font(500, "17pt"), textDY: 32,
+    buttons: [
+      { text: "Go Back", textStyle: { font: Font.font(600, "16pt") }, textColors: [Color.main, Color.white], colors: [Color.confirm, Color.main] },
+      { text: "Cancel", textStyle: { font: Font.font(600, "16pt") } },
+    ],
+  }, () => $NET.cmd("DLZMOD_UPDATE_REVERT", { sum: r.sum }));
+}
+
+// Go Back's answer: what to do now (switch off and on), or why not
+function DLZMOD_updateReverted(r) {
+  if (!r) return;
+  showMessage(r.text, {
+    title: DLZMOD_tabLabel() + " update", textColor: r.ok ? Color.green : Color.red2,
+    font: Font.font(500, "17pt"), textDY: 32,
+  });
+}
+
 // The card's check before the FPGA loader failed (sd-system/dlzmod-cardcheck): no audio this start.
 // Shown at every start while it fails, red as Mackie's failure popups; text from the check itself.
 function DLZMOD_showCardNote(text) {
@@ -1217,6 +1246,8 @@ function DLZMOD_updatePending() {
 function DLZMOD_updateRow() {
   const p = DLZMOD_updatePending();
   if (p && p.approved) return [p.version + " installs at the next start: switch the mixer off and on", DLZMOD_accent()];
+  const back = DLZMOD_updateRevertable();
+  if (back && back.asked) return ["Goes back to " + back.version + " at the next start: switch the mixer off and on", DLZMOD_accent()];
   if (p && (DLZMOD_setUpdateStatus.s || {}).local) return ["Update " + p.version + " is on the card", DLZMOD_accent()];
   if (p) return ["Update " + p.version + " is on the card: install it on the mixer's own screen", DLZMOD_accent()];
   const r = DLZMOD_release();
@@ -2517,11 +2548,24 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
         visible: !!DLZMOD_versionNotes(),
         onPress: () => DLZMOD_releaseNotes({ version: DLZMOD_version(), notes: DLZMOD_versionNotes() }),
       });
+      // #56: back to the version before the last update (the mixer's own screen), after What's New
+      this.back = new E1Button(this, {
+        anchors: [240, 112], size: [150, 46], text: "Go Back...",
+        onPress: () => DLZMOD_askRevert(DLZMOD_updateRevertable()),
+      });
       this.syncInstall();
     },
     syncInstall: function () {
       const p = DLZMOD_updatePending();
       this.install.setVisible(!!p && !p.approved && !!(DLZMOD_setUpdateStatus.s || {}).local);
+      const back = DLZMOD_updateRevertable();
+      this.back.setVisible(!!back && !!(DLZMOD_setUpdateStatus.s || {}).local && !(p && p.approved));
+      const backText = back && back.asked ? "Don't Go Back" : "Go Back...";
+      if (this.back.text !== backText) {
+        this.back.text = backText;
+        this.back.update();
+      }
+      this.back.setAnchors(this.notes.visible ? 426 : 240, 112);
       this.usb.setVisible(!DLZMOD_external() && !p);
       const r = DLZMOD_release();
       const text = r.state === "newer" && !p ? "Download Update..." : "Check for Updates...";

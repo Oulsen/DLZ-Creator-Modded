@@ -81,9 +81,10 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
 36. Is the full-size's stock `/boot/boot.scr` byte for byte the XS's (sha256 `19ddc05a…`, build
     1731)? Same firmware build, so probably [guess]. The updater replaces only a script it knows
     (#221, [updates.md](updates.md) "The card's start-up script by fixed text"): if it differs, a
-    full-size card keeps its own and says so once in an update report, and #56's script would not
-    reach it. Answer before #56 ships: `sha256sum /boot/boot.scr` on a full-size (owner, over SSH or
-    the boot report).
+    full-size card keeps its own and says so once in an update report, and a script the updater
+    ships would not reach it. #56 needs no script after all (updates.md, "Going back"); answer before
+    the first `BOOT_CMD` text ships (#19 or later): `sha256sum /boot/boot.scr` on a full-size (owner,
+    over SSH or the boot report).
 
 ## Installer boot
 

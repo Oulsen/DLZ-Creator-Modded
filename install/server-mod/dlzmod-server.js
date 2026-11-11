@@ -181,8 +181,70 @@ function DLZMOD_updateStatusFrom(f, local = false) {
     installed: f("installed"),
     failed: f("failed") ? "Last update not installed: see " + report + " on the card" : "",
     pending: DLZMOD_updatePendingFrom(f),
+    revert: DLZMOD_updateRevertFrom(f),
     local: local,
   };
+}
+
+// #56: going back to the version before the last update (sd-system/dlzmod-update, go_back). The
+// updater writes "revertable": "<sha256 of its snapshot> <installed label in it>" ("-" for no other
+// version); Go Back writes that sha256 to "revert", and the next start puts the snapshot back, the
+// settings kept. Pure part: {sum, version, asked} or null
+function DLZMOD_updateRevertFrom(f) {
+  const m = /^([0-9a-f]{64}) (\S.*)$/.exec(f("revertable"));
+  if (!m || m[2] === "-") return null;
+  return { sum: m[1], version: m[2], asked: f("revert") === m[1] };
+}
+
+// Go Back (args {sum}) or its Cancel (args {sum, cancel: true}), from the mixer's own screen only (also
+// in DLZMOD_SCREEN_ONLY), as Install. Not while an update waits to be installed at the next start
+function DLZMOD_updateRevert(args, send, dir = "/var/lib/dlzmod-update") {
+  const reply = (cmd, data) => {
+    try {
+      send({ cmd: cmd, id: 0, data: data });
+    } catch (e) {}
+  };
+  const result = (ok, text) => reply("DLZMOD_UPDATE_REVERTED", { ok: ok, text: text });
+  const local = !!(send && send.dlzmodLocal === true);
+  if (!local) return result(false, "Going back can only be chosen\non the mixer's own screen.");
+  const f = DLZMOD_updateFile(dir);
+  const r = DLZMOD_updateRevertFrom(f);
+  const a = args && typeof args === "object" ? args : {};
+  if (!r || a.sum !== r.sum) return result(false, "There is no earlier version to go back to.");
+  const p = DLZMOD_updatePendingFrom(f);
+  if (!a.cancel && p && p.approved) {
+    return result(false, "Update " + p.version + " installs at the next start.\nGo back after it, if needed.");
+  }
+  try {
+    if (a.cancel) {
+      if (r.asked) {
+        require("fs").unlinkSync(dir + "/revert");
+        DLZMOD_syncDir(dir);
+      }
+    } else if (!r.asked) {
+      DLZMOD_writeDurable(dir + "/revert", r.sum + "\n", 0o644);
+    }
+  } catch (e) {
+    console.error("dlzmod: going back not saved:", e.message);
+    return result(false, "The choice could not be saved on the card.\nTry again.");
+  }
+  console.log("dlzmod: going back to " + r.version + (a.cancel ? " cancelled" : " chosen") + " on the screen");
+  result(true, a.cancel ? "Staying on " + (f("installed") || "this version") + "." :"Goes back to " + r.version + " at the next start.\nSwitch the mixer off and on.");
+  reply("DLZMOD_UPDATE_STATUS", DLZMOD_updateStatusFrom(f, local));
+}
+
+// #56: the mixer's own screen loaded, so this start got that far: the updater's count of starts after
+// an update that did not ("confirm") is over. Flushed: the mixer may be switched off right after
+function DLZMOD_startReached(dir = "/var/lib/dlzmod-update") {
+  const fs = require("fs");
+  try {
+    fs.unlinkSync(dir + "/confirm");
+  } catch (e) {
+    if (e.code !== "ENOENT") console.error("dlzmod: start after the update not noted:", e.message);
+    return;
+  }
+  console.log("dlzmod: the start after the update reached the screen");
+  DLZMOD_syncDir(dir);
 }
 
 // #65: an update is installed only after Install on the mixer's own screen. At every start the
@@ -214,6 +276,11 @@ function DLZMOD_updateApprove(args, send, dir = "/var/lib/dlzmod-update") {
   const p = DLZMOD_updatePendingFrom(f);
   const a = args && typeof args === "object" ? args : {};
   if (!p || a.sum !== p.sum) return result(false, "This update is no longer waiting on the card.");
+  // #56: Go Back runs first at the next start and drops an approval, so not both at once
+  const r = DLZMOD_updateRevertFrom(f);
+  if (r && r.asked) {
+    return result(false, "Going back to " + r.version + " is chosen for the next start.\nChoose Don't Go Back first.");
+  }
   try {
     if (!p.approved) DLZMOD_writeDurable(dir + "/approved", p.sum + "\n", 0o644);
   } catch (e) {
@@ -252,6 +319,7 @@ function DLZMOD_updateNoteSend(send, dir = "/var/lib/dlzmod-update", cardNote = 
     const local = !!(send && send.dlzmodLocal === true);
     // the mixer's own screen, for the question right after an upload (#207, DLZMOD_uploadAsk)
     if (local) DLZMOD_updateNoteSend.screen = send;
+    if (local) DLZMOD_startReached(dir);
     const status = DLZMOD_updateStatusFrom(f, local);
     send({ cmd: "DLZMOD_UPDATE_STATUS", id: 0, data: status });
     const note = DLZMOD_updateNoteFrom(f);
@@ -341,12 +409,13 @@ function DLZMOD_isLocal(address) {
 // - loading samples from a path, formatting the USB stick, a factory reset and restarting the screen
 //   (RESTART_GUI: a few in a row run evolve-app into systemd's start limit, the screen stays dark
 //   until a power cycle): only from the mixer's own screen
-// - installing a mod update (#65): only from the mixer's own screen, always (also not paired devices)
+// - installing a mod update (#65) or going back (#56): only from the mixer's own screen, always (also
+//   not paired devices)
 // - for everyone: preset folders only Mackie's own, names only plain names (no folder in them)
 // - from other devices: a track to play only from the SD card or the USB stick
 const DLZMOD_SCREEN_ONLY = ["MEDIA_DELETE", "MEDIA_RENAME", "PRESET_DELETE", "PRESET_RENAME", "SNAP_DELETE",
   "SNAP_RENAME", "SAMPLE_LOAD", "SAMPLE_PREVIEW_START", "FORMAT_USB", "FACTORY_RESET", "RESET", "RESTART_GUI",
-  "DLZMOD_UPDATE_APPROVE"];
+  "DLZMOD_UPDATE_APPROVE", "DLZMOD_UPDATE_REVERT"];
 const DLZMOD_PAIRED_FILES = ["MEDIA_DELETE", "MEDIA_RENAME", "PRESET_DELETE", "PRESET_RENAME", "SNAP_DELETE", "SNAP_RENAME"];
 // server.js's recordings folders (full-size, XS), on the SD card and the USB stick
 const DLZMOD_REC_DIRS = ["DLZ_Creator_Recordings", "DLZ_Creator_XS_Recordings"];
