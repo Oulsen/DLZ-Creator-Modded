@@ -441,8 +441,8 @@ issue's technical notes point to the note section instead of copying it.
   on the mixer (the app or server mod, `patch.py`, units, the updater, `install/**`); docs and DEV
   PRs go straight from the review to the merge. Such a PR goes `/pr` → `/code-review` → fixes →
   device review (`.claude/skills/device-review`, at the change's tier, on the PR's final diff) → a
-  drop-in of the PR branch on the dev card (`dev/push.sh`, "Dev card" above), where the maintainer looks at it →
-  merge. So `develop` only holds changes that were reviewed for the device and seen on the mixer. A
+  drop-in of the PR branch on the dev card (`dev/push.sh`, "Dev card" above), where the maintainer
+  looks at it → merge. So `develop` only holds changes that were reviewed for the device and seen on the mixer. A
   fix from the device review or the drop-in is a new commit on the PR; the device review reads it
   again at its tier, and the drop-in shows it. A change a drop-in cannot carry (a full install, see
   "Dev card") gets its device review before the merge and is tried with the next dev install image.
