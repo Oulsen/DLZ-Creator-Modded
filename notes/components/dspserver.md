@@ -127,8 +127,10 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   (`0x19304`) turns every 10 ms (`usleep 10000` at `0x19330`); while it is not stopping (flag
   `0x2a250c`, read by `0x33880`) and on the XS (the `/root/.dlzlite` flag), each turn calls `0x38288`
   (at `0x19440`). That returns at once while PH2 is high; while PH2 is low it sets up the AKM DAC and
-  ADC again, logging `Initialising AKM DAC...` / `ADC...` again. So PH2 is a hardware "codecs need
-  setting up" signal: low after power-on until the setup, high after it [device: see below]. No kernel
+  ADC again, logging `Initialising AKM DAC...` / `ADC...` again. So PH2 reads as a hardware "codecs need
+  setting up" signal [guess]: it was high whenever the loop ran so far (no second setup in any start,
+  below) and long after the setup [device: see below]; whether it is low before the setup, the pin log
+  (#261) will show. No kernel
   or Mackie program drives PH2, so another chip on the board holds it low and lets go [guess: the GD32
   or the codec]. If a codec lost its settings while PH2 stayed high, this repair would not run and
   the outputs would stay silent until a reboot [guess, a candidate for the silent starts]. A repair
@@ -137,8 +139,9 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
 - **The restart's lines were lost in the network log** [device]: the restarted dspserver of 2026-11-11
   shows `DLZ Lite detected`, then the kernel's `set_cpus_allowed_ptr` dump cut off after 15 of its 26
   lines, then `Audio initialisation is done.`; every other start in the same log has the 6 PLL and 2
-  AKM lines in between. A burst of ~24 lines was dropped (UDP, `docs/DEVELOPMENT.md` "Dev card: test builds over Wi-Fi"), so
-  a missing line in the network log proves nothing; the journal or the boot log copy on DLZDATA does.
+  AKM lines in between. A burst of ~24 lines was dropped (UDP, `docs/DEVELOPMENT.md` "Dev card: test
+  builds over Wi-Fi"), so a missing line in the network log proves nothing; the journal or the boot
+  log copy on DLZDATA does.
 - **PH0, PH1 and PH2 high after the setup** [device, XS dev card, 2026-11-11]: `PH_DAT` read `0x1007`
   (PH0, PH1, PH2 and PH12 high; PH0/PH1 outputs, PH2 input with pull-up) 75 s into a start with sound
   and 2.4 h into another. The dev card logs these pins through the first 120 s of each start (#261),
