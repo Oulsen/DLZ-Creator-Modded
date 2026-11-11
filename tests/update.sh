@@ -1045,6 +1045,15 @@ gone_back "by itself"
 put $P; run
 grep -q "failed before, not tried again" $W/run.out && ! grep -q "goback test" $R/srv/app.js && ok "the same file again: not installed" || bad "the same file installed again"
 rm -f $U/${P##*/} $U/${P##*/}.sig $ST/failed $ST/pending $ST/previous-settings.json
+# by itself, but the put-back fails, and the screen then loads (takes "confirm"): it goes on anyway
+goback; RG=$(cut -d" " -f1 $ST/confirm); echo "$RG 1" > $ST/confirm; chattr +i $R/srv/app.js; run; chattr -i $R/srv/app.js
+rm -f $ST/confirm
+[ "$(head -n 1 $ST/revert)" = "$(sha $ST/previous.tar)" ] && [ "$(sed -n 2p $ST/revert)" = "$RG" ] \
+  && ok "by itself, put-back failed: carried on as a Go Back with the record" || bad "not carried on: revert '$(tr '\n' ' ' < $ST/revert 2>/dev/null)'"
+run; said "did not reach the mixer's screen (going on)" && ok "the start after: went on" || bad "the start after: did not go on"
+gone_back "by itself, the 2nd try"
+[ "$(cat $ST/failed)" = "$RG" ] && ok "the record 'failed' after the 2nd try" || bad "failed after the 2nd try: '$(cat $ST/failed 2>/dev/null)'"
+rm -f $ST/failed $ST/previous-settings.json
 # a snapshot an updater from before #56 left (no note): noted once, '-' for the same version
 chroot $R /bin/bash -c '. /tmp/snap.sh; ROOT=; snap_list > /var/lib/dlzmod-update/previous.list && tar -cpf /var/lib/dlzmod-update/previous.tar -C / -T /var/lib/dlzmod-update/previous.list'
 n1=$(reports); run

@@ -248,8 +248,8 @@ clean_new() {   # half-written files from a write cut off before its rename (put
 SELF_FILES='^(usr/local/sbin/dlzmod-update|etc/systemd/system/dlzmod-update\.service|etc/systemd/system/multi-user\.target\.wants/dlzmod-update\.service)$'
 # restore [keep-settings]: the snapshot back, and what the update added removed; not stopped halfway by
 # a TERM. keep-settings (#56, going back): the mixer's settings (srv_data.json) stay as they are now.
-# This script's own files go last, and only when everything else went back: a cut-off or failed
-# put-back leaves this copy in place, which goes on with it at the next start
+# This script's own files go last (after what the update added is removed), and only when everything
+# else went back: a cut-off or failed put-back leaves this copy in place, which goes on at the next start
 restore() {
   local r f t ok=yes
   trap '' TERM INT
@@ -257,22 +257,30 @@ restore() {
     || { [ -z "$r" ] || rm -rf "$r"; trap on_term TERM INT; return 1; }
   # file by file, atomically and only where it differs (like apply-mod.sh's put_file): the guards,
   # unchanged, are not touched at all
-  while IFS= read -r f; do
-    if [ "$f" = "-- self" ]; then [ "$ok" = yes ] && continue || break; fi
+  put_back() {
+    while IFS= read -r f; do
+      [ "${1:-}" = keep-settings ] && [ "$f" = srv/srv_data.json ] && continue
+      if [ -L "$r/$f" ]; then
+        t=$(readlink "$r/$f")
+        [ -L "$ROOT/$f" ] && [ "$(readlink "$ROOT/$f")" = "$t" ] && continue
+        ln -sfn "$t" "$ROOT/$f.dlzmod-new" && mv -Tf "$ROOT/$f.dlzmod-new" "$ROOT/$f" || ok=no
+      else
+        [ -f "$ROOT/$f" ] && [ ! -L "$ROOT/$f" ] && cmp -s "$r/$f" "$ROOT/$f" \
+          && [ "$(stat -c %a "$r/$f")" = "$(stat -c %a "$ROOT/$f")" ] && continue
+        mkdir -p "$(dirname "$ROOT/$f")" && cp -p "$r/$f" "$ROOT/$f.dlzmod-new" && sync "$ROOT/$f.dlzmod-new" \
+          && mv -f "$ROOT/$f.dlzmod-new" "$ROOT/$f" || ok=no
+      fi
+    done
+  }
+  put_back "${1:-}" < <(grep -Ev "$SELF_FILES" "$STATE/previous.list")
+  # what the update added goes before this script's own files: an older copy may not know to finish it
+  snap_list | comm -13 "$STATE/previous.list" - | while IFS= read -r f; do
     [ "${1:-}" = keep-settings ] && [ "$f" = srv/srv_data.json ] && continue
-    if [ -L "$r/$f" ]; then
-      t=$(readlink "$r/$f")
-      [ -L "$ROOT/$f" ] && [ "$(readlink "$ROOT/$f")" = "$t" ] && continue
-      ln -sfn "$t" "$ROOT/$f.dlzmod-new" && mv -Tf "$ROOT/$f.dlzmod-new" "$ROOT/$f" || ok=no
-    else
-      [ -f "$ROOT/$f" ] && [ ! -L "$ROOT/$f" ] && cmp -s "$r/$f" "$ROOT/$f" \
-        && [ "$(stat -c %a "$r/$f")" = "$(stat -c %a "$ROOT/$f")" ] && continue
-      mkdir -p "$(dirname "$ROOT/$f")" && cp -p "$r/$f" "$ROOT/$f.dlzmod-new" && sync "$ROOT/$f.dlzmod-new" \
-        && mv -f "$ROOT/$f.dlzmod-new" "$ROOT/$f" || ok=no
-    fi
-  done < <(grep -Ev "$SELF_FILES" "$STATE/previous.list"; echo "-- self"; grep -E "$SELF_FILES" "$STATE/previous.list")
-  snap_list | comm -13 "$STATE/previous.list" - | while IFS= read -r f; do rm -f "$ROOT/$f" && echo "removed /$f (added by the update)" >> "$REPORT"; done
+    rm -f "$ROOT/$f" && echo "removed /$f (added by the update)" >> "$REPORT"
+  done
   extra_dropins | while IFS= read -r f; do rm -rf "$ROOT$f" && echo "removed $f (could override a guard)" >> "$REPORT"; done
+  sync
+  [ "$ok" != yes ] || put_back "${1:-}" < <(grep -E "$SELF_FILES" "$STATE/previous.list")
   rm -rf "$r"
   clean_new
   sync
@@ -529,6 +537,9 @@ go_back() {
   [ -z "$CHECK_ONLY" ] && [ ! -s "$STATE/inprogress" ] || return 0
   if [ -s "$STATE/revert" ]; then
     why="Go Back was chosen on the mixer's screen"
+    # line 2: the record of an automatic one that did not finish (below), carried to its retry
+    rec=$(sed -n '2{s/ .*//;p;q}' "$STATE/revert")
+    [ -z "$rec" ] || why="the 2 starts after the update did not reach the mixer's screen (going on)"
   elif [ -s "$STATE/confirm" ]; then
     c=$(head -n 1 "$STATE/confirm"); n=${c##* }
     case "$c" in *" "*) ;; *) n=x ;; esac
@@ -540,6 +551,7 @@ go_back() {
     why="the 2 starts after the update did not reach the mixer's screen"
     rec=${c%% *}
   else
+    rm -f "$STATE/revert-tries"   # left by a Go Back that was taken back (Don't Go Back)
     # a snapshot without a note (an updater from before #56 took it): once, then cached
     if [ -f "$STATE/previous.tar" ] && [ ! -e "$STATE/revertable" ]; then
       label=$(revert_label)
@@ -554,7 +566,7 @@ go_back() {
     rm -f "$STATE/revert" "$STATE/confirm" "$STATE/revertable"; sync; return 0
   fi
   sum=$(sha256sum < "$STATE/previous.tar" | cut -d' ' -f1)
-  if [ -s "$STATE/revert" ] && [ "$(cat "$STATE/revert")" != "$sum" ]; then
+  if [ -s "$STATE/revert" ] && [ "$(head -n 1 "$STATE/revert")" != "$sum" ]; then
     log "NOT GONE BACK: the copy on the card is not the one Go Back was chosen for"
     rm -f "$STATE/revert"; sync; return 0
   fi
@@ -589,6 +601,8 @@ go_back() {
     [ -n "$ROOT" ] || udevadm control --reload 2>/dev/null
   else
     log "going back did not finish (this updater stays): the next start tries again"
+    # an automatic one: the screen may load now and take "confirm" away, so it goes on as a Go Back
+    [ -z "$rec" ] || put_state revert "$(printf '%s\n%s' "$sum" "$rec")" || true
   fi
   exit 0
 }

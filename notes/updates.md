@@ -456,7 +456,18 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   then; this updater's guard check runs after it as a warning in the report only (the files are
   the snapshot's, byte for byte, and no retry could change them). A damaged count in `confirm` or
   `revert-tries` starts again at 0. Install is refused while Go Back is chosen (Go Back runs first
-  and would drop the approval).
+  and would drop the approval). Order in `restore`: the other files, then what the update added is
+  removed (never `srv_data.json` with keep-settings), then this script's own files, so an older copy
+  never has to finish a put-back. An automatic one whose put-back fails goes on as a Go Back
+  (`revert` with the record on its second line): the screen may load on the half-put-back card and
+  take `confirm` away. The first update installed by an updater from before #56 writes no `confirm`
+  (that update has no automatic way back; Go Back is offered from the start after it). Device review
+  (2026-11-11, accepted): Go Back to a snapshot from an updater whose `SNAP_GLOBS` were narrower would
+  delete the files only the wider list has (v0.1/v0.2 lacked the audio graphs; unreachable, below
+  v0.3.0 only a full install updates; widening `SNAP_GLOBS` later must check this); a cut between the
+  renames of `previous.list` and `previous.tar` leaves a mismatched pair (an approved update then
+  takes a new snapshot at that start); `restore` puts `boot/boot.scr` back with a plain rename,
+  without `place_bootscr`'s kept copy: check before the first `BOOT_CMD` text ships.
   The snapshot's settings are kept aside as `previous-settings.json` (root only, 600; not on DLZDATA:
   the PIN); the snapshot itself is removed, so there is one step back, not a history. The state
   files: `revertable` ("<sha256 of previous.tar> <installed label in it>", or `-` when going back
