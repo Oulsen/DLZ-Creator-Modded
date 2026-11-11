@@ -147,20 +147,17 @@ withboot "$(cat "$bc")" ""; sum=$(bash install/release/bootscr-check.sh "$bu" "$
 [ ${#sum} = 64 ] || bad "start-up script: no image sum from a test text"
 withboot "$(cat "$bc")" "$sum"
 out=$(bash install/release/bootscr-check.sh "$bu" "$bc") && ok "start-up script: a test text with its sum passes" || bad "start-up script: a test text with its sum refused: $out"
-# the image is U-Boot's: magic, both CRCs, script type, the text after its length table
-python3 -I - "$bu" "$bc" << 'EOF' && ok "start-up script: the image's header and CRCs" || bad "start-up script: the image is not a valid script image"
-import struct, subprocess, sys, tempfile, zlib
-with tempfile.NamedTemporaryFile() as f:
-    subprocess.run(["bash", "-c", 'eval "$(sed -n -e "/^BOOT_CMD=\\$(cat << .BOOT_EOF.$/,/^)$/p" -e "/^boot_image() {/,/^}$/p" "$1")"; boot_image "$2"', "-", sys.argv[1], f.name], check=True)
-    img = open(f.name, "rb").read()
-h, d = bytearray(img[:64]), img[64:]
-magic, hcrc, time, size, load, ep, dcrc, os_, arch, typ, comp = struct.unpack(">7I4B", h[:32])
-h[4:8] = b"\0\0\0\0"
-text = open(sys.argv[2], "rb").read()
-assert magic == 0x27051956 and hcrc == zlib.crc32(h) and size == len(d) and dcrc == zlib.crc32(d)
-assert (os_, arch, typ, comp, time, load, ep) == (5, 2, 6, 0, 0, 0, 0)
-assert d[:8] == struct.pack(">II", len(text), 0) and d[8:] == text
-EOF
+# the image is the one the installer's own maker (install/dumper/mkscr.py, as mkimage) makes of the
+# same text, time 0, no name; also for a text with a lone ")" line (the end of BOOT_CMD's heredoc)
+for txt in "$(cat "$bc")" "$(printf 'echo a\n)\necho b')"; do
+  printf '%s\n' "$txt" > "$TMP/t.cmd"
+  bash -c 'eval "$(bash install/release/bootscr-check.sh --code "$1")"; BOOT_CMD=$(cat "$2"); boot_image "$3"' - "$bu" "$TMP/t.cmd" "$TMP/ours.scr"
+  SOURCE_DATE_EPOCH=0 python3 -I install/dumper/mkscr.py -n '' "$TMP/t.cmd" "$TMP/ref.scr" > /dev/null
+  cmp -s "$TMP/ours.scr" "$TMP/ref.scr" && ok "start-up script: the image = mkscr.py's ($(wc -l < "$TMP/t.cmd") lines)" || bad "start-up script: the image differs from mkscr.py's"
+done
+withboot "$(printf 'echo a\n)\necho b')" ""
+[ "$(bash -c 'eval "$(bash install/release/bootscr-check.sh --code "$1")"; printf %s "$BOOT_CMD"' - "$bu")" = "$(printf 'echo a\n)\necho b')" ] \
+  && ok "start-up script: a lone ')' line stays in BOOT_CMD" || bad "start-up script: a lone ')' line cuts BOOT_CMD"
 withboot "$(cat "$bc")" "$(printf '%064d' 0)"
 bash install/release/bootscr-check.sh "$bu" "$bc" > /dev/null && bad "start-up script: a wrong BOOT_SUM passes" || ok "start-up script: a wrong BOOT_SUM refused"
 withboot "$(cat "$bc")" "$sum"

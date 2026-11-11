@@ -957,7 +957,7 @@ B=$R/boot/boot.scr
 [ "$(sha $B)" = 19ddc05aab827c44cb055cdde67142c5e68594d5167cf341ce589161ab7867e8 ] && ok "the card's script is the stock one BOOT_KNOWN names" || bad "the card's script is not the stock one: $(sha $B)"
 # the updater's image maker, run on the card's own boot.cmd with stock's time stamp: stock's script
 # byte for byte (so U-Boot reads ours as it reads Mackie's)
-eval "$(sed -n -e "/^BOOT_CMD=\$(cat << 'BOOT_EOF'$/,/^)$/p" -e '/^boot_image() {/,/^}$/p' "$REPO/install/sd-system/dlzmod-update")"
+eval "$(bash $REPO/install/release/bootscr-check.sh --code "$REPO/install/sd-system/dlzmod-update")"
 BOOT_CMD=$(cat $R/boot/boot.cmd); boot_image $W/stock.img
 python3 -I - $W/stock.img $B << 'EOF' && ok "the card's boot.cmd made into an image = its boot.scr" || bad "the image of the card's boot.cmd differs from its boot.scr"
 import struct, sys, zlib
@@ -972,7 +972,7 @@ BOOT_CMD=$(cat $W/boot.cmd); boot_image $W/boot.img; BSUM=$(sha $W/boot.img)
 T="$(cat $W/boot.cmd)" S=$BSUM awk '/^BOOT_SUM="/ { print "BOOT_SUM=\"" ENVIRON["S"] "\""; next }
   { print } /^BOOT_CMD=\$\(cat << .BOOT_EOF.$/ { print ENVIRON["T"] }' <<< "$NEWU" > $R/usr/local/sbin/dlzmod-update
 bash $REPO/install/release/bootscr-check.sh $R/usr/local/sbin/dlzmod-update $W/boot.cmd > /dev/null && ok "the test updater passes bootscr-check.sh" || bad "the test updater fails bootscr-check.sh"
-rm -f $B.dlzmod-stock $ST/boot-left
+rm -f $B.dlzmod-stock $B.dlzmod-prev $ST/boot-left
 put "$PKG"; rm -f $ST/approved; n1=$(reports); run_asking
 [ "$(sha $B)" = "$(sha $W/boot.scr.kept)" ] && ok "an update file waits: not placed" || bad "placed while an update file waits"
 rm -f $U/${PKG##*/} $U/${PKG##*/}.sig $ST/pending
@@ -982,13 +982,15 @@ chattr -i $R/srv/app.js; n1=$(reports); run
 said "previous files restored" && said "placed the card's start-up script (#221" && [ "$(sha $B)" = "$BSUM" ] && [ "$(stat -c %a $B)" = 644 ] \
   && ok "put back, then placed in the same start (644, the updater's image)" || bad "not placed after the put-back ($(sha $B | cut -c1-12))"
 backnow "put-back before the start-up script"
-cmp -s $B.dlzmod-stock $W/boot.scr.kept && ok "stock kept as boot.scr.dlzmod-stock" || bad "stock not kept next to it"
+cmp -s $B.dlzmod-stock $W/boot.scr.kept && [ "$(stat -c %i $B.dlzmod-stock)" = "$(stat -c %i $B.dlzmod-prev)" ] && [ "$(stat -c %i $B.dlzmod-stock)" != "$(stat -c %i $B)" ] \
+  && ok "stock kept as boot.scr.dlzmod-stock and -prev, the old inode (hard links)" || bad "stock not kept next to it as the old inode"
 n1=$(reports); run; [ "$(reports)" = "$n1" ] && ! grep -q "start-up script" $W/run.out && ok "the start after: nothing to place, no report" || bad "the start after: placed again or reported"
 printf 'X' >> $B; before=$(sha $B); n1=$(reports); run
 [ "$(sha $B)" = "$before" ] && said "not one this updater knows" && [ "$(reports)" = "$((n1 + 1))" ] && ok "an unknown script: left as it is, one report" || bad "an unknown script changed or not reported"
 n1=$(reports); run; [ "$(sha $B)" = "$before" ] && [ "$(reports)" = "$n1" ] && ok "an unknown script: said once" || bad "an unknown script reported again"
 cmp -s $B.dlzmod-stock $W/boot.scr.kept && ok "the stock copy left as it was" || bad "the stock copy changed"
-cp -p $W/boot.scr.kept $B; rm -f $B.dlzmod-stock $ST/boot-left
+cp $W/boot.img $B; run; [ ! -e $ST/boot-left ] && ok "the placed script back: the note on the unknown one cleared" || bad "boot-left kept with the placed script back"
+cp -p $W/boot.scr.kept $B; rm -f $B.dlzmod-stock $B.dlzmod-prev $ST/boot-left
 printf '%s\n' "$NEWU" > $R/usr/local/sbin/dlzmod-update; chmod 755 $R/usr/local/sbin/dlzmod-update
 n1=$(reports); run; [ "$(sha $B)" = "$(sha $W/boot.scr.kept)" ] && [ "$(reports)" = "$n1" ] && ok "the shipped updater (no text yet): stock left, no report" || bad "the shipped updater changed the script or reported"
 fi

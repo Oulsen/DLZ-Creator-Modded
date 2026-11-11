@@ -4,7 +4,7 @@
 # mixer's own screen said Install (#65: "pending" for the screen, "approved" back from it), its mod files
 # are applied with the same code as the install (apply-mod.sh: guards and units, the app/server
 # patches, mod defaults): run in a sandbox on a copy (step 3), then placed by this script from its
-# allowlist (the mod's own files). Not boot.scr, the boot visuals, the installer, the card layout or
+# allowlist (the mod's own files). Not boot.scr (only this script's own fixed text, #221), the boot visuals, the installer, the card layout or
 # the safety guards themselves: a package that changes those needs the full install (REINSTALL=yes,
 # REINSTALL_BELOW, or refused here) (notes/updates.md, "Drop-in update"). A package signed with the
 # spare release key can withdraw the release or dev key on this card for good (WITHDRAWN, #63).
@@ -78,7 +78,7 @@ SERVER_MARKERS='dlzmod: FORMAT_SD refused, the SD slot holds the boot card
 dlzmod: firmware updates are disabled on the SD card
 async FIRMWARE_UPDATE(){return{rootResponse:{cmd:"FIRMWARE_UPDATE_FAILED"'
 # what an update may change (snapshot and restore), as patterns relative to the rootfs; boot/boot.scr
-# stays although no update may change it any more: the snapshot puts back a try an older updater cut
+# stays although no package may change it any more (only this script's own fixed text, #221: BOOT_CMD): the snapshot puts back a try an older updater cut
 # off, and seeding it into the stage is what shows a package that removes it (refused by the allowlist)
 SNAP_GLOBS="srv/app.js srv/server.js srv/srv_data.json usr/local/sbin/dlzmod-* etc/systemd/system/dlzmod-*.service etc/systemd/system/ssh.socket
 etc/systemd/system/flash-gd32.service etc/systemd/system/flash-fpga.service etc/systemd/system/upgradedaemon.service
@@ -443,7 +443,8 @@ place_bootscr() {
   [ -n "$BOOT_CMD" ] || return 0
   # (a link or anything but a file is not the card's own script: left alone, below)
   [ -f "$t" ] && [ ! -L "$t" ] && cur=$(sha256sum < "$t" | cut -d' ' -f1) || cur=none
-  [ "$cur" = "$BOOT_SUM" ] && return 0   # (every normal start: one sha256 of a 4 KiB file)
+  # (every normal start: one sha256 of a 4 KiB file; a note on an unknown script is over once it is gone)
+  [ "$cur" = "$BOOT_SUM" ] && { rm -f "$STATE/boot-left"; return 0; }
   if ! grep -q "^$cur " <<< "$BOOT_KNOWN"; then
     [ -e "$STATE/boot-left" ] && [ "$(cat "$STATE/boot-left")" = "$cur" ] && return 0   # said so already
     echo "$cur" > "$STATE/boot-left"
@@ -451,11 +452,14 @@ place_bootscr() {
     return 0
   fi
   rm -f "$STATE/boot-left"
-  # the stock script stays next to it, for a card put back by hand (only the first time: never overwritten)
-  if [ "${BOOT_KNOWN%% *}" = "$cur" ] && [ ! -e "$t.dlzmod-stock" ]; then
-    cp -p "$t" "$t.dlzmod-stock.new" && sync "$t.dlzmod-stock.new" && mv -f "$t.dlzmod-stock.new" "$t.dlzmod-stock" \
-      || { rm -f "$t.dlzmod-stock.new"; echo "dlzmod-update: the stock start-up script could not be kept: the new one not placed"; return 0; }
+  # the script it replaces keeps its inode and blocks, as hard links: the stock one for good (for a card
+  # put back by hand; made once, never replaced), the last one as -prev. U-Boot reads ext4 without
+  # replaying the journal, so until the kernel writes the new directory block back (~30 s) a power cut
+  # leaves U-Boot the old entry; with the old inode kept, that still reads the old script whole
+  if [ "${BOOT_KNOWN%% *}" = "$cur" ] && [ ! -e "$t.dlzmod-stock" ] && ! ln "$t" "$t.dlzmod-stock"; then
+    echo "dlzmod-update: the stock start-up script could not be kept: the new one not placed"; return 0
   fi
+  ln -f "$t" "$t.dlzmod-prev" || { echo "dlzmod-update: the start-up script could not be kept as -prev: the new one not placed"; return 0; }
   # written next to it, checked, then renamed over it (ext4: the old or the new script, never half of one)
   if boot_image "$t.dlzmod-new" && chmod 644 "$t.dlzmod-new" && sync "$t.dlzmod-new" \
      && [ "$(sha256sum < "$t.dlzmod-new" | cut -d' ' -f1)" = "$BOOT_SUM" ] && mv -f "$t.dlzmod-new" "$t"; then
@@ -904,7 +908,8 @@ allowed() {
     var/lib/dlzmod-update) case $b in version|installed) return 0 ;; esac ;;
     usr/local/sbin) case $b in dlzmod-*) return 0 ;; esac ;;
     etc/udev/rules.d) case $b in *dlzmod*.rules) return 0 ;; esac ;;
-    # not boot/boot.scr: U-Boot runs it before the eMMC lock, so a new one needs a full install
+    # not boot/boot.scr: U-Boot runs it before the eMMC lock, so no package places it; a new one comes
+    # only as this script's own fixed text (BOOT_CMD, #221), placed at a start by place_bootscr
     etc/systemd/system) case $b in dlzmod-*.service|ssh.socket) return 0 ;; esac ;;
     etc/systemd/system/*)
       rest=${d#etc/systemd/system/}
