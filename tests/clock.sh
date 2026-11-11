@@ -128,23 +128,37 @@ else
   is "a folder in many pieces: its last file found" $((now + 32)) "$(raw "$img")"
   # the script's own functions, without its command line
   sed -n -e '/^fattimes() {$/,/^}$/p' -e '/^mounted() {/p' "$CLOCK" > "$T/fns.sh"
-  is "  all 241 files read" 241 "$(FIND_LIMIT=10; . "$T/fns.sh"; fattimes "$img" 0 | wc -l)"
+  is "  all 241 files read" 241 "$(FIND_LIMIT=10; . "$T/fns.sh"; fattimes "$img" 0 0 9999999999 | wc -l)"
   # what it cannot read is looked up with find, and it says so
   head -c 1048576 /dev/zero > "$T/zero.img"
   out=$(DLZMOD_CLOCK_DEV=$T/zero.img sh "$CLOCK" newest "$d" $now 2> "$T/raw-err")
   is "not FAT: looked up with find instead" $((now + 92)) "$out"
   grep -qF "not read raw, looking up each file" "$T/raw-err" && ok "and says so" || bad "no message: $(cat "$T/raw-err")"
-  # a broken chain: the root folder's FAT entry marked bad
-  cp "$T/fat32.img" "$T/broken.img"
-  python3 -c '
+  # a damaged folder chain (folder A, one cluster with a file 40 s ahead): read up to the damage, as
+  # the kernel does, and said; not a reason to look up each file
+  # setfat <image> <value>: A's FAT entry, in every FAT copy
+  setfat() { python3 -c '
 import struct, sys
 f = open(sys.argv[1], "r+b"); b = f.read(512)
 res, nfats, fsz, root = struct.unpack_from("<H", b, 14)[0], b[16], struct.unpack_from("<I", b, 36)[0], struct.unpack_from("<I", b, 44)[0]
+f.seek((res + nfats * fsz + root - 2) * 512); r = f.read(512)
+a = next(struct.unpack_from("<H", r, i + 26)[0] | struct.unpack_from("<H", r, i + 20)[0] << 16
+         for i in range(0, 512, 32) if r[i:i + 11] == b"A          ")
+v = a if sys.argv[2] == "self" else int(sys.argv[2], 0)
 for k in range(nfats):
-    f.seek((res + k * fsz) * 512 + root * 4); f.write(struct.pack("<I", 0x0FFFFFF7))' "$T/broken.img"
-  out=$(DLZMOD_CLOCK_DEV=$T/broken.img sh "$CLOCK" newest "$d" $now 2> "$T/raw-err")
-  is "a broken chain: looked up with find instead" $((now + 92)) "$out"
-  grep -qF "broken chain" "$T/raw-err" && ok "and names it" || bad "no reason: $(cat "$T/raw-err")"
+    f.seek((res + k * fsz) * 512 + a * 4); f.write(struct.pack("<I", v))' "$@"; }
+  img=$T/broken.img && mkfat "$img" 32 && mmd -i "$img" ::/A && put "$img" $((now + 40)) /A/REC_1.WAV
+  setfat "$img" 0x0FFFFFF7
+  out=$(raw "$img")
+  is "a broken chain: the folder read up to it" $((now + 42)) "$out"
+  grep -qF "broken chain after cluster" "$T/raw-err" && ok "and says so" || bad "no message: $(cat "$T/raw-err")"
+  grep -qF "not read raw" "$T/raw-err" && bad "looked up with find after all" || ok "read raw all the same"
+  setfat "$img" self
+  out=$(raw "$img")
+  is "a folder chain that loops: read up to 2 MiB" $((now + 42)) "$out"
+  grep -qF "over 2 MiB" "$T/raw-err" && ok "and says so" || bad "no message: $(cat "$T/raw-err")"
+  is "a folder that is no FAT mount: looked up, and said" "no FAT mount" \
+    "$(sh "$CLOCK" newest "$d" $now 2>&1 >/dev/null | grep -o 'no FAT mount')"
   is "a raw read over its limit: nothing, and no find after it" "" \
     "$(DLZMOD_CLOCK_DEV=$T/fat32.img PATH=$T/slow:$PATH sh "$CLOCK" newest "$d" $now)"
   # the device mounted at the folder: FAT only (/ here is not)

@@ -469,9 +469,12 @@ that choice and the whole screen shows it at once: the screen is the preview, no
   start cluster and write time, no names (deleted entries, long-name parts and the volume label
   skipped, folders followed, `.`/`..` not). The times as the kernel gives them: FAT's local fields
   less the offset `zone` gave the kernel (`hwclock --systz`; 0 when that failed, as systemd leaves
-  it), month and day 0 as 1 like `fat_time_fat2unix`. FAT16 and FAT32; FAT12, exFAT, a broken boot
-  sector or chain (exit 2, its reason in the log) fall back to `find` under the same 10 s limit; a
-  raw read over the limit gives no answer and no `find` after it. On the PC [WSL, FAT32 with
+  it), out-of-range fields as `fat_time_fat2unix` takes them. FAT16 and FAT32. A damaged folder
+  chain is read up to the damage, as the kernel's readdir does, and a chain over FAT's 2 MiB folder
+  maximum (a loop or cross-link) is cut there, both logged; a folder whose start cluster is out of
+  range is left out. FAT12, a broken boot sector or a read error (exit 2, logged) fall back to
+  `find` in what is left of the 10 s limit; a raw read over the limit gives no answer and no `find`
+  after it. (`dlzmod-update` mounts DLZDATA as `vfat` only: an exFAT DLZDATA is not mounted, #16.) On the PC [WSL, FAT32 with
   512-byte clusters, loop mount, cold cache]: 0 / 5,000 / 20,000 files in one folder ~55 / 54 / 69
   ms raw against 45 ms / 6.9 s / 111 s with `find`; the raw times equal the kernel's for 301 files
   (long names, a deleted file, nested folders, 1980 to 2033) [static; `tests/clock.sh`]. On the

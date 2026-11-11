@@ -42,31 +42,37 @@ save() {
     && sync "$(dirname "$FILE")" || { rm -f "$tmp"; log "cannot save the time to $FILE"; return 1; }
 }
 
-# fattimes <device> <offset>: the time of every file on a FAT16/32 file system, one per line, as the
-# kernel gives it (FAT keeps local times; the kernel takes them as <offset> seconds east of UTC). Read
-# from the device's folders in one pass, read-only (#234): a lookup of each file's time (find, stat)
-# reads its folder from the start on FAT, so the time grew with the square of the files in a folder
-# (notes/mod.md, "Clock"). Takes nothing but each entry's flags, start cluster and write time: no
-# names. Exit 2 when the device is not a FAT16/32 it can follow to the end (FAT12, exFAT, a broken
-# chain or boot sector): the caller then looks up each file instead, as the kernel sees them. 124:
-# over FIND_LIMIT.
+# fattimes <device> <offset> <now> <ahead>: the times of the files on a FAT16/32 file system that
+# are ahead of <now> by at most <ahead> seconds, one per line, as the kernel gives them (FAT keeps
+# local times; the kernel takes them as <offset> seconds east of UTC). Read from the device's folders
+# in one pass, read-only (#234): a lookup of each file's time (find, stat) reads its folder from the
+# start on FAT, so the time grew with the square of the files in a folder (notes/mod.md, "Clock").
+# Takes nothing but each entry's flags, start cluster and write time: no names. A damaged folder
+# chain is read up to the damage and logged. Exit 2 when the device is no FAT16/32 (FAT12, a broken
+# boot sector, a read error): the caller then looks up each file instead. 124: over FIND_LIMIT.
 fattimes() {
-  timeout "$FIND_LIMIT" python3 -I -S - "$1" "$2" << 'PY'
+  timeout "$FIND_LIMIT" python3 -I -S - "$1" "$2" "$3" "$4" << 'PY'
 import os, struct, sys
 
-def fail(why):
+def warn(why):
     sys.stderr.write("dlzmod-clock: " + why + "\n")
+
+def fail(why):
+    warn(why)
     sys.exit(2)
 
-def days(y, m, d):  # days since 1970-01-01 (proleptic Gregorian)
-    y -= m <= 2
-    era = y // 400
-    yoe = y - era * 400
-    doy = (153 * (m + (-3 if m > 2 else 9)) + 2) // 5 + d - 1
-    return era * 146097 + yoe * 365 + yoe // 4 - yoe // 100 + doy - 719468
+# as the kernel's fat_time_fat2unix (fs/fat/misc.c), also for fields out of range: month and day 0
+# count as 1, months 13-15 count as January
+DAYS = (0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 0, 0, 0)
+
+def fattime(t, d):
+    y, m, day = d >> 9, max((d >> 5) & 15, 1), max(d & 31, 1) - 1
+    leap = (y + 3) // 4 - (y > 120) + (y % 4 == 0 and y != 120 and m > 2)
+    return (y * 365 + leap + DAYS[m] + day + 3652) * 86400 \
+        + (t >> 11) * 3600 + ((t >> 5) & 63) * 60 + (t & 31) * 2
 
 def main():
-    dev, off = sys.argv[1], int(sys.argv[2])
+    dev, off, now, ahead = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
     fd = os.open(dev, os.O_RDONLY)
 
     def rd(pos, n):
@@ -111,32 +117,42 @@ def main():
             return struct.unpack_from("<I", b, p)[0] & 0x0FFFFFFF
         return struct.unpack_from("<H", b, p)[0]
 
-    def folder(c):  # a folder's entries: its cluster chain, consecutive clusters read at once
+    csz = spc * bps
+    # a folder holds at most 65536 entries of 32 bytes: a longer chain is a loop or a cross-link
+    most = max(1, 2 * 1024 * 1024 // csz)
+
+    # a folder's entries: its cluster chain, consecutive clusters read at once. A damaged chain
+    # gives the clusters before the damage, as the kernel's readdir does; a bad start gives none
+    def folder(c):
         if c < 2 or c > last:
-            fail("folder at cluster %d" % c)
+            warn("folder at cluster %d left out" % c)
+            return b""
         runs, n = [[c, 1]], 1
         while True:
             v = nxt(c)
             if v >= eoc:
                 break
             if v < 2 or v > last:
-                fail("broken chain after cluster %d" % c)
+                warn("broken chain after cluster %d, the folder read up to it" % c)
+                break
             n += 1
-            if n > nclus:
-                fail("chain loop after cluster %d" % c)
+            if n > most:
+                warn("folder chain over 2 MiB after cluster %d, the folder read up to it" % c)
+                break
             if v == c + 1:
                 runs[-1][1] += 1
             else:
                 runs.append([v, 1])
             c = v
-        csz = spc * bps
         return b"".join(rd((first + (s - 2) * spc) * bps, k * csz) for s, k in runs)
 
+    seen, out = set(), []
     if fat32:
-        todo = [folder(struct.unpack_from("<I", bs, 44)[0])]
+        root = struct.unpack_from("<I", bs, 44)[0]
+        seen.add(root)
+        todo = [folder(root)]
     else:
         todo = [rd((res + nfats * fsz) * bps, rootsec * bps)]
-    seen, out = set(), []
     while todo:
         data = todo.pop()
         for i in range(0, len(data) - 31, 32):
@@ -155,14 +171,9 @@ def main():
                     seen.add(c)
                     todo.append(folder(c))
                 continue
-            t, d = struct.unpack_from("<HH", data, i + 22)
-            m = (d >> 5) & 15
-            if m > 12:
-                continue
-            # as the kernel's fat_time_fat2unix: month and day 0 count as 1, the rest unchecked
-            s = days(1980 + (d >> 9), max(m, 1), max(d & 31, 1)) * 86400 \
-                + (t >> 11) * 3600 + ((t >> 5) & 63) * 60 + (t & 31) * 2
-            out.append(s - off)
+            s = fattime(*struct.unpack_from("<HH", data, i + 22)) - off
+            if now < s <= now + ahead:
+                out.append(s)
     sys.stdout.write("".join("%d\n" % s for s in out))
 
 try:
@@ -180,19 +191,25 @@ mounted() { awk -v d="$1" '$2 == d && $3 == "vfat" { dev = $1 } END { print dev 
 # newest <dir> <now> [<offset>]: just past the newest file in <dir> that is ahead of <now> by at most
 # AHEAD seconds, nothing when there is none or the search took over FIND_LIMIT seconds. FAT keeps
 # times in steps of 2 s, rounded down: + 2 is past the real time. Read raw (fattimes); a file system
-# it cannot read is searched with find, which looks up each file (slow in big folders).
+# it cannot read is searched with find, which looks up each file (slow in big folders), in what is
+# left of FIND_LIMIT.
 newest() {
-  local times rc dev
+  local times rc dev t0 left
+  t0=$(uptime_ms)
   dev=${DLZMOD_CLOCK_DEV:-$(mounted "$1")}
-  rc=2
   if [ -n "$dev" ]; then
-    times=$(fattimes "$dev" "${3:-$KOFF}")
+    times=$(fattimes "$dev" "${3:-$KOFF}" "$2" "$AHEAD")
     rc=$?
+    [ $rc -ne 124 ] || return 0
+    [ $rc -eq 0 ] || echo "dlzmod-clock: $dev not read raw, looking up each file" >&2
+  else
+    rc=2
+    echo "dlzmod-clock: $1 is no FAT mount, looking up each file" >&2
   fi
-  [ $rc -ne 124 ] || return 0
   if [ $rc -ne 0 ]; then
-    [ -z "$dev" ] || echo "dlzmod-clock: $dev not read raw, looking up each file" >&2
-    times=$(timeout "$FIND_LIMIT" find "$1" -xdev -type f -printf '%T@\n' 2>/dev/null)
+    left=$(( FIND_LIMIT - ($(uptime_ms) - t0) / 1000 ))
+    [ "$left" -gt 0 ] || return 0
+    times=$(timeout "$left" find "$1" -xdev -type f -printf '%T@\n' 2>/dev/null)
     [ $? -ne 124 ] || return 0
   fi
   printf '%s\n' "$times" | awk -v now="$2" -v ahead="$AHEAD" '
