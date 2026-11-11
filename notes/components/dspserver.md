@@ -59,7 +59,7 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   both headphones) with moving meters, and `systemctl restart evolve-node` did not bring it back;
   only a reboot did. On 2026-11-11 (XS dev card at develop `9dfd5b9`, #257) the same restart kept
   the sound (Bluetooth on 5/6, heard). The restarted dspserver logs no `Initialising AKM DAC/ADC/THAT`
-  lines: it skips the codec setup while PH2 is high (below). What differed the first time is not
+  lines, so it did not set up the codecs again (why: below). What differed the first time is not
   known; it may have been a start that was silent already. Restarting it is no cure for a silent start.
 - Harmless at every boot: kernel stack dumps `set_cpus_allowed_ptr: core 4 is set in the mask`
   (from the kernel's own workqueue code, `worker_attach_to_pool`, once dspserver has set the
@@ -79,7 +79,8 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
 - **XS start order** [device]: `DLZ Lite detected` → old/new CPU, DDR and GPU PLL → `Initialising AKM
   DAC...` → `Initialising AKM ADC...` → `Initialising THAT preamps...` → `Audio initialisation is
   done.` → `THAT[n] = ...`. No bus scan line on the XS. The other chips' messages (Sabre, Everest,
-  "Initial I2C scan") belong to other board variants [guess].
+  "Initial I2C scan") are the full-size's branch of the same setup, taken without `/root/.dlzlite`
+  [static, #257; "The start's codec setup" below].
 - **How it drives the chips** [static]: no kernel driver. It maps physical `0x01C00000` (8 MB) from
   `/dev/mem` and toggles port I pins itself: the AKM chips through a bit-banged I2C on PI0 (clock)
   and PI1 (data), the THAT preamps through a 3-wire serial write on PI15/PI16 (chip selects), PI17
@@ -107,21 +108,33 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   for the AKM ADC at `0x26`, and dspserver carried on. Only `Couldn't initialise audio hardware,
   exiting` ends it [static]. So a chip that fails at start gives moving meters and a silent output
   until the next start [guess on the effect]. AKM DAC = I2C `0x22`, AKM ADC = `0x26` [device].
-- **The AKM setup runs only while GPIO PH2 is low** (#257) [static]: the XS's codec setup (function
-  `0x38288`, the `Initialising AKM DAC...` string) returns at once when bit 2 of `PH_DAT` is set (the
-  `/dev/mem` mapping's base + `0x2090c`; the PIO controller is at `0x01C20800`, `PH_DAT` at
-  `0x01C2090C`). dspserver's own start (`0x19fa0`) makes PH0 and PH1 outputs driven low and PH2 an
-  input with pull-up; no Mackie program drives PH2 (faderlink only PH12), and no kernel driver claims
-  PH0-PH5 (pinctrl debugfs [device]). So another chip on the board holds PH2 low after power-on and
-  lets it go [guess: the GD32 or the codec]. Each chip's setup first looks for an override script,
-  `/root/akmdac-i2c.js` / `/root/akmadc-i2c.js`, and the init has a `/root/post-i2c.js` hook; none
-  exists on the dump. An uncalled copy of the setup (`0x3a570`) also rewrites the CPU, DDR and GPU
-  PLLs and raises PH0 before the AKM lines and PH1 after them; which live code raises PH0/PH1 is not
-  found.
-- **PH2 rises during or soon after the setup** [device, XS dev card, 2026-11-11]: `PH_DAT` read
-  `0x1007` (PH0, PH1, PH2 and PH12 high; PH0/PH1 outputs, PH2 input with pull-up) 75 s into a start
-  with sound and 2.4 h into another; PH2 was low at the setup (29.1 s). The dev card logs these pins
-  through the first 120 s of each start (#261), to compare starts with sound and silent ones.
+- **The codec pins** (#257) [static]: GPIO port H, read and written through the `/dev/mem` mapping
+  (base + `0x2090c` = `PH_DAT` at `0x01C2090C`; the PIO controller is at `0x01C20800`). dspserver's
+  own start (`0x19fa0`) makes PH0 and PH1 outputs driven low and PH2 an input with pull-up; no other
+  Mackie program touches PH0-PH2 (faderlink only PH12), and no kernel driver claims PH0-PH5 (pinctrl
+  debugfs [device]).
+- **The start's codec setup** (`0x3a56c`, called from `0x1c97c`, which a function pointer at
+  `0x222aa0` points to) [static]: logs the old/new CPU, DDR and GPU PLLs (it changes them: `old CPU PLL:
+  90001410`, `new CPU PLL: 90001510` in every start's log [device]), drives PH0 low for 50 ms, then by
+  the `/root/.dlzlite` flag: **XS**: PH0 high, 20 ms, AKM DAC (`0x22`) and ADC (`0x26`), the
+  `/root/post-i2c.js` hook, PH1 high, the THAT preamps, `Audio initialisation is done.`; **full-size**:
+  PH0 high, 20 ms, PH1 high, an I2C bus scan, the Everest CODECs, the Sabre DAC and ADCs, the same hook.
+  So PH0 is likely the codecs' reset and PH1 an enable [guess]. Neither branch reads PH2. Each AKM or
+  Sabre chip's setup first looks for an override script (`/root/akmdac-i2c.js`, `/root/akmadc-i2c.js`,
+  `/root/sabredac-i2c.js`, `/root/sabreadc1-i2c.js`, `/root/sabreadc2-i2c.js`); none exists on the dump.
+- **A second AKM setup, gated on PH2** [static]: `0x38288` sets up the AKM DAC and ADC again, but returns
+  at once while PH2 is high. A loop calls it (`0x19440`) when a flag is set; what sets that flag, and
+  when, is not known. No kernel or Mackie program drives PH2, so another chip on the board holds it
+  low and lets go [guess: the GD32 or the codec].
+- **The restart's missing lines are not explained** [device + static]: the restarted dspserver of
+  2026-11-11 logged `DLZ Lite detected` and `Audio initialisation is done.` but no PLL, AKM or THAT
+  setup lines, which the XS branch above logs before `done`. A branch at `0x3a9b4` reaches `done`
+  another way; that path was not followed.
+- **PH0, PH1 and PH2 high after the setup** [device, XS dev card, 2026-11-11]: `PH_DAT` read `0x1007`
+  (PH0, PH1, PH2 and PH12 high; PH0/PH1 outputs, PH2 input with pull-up) 75 s into a start with sound
+  and 2.4 h into another. The dev card logs these pins through the first 120 s of each start (#261),
+  to compare starts with sound and silent ones; on the full-size the same logger runs, but what PH2
+  means there is not known.
 - **Silent outputs with moving meters also come without either cause above** (see also glesgui's
   stop, below, which fits one of them) [device, XS dev card, 2026-11-04]: no sound while the meters moved, yet all three chips initialised without an
   I2C error and dspserver, faderlink and evolve-node had 0 restarts. A reboot usually clears it

@@ -69,13 +69,14 @@ case ${1:-} in
       echo $b64unit | base64 -d > $UNIT.new; sync $UNIT.new; mv -f $UNIT.new $UNIT
       sync /usr/local/sbin /etc/systemd/system
       systemctl daemon-reload; systemctl enable --quiet dlzdev-pinlog.service
-      python3 $BIN --once"
+      sync /etc/systemd/system/sysinit.target.wants
+      python3 $BIN --once || echo 'pinlog: installed and enabled, but the check reading failed (above)' >&2"
     echo "pinlog: on, from the next start (the line above is one reading now)"
     ;;
   off)
     mixer "set -e; $CARD_ONLY
       systemctl disable dlzdev-pinlog.service 2> /dev/null || true; systemctl stop dlzdev-pinlog.service 2> /dev/null || true
-      rm -f $UNIT $BIN; sync /usr/local/sbin /etc/systemd/system; systemctl daemon-reload"
+      rm -f $UNIT $BIN; sync /usr/local/sbin /etc/systemd/system /etc/systemd/system/sysinit.target.wants; systemctl daemon-reload"
     echo "pinlog: off"
     ;;
   status)
