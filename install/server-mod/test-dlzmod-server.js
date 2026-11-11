@@ -169,12 +169,12 @@ test("update note: a failure comes first, once per failed file", () => {
   assert.strictEqual(noteFrom(files({ ...f, shown: "v0.1.0 (dev-b)", "shown-failed": "abc" })), null);
 });
 test("update status: the installed build, and the last refusal next to it", () => {
-  assert.deepStrictEqual(plain(statusFrom(files({}))), { installed: "", failed: "", pending: null, local: false });
-  assert.deepStrictEqual(plain(statusFrom(files({ installed: "v0.1.0 (dev-b)" }))), { installed: "v0.1.0 (dev-b)", failed: "", pending: null, local: false });
+  assert.deepStrictEqual(plain(statusFrom(files({}))), { installed: "", failed: "", pending: null, revert: null, local: false });
+  assert.deepStrictEqual(plain(statusFrom(files({ installed: "v0.1.0 (dev-b)" }))), { installed: "v0.1.0 (dev-b)", failed: "", pending: null, revert: null, local: false });
   assert.deepStrictEqual(plain(statusFrom(files({ installed: "v0.1.0", failed: "x", "last-report": "update-2-unknown-version.txt" }))),
-    { installed: "v0.1.0", failed: "Last update not installed: see dlzmod-logs/update-2-unknown-version.txt on the card", pending: null, local: false });
+    { installed: "v0.1.0", failed: "Last update not installed: see dlzmod-logs/update-2-unknown-version.txt on the card", pending: null, revert: null, local: false });
   assert.deepStrictEqual(plain(statusFrom(files({ installed: "v0.1.0", failed: "x" }))),
-    { installed: "v0.1.0", failed: "Last update not installed: see dlzmod-logs on the card", pending: null, local: false });
+    { installed: "v0.1.0", failed: "Last update not installed: see dlzmod-logs on the card", pending: null, revert: null, local: false });
 });
 test("update note round trip: sent at every screen load until OK, then not again", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dlzupd-"));
@@ -248,7 +248,7 @@ test("update note: a missing folder sends only an empty status, OK does not thro
   const dir = path.join(os.tmpdir(), "dlzupd-missing-" + process.pid);
   const sent = [];
   noteSend((m) => sent.push(plain(m)), dir);
-  assert.deepStrictEqual(sent.map((m) => [m.cmd, m.data]), [["DLZMOD_UPDATE_STATUS", { installed: "", failed: "", pending: null, local: false }]]);
+  assert.deepStrictEqual(sent.map((m) => [m.cmd, m.data]), [["DLZMOD_UPDATE_STATUS", { installed: "", failed: "", pending: null, revert: null, local: false }]]);
   noteSeen(dir);
   assert.ok(!fs.existsSync(dir));
 });
@@ -344,6 +344,73 @@ test("update approve: a write that fails says so, and a send that throws is caug
   approve({ sum: SUM_A }, Object.assign(() => {
     throw new Error("socket closed");
   }, { dlzmodLocal: true }), pendingDir());
+});
+
+// #56: Go Back to the version before the last update. The updater writes "revertable"; Go Back writes
+// its sum to "revert" (DLZMOD_updateRevert); the mixer's own screen loading removes "confirm"
+const { DLZMOD_updateRevertFrom: revertFrom, DLZMOD_updateRevert: revert, DLZMOD_startReached: reached } = ctx;
+const revertDir = (line = SUM_B + " v0.5.0 (dev-1234567)") => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dlzupd-"));
+  fs.writeFileSync(path.join(dir, "installed"), "v0.6.0\n");
+  fs.writeFileSync(path.join(dir, "shown"), "v0.6.0\n");
+  fs.writeFileSync(path.join(dir, "revertable"), line + "\n");
+  return dir;
+};
+test("update revert: the earlier version and whether Go Back was chosen; '-' or anything else is none", () => {
+  assert.deepStrictEqual(plain(revertFrom(files({ revertable: SUM_B + " v0.5.0 (dev-1234567)" }))),
+    { sum: SUM_B, version: "v0.5.0 (dev-1234567)", asked: false });
+  assert.strictEqual(revertFrom(files({ revertable: SUM_B + " v0.5.0", revert: SUM_B })).asked, true);
+  assert.strictEqual(revertFrom(files({ revertable: SUM_B + " v0.5.0", revert: SUM_A })).asked, false);
+  for (const bad of ["", SUM_B + " -", SUM_B, "xyz v0.5.0", SUM_B.toUpperCase() + " v0.5.0"]) {
+    assert.strictEqual(revertFrom(files({ revertable: bad })), null, JSON.stringify(bad));
+  }
+  assert.strictEqual(plain(statusFrom(files({ revertable: SUM_B + " v0.5.0" }), true)).revert.version, "v0.5.0");
+});
+test("update revert: Go Back from the screen writes the sum, flushed; Don't Go Back removes it", () => {
+  const dir = revertDir();
+  const sent = [];
+  revert({ sum: SUM_B }, onScreen(sent), dir);
+  assert.strictEqual(fs.readFileSync(path.join(dir, "revert"), "utf8"), SUM_B + "\n");
+  assert.ok(!fs.existsSync(path.join(dir, "revert.dlzmod-new")));
+  assert.deepStrictEqual(sent.map((m) => m.cmd), ["DLZMOD_UPDATE_REVERTED", "DLZMOD_UPDATE_STATUS"]);
+  assert.deepStrictEqual(sent[0].data, { ok: true, text: "Goes back to v0.5.0 (dev-1234567) at the next start.\nSwitch the mixer off and on." });
+  assert.strictEqual(sent[1].data.revert.asked, true);
+  const back = [];
+  revert({ sum: SUM_B, cancel: true }, onScreen(back), dir);
+  assert.ok(!fs.existsSync(path.join(dir, "revert")));
+  assert.deepStrictEqual(back[0].data, { ok: true, text: "Staying on v0.6.0." });
+  assert.strictEqual(back[1].data.revert.asked, false);
+});
+test("update revert: never from another device, for another sum, without an earlier version, or with an Install waiting", () => {
+  const dir = revertDir();
+  const phone = [];
+  revert({ sum: SUM_B }, (m) => phone.push(plain(m)), dir);
+  assert.deepStrictEqual(phone.map((m) => [m.cmd, m.data.ok]), [["DLZMOD_UPDATE_REVERTED", false]]);
+  const sent = [];
+  for (const args of [{ sum: SUM_A }, {}, null, { sum: [SUM_B] }, "x"]) revert(args, onScreen(sent), dir);
+  assert.ok(sent.every((m) => m.cmd === "DLZMOD_UPDATE_REVERTED" && m.data.ok === false));
+  assert.ok(!fs.existsSync(path.join(dir, "revert")));
+  const same = revertDir(SUM_B + " -");
+  const s2 = [];
+  revert({ sum: SUM_B }, onScreen(s2), same);
+  assert.strictEqual(s2[0].data.ok, false);
+  assert.ok(!fs.existsSync(path.join(same, "revert")));
+  const waits = revertDir();
+  fs.writeFileSync(path.join(waits, "pending"), SUM_A + " v0.6.1\n");
+  fs.writeFileSync(path.join(waits, "approved"), SUM_A + "\n");
+  const s3 = [];
+  revert({ sum: SUM_B }, onScreen(s3), waits);
+  assert.deepStrictEqual(s3[0].data, { ok: false, text: "Update v0.6.1 installs at the next start.\nGo back after it, if needed." });
+  assert.ok(!fs.existsSync(path.join(waits, "revert")));
+});
+test("update revert: the mixer's own screen loading ends the count of starts after an update, other devices do not", () => {
+  const dir = revertDir();
+  fs.writeFileSync(path.join(dir, "confirm"), SUM_A + " 1\n");
+  noteSend((m) => {}, dir);
+  assert.ok(fs.existsSync(path.join(dir, "confirm")));
+  noteSend(onScreen([]), dir);
+  assert.ok(!fs.existsSync(path.join(dir, "confirm")));
+  reached(dir);   // none there: nothing to do
 });
 
 // Network panel. fakeNet: a pretend nmcli/systemctl that records every call (program, args, stdin)

@@ -966,6 +966,48 @@ test("update popups: the Mod page's Updates row and Install button follow the se
     ctx.DLZMOD_setUpdateStatus(null);
   }
 });
+test("update popups: Go Back (#56) on the mixer's own screen asks first, then takes it back; the row says so", () => {
+  reset();
+  settings();
+  const pg = settingsPage();
+  ctx.app = { pageSettings: { dlzmod: pg } };
+  try {
+    const R = { sum: "def", version: "v0.5.0 (dev-1234567)" };
+    for (const [s, visible] of [
+      [null, false],
+      [{ revert: R }, false],   // another device
+      [{ revert: R, local: true }, true],
+      [{ revert: { version: "v0.5.0" }, local: true }, false],   // no sum: nothing to go back to
+      [{ revert: R, local: true, pending: { sum: "abc", version: "v0.6.1", approved: true } }, false],
+    ]) {
+      ctx.DLZMOD_setUpdateStatus(s);
+      assert.strictEqual(pg.about.back.visible, visible, "Go Back button: " + JSON.stringify(s));
+    }
+    ctx.DLZMOD_setUpdateStatus({ revert: R, local: true });
+    assert.strictEqual(pg.about.back.text, "Go Back...");
+    pg.about.back.onPress();
+    const p = ui.popups.at(-1);
+    assert.strictEqual(p.kind, "confirm");
+    assert.match(p.text, /^Go back to v0\.5\.0 \(dev-1234567\)\?\nThe mixer's settings stay as they are\./);
+    assert.deepStrictEqual(plain(p.opts.buttons.map((b) => b.text)), ["Go Back", "Cancel"]);
+    assert.deepStrictEqual(ui.cmds, [], "Cancel: nothing sent");
+    p.yes();
+    assert.deepStrictEqual(ui.cmds.at(-1), ["DLZMOD_UPDATE_REVERT", { sum: "def" }]);
+    ctx.DLZMOD_setUpdateStatus({ revert: Object.assign({ asked: true }, R), local: true });
+    assert.deepStrictEqual(plain(ctx.DLZMOD_updateRow()),
+      ["Goes back to v0.5.0 (dev-1234567) at the next start: switch the mixer off and on", "#FFD600"]);
+    assert.strictEqual(pg.about.back.text, "Don't Go Back");
+    const n = ui.popups.length;
+    pg.about.back.onPress();
+    assert.strictEqual(ui.popups.length, n, "Don't Go Back: no question");
+    assert.deepStrictEqual(ui.cmds.at(-1), ["DLZMOD_UPDATE_REVERT", { sum: "def", cancel: true }]);
+    ctx.DLZMOD_updateReverted({ ok: true, text: "Switch the mixer off and on." });
+    assert.strictEqual(ui.popups.at(-1).opts.textColor, "green");
+  } finally {
+    ctx.app = undefined;
+    ctx.DLZMOD_setUpdateStatus(null);
+  }
+});
 
 // #55: Check for Updates / Download Update (dlzmod-server.js, DLZMOD_release)
 const REL = { state: "newer", installed: "v0.5.0", version: "v0.5.1", size: 1200000, summary: "Recordings are merged.",

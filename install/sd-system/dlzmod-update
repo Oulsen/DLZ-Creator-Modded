@@ -245,7 +245,12 @@ clean_new() {   # half-written files from a write cut off before its rename (put
     var/lib/dlzmod-update/*.dlzmod-new usr/local/share/dlzmod-keys/*.dlzmod-new boot/*.dlzmod-new \
     usr/local/share/evolve-a1/*.dlzmod-new)
 }
-restore() {   # the snapshot back, and what the update added removed; not stopped halfway by a TERM
+SELF_FILES='^(usr/local/sbin/dlzmod-update|etc/systemd/system/dlzmod-update\.service|etc/systemd/system/multi-user\.target\.wants/dlzmod-update\.service)$'
+# restore [keep-settings]: the snapshot back, and what the update added removed; not stopped halfway by
+# a TERM. keep-settings (#56, going back): the mixer's settings (srv_data.json) stay as they are now.
+# This script's own files go last, and only when everything else went back: a cut-off or failed
+# put-back leaves this copy in place, which goes on with it at the next start
+restore() {
   local r f t ok=yes
   trap '' TERM INT
   r=$(mktemp -d /tmp/dlzmod-restore.XXXXXX) && tar -xpf "$STATE/previous.tar" -C "$r" >> "$REPORT" 2>&1 \
@@ -253,6 +258,8 @@ restore() {   # the snapshot back, and what the update added removed; not stoppe
   # file by file, atomically and only where it differs (like apply-mod.sh's put_file): the guards,
   # unchanged, are not touched at all
   while IFS= read -r f; do
+    if [ "$f" = "-- self" ]; then [ "$ok" = yes ] && continue || break; fi
+    [ "${1:-}" = keep-settings ] && [ "$f" = srv/srv_data.json ] && continue
     if [ -L "$r/$f" ]; then
       t=$(readlink "$r/$f")
       [ -L "$ROOT/$f" ] && [ "$(readlink "$ROOT/$f")" = "$t" ] && continue
@@ -263,7 +270,7 @@ restore() {   # the snapshot back, and what the update added removed; not stoppe
       mkdir -p "$(dirname "$ROOT/$f")" && cp -p "$r/$f" "$ROOT/$f.dlzmod-new" && sync "$ROOT/$f.dlzmod-new" \
         && mv -f "$ROOT/$f.dlzmod-new" "$ROOT/$f" || ok=no
     fi
-  done < "$STATE/previous.list"
+  done < <(grep -Ev "$SELF_FILES" "$STATE/previous.list"; echo "-- self"; grep -E "$SELF_FILES" "$STATE/previous.list")
   snap_list | comm -13 "$STATE/previous.list" - | while IFS= read -r f; do rm -f "$ROOT/$f" && echo "removed /$f (added by the update)" >> "$REPORT"; done
   extra_dropins | while IFS= read -r f; do rm -rf "$ROOT$f" && echo "removed $f (could override a guard)" >> "$REPORT"; done
   rm -rf "$r"
@@ -498,6 +505,88 @@ missing_dropins() {
   # says something only when it patches or leaves glesgui alone
   [ ! -x "$ROOT/usr/local/sbin/dlzmod-glesgui" ] || "$ROOT/usr/local/sbin/dlzmod-glesgui" "$ROOT" || true
 }
+# #56: back to the version before the last update. The snapshot step 3 took before it (previous.tar)
+# holds every file an update may change, the version files and this script included, so putting it
+# back (restore keep-settings) undoes that update whole; the mixer's settings (srv_data.json) stay as
+# they are now, and the snapshot's copy of them is kept as previous-settings.json (root only: it holds
+# the System Lock PIN). Files in $STATE:
+#   revertable  "<sha256 of previous.tar> <the installed label in it>" when going back would change the
+#               version, "<sha256> -" when not: written by an install, or here for a snapshot an
+#               updater from before #56 took; removed with every new snapshot. The Mod page offers it
+#   revert      that sha256: Go Back on the mixer's own screen (the server mod, DLZMOD_updateRevert)
+#   confirm     "<the installed file's record> <n>", written by an install: n starts since then that did
+#               not reach the mixer's own screen (the server mod removes it when that screen loads). At
+#               the third start without it (n would be 2) this goes back by itself, and the record
+#               becomes "failed" (the popup, and the same file is not installed again)
+# Only at a start without a cut-off try waiting to be put back, with the eMMC locked, never in checks
+# only. Then this start ends here: the update files on DLZDATA (if any) are looked at by the next.
+revert_label() { tar -xOf "$STATE/previous.tar" var/lib/dlzmod-update/installed 2>/dev/null | head -n 1; }
+put_state() {   # put_state <name> <line>: atomically, flushed
+  echo "$2" > "$STATE/$1.dlzmod-new" && sync "$STATE/$1.dlzmod-new" && mv -f "$STATE/$1.dlzmod-new" "$STATE/$1" && sync -f "$STATE"
+}
+go_back() {
+  local why rec="" c n sum label t
+  [ -z "$CHECK_ONLY" ] && [ ! -s "$STATE/inprogress" ] || return 0
+  if [ -s "$STATE/revert" ]; then
+    why="Go Back was chosen on the mixer's screen"
+  elif [ -s "$STATE/confirm" ]; then
+    c=$(cat "$STATE/confirm")
+    n=$(( ${c##* } + 1 ))
+    if [ "$n" -lt 2 ]; then
+      put_state confirm "${c%% *} $n" || echo "dlzmod-update: the start count after the update could not be written"
+      return 0
+    fi
+    why="the 2 starts after the update did not reach the mixer's screen"
+    rec=${c%% *}
+  else
+    # a snapshot without a note (an updater from before #56 took it): once, then cached
+    if [ -f "$STATE/previous.tar" ] && [ ! -e "$STATE/revertable" ]; then
+      label=$(revert_label)
+      [ -n "$label" ] && [ "$label" != "$(head -n 1 "$STATE/installed" 2>/dev/null)" ] || label=-
+      put_state revertable "$(sha256sum < "$STATE/previous.tar" | cut -d' ' -f1) $label" || true
+    fi
+    return 0
+  fi
+  emmc_locked || { echo "dlzmod-update: going back waits for a start with the eMMC locked"; return 0; }
+  if [ ! -f "$STATE/previous.tar" ] || [ ! -f "$STATE/previous.list" ]; then
+    log "NOT GONE BACK: there is no copy of the version before the last update on this card"
+    rm -f "$STATE/revert" "$STATE/confirm" "$STATE/revertable"; sync; return 0
+  fi
+  sum=$(sha256sum < "$STATE/previous.tar" | cut -d' ' -f1)
+  if [ -s "$STATE/revert" ] && [ "$(cat "$STATE/revert")" != "$sum" ]; then
+    log "NOT GONE BACK: the copy on the card is not the one Go Back was chosen for"
+    rm -f "$STATE/revert"; sync; return 0
+  fi
+  label=$(revert_label)
+  LOGV=back-to-${label%% *}
+  # a put-back that does not finish is tried at 3 starts, then given up (not a write at every start)
+  t=$(cat "$STATE/revert-tries" 2>/dev/null); t=$(( ${t:-0} + 1 ))
+  if [ "$t" -gt 3 ]; then
+    log "NOT GONE BACK: putting the files back failed 3 times"
+    log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"
+    rm -f "$STATE/revert" "$STATE/confirm" "$STATE/revert-tries"; sync; exit 0
+  fi
+  put_state revert-tries "$t" || true
+  log "GOING BACK to ${label:-the version before the last update}: $why"
+  ( umask 077 && tar -xOf "$STATE/previous.tar" srv/srv_data.json > "$STATE/previous-settings.json.dlzmod-new" ) \
+    && sync "$STATE/previous-settings.json.dlzmod-new" \
+    && mv -f "$STATE/previous-settings.json.dlzmod-new" "$STATE/previous-settings.json" \
+    || { rm -f "$STATE/previous-settings.json.dlzmod-new"; log "(the settings from before the update could not be kept aside)"; }
+  if restore keep-settings && guards_ok; then
+    rm -f "$STATE/revert" "$STATE/confirm" "$STATE/revert-tries" "$STATE/revertable" "$STATE/approved" \
+      "$STATE/previous.tar" "$STATE/previous.list"
+    [ -z "$rec" ] || echo "$rec" > "$STATE/failed"
+    sync
+    log "GONE BACK to $label; the settings stay as they are, the ones from before the update are kept aside"
+    log "(var/lib/dlzmod-update/previous-settings.json). The app, the server, the audio engine and udev rules use it now;"
+    log "changed startup units from the next start"
+    [ -n "$ROOT" ] || udevadm control --reload 2>/dev/null
+  else
+    log "going back did not finish: the next start tries again"
+  fi
+  exit 0
+}
+go_back
 pkgs=("$U"/dlzmod-*.tar)
 if [ ${#pkgs[@]} = 0 ]; then   # nothing to do (every normal start)
   # an Install for a file that is gone does not wait for that file to come back (#65)
@@ -785,7 +874,8 @@ if [ "$other" = "$SUM" ] && [ -f "$STATE/previous.tar" ] && [ -f "$STATE/previou
 else
   # (a different file's cut-off try was put back before this file's checks, so its half-applied
   # files do not end up in this snapshot; a progress marker without a snapshot has nothing to put
-  # back and is replaced)
+  # back and is replaced). #56: what the old snapshot offered (going back to it) ends with it
+  rm -f "$STATE/revertable" "$STATE/revert" "$STATE/confirm" "$STATE/revert-tries"
   snap_list > "$STATE/previous.list.new" && tar -cpf "$STATE/previous.tar.new" -C "$ROOT/" -T "$STATE/previous.list.new" \
     && sync && mv -f "$STATE/previous.list.new" "$STATE/previous.list" && mv -f "$STATE/previous.tar.new" "$STATE/previous.tar" \
     || { rm -f "$STATE/previous.list.new" "$STATE/previous.tar.new"; later "snapshot not written (card full?)"; }
@@ -1015,7 +1105,7 @@ place() {
     rm -f "$t"
   fi && echo "placed /$p" >> "$REPORT"
 }
-self='^(usr/local/sbin/dlzmod-update|etc/systemd/system/dlzmod-update\.service|etc/systemd/system/multi-user\.target\.wants/dlzmod-update\.service)$'
+self=$SELF_FILES
 guards='^(etc/systemd/system/[^/]+\.service\.d/dlzmod\.conf|etc/udev/rules\.d/60-dlzmod-emmc-ro\.rules|usr/local/sbin/dlzmod-emmc-ro|etc/systemd/system/dlzmod-emmc-ro\.service|etc/systemd/system/sysinit\.target\.wants/dlzmod-emmc-ro\.service)$'
 stock_before=$(stock_sums)
 keys_before=$(key_sums)
@@ -1044,6 +1134,15 @@ if [ "$rc" = 0 ]; then
   sync
   rm -f "$STATE/failed" "$STATE/inprogress" "$STATE/tries"
   sync
+  # #56: the snapshot from before it can be put back (Go Back), and is, by itself, when the next 2
+  # starts do not reach the mixer's screen (go_back); not for the same version again
+  rlabel=$(revert_label)
+  if [ -n "$rlabel" ] && [ "$rlabel" != "$(head -n 1 "$STATE/installed" 2>/dev/null)" ]; then
+    put_state revertable "$(sha256sum < "$STATE/previous.tar" | cut -d' ' -f1) $rlabel" \
+      && put_state confirm "$SUM 0" || log "(going back to $rlabel could not be prepared)"
+  else
+    put_state revertable "$(sha256sum < "$STATE/previous.tar" | cut -d' ' -f1) -" || true
+  fi
   if writable && rm -f "$SRC" "$SRC.sig"; then del="the update files were deleted"
   else del="the update files could not be deleted (DLZDATA read-only?): remove them on a computer"; fi
   SHOW_HOLD=yes   # #96: the screen's minimum time (finish)

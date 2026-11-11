@@ -292,7 +292,9 @@ Sub-tabs Display / Colors / Time / Network / Remote / Mod (a browser: Display / 
   and tablets: Mackie's web UI does not fit them and misses touches, #52).
 - **Mod**: version, "Automatic Update Check" (#55), update status (an update waiting on the card,
   with "Install Update..." on the mixer's own screen, #65; a new release found, with Check for
-  Updates... / Download Update...: [updates.md](updates.md), "Check for Updates"), credits.
+  Updates... / Download Update...: [updates.md](updates.md), "Check for Updates"), "Go Back..." next
+  to What's New on the mixer's own screen while the version before the last update can be put back
+  ("Don't Go Back" once chosen; #56, [updates.md](updates.md), "Going back"), credits.
 
 ## Themes and colours (#21)
 
