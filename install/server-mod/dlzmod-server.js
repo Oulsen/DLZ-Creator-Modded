@@ -229,7 +229,7 @@ function DLZMOD_updateRevert(args, send, dir = "/var/lib/dlzmod-update") {
     return result(false, "The choice could not be saved on the card.\nTry again.");
   }
   console.log("dlzmod: going back to " + r.version + (a.cancel ? " cancelled" : " chosen") + " on the screen");
-  result(true, a.cancel ? "Staying on " + f("installed") + "." : "Goes back to " + r.version + " at the next start.\nSwitch the mixer off and on.");
+  result(true, a.cancel ? "Staying on " + (f("installed") || "this version") + "." :"Goes back to " + r.version + " at the next start.\nSwitch the mixer off and on.");
   reply("DLZMOD_UPDATE_STATUS", DLZMOD_updateStatusFrom(f, local));
 }
 
@@ -276,6 +276,11 @@ function DLZMOD_updateApprove(args, send, dir = "/var/lib/dlzmod-update") {
   const p = DLZMOD_updatePendingFrom(f);
   const a = args && typeof args === "object" ? args : {};
   if (!p || a.sum !== p.sum) return result(false, "This update is no longer waiting on the card.");
+  // #56: Go Back runs first at the next start and drops an approval, so not both at once
+  const r = DLZMOD_updateRevertFrom(f);
+  if (r && r.asked) {
+    return result(false, "Going back to " + r.version + " is chosen for the next start.\nChoose Don't Go Back first.");
+  }
   try {
     if (!p.approved) DLZMOD_writeDurable(dir + "/approved", p.sum + "\n", 0o644);
   } catch (e) {

@@ -530,8 +530,9 @@ go_back() {
   if [ -s "$STATE/revert" ]; then
     why="Go Back was chosen on the mixer's screen"
   elif [ -s "$STATE/confirm" ]; then
-    c=$(cat "$STATE/confirm")
-    n=$(( ${c##* } + 1 ))
+    c=$(head -n 1 "$STATE/confirm"); n=${c##* }
+    case "$c" in *" "*) ;; *) n=x ;; esac
+    case "$n" in ''|*[!0-9]*) n=0 ;; *) n=$(( 10#${n:0:3} + 1 )) ;; esac   # a damaged count starts again
     if [ "$n" -lt 2 ]; then
       put_state confirm "${c%% *} $n" || echo "dlzmod-update: the start count after the update could not be written"
       return 0
@@ -558,9 +559,10 @@ go_back() {
     rm -f "$STATE/revert"; sync; return 0
   fi
   label=$(revert_label)
-  LOGV=back-to-${label%% *}
+  LOGV=back-to-${label%% *}; [ -n "${label%% *}" ] || LOGV=back
   # a put-back that does not finish is tried at 3 starts, then given up (not a write at every start)
-  t=$(cat "$STATE/revert-tries" 2>/dev/null); t=$(( ${t:-0} + 1 ))
+  t=$(head -n 1 "$STATE/revert-tries" 2>/dev/null)
+  case "$t" in ''|*[!0-9]*) t=1 ;; *) t=$(( 10#${t:0:3} + 1 )) ;; esac
   if [ "$t" -gt 3 ]; then
     log "NOT GONE BACK: putting the files back failed 3 times"
     log "RESTORE INCOMPLETE: remove the card (the mixer starts normally without it) and install again"
@@ -572,17 +574,21 @@ go_back() {
     && sync "$STATE/previous-settings.json.dlzmod-new" \
     && mv -f "$STATE/previous-settings.json.dlzmod-new" "$STATE/previous-settings.json" \
     || { rm -f "$STATE/previous-settings.json.dlzmod-new"; log "(the settings from before the update could not be kept aside)"; }
-  if restore keep-settings && guards_ok; then
+  # all put back means this script's own files too: the older copy runs from the next start, which
+  # knows nothing of these markers, so they go now, also when the guard check below finds something
+  # (no retry could change it: the files are the snapshot's, byte for byte)
+  if restore keep-settings; then
     rm -f "$STATE/revert" "$STATE/confirm" "$STATE/revert-tries" "$STATE/revertable" "$STATE/approved" \
       "$STATE/previous.tar" "$STATE/previous.list"
     [ -z "$rec" ] || echo "$rec" > "$STATE/failed"
     sync
+    guards_ok || log "WARNING: the version gone back to does not pass this updater's guard check (above)"
     log "GONE BACK to $label; the settings stay as they are, the ones from before the update are kept aside"
     log "(var/lib/dlzmod-update/previous-settings.json). The app, the server, the audio engine and udev rules use it now;"
     log "changed startup units from the next start"
     [ -n "$ROOT" ] || udevadm control --reload 2>/dev/null
   else
-    log "going back did not finish: the next start tries again"
+    log "going back did not finish (this updater stays): the next start tries again"
   fi
   exit 0
 }

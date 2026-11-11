@@ -452,6 +452,11 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   (`srv/srv_data.json`, its whole live state and the PIN) left as they are now, and the updater's
   own files last and only when everything else went back, so a cut or failed Go Back leaves this
   copy, which goes on at the next start (3 starts, then "RESTORE INCOMPLETE" as a failed put-back).
+  Once every file is back, the older updater is back too and knows none of the markers, so they go
+  then; this updater's guard check runs after it as a warning in the report only (the files are
+  the snapshot's, byte for byte, and no retry could change them). A damaged count in `confirm` or
+  `revert-tries` starts again at 0. Install is refused while Go Back is chosen (Go Back runs first
+  and would drop the approval).
   The snapshot's settings are kept aside as `previous-settings.json` (root only, 600; not on DLZDATA:
   the PIN); the snapshot itself is removed, so there is one step back, not a history. The state
   files: `revertable` ("<sha256 of previous.tar> <installed label in it>", or `-` when going back
@@ -466,7 +471,10 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   shows its own "Updated to" popup (manual Go Back). Limits: the automatic way back needs the new
   updater and its count to run at all (a package whose updater cannot run cannot go back by
   itself: remove the card, reinstall); two starts that hang at Mackie's loading screen for another
-  reason (#81) count too. **Settings keys**: because going back keeps the settings, a version may
+  reason (#81) count too, and so do two starts switched off before the screen came (the update is then
+  undone and its file refused, the report says why; accepted: rare, and a safe way to be wrong); the
+  next update's snapshot replaces this one, also when that update fails, so after a failed update
+  Go Back offers only the version that was running. **Settings keys**: because going back keeps the settings, a version may
   add keys to `srv_data.json` but never change what an existing key means; the older version's
   server loads the file over its own defaults and ignores keys it does not know [static:
   `node-backend.md`, "State persistence"; the mod only adds missing keys, `set_mod_defaults`]

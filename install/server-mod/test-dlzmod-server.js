@@ -403,6 +403,23 @@ test("update revert: never from another device, for another sum, without an earl
   assert.deepStrictEqual(s3[0].data, { ok: false, text: "Update v0.6.1 installs at the next start.\nGo back after it, if needed." });
   assert.ok(!fs.existsSync(path.join(waits, "revert")));
 });
+test("update revert: Install is refused while Go Back is chosen (Go Back would drop it); no installed label", () => {
+  const dir = revertDir();
+  fs.writeFileSync(path.join(dir, "pending"), SUM_A + " v0.6.1\n");
+  fs.writeFileSync(path.join(dir, "revert"), SUM_B + "\n");
+  const sent = [];
+  approve({ sum: SUM_A }, onScreen(sent), dir);
+  assert.deepStrictEqual(sent[0].data,
+    { ok: false, text: "Going back to v0.5.0 (dev-1234567) is chosen for the next start.\nChoose Don't Go Back first." });
+  assert.ok(!fs.existsSync(path.join(dir, "approved")));
+  fs.unlinkSync(path.join(dir, "installed"));
+  const back = [];
+  revert({ sum: SUM_B, cancel: true }, onScreen(back), dir);
+  assert.deepStrictEqual(back[0].data, { ok: true, text: "Staying on this version." });
+  const ok = [];
+  approve({ sum: SUM_A }, onScreen(ok), dir);
+  assert.strictEqual(ok[0].data.ok, true);
+});
 test("update revert: the mixer's own screen loading ends the count of starts after an update, other devices do not", () => {
   const dir = revertDir();
   fs.writeFileSync(path.join(dir, "confirm"), SUM_A + " 1\n");

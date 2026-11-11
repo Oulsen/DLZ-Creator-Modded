@@ -1070,8 +1070,12 @@ said "putting the files back failed 3 times" && said "RESTORE INCOMPLETE" && [ !
 printf 'c%.0s' {1..64} > $ST/revert; run
 said "not the one Go Back was chosen for" && [ ! -e $ST/revert ] && grep -q "goback test" $R/srv/app.js && ok "Go Back for another snapshot: refused, nothing changed" || bad "Go Back for another snapshot not refused"
 # back to the card as it was: the snapshot put back by hand
-echo "$(cut -d' ' -f1 $ST/revertable)" > $ST/revert; rm -f $ST/revert-tries; run; gone_back "cleanup"
+echo "$(cut -d' ' -f1 $ST/revertable)" > $ST/revert; echo "x9" > $ST/revert-tries; run; gone_back "cleanup (a damaged try count read as 0)"
 rm -f $ST/previous-settings.json
+echo "nocount" > $ST/confirm; run
+[ "$(cat $ST/confirm)" = "nocount 0" ] && ! said "unbound variable" && ok "a damaged start count: started again, the updater went on" \
+  || bad "damaged start count: '$(cat $ST/confirm 2>/dev/null)'"
+rm -f $ST/confirm
 fi
 
 if case_ "63: stops before DLZDATA (not on an SD card): no report file left in /tmp"; then
