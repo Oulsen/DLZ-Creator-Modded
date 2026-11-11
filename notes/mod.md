@@ -459,10 +459,12 @@ that choice and the whole screen shows it at once: the screen is the preview, no
   image, cold cache]: names alone take the same at 0 and 5,000 files (~120 ms, mostly process
   start); with times, +0.1 s at 1,000 files, +0.4 s at 2,000, +2.6 s at 5,000, past the 10 s limit
   at 20,000; 5,000 spread over 10 folders +0.3 s. The mixer's Cortex-A7 is many times slower than
-  the PC, so a folder of a few thousand takes could reach the 10 s limit at every start [guess: not
-  measured on the mixer]; on the cards seen so far (≤ ~10 files) it took 0.5-1.5 s, nearly all
-  fixed cost. What the floor gains is small since the minute saver: at most the minute between the
-  last save and the power-off. Decided: keep the floor, but make its time not grow with the number
+  the PC, so a folder of a few thousand takes reached the 10 s limit at every start (measured below);
+  on the cards seen so far (≤ ~10 files) it took 0.5-1.5 s, nearly all
+  fixed cost. On the mixer [device, 2026-11-11, dev card XS, 3,000 empty files in
+  `DLZ_Creator_XS_Recordings`]: `find` with times took 15.4 s with the folder already cached, so
+  at a start the old floor ran into its 10 s limit and gave no answer. What the floor gains is
+  small since the minute saver: at most the minute between the last save and the power-off. Decided: keep the floor, but make its time not grow with the number
   of recordings (#234). Since #234 the floor reads the times raw (`fattimes` in `dlzmod-clock`, a
   python3 `-I -S` stdlib reader): the boot sector, then every folder's cluster chain once, read-only
   from the device mounted at DLZDATA (`/proc/self/mounts`, vfat only), taking each entry's flags,
@@ -474,11 +476,14 @@ that choice and the whole screen shows it at once: the screen is the preview, no
   maximum (a loop or cross-link) is cut there, both logged; a folder whose start cluster is out of
   range is left out. FAT12, a broken boot sector or a read error (exit 2, logged) fall back to
   `find` in what is left of the 10 s limit; a raw read over the limit gives no answer and no `find`
-  after it. (`dlzmod-update` mounts DLZDATA as `vfat` only: an exFAT DLZDATA is not mounted, #16.) On the PC [WSL, FAT32 with
-  512-byte clusters, loop mount, cold cache]: 0 / 5,000 / 20,000 files in one folder ~55 / 54 / 69
-  ms raw against 45 ms / 6.9 s / 111 s with `find`; the raw times equal the kernel's for 301 files
-  (long names, a deleted file, nested folders, 1980 to 2033) [static; `tests/clock.sh`]. On the
-  mixer: python3's start on the Cortex-A7 is the fixed cost [guess: not measured yet].
+  after it. (`dlzmod-update` mounts DLZDATA as `vfat` only: an exFAT DLZDATA is not mounted, #16.)
+  On the PC [WSL, FAT32 with 512-byte clusters, loop mount, cold cache]: 0 / 5,000 / 20,000 files
+  in one folder ~55 / 54 / 69 ms raw against 45 ms / 6.9 s / 111 s with `find`; the raw times equal
+  the kernel's for 301 files (long names, a deleted file, nested folders, 1980 to 2033) [static;
+  `tests/clock.sh`]. On the mixer [device, 2026-11-11, dev card XS]: the whole floor (its log
+  line's ms) took 740 and 480 ms with 92 files on the card (the old floor: 950 ms on the same card),
+  1,110 ms with 3,000 more in the recordings folder; after a recording and a switch-off within the
+  minute, the floor moved the clock 44 s forward, past the new recording.
 - **The card**: the date and time in the zone, where they came from (yellow without a source), and
   in a browser the computer's own; Set... (`DLZMOD_clockPicker`: day, month, year, hour, minute with
   arrows that repeat while held, as Mackie's unused `PageTime`) and, in a browser, Use This
