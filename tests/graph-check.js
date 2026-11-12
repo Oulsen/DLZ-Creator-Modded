@@ -13,6 +13,8 @@
 // - Mackie's VU groups as they were
 // - #25: band 4 right after every band 3, the same block on the band's own keys, and nothing else on
 //   those keys. It changes Mackie's audio path on purpose, so the checks above run without it
+// - #60: each headphone's solo by its Hear Solo key, its computer send on its own USB pair; the
+//   checks above see those blocks put back as stock's
 const fs = require("fs");
 const vm = require("vm");
 const assert = require("assert");
@@ -89,6 +91,33 @@ const check = (ok, what) => {
   console.log((ok ? "ok    " : "FAIL  ") + what);
   if (!ok) fail = 1;
 };
+
+// #60 the headphones: solo on each headphone whose Hear Solo (a.N.dlzmodSolo) is on, where stock has
+// headphone 1 only, and each headphone's computer send on its own USB pair (2 + 2N, 3 + 2N), where
+// stock has all on USB 3/4 (usbOuts 2, 3). Only these two expressions change, so the blocks are
+// checked and put back as stock's for the checks below
+const SOLO = /\(\(@a\.(\d+)\.dlzmodSolo && \(/;
+const SEND = /^@a\.(\d+)\.send2usb && !@settings\.rec\.toComputer\? usbOuts\[(\d+)\] : temp$/;
+const hpSolo = [], hpSend = [];
+patched.blocks = patched.blocks.map((b) => {
+  const p = Object.assign({}, b.p);
+  let m;
+  if (b.type === "CopyFrom" && (m = SOLO.exec(p.src || ""))) {
+    hpSolo.push(+m[1]);
+    p.src = p.src.replace(SOLO, `(((${m[1]} == 0) && (`);
+  } else if (b.type === "CopyTo" && (m = SEND.exec(p.dest || ""))) {
+    const hp = +m[1], slot = +m[2];
+    hpSend.push([hp, slot]);
+    p.dest = p.dest.replace(`usbOuts[${slot}]`, `usbOuts[${slot - 2 * hp}]`);
+  } else return b;
+  return Object.assign({}, b, { p });
+});
+const nhp = new Set(stock.blocks.filter((b) => /@a\.\d+\.send2usb/.test(b.p.dest || "")).map((b) => b.p.dest)).size / 2;
+const pairs = (n) => [...Array(n).keys()].flatMap((i) => [i, i]);
+check(nhp >= 2 && JSON.stringify(hpSolo) === JSON.stringify(pairs(nhp)),
+  `headphones: solo on each of the ${nhp} by its Hear Solo, left and right (${hpSolo.join(" ")})`);
+check(JSON.stringify(hpSend) === JSON.stringify(pairs(nhp).map((i, k) => [i, 2 + 2 * i + (k % 2)])),
+  `headphones: each computer send on its own USB pair (${hpSend.map(([i, s]) => `${i + 1}:${s + 1}`).join(" ")})`);
 
 // #25 band 4: follows each band 3 at once, the same block with b3 -> b4
 function checkB4() {

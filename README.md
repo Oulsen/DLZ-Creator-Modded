@@ -51,6 +51,13 @@ below. They all start as stock: turn on what you want.
   mute and solo buttons and their lights go along, and the Overview's strips follow the knobs or
   faders. On the XS a channel without a knob gets a fader on the screen *(Settings → Knobs / Faders)*
 
+### Headphones
+
+- Choose per headphone whether it hears solo; headphone 1 does, as stock *(headphone page, Hear Solo)*
+- Every headphone can send its mix to the computer at the same time, each on its own USB channels:
+  headphone 1 on 3-4 as stock, headphone 2 on 5-6 (it used 3-4 before), on the full-size 3 on 7-8
+  and 4 on 9-10 *(headphone page, Send to USB)*
+
 ### Network and remote control
 
 - Wi-Fi from the mixer's screen, with a USB Wi-Fi stick *(Network)*

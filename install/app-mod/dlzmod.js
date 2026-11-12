@@ -3567,6 +3567,34 @@ function DLZMOD_wifiList() {
   });
 }
 
+// #60: the headphone page (PageAux, patch.py "headphones: ..."). Hear Solo: whether solo replaces this
+// headphone's sound (a.N.dlzmodSolo, read by the audio graph; on for headphone 1 by default, as
+// stock, where only headphone 1 heard solo); a switch in the right column, between the Color button
+// and Send to USB. x: the column's left edge as Mackie places its switches there
+function DLZMOD_hpSoloSwitch(page, x) {
+  return new Switcher(page, {
+    anchors: [x + 11, DLZMOD_hpSoloY()], size: [68, 44], margin: 10,
+    bgColors: [Color.buttonBg, Color.main], knobMargin: 0,
+  });
+}
+
+function DLZMOD_hpSoloY() {
+  return 287;
+}
+
+// its label above it, as Mackie labels Send to USB, with the mod's mark next to the switch
+function DLZMOD_hpSoloLabel(page, t) {
+  const w = page.dlzmodSolo;
+  if (!w) return;
+  t.drawText("Hear\n" + (lang.SOLO || "Solo"), w.geomCenterX(), w.y - 10 - 2, { dy: 18 });
+  DLZMOD_stockMark(t, w, w.x - 12);
+}
+
+// Send to USB: each headphone on its own pair (graph-mod/dlzmod-graph.js, DLZMOD_hpUsbOut)
+function DLZMOD_hpUsbLabel(hp) {
+  return lang.SEND_TO + "\n" + lang.USB + " " + (3 + 2 * hp) + "-" + (4 + 2 * hp);
+}
+
 // #26: recordings to a computer (dlzmod-server.js, DLZMOD_recHttp). A download button on the Media
 // page, left of Sort (patch.py; style: the page's own button style), only in a browser
 // (DLZMOD_external, known before the pages are built: never on the mixer's own screen), enabled in a
@@ -3611,7 +3639,11 @@ function DLZMOD_trackName(name) {
 // the mod's mark on a setting in a stock screen (ground rule 9, for bug reports and support): a short
 // bar in the mod's yellow left of the setting's label (at x), at the height of its control w
 function DLZMOD_stockMark(t, w, x = 10) {
-  if (w) t.fRect(DLZMOD_yellow(), x, w.geomCenterY() - 9, 3, 18);
+  if (!w) return;
+  // fRect leaves its colour as the fill style, and Mackie's next label (Color, #60) draws in it
+  const fill = t.fillStyle;
+  t.fRect(DLZMOD_yellow(), x, w.geomCenterY() - 9, 3, 18);
+  t.fillStyle = fill;
 }
 
 // the Media page's path ("sd:\DLZ_Creator_XS_Recordings") to {medium, dir} when it is a recordings

@@ -260,6 +260,29 @@ dev-c34a68f]; on the full-size only the page, in the sandbox.
   A preset without it goes flat in `DLZMOD_eqOld` (a wrap of `Data.apply`, every preset passes there), a
   snapshot in `DLZMOD_snapEq` (server, `SNAP_LOAD`), per channel. Only the gain is set.
 
+## Headphones: solo and the computer send per headphone (#60)
+
+Stock, solo replaces only headphone 1's sound, and every headphone's Send to USB writes USB out 3/4,
+so the screen allows one at a time ([components/mixergraph.md](components/mixergraph.md), "Features
+in the graph"). Both models; the full-size has 4 headphones. Graph checked by `tests/graph-check.js`,
+the page in the sandbox (XS and full-size) [static]; sound not heard on a mixer yet.
+
+- **Hear Solo**: a switch per headphone on its page (PageAux, under Color), key `a.N.dlzmodSolo`. The
+  graph's headphone source (one `CopyFrom` per side) asks `@a.N.dlzmodSolo` where stock asks
+  `N == 0`. The key is in the three copies of Mackie's aux defaults (two in `server.js`, one in
+  `app.js`), on for headphone 1, off for the others, so stock behaviour is the default; a graph
+  binding with an unset key would never apply and leave that headphone's source at its default, so
+  the defaults matter (`srv_data.json` is merged over them: a mixer that has run before gets the key
+  at its next start). A snapshot saved before #60 has no such key, and loading sets only the keys
+  it has; `DLZMOD_snapEq` (server, as for band 4) gives each headphone in it stock's value.
+- **Send to USB**: headphone N writes USB out `3+2N`/`4+2N` (`DLZMOD_hpUsbOut` in
+  `graph-mod/dlzmod-graph.js`): 1 on 3/4 as stock, 2 on 5/6, full-size 3 on 7/8 and 4 on 9/10. The
+  PC always gets all 14 channels; outside "record to computer" Mackie's strips write silence to
+  USB 3-12 earlier in each cycle, so a send that is off stays silent, and "record to computer" still
+  switches the sends off. The page's switch is no longer greyed out while another headphone's send is
+  on, and its label names the pair (`DLZMOD_hpUsbLabel`). Who used headphone 2's send before now
+  finds it on USB 5/6. Send to NDI stays one headphone at a time (one NDI output).
+
 ## Mod settings (Settings → DLZ Creator Modded)
 
 Sub-tabs Display / Colors / Time / Network / Remote / Mod (a browser: Display / Colors / Time / Mod); layout and how to add a setting:

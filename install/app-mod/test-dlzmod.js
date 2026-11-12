@@ -558,6 +558,10 @@ test("recording date: a row like the panel's own, its key known before the panel
   assert.strictEqual(t.calls.length, 1, "no row: no mark");
   ctx.DLZMOD_stockMark(t, { geomCenterY: () => 104 }, 18);
   assert.deepStrictEqual(t.calls[1], ["#FFD600", 18, 95, 3, 18], "another x (the EQ page's box)");
+  // a real fRect sets the fill style; the next stock label (Color) must not draw in yellow
+  const c = { fillStyle: "#FFFFFF", fRect(col) { this.fillStyle = col; } };
+  ctx.DLZMOD_stockMark(c, { geomCenterY: () => 334 });
+  assert.strictEqual(c.fillStyle, "#FFFFFF", "the fill style is put back");
 });
 
 // #193: the player's title line
@@ -3376,6 +3380,32 @@ test("controls: the channel's text is its number and the owner's name, as on the
     if (had === undefined) delete ctx.Data.data["p.1.name"];
     else ctx.Data.data["p.1.name"] = had;
   }
+});
+
+test("headphones: each Send to USB names its own pair, the same as the graph's (#60)", () => {
+  const before = { SEND_TO: ctx.lang.SEND_TO, USB: ctx.lang.USB };
+  Object.assign(ctx.lang, { SEND_TO: "Send to", USB: "USB" });
+  try {
+    const graph = fs.readFileSync(path.join(__dirname, "..", "graph-mod", "dlzmod-graph.js"), "utf8");
+    const g = vm.createContext({});
+    vm.runInContext(graph, g);
+    [0, 1, 2, 3].forEach((hp) => {
+      const label = ctx.DLZMOD_hpUsbLabel(hp);
+      const want = `Send to\nUSB ${g.DLZMOD_hpUsbOut(hp, 0) + 1}-${g.DLZMOD_hpUsbOut(hp, 1) + 1}`;
+      assert.strictEqual(label, want, "headphone " + (hp + 1));
+    });
+    assert.strictEqual(ctx.DLZMOD_hpUsbLabel(0), "Send to\nUSB 3-4", "headphone 1 as stock");
+  } finally {
+    Object.assign(ctx.lang, before);
+  }
+});
+
+test("headphones: the Hear Solo switch in the right column, between Color and Send to USB (#60)", () => {
+  const w = ctx.DLZMOD_hpSoloSwitch({}, 815);
+  const [x, y] = plain(w.anchors);
+  assert.strictEqual(x, 826, "Mackie's switches' column (x + 11)");
+  // Mackie's Color box ends at 192 + 50 + 5; Send to USB's two-line label starts ~30 above its 367
+  assert.ok(y - 30 > 247 && y + 44 < 367 - 30, "room for its label above, clear of Send to USB's: " + y);
 });
 
 (async () => {
