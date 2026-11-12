@@ -5,7 +5,8 @@
 // - ports 80/89 bound to 127.0.0.1 only, so the unauthenticated mixer API stays off the LAN, and
 //   only requests from the sandbox page itself (Host and Origin checked; on the plain port 89 only
 //   connections that start with a JSON command): no other web page can use it
-// - index.html always opens in the on-device layout (#INT), stretched like the device panel
+// - / is the dev page (dev.html: the XS / Full-size switch above Mackie's page); /index.html always
+//   opens in the on-device layout (#INT), stretched like the device panel
 'use strict';
 const cp = require('child_process');
 const fs = require('fs');
@@ -53,6 +54,9 @@ const ONE = ['access', 'appendFile', 'chmod', 'chown', 'createReadStream', 'crea
   'lstat', 'lutimes', 'mkdir', 'mkdtemp', 'open', 'opendir', 'readdir', 'readFile', 'readlink', 'realpath', 'rm', 'rmdir',
   'stat', 'statfs', 'truncate', 'unlink', 'unwatchFile', 'utimes', 'watch', 'watchFile', 'writeFile'];
 const TWO = ['copyFile', 'cp', 'link', 'rename', 'symlink'];
+// the shim's own files (dev.html, fake-vu-live.js, the repo's VERSION) read without the redirect: a repo
+// under D:\dev\ or D:\tmp\ would otherwise be looked for in the sandbox folder
+const readOwn = fs.readFileSync;
 function redirect(obj, name, two) {
   const f = obj[name];
   if (typeof f !== 'function') return;
@@ -312,13 +316,77 @@ function fromThisPc(req) {
 // DLZ_SANDBOX_REMOTE=1: http://localhost/ plays another device on the network (a phone): the mod
 // sees a LAN address on that connection and the page is Mackie's own index.html (the browser
 // layout), so control from other devices and pairing (#45) can be tried on this PC.
-// http://127.0.0.1/ stays the mixer's own screen; the browser keeps a cookie per host, so the two
+// http://127.0.0.1/ stays the mixer's own screen (with the dev page around it); the browser keeps a cookie per host, so the two
 // stay apart. Still this PC only (Host and Origin as above).
 const REMOTE = process.env.DLZ_SANDBOX_REMOTE === '1';
 const PRETEND_PHONE = '192.0.2.10';
 function asPhone(req) {
   if (!REMOTE || !/^localhost(:80)?$/i.test(req.headers.host || '')) return false;
   Object.defineProperty(req.socket, 'remoteAddress', { value: PRETEND_PHONE, configurable: true });
+  return true;
+}
+// The model switch (#277): http://127.0.0.1/ is dev.html, an XS / Full-size button above Mackie's
+// page, which runs in an iframe at /index.html (so it and its screenshots, shot.js, stay as they are).
+// The model is fixed when server.js starts (/root/.dlzlite and the sandbox folder), so a switch is a
+// restart: POST /__dev/switch answers, then this process ends with SWITCH_EXIT and dev/ui-sandbox.sh
+// starts the other model. The page polls /__dev/model until the new one answers, then reloads the
+// iframe. Only a POST from the sandbox's own page: an Origin of this PC (on top of the Host check below),
+// and with DLZ_SANDBOX_REMOTE not http://localhost, which is then the pretend phone's page.
+const DEV_URL = '/__dev';
+const SWITCH_EXIT = 75;
+const MODEL = fs.existsSync('/root/.dlzlite') ? 'xs' : 'full';
+// For the dev page's info, read at each request (sandbox.sh repatch changes them while it runs): the
+// mod version, what was patched in (dlzmod-sandbox.json in the sandbox folder, written by
+// dev/ui-sandbox.sh at each start and by its patch mode: branch, commit, uncommitted changes to the mod,
+// when), and the pretend extras that are on
+const EXTRAS = [
+  ...(process.env.DLZ_FAKE_MEDIA || '').split(',').filter((m) => m === 'sd' || m === 'usb')
+    .map((m) => (m === 'sd' ? 'pretend SD card' : 'pretend USB stick')),
+  ...(REMOTE ? ['phone at http://localhost/'] : []),
+  ...(process.env.DLZ_FAKE_WIFI === 'nostick' ? ['no Wi-Fi stick'] : []),
+];
+function info() {
+  const read = (file) => { try { return readOwn(file, 'utf8').trim(); } catch (e) { return ''; } };
+  let patched = {};
+  try { patched = JSON.parse(read(path.join(ROOT, 'dlzmod-sandbox.json')) || '{}'); } catch (e) { /* half written */ }
+  return {
+    version: read(path.join(__dirname, '..', '..', 'VERSION')) || '?',
+    branch: String(patched.branch || ''),
+    commit: String(patched.commit || ''),
+    dirty: patched.dirty === true,
+    patched: String(patched.patched || ''),
+    extras: EXTRAS,
+  };
+}
+// The end after a switch: server.js saves its state every 3 s (to srv_data.json.tmp, then the mv over
+// srv_data.json), so wait for one more round and until no save is half done, or the last changes are lost
+const SAVE_TMP = '/srv/srv_data.json.tmp';
+function endForSwitch() {
+  const until = Date.now() + 6000;
+  const tick = () => (fs.existsSync(SAVE_TMP) && Date.now() < until ? setTimeout(tick, 100) : process.exit(SWITCH_EXIT));
+  setTimeout(tick, 3200);
+}
+function devRoute(req, res) {
+  const url = req.url.split('?')[0];
+  const send = (code, type, body) => {
+    res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+    res.end(body);
+  };
+  if (req.method === 'GET' && url === DEV_URL + '/model') {
+    send(200, 'application/json', JSON.stringify({ model: MODEL, ...info() }));
+  } else if (req.method === 'POST' && url === DEV_URL + '/switch') {
+    const origin = req.headers.origin || '';
+    if (!LOCAL_ORIGIN.test(origin) || (REMOTE && /\/\/localhost\b/i.test(origin))) {
+      return send(403, 'text/plain', 'sandbox: only from the dev page\n');
+    }
+    if (process.env.DLZ_SANDBOX_LOOP !== '1') return send(409, 'text/plain', 'sandbox: not started by dev/ui-sandbox.sh\n');
+    const to = MODEL === 'xs' ? 'full' : 'xs';
+    console.log(`[sandbox] switching to ${to === 'xs' ? 'the XS' : 'the full-size'}: restarting`);
+    res.on('finish', endForSwitch);
+    send(200, 'application/json', JSON.stringify({ model: MODEL, to }));
+  } else {
+    send(404, 'text/plain', 'sandbox: no such dev route\n');
+  }
   return true;
 }
 const http = require('http');
@@ -334,8 +402,14 @@ http.Server.prototype.emit = function (event, req, res) {
     else { res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('sandbox: this PC only\n'); }
     return true;
   }
+  if (event === 'request' && req.url.startsWith(DEV_URL + '/')) return devRoute(req, res);
   const phone = (event === 'request' || event === 'upgrade') && asPhone(req);
-  if (!phone && event === 'request' && req.method === 'GET' && /^\/(index\.html)?(\?.*)?$/.test(req.url)) {
+  if (!phone && event === 'request' && req.method === 'GET' && /^\/(\?.*)?$/.test(req.url)) {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(readOwn(path.join(__dirname, 'dev.html')));
+    return true;
+  }
+  if (!phone && event === 'request' && req.method === 'GET' && /^\/index\.html(\?.*)?$/.test(req.url)) {
     let html = fs.readFileSync('index.html', 'utf8')
       .replace('<script src="app.js">', FORCE_INT + '\n  <script src="app.js">')
       .replace('</head>', PANEL_ASPECT + '\n</head>');
@@ -346,7 +420,7 @@ http.Server.prototype.emit = function (event, req, res) {
   }
   if (event === 'request' && req.method === 'GET' && req.url === FAKE_VU_URL) {
     res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(fs.readFileSync(path.join(__dirname, 'fake-vu-live.js')));
+    res.end(readOwn(path.join(__dirname, 'fake-vu-live.js')));
     return true;
   }
   return emit.apply(this, arguments);
@@ -388,5 +462,5 @@ net.Server.prototype.emit = function (event, socket) {
   return netEmit.apply(this, arguments);
 };
 
-console.log('[sandbox] shell commands blocked, listening on 127.0.0.1 only' +
-  (REMOTE ? '; http://localhost/ plays a phone on the network' : ''));
+console.log(`[sandbox] ${MODEL === 'xs' ? 'XS' : 'full-size'}; shell commands blocked, listening on 127.0.0.1 only` +
+  (REMOTE ? '; http://localhost/ plays a phone on the network' : '') + '; Mackie\'s page alone: http://127.0.0.1/index.html');

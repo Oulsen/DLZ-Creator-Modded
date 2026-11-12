@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DLZ Sandbox</title>
+<link id="icon" rel="icon" href="data:,">
+<!-- Served by shim.js at / (#277): the model switch above the sandbox, which stays its own page
+     at /index.html in the iframe (screenshots with shot.js use that plain page). -->
+<style>
+  :root { --xs: #2d6cdf; --full: #e8891c; --bar: #1c1c1c; --line: #333; --chip: #262626; --dim: #8a8a8a; }
+  html, body { margin: 0; height: 100%; background: #111; color: #ddd; font: 14px system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 14px; padding: 8px 16px; background: var(--bar);
+    border-bottom: 1px solid var(--line); min-height: 34px; }
+  .seg { display: inline-flex; flex: none; border: 1px solid #555; border-radius: 6px; overflow: hidden; }
+  .seg button { font: inherit; color: #ccc; background: #222; border: 0; padding: 6px 14px; cursor: pointer; }
+  .seg button + button { border-left: 1px solid #555; }
+  .seg button:hover:not(:disabled) { background: #2c2c2c; }
+  /* each model's button in its tab icon's colour */
+  #xs[aria-pressed="true"] { background: var(--xs); }
+  #full[aria-pressed="true"] { background: var(--full); }
+  .seg button[aria-pressed="true"] { color: #fff; cursor: default; }
+  .seg button:disabled:not([aria-pressed="true"]) { cursor: wait; opacity: .6; }
+  #status { color: var(--dim); flex: none; }
+  #status:empty { display: none; }
+  /* the info: one chip per fact, a label in grey and the value */
+  #info { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; }
+  .chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 9px; border-radius: 999px;
+    background: var(--chip); border: 1px solid #333; font-size: 12px; white-space: nowrap; }
+  .chip b { font-weight: 400; color: var(--dim); }
+  .chip code { font: 12px ui-monospace, Consolas, monospace; color: #eee; }
+  .chip.warn { background: #3a3000; border-color: #6b5800; color: #ffd75e; }
+  .chip.extra { background: #10283f; border-color: #1f4a73; color: #9ccaff; }
+  a { color: #8ab4f8; margin-left: auto; white-space: nowrap; font-size: 13px; }
+  iframe { flex: 1; width: 100%; border: 0; background: #000; }
+</style>
+</head>
+<body>
+<header>
+  <span class="seg">
+    <button id="xs" type="button" aria-pressed="false" disabled>XS</button>
+    <button id="full" type="button" aria-pressed="false" disabled>Full-size</button>
+  </span>
+  <span id="status">…</span>
+  <span id="info"></span>
+  <a id="plain" href="/index.html" target="_blank" rel="noopener">Mackie's page alone ↗</a>
+</header>
+<iframe id="ui" title="Mixer UI"></iframe>
+<script>
+'use strict';
+const NAMES = { xs: 'XS', full: 'Full-size' };
+const COLORS = { xs: '#2d6cdf', full: '#e8891c' };
+const $ = (id) => document.getElementById(id);
+const btn = { xs: $('xs'), full: $('full') };
+let model = null;        // the model the buttons show (null while restarting)
+let frameModel = null;   // the model the frame was loaded with
+let switching = false;
+
+// the tab: the model in its title, and three faders as its icon in the model's colour
+function tab(m) {
+  document.title = 'DLZ Sandbox · ' + NAMES[m];
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="' + COLORS[m] + '"/>' +
+    '<g stroke="#fff" stroke-width="2.5" stroke-linecap="round"><path d="M9 7v18M16 7v18M23 7v18"/></g>' +
+    '<g fill="#fff"><rect x="5.5" y="17" width="7" height="4" rx="1.5"/><rect x="12.5" y="10" width="7" height="4" rx="1.5"/>' +
+    '<rect x="19.5" y="14" width="7" height="4" rx="1.5"/></g></svg>';
+  $('icon').href = 'data:image/svg+xml,' + encodeURIComponent(svg);
+}
+function chip(label, value, cls, mono) {
+  const c = document.createElement('span');
+  c.className = 'chip' + (cls ? ' ' + cls : '');
+  if (label) { const b = document.createElement('b'); b.textContent = label; c.append(b); }
+  const v = document.createElement(mono ? 'code' : 'span');
+  v.textContent = value;
+  c.append(v);
+  return c;
+}
+// the info: mod version, what was patched in and when (a start, a switch or sandbox.sh repatch), the extras
+function showInfo(x) {
+  const chips = [chip('mod', x.version)];
+  if (x.branch) chips.push(chip('branch', x.branch, '', true), chip('commit', x.commit, '', true));
+  else chips.push(chip('', 'not patched by dev/ui-sandbox.sh', 'warn'));
+  if (x.dirty) chips.push(chip('', '+ uncommitted mod changes', 'warn'));
+  if (x.patched) {
+    chips.push(chip('patched', new Date(x.patched).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })));
+  }
+  for (const e of x.extras) chips.push(chip('', e, 'extra'));
+  $('info').replaceChildren(...chips);
+}
+function show(m, text) {
+  model = m;
+  if (m) tab(m);
+  for (const k of Object.keys(btn)) {
+    btn[k].setAttribute('aria-pressed', String(k === m));
+    btn[k].disabled = k === m || m === null;
+  }
+  $('status').textContent = text;
+}
+async function current() {
+  const r = await fetch('/__dev/model', { cache: 'no-store' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const x = await r.json();
+  showInfo(x);
+  return x.model;
+}
+// the frame on the running model: a real reload (setting src to the same /index.html#INT only jumps to
+// the anchor and keeps the old app.js, which carries the model: server.js writes window.LITE_MODE at its top)
+function follow(m) {
+  if (frameModel !== null && frameModel !== m) $('ui').contentWindow.location.reload();
+  frameModel = m;
+  show(m, '');
+}
+
+async function switchTo(to) {
+  switching = true;
+  const from = model;
+  show(null, 'restarting as the ' + NAMES[to] + '…');
+  try {
+    const r = await fetch('/__dev/switch', { method: 'POST' });
+    if (!r.ok) throw new Error((await r.text()).trim() || 'HTTP ' + r.status);
+    const until = Date.now() + 120000;   // the first full-size start copies the sandbox folder
+    while (Date.now() < until) {
+      await new Promise((ok) => setTimeout(ok, 1000));
+      try { if (await current() === to) return follow(to); } catch (e) { /* still restarting */ }
+    }
+    show(null, 'no answer after 2 minutes: see the sandbox task\'s output, then reload this page');
+  } catch (e) {
+    show(from, 'switch refused: ' + e.message);
+  } finally {
+    switching = false;
+  }
+}
+btn.xs.onclick = () => switchTo('xs');
+btn.full.onclick = () => switchTo('full');
+
+// Mackie's page, with this page's query passed on (?novu: no fake meters)
+const UI_URL = '/index.html' + location.search;
+$('plain').href = UI_URL;
+$('ui').src = UI_URL + '#INT';
+// the model now, then every 2 s: another tab (or curl) may switch too, and this page follows
+async function poll() {
+  if (switching) return;
+  try {
+    const m = await current();
+    if (!switching) follow(m);   // a click while this poll was out: the switch decides, not this answer
+  } catch (e) {
+    if (!switching) show(null, model === null && frameModel === null ? 'sandbox does not answer' : 'restarting…');
+  }
+}
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>

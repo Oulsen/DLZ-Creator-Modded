@@ -1,6 +1,7 @@
 // Screenshot the sandbox UI in headless Chrome, optionally after tapping through it.
 // Usage: node shot.js <out.png> [x,y ...]   e.g. node shot.js settings.png 905,62
-// Uses #INT (the on-device layout: knob panel on the right) unless DLZ_SHOT_URL is set.
+// Uses http://127.0.0.1/index.html#INT (Mackie's page alone, on-device layout: knob panel on the right)
+// unless DLZ_SHOT_URL is set.
 // Taps are in UI pixels (1024x600), mapped through the canvas' on-page box, so they work with the
 // sandbox's panel stretch; each tap waits 700 ms. The shot is cropped to the canvas.
 // DLZ_SHOT_EVAL: optional JS expression run in the page before the taps, e.g. to fake a state the
@@ -18,7 +19,8 @@ const os = require('os');
 const path = require('path');
 
 const CHROME = process.env.CHROME || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const URL = process.env.DLZ_SHOT_URL || 'http://127.0.0.1/#INT';
+// Mackie's page itself: http://127.0.0.1/ is the dev page around it (the model switch, #277)
+const URL = process.env.DLZ_SHOT_URL || 'http://127.0.0.1/index.html#INT';
 const PORT = 9333;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
