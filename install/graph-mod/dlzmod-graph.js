@@ -66,3 +66,12 @@ function DLZMOD_rtaAnalyser() {
     {type: 'MaxMeter', vu: meters[k], threshold: VU_THRESHOLD},
   ])]
 }
+
+// #60 a headphone's computer send (a.N.send2usb) on its own USB pair: headphone 1 on USB 3/4 (as
+// stock, where every headphone used that pair), 2 on 5/6, and on the full-size 3 on 7/8, 4 on 9/10.
+// ch 0 left, 1 right; the index into the graph's usbOuts. Outside "record to computer" (the send's
+// other condition) Mackie's strips write silence on these slots earlier in each cycle, so a send
+// that is off leaves them silent. app-mod/dlzmod.js labels the switch the same (DLZMOD_hpUsbLabel)
+function DLZMOD_hpUsbOut(hp, ch) {
+  return 2 + 2 * hp + ch
+}

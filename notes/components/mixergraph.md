@@ -109,7 +109,8 @@ headphone 1 and 2 mixes.
 ## Features in the graph
 
 - **Pan laws**: mono mics use constant power (-3 dB in the centre); stereo strips use linear balance.
-- **Solo**: overrides **headphone 1 only**; headphone 2 never hears solo.
+- **Solo**: overrides **headphone 1 only**; headphone 2 never hears solo. The mod makes it a
+  per-headphone switch (#60, [../mod.md](../mod.md)).
 - **Auto ducking** (`autoDucking`): mic 1 is the only trigger (threshold -25 dB). Everything else
   ducks by a fixed -15 dB (mic 2: attack/release 500 ms, hold 250 ms; others: plugin defaults).
   Nothing about it is adjustable in the UI.
@@ -128,7 +129,9 @@ headphone 1 and 2 mixes.
   master EQ and compressor too.
 - **Bluetooth out** is summed to mono and raised by +10 dB.
 - **Headphone sends**: `a.N.send2usb` copies the headphone mix to USB out 3/4 (both headphones
-  write the same slots, so headphone 2 wins if both are on); `a.N.send2ndi` replaces the NDI out.
+  write the same slots, so headphone 2 wins if both are on; the screen allows one at a time). The
+  mod gives each headphone its own pair (#60, [../mod.md](../mod.md)). `a.N.send2ndi` replaces the
+  NDI out.
 - **Headphone setup tone** (`ez.hp.play`): loops `/srv/bankPlayer/default/Mackie After Dark.wav`
   at -10 dB on both headphones.
 - **USB out layout**: normally 1/2 = main mix (or the USB mix-minus), 3/4 = headphone send.
@@ -161,4 +164,4 @@ headphone 1 and 2 mixes.
   hub relays the VU message as it is, and app.js reads groups by name (#131: `dlzmod.rta`) [static].
 - Unknowns before the first audio mod: CPU headroom of the DSP thread, and whether the full
   (non-"Economy") dynamics blocks fit. Test on the device.
-- Candidates that are issues: limiter and gate on the main output (#59), headphone 2 solo and its own computer send (#60), robot voice (#61), a 4th EQ band (#25), a spectrum behind the EQ curve (#131), more sources per strip (#24), reassigning faders (#23).
+- Candidates that are issues: limiter and gate on the main output (#59), robot voice (#61), a 4th EQ band (#25), a spectrum behind the EQ curve (#131), more sources per strip (#24), reassigning faders (#23).

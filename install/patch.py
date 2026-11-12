@@ -552,6 +552,37 @@ APP_PATCHES = [
         '"b3.type":"bell","b4.bypass":0,"b4.freq":DEFAULT_EQ_FREQS[3],"b4.gain":0,"b4.q":EQ_DEF_Q,'
         '"b4.slope":12,"b4.type":"bell","hp.bypass":1',
     ),
+    # #60 the headphone page (PageAux): a Hear Solo switch per headphone (a.N.dlzmodSolo, the graph
+    # patches) under the Color button, and the computer send on the headphone's own USB pair (no
+    # longer one headphone at a time)
+    (
+        "headphones: the state's Hear Solo",
+        't[i+"send2ndi"]=0}for(let e=0;e<chConfig.fx;e++)',
+        't[i+"send2ndi"]=0,t[i+"dlzmodSolo"]=0===e?1:0}for(let e=0;e<chConfig.fx;e++)',
+    ),
+    (
+        "headphones: the Hear Solo switch",
+        "this.enabled=(!t||this.value)&&Data.get(\"settings.ndi.mode\")>0}}),this.bclrs=[]",
+        "this.enabled=(!t||this.value)&&Data.get(\"settings.ndi.mode\")>0}}),"
+        "this.dlzmodSolo=DLZMOD_hpSoloSwitch(this,e),this.bclrs=[]",
+    ),
+    (
+        "headphones: each sends to the computer on its own",
+        't=t||Data.get(`a.${e}.send2usb`);this.enabled=(!t||this.value)&&!Data.get("settings.rec.toComputer")',
+        't=t||Data.get(`a.${e}.send2usb`);this.enabled=!Data.get("settings.rec.toComputer")',
+    ),
+    (
+        "headphones: the page's headphone",
+        'this.sw.setKey(e+"send2usb"),',
+        'this.sw.setKey(e+"send2usb"),this.swLabel=DLZMOD_hpUsbLabel(t),'
+        'this.dlzmodSolo.setKey(e+"dlzmodSolo"),',
+    ),
+    (
+        "headphones: the Hear Solo label",
+        "this.ndi&&this.ndi.visible&&t.drawText(lang.SEND_TO_NDI,this.ndi.geomCenterX(),this.ndi.y-10-2,{dy:18}),",
+        "this.ndi&&this.ndi.visible&&t.drawText(lang.SEND_TO_NDI,this.ndi.geomCenterX(),this.ndi.y-10-2,{dy:18}),"
+        "DLZMOD_hpSoloLabel(this,t),",
+    ),
 ]
 
 SERVER_PATCHES = [
@@ -802,6 +833,20 @@ SERVER_PATCHES = [
         "return v(`*** EMPTY SNAPSHOT: ${e}`),{};for(const[e,a]of Object.entries(t))",
         "return v(`*** EMPTY SNAPSHOT: ${e}`),{};DLZMOD_snapEq(t);for(const[e,a]of Object.entries(t))",
     ),
+    # #60 Hear Solo per headphone (a.N.dlzmodSolo): in the two copies of Mackie's state defaults, on
+    # for headphone 1 only (as stock). srv_data.json is merged over them, so the graph's headphone
+    # sources, which read the key, have their value from the start (a binding with a key not set
+    # would never apply)
+    (
+        "headphones: the state's Hear Solo",
+        'e[a+"send2ndi"]=0}for(let t=0;t<s.fx;t++)',
+        'e[a+"send2ndi"]=0,e[a+"dlzmodSolo"]=0===t?1:0}for(let t=0;t<s.fx;t++)',
+    ),
+    (
+        "headphones: the state's Hear Solo, second copy",
+        'e[a+"send2ndi"]=0}for(let t=0;t<n.fx;t++)',
+        'e[a+"send2ndi"]=0,e[a+"dlzmodSolo"]=0===t?1:0}for(let t=0;t<n.fx;t++)',
+    ),
 ]
 
 # #131 the sound behind the EQ curve (graph-mod/dlzmod-graph.js): its meters, its buffer cleared at
@@ -851,7 +896,30 @@ GRAPH_SPECTRUM_PATCHES = [
     ),
 ]
 
-GRAPH_PATCHES = GRAPH_SPECTRUM_PATCHES + [
+GRAPH_HEADPHONE_PATCHES = [
+    # #60 the headphones (the same loop in both models' graphs): solo replaces a headphone's sound
+    # when its Hear Solo is on (a.N.dlzmodSolo, server patches; stock: headphone 1 only), and its
+    # computer send goes to its own USB pair (DLZMOD_hpUsbOut; stock: all on USB 3/4). Each anchor
+    # once for the left and once for the right
+    (
+        "headphones: solo where Hear Solo is on",
+        "(((${i} == 0) && ((${sumSoloDeps}) > 0)) ? solo",
+        "((@a.${i}.dlzmodSolo && ((${sumSoloDeps}) > 0)) ? solo",
+        2,
+    ),
+    (
+        "headphones: the computer send, left",
+        "!@settings.rec.toComputer? usbOuts[2] : temp`",
+        "!@settings.rec.toComputer? usbOuts[${DLZMOD_hpUsbOut(i, 0)}] : temp`",
+    ),
+    (
+        "headphones: the computer send, right",
+        "!@settings.rec.toComputer? usbOuts[3] : temp`",
+        "!@settings.rec.toComputer? usbOuts[${DLZMOD_hpUsbOut(i, 1)}] : temp`",
+    ),
+]
+
+GRAPH_PATCHES = GRAPH_SPECTRUM_PATCHES + GRAPH_HEADPHONE_PATCHES + [
     (
         "eq spectrum: virtual channels",
         "        workBufR, {type: 'MaxMeter', vu: `vuViDynIn${i}`, threshold: VU_THRESHOLD},\n",
@@ -869,8 +937,8 @@ GRAPH_PATCHES = GRAPH_SPECTRUM_PATCHES + [
     ),
 ]
 
-# the full-size's graph: the spectrum, and #25's fourth band in its 9 lists of bands
-GRAPH_FULL_PATCHES = GRAPH_SPECTRUM_PATCHES + [
+# the full-size's graph: the spectrum, #60's headphones, and #25's fourth band in its 9 lists of bands
+GRAPH_FULL_PATCHES = GRAPH_SPECTRUM_PATCHES + GRAPH_HEADPHONE_PATCHES + [
     (
         "eq, four bands: the full-size's graph",
         "['b1', 'b2', 'b3']",
