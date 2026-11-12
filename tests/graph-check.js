@@ -15,6 +15,9 @@
 //   those keys. It changes Mackie's audio path on purpose, so the checks above run without it
 // - #60: each headphone's solo by its Hear Solo key, its computer send on its own USB pair; the
 //   checks above see those blocks put back as stock's
+// - #18: each mic into the ducking trigger buffer by its key, one AutoDuckSource on that buffer after
+//   the mics, every AutoDuck on its strip's key and the settings; the checks above see those blocks
+//   put back as stock's
 const fs = require("fs");
 const vm = require("vm");
 const assert = require("assert");
@@ -119,6 +122,77 @@ check(nhp >= 2 && JSON.stringify(hpSolo) === JSON.stringify(pairs(nhp)),
 check(JSON.stringify(hpSend) === JSON.stringify(pairs(nhp).map((i, k) => [i, 2 + 2 * i + (k % 2)])),
   `headphones: each computer send on its own USB pair (${hpSend.map(([i, s]) => `${i + 1}:${s + 1}`).join(" ")})`);
 
+// #18 ducking: each mic into the trigger buffer (dlzmodDuckKey) by its trigger key, where stock has
+// its one AutoDuckSource (mic 1); one AutoDuckSource on that buffer after the last mic, before any
+// strip it ducks; every AutoDuck on its strip's key, the depth and the speed (stock's times passed
+// as they were). The taps and the AutoDucks are checked and put back as stock's for the checks below
+const TAP = /^!@autoDucking \|\| !@dlzmod\.duck\.src\.(\d+)$/;
+const DUCK = /^@autoDucking && @dlzmod\.duck\.on\.([ipvs](?:\.\d+)?)(?: && !@dlzmod\.duck\.src\.(\d+))?$/;
+const duckTaps = [], ducks = [];
+let duckBad = [];
+patched.blocks = patched.blocks.map((b, at) => {
+  let m;
+  if (b.type === "GainWithLinMixTo" && b.p.dest === "buffer:dlzmodDuckKey") {
+    m = TAP.exec(b.p.bypass || "");
+    if (!m || b.p.src !== "buffer:workBuf" || b.p.gain !== 0 || b.buf !== "workBuf") duckBad.push(JSON.stringify(b));
+    const i = m ? +m[1] : -1;
+    duckTaps.push({ i, at });
+    return { type: "AutoDuckSource", buf: b.buf, p: { enable: `(${i} === 0) && @autoDucking`, threshold: -25 } };
+  }
+  if (b.type !== "AutoDuck") return b;
+  m = DUCK.exec(b.p.enable || "");
+  const mic = m && m[1].startsWith("i.");
+  const t = mic ? [500, 500, 250] : [1000, 1000, 1000];
+  const ok = m && (mic ? m[2] === m[1].slice(2) : m[2] === undefined)
+    && b.p.atten === "DLZMOD_duckDepth(@dlzmod.duck.depth)"
+    && ["attack", "release", "hold"].every((k, n) => b.p[k] === `DLZMOD_duckTime(@dlzmod.duck.speed, ${n}, ${t[n]})`);
+  if (!ok) duckBad.push(JSON.stringify(b));
+  ducks.push({ key: m ? m[1] : "?", at });
+  const p = mic ? { enable: `(${m[2]} > 0) && @autoDucking`, atten: -15, attack: 500, release: 500, hold: 250 }
+    : { enable: "@autoDucking", atten: -15 };
+  return Object.assign({}, b, { p });
+});
+const nmic = stock.blocks.filter((b) => b.type === "AutoDuckSource").length;
+check(duckBad.length === 0, "ducking: taps and AutoDucks in the mod's form" + (duckBad.length ? ": " + duckBad.join(" ") : ""));
+check(nmic >= 2 && JSON.stringify(duckTaps.map((t) => t.i)) === JSON.stringify([...Array(nmic).keys()]),
+  `ducking: each of the ${nmic} mics into the trigger buffer by its own key (${duckTaps.map((t) => t.i).join(" ")})`);
+// positions in patched.blocks, as the taps' and the AutoDucks' (band 4 left out); the taps there are
+// stock's sources again, so the mod's one is the one on its buffer, and the graph has no other
+const duckSrc = patched.blocks.map((b, at) => ({ b, at })).filter((x) => x.b.type === "AutoDuckSource" && x.b.buf === "dlzmodDuckKey");
+const lastTap = Math.max(...duckTaps.map((t) => t.at));
+const firstStrip = Math.min(...ducks.filter((d) => !d.key.startsWith("i.")).map((d) => d.at));
+const duckClear = patched.blocks.findIndex((b) => b.type === "Clear" && b.buf === "dlzmodDuckKey");
+check(withB4.filter((b) => b.type === "AutoDuckSource").length === 1 && duckSrc.length === 1 && duckSrc[0].b.p.enable === "@autoDucking"
+  && duckSrc[0].b.p.threshold === "DLZMOD_duckThreshold(@dlzmod.duck.threshold)"
+  && duckSrc[0].at > lastTap && duckSrc[0].at < firstStrip && duckClear >= 0 && duckClear < Math.min(...duckTaps.map((t) => t.at)),
+  "ducking: the trigger buffer cleared before the first tap, its one AutoDuckSource after the last mic, before the other strips");
+// every dlzmod.duck key the graph binds is in the server's defaults: a binding with a key not set never
+// applies (an AutoDuckSource left at its -200 dB threshold would duck everything all the time)
+{
+  const srv = fs.readFileSync(require("path").join(__dirname, "..", "install", "server-mod", "dlzmod-server.js"), "utf8");
+  const fn = /function DLZMOD_duckKeys\(\) \{[\s\S]*?\n\}/.exec(srv);
+  const s = vm.createContext({});
+  if (fn) vm.runInContext(fn[0], s);
+  const defaults = fn ? Object.keys(s.DLZMOD_duckKeys()) : [];
+  const bound = new Set();
+  for (const b of withB4) for (const v of Object.values(b.p)) for (const m of String(v).matchAll(/@(dlzmod\.duck\.[0-9a-zA-Z._]*[0-9a-zA-Z_])/g)) bound.add(m[1]);
+  const missing = [...bound].filter((k) => !defaults.includes(k));
+  check(bound.size > 0 && missing.length === 0,
+    `ducking: the ${bound.size} keys the graph binds all in the server's defaults` + (missing.length ? ": missing " + missing.join(" ") : ""));
+}
+const stockDucked = [...Array(nmic).keys()].map((i) => `i.${i}`).concat(
+  model0().filter((k) => !k.startsWith("i.")).flatMap((k) => [k, k]));
+check(JSON.stringify(ducks.map((d) => d.key)) === JSON.stringify(stockDucked),
+  `ducking: every strip's AutoDuck on its own key (${ducks.map((d) => d.key).join(" ")})`);
+// the strips with an AutoDuck in stock's graph order, from the meters this graph has (mics, samples,
+// players, virtual channels)
+function model0() {
+  const vus = new Set(stock.blocks.filter((b) => b.type === "MaxMeter").map((b) => b.p.vu));
+  const pl = [0, 1, 2].filter((i) => vus.has(`vuPlDynIn${i}`)).map((i) => `p.${i}`);
+  const vi = [0, 1].filter((i) => vus.has(`vuViDynIn${i}`)).map((i) => `v.${i}`);
+  return ["s", ...pl, ...vi];
+}
+
 // #25 band 4: follows each band 3 at once, the same block with b3 -> b4
 function checkB4() {
   const twin = (b) => JSON.parse(JSON.stringify(b).replace(/\.eq\.b3\./g, ".eq.b4."));
@@ -150,7 +224,7 @@ assert.ok(gm, "DLZMOD_rtaFreqs in the graph mod");
 const freqs = JSON.parse(gm[1]);
 assert.deepStrictEqual(list("DLZMOD_rtaFreqs"), freqs, "the app and the graph have the same bands");
 
-const OWN = new Set(["dlzmodRta", "dlzmodRtaBand"]);
+const OWN = new Set(["dlzmodRta", "dlzmodRtaBand", "dlzmodDuckKey"]);
 // a block with a dest writes there (its own buffer is only where it sits), the others their buffer
 const writes = (b) => [b.p.dest ? String(b.p.dest).replace(/^buffer:/, "") : b.buf];
 const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").startsWith("dlzmodRta");

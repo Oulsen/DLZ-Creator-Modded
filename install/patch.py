@@ -584,6 +584,26 @@ APP_PATCHES = [
         "this.ndi&&this.ndi.visible&&t.drawText(lang.SEND_TO_NDI,this.ndi.geomCenterX(),this.ndi.y-10-2,{dy:18}),"
         "DLZMOD_hpSoloLabel(this,t),",
     ),
+    # #18 the pad editor's Ducking page (Pads, a pad in Control mode): the ducking settings
+    # (DLZMOD_duck*) in place of stock's text; built with the page's own widgets, shown by its sync
+    # on the Ducking mode only
+    (
+        "ducking: the settings' widgets",
+        "this.fadeExcl=new E1Switcher(this,{anchors:[216,445,null,null,!0],text:lang.EXCLUDE_CHANNEL_1})}",
+        "this.fadeExcl=new E1Switcher(this,{anchors:[216,445,null,null,!0],text:lang.EXCLUDE_CHANNEL_1}),"
+        "this.dlzmodDuck=DLZMOD_duckWidgets(this)}",
+    ),
+    (
+        # with the mode's knobs next to the screen: Ducking's and Fade's (DLZMOD_padKnobs)
+        "ducking: the settings shown on the Ducking page",
+        "this.lFadeOut.hide(),this.lFadeIn.hide(),a){",
+        "this.lFadeOut.hide(),this.lFadeIn.hide(),DLZMOD_duckShow(this,a,s),a){",
+    ),
+    (
+        "ducking: the settings' labels",
+        "case E_PAD_CONTROL_MODE.DUCKING:e.drawText(wrapText(lang.DUCKING_TEXT,52,24),i,s+80,{...n})}",
+        "case E_PAD_CONTROL_MODE.DUCKING:DLZMOD_duckPaint(this,e)}",
+    ),
 ]
 
 SERVER_PATCHES = [
@@ -848,6 +868,15 @@ SERVER_PATCHES = [
         'e[a+"send2ndi"]=0}for(let t=0;t<n.fx;t++)',
         'e[a+"send2ndi"]=0,e[a+"dlzmodSolo"]=0===t?1:0}for(let t=0;t<n.fx;t++)',
     ),
+    # #18 the ducking settings (dlzmod.duck.*, DLZMOD_duckDefaults) in the two copies of Mackie's
+    # defaults, next to settings.rec.autoDucking: global settings like it, so the graph's ducking
+    # blocks, which read them, have their values from the start, and snapshots leave them out
+    (
+        "ducking: its settings in the state",
+        'e["settings.rec.autoDucking"]=0,',
+        'e["settings.rec.autoDucking"]=0,DLZMOD_duckDefaults(e),',
+        2,
+    ),
 ]
 
 # #131 the sound behind the EQ curve (graph-mod/dlzmod-graph.js): its meters, its buffer cleared at
@@ -920,7 +949,84 @@ GRAPH_HEADPHONE_PATCHES = [
     ),
 ]
 
-GRAPH_PATCHES = GRAPH_SPECTRUM_PATCHES + GRAPH_HEADPHONE_PATCHES + [
+GRAPH_DUCK_PATCHES = [
+    # #18 ducking (graph-mod/dlzmod-graph.js; the same mic loop and samples strip in both models'
+    # graphs): the trigger mics mixed into the mod's buffer, where stock's one AutoDuckSource sat (on
+    # mic 1), one AutoDuckSource on that buffer after the mics, and every AutoDuck on the settings
+    (
+        "ducking: the trigger buffer cleared each cycle",
+        "    {type: 'Clear', buf: masterL}, {type: 'Clear', buf: masterR},\n",
+        "    {type: 'Clear', buf: DLZMOD_duckBuf()},\n"
+        "    {type: 'Clear', buf: masterL}, {type: 'Clear', buf: masterR},\n",
+    ),
+    (
+        "ducking: the mics into the trigger buffer",
+        "        {\n"
+        "            type: 'AutoDuckSource',\n"
+        "            enable: `(${i} === 0) && @autoDucking`,\n"
+        "            threshold: -25,\n"
+        "        },\n",
+        "        DLZMOD_duckTap(i),\n",
+    ),
+    (
+        "ducking: the mics ducked",
+        "        {\n"
+        "            type: 'AutoDuck',\n"
+        "            enable: `(${i} > 0) && @autoDucking`,\n"
+        "            atten: -15,\n"
+        "            attack: 500,\n"
+        "            release: 500,\n"
+        "            hold: 250,\n"
+        "        },\n",
+        "        DLZMOD_duck('i.' + i, [500, 500, 250], i),\n",
+    ),
+    (
+        # after the mic loop, before the strips it ducks
+        "ducking: the trigger",
+        "                destL: auxL[auxIdx], destR: auxR[auxIdx]\n"
+        "            },\n"
+        "        ])\n"
+        "    }\n"
+        "}\n",
+        "                destL: auxL[auxIdx], destR: auxR[auxIdx]\n"
+        "            },\n"
+        "        ])\n"
+        "    }\n"
+        "}\n"
+        "\n"
+        "graph.push(DLZMOD_duckSource())\n",
+    ),
+    (
+        "ducking: the samples ducked",
+        "    workBuf, {type: 'AutoDuck', enable: `@autoDucking`, atten: -15},\n"
+        "    workBufR, {type: 'AutoDuck', enable: `@autoDucking`, atten: -15},\n",
+        "    workBuf, DLZMOD_duck('s', [1000, 1000, 1000]),\n"
+        "    workBufR, DLZMOD_duck('s', [1000, 1000, 1000]),\n",
+    ),
+]
+
+
+# a stereo strip in a loop (players, virtual channels): its two AutoDucks, found by the NDI output
+# right above them (mtk[first + (i * 2)]), on the strip's keys (prefix 'p' or 'v')
+def graph_duck_strip(what, first, prefix):
+    return (
+        what,
+        f"            right: mtk[{first} + (i * 2)],\n"
+        "        },\n"
+        "\n"
+        "        workBuf, {type: 'AutoDuck', enable: `@autoDucking`, atten: -15},\n"
+        "        workBufR, {type: 'AutoDuck', enable: `@autoDucking`, atten: -15},\n",
+        f"            right: mtk[{first} + (i * 2)],\n"
+        "        },\n"
+        "\n"
+        f"        workBuf, DLZMOD_duck('{prefix}.' + i, [1000, 1000, 1000]),\n"
+        f"        workBufR, DLZMOD_duck('{prefix}.' + i, [1000, 1000, 1000]),\n",
+    )
+
+
+GRAPH_PATCHES = GRAPH_SPECTRUM_PATCHES + GRAPH_HEADPHONE_PATCHES + GRAPH_DUCK_PATCHES + [
+    graph_duck_strip("ducking: the players ducked", 3, "p"),
+    graph_duck_strip("ducking: the virtual channels ducked", 9, "v"),
     (
         "eq spectrum: virtual channels",
         "        workBufR, {type: 'MaxMeter', vu: `vuViDynIn${i}`, threshold: VU_THRESHOLD},\n",
@@ -938,8 +1044,9 @@ GRAPH_PATCHES = GRAPH_SPECTRUM_PATCHES + GRAPH_HEADPHONE_PATCHES + [
     ),
 ]
 
-# the full-size's graph: the spectrum, #60's headphones, and #25's fourth band in its 9 lists of bands
-GRAPH_FULL_PATCHES = GRAPH_SPECTRUM_PATCHES + GRAPH_HEADPHONE_PATCHES + [
+# the full-size's graph: the spectrum, #60's headphones, #18's ducking, and #25's fourth band in its 9 lists of bands
+GRAPH_FULL_PATCHES = GRAPH_SPECTRUM_PATCHES + GRAPH_HEADPHONE_PATCHES + GRAPH_DUCK_PATCHES + [
+    graph_duck_strip("ducking: the players ducked", 5, "p"),
     (
         "eq, four bands: the full-size's graph",
         "['b1', 'b2', 'b3']",

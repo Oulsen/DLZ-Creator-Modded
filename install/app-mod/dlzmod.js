@@ -1040,8 +1040,10 @@ function DLZMOD_eqOld(v) {
   };
 }
 
+// DLZMOD_keys stays plain JSON: install/apply-mod.sh reads it as such into srv_data.json. #18's
+// ducking keys come from the server's own defaults (patch.py), and are added here for the app
 function DLZMOD_initKeys() {
-  Object.entries(DLZMOD_keys()).forEach(([k, v]) => Data.has(k) || (Data.data[k] = v));
+  Object.entries(Object.assign({}, DLZMOD_keys(), DLZMOD_duckKeys())).forEach(([k, v]) => Data.has(k) || (Data.data[k] = v));
 }
 
 function DLZMOD_headerHidden() {
@@ -3593,6 +3595,177 @@ function DLZMOD_hpSoloLabel(page, t) {
 // Send to USB: each headphone on its own pair (graph-mod/dlzmod-graph.js, DLZMOD_hpUsbOut)
 function DLZMOD_hpUsbLabel(hp) {
   return lang.SEND_TO + "\n" + lang.USB + " " + (3 + 2 * hp) + "-" + (4 + 2 * hp);
+}
+
+// #18 ducking: its settings on the pad editor's Ducking page (Pads, a pad in Control mode), where
+// stock only says what the mode does. Global keys (dlzmod-server.js DLZMOD_duckKeys, the same list),
+// read by the audio graph (graph-mod/dlzmod-graph.js): how deep, from what level and how fast the
+// strips duck, which mics trigger it and which strips duck, and stock's own "Auto-Ducking" setting
+// (settings.rec.autoDucking, never shown by stock): ducking on without a pad.
+function DLZMOD_duckKeys() {
+  const k = { "dlzmod.duck.depth": 0.6, "dlzmod.duck.threshold": 0.5, "dlzmod.duck.speed": 1 };
+  for (let i = 0; i < 4; i++) k[`dlzmod.duck.src.${i}`] = i === 0 ? 1 : 0;
+  for (const s of ["i.0", "i.1", "i.2", "i.3", "p.0", "p.1", "p.2", "v.0", "v.1", "s"]) k[`dlzmod.duck.on.${s}`] = 1;
+  return k;
+}
+
+// the slider values in dB, as the graph has them (DLZMOD_duckDepth, DLZMOD_duckThreshold)
+function DLZMOD_duckDb(v, threshold) {
+  return Math.round(threshold ? -45 + 40 * v : -30 + 25 * v);
+}
+
+// this model's strips: [label, key]. The mics trigger; every strip can be ducked (stock: all but
+// mic 1). Labelled as the Overview's strips: the samples are 7/8 on the XS, 11/12 on the full-size
+function DLZMOD_duckStrips(lite = typeof LITE_MODE !== "undefined" && LITE_MODE) {
+  const mics = lite ? ["1", "2"] : ["1", "2", "3", "4"];
+  const rest = lite ? [["3/4", "p.0"], ["5/6", "p.1"], ["7/8", "s"], ["9/10", "v.0"], ["11/12", "v.1"]]
+    : [["5/6", "p.0"], ["7/8", "p.1"], ["9/10", "p.2"], ["11/12", "s"]];
+  return { mics: mics.map((n, i) => [n, i]), ducked: mics.map((n, i) => [n, "i." + i]).concat(rest) };
+}
+
+// the page's layout (its own coordinates, 590 wide; the mode buttons end at 155)
+function DLZMOD_duckLayout() {
+  return { text: 178, slider: 218, row2: 296, trig: 366, duck: 436, rowX: 96, pitch: 58 };
+}
+
+// the widgets, built hidden with the page (patch.py: after Fade's); DLZMOD_duckShow shows them
+function DLZMOD_duckWidgets(page) {
+  DLZMOD_initKeys();
+  const L = DLZMOD_duckLayout(), strips = DLZMOD_duckStrips();
+  const hidden = { visible: false };
+  const slider = (x, key) => new E1HSlider(page, Object.assign({ w: 262, anchors: [x, L.slider], color: Color.main,
+    bgColor: page.bgColor, marks: Util.range(0, 1, 0.1), key: key }, hidden));
+  // Mackie's switch of the Mute Group page (68 x 44, its lane 48 x 24)
+  const sw = (x, y, key, extra) => new E1Switcher(page, Object.assign({ anchors: [x, y], key: key }, hidden, extra));
+  const w = {
+    depth: slider(16, "dlzmod.duck.depth"),
+    threshold: slider(312, "dlzmod.duck.threshold"),
+    speed: new SwitchBox(page, Object.assign({
+      anchors: [24, L.row2], w: 3 * 86, h: 44, itemWidth: 86, key: "dlzmod.duck.speed",
+      items: [["Slow", "Normal", "Fast"]], bgColor: Color.buttonBg, color: Color.main,
+      alphaOn: 1, textColorOn: Color.white, border: 0, borderOn: 0,
+      textStyle: { offsetX: 0, offsetY: 1, font: Font.font(500, "13pt"), align: "center", valign: "middle" },
+    }, hidden)),
+    always: new E1Switcher(page, Object.assign({ anchors: [590 - 24 - 68, L.row2], key: "settings.rec.autoDucking" }, hidden)),
+    trig: strips.mics.map(([, i], n) => sw(L.rowX + L.pitch * n, L.trig, `dlzmod.duck.src.${i}`)),
+    duck: strips.ducked.map(([, k], n) => sw(L.rowX + L.pitch * n, L.duck, `dlzmod.duck.on.${k}`, {
+      // a mic that triggers is never ducked itself (the graph): its switch greyed out meanwhile
+      getState: function () {
+        this.value = this.getVal();
+        this.enabled = !(k.startsWith("i.") && Data.get(`dlzmod.duck.src.${k.slice(2)}`));
+      },
+    })),
+  };
+  // the values and the greyed-out switches follow a change, also one made in a browser
+  for (const k of Object.keys(DLZMOD_duckKeys()).concat("settings.rec.autoDucking")) {
+    Data.regWidget(k, () => page.visible && w.depth.visible && page.update());
+  }
+  // leaving the pad editor (or its Control page) gives the knobs back. Stock's setMode hides the
+  // editor's three sub-pages and then shows one, on every sync of the editor: only when the page is
+  // still out of sight once that is done, or the knobs would go back and forth (their stand-ins to
+  // the middle, the rings flashing)
+  const onHide = page.onHide;
+  page.onHide = function () {
+    setTimeout(() => {
+      if (!(typeof page.globalVisible === "function" ? page.globalVisible() : page.visible)) DLZMOD_padKnobs(null);
+    }, 0);
+    return typeof onHide === "function" ? onHide.apply(this, arguments) : undefined;
+  };
+  return w;
+}
+
+// the knobs next to the screen on the pad editor's Control page, which stock leaves on the
+// Overview's (app.mixer.setKnobs, the editor's onShow). Ducking (#18): knob 1 the depth, knob 2 the
+// threshold, through the stand-ins of #238 (faderlink's table has no dlzmod.* keys). Fade: knob 1
+// the pad's fade-out time, knob 2 its fade-in time, on the pad's own keys (B.x.y.ctrl.fade.*, in
+// faderlink's table), as stock's sample editor puts its fades on the knobs. 3 and 4 dark. Any other
+// mode, or the page gone: the Overview's back, but only while the panel still has this list, so a
+// page shown meanwhile keeps its own. prefix = the pad's keys ("B.1.0.").
+// A moment after the call (DLZMOD_padKnobs.delay ms), so the page's own frame goes out first: done in
+// the same tick, the knobs' keys and the panel's redraw held the new page back on the mixer, the
+// rings changing well before the screen [user]. The last call within that moment counts
+function DLZMOD_padKnobs(mode, prefix) {
+  const s = DLZMOD_padKnobs;
+  clearTimeout(s.timer);
+  s.timer = setTimeout(() => DLZMOD_padKnobsNow(mode, prefix), s.delay);
+}
+DLZMOD_padKnobs.delay = 150;
+
+function DLZMOD_padKnobsNow(mode, prefix) {
+  if (typeof app === "undefined" || !app || !app.panel || DLZMOD_external()) return;
+  const M = typeof E_PAD_CONTROL_MODE === "undefined" ? {} : E_PAD_CONTROL_MODE;
+  const want = mode === undefined || mode === null ? null
+    : mode === M.DUCKING ? "ducking" : mode === M.FADE && prefix ? "fade " + prefix : null;
+  const s = DLZMOD_padKnobs, mine = s.list && app.panel.data === s.list;
+  // already set: setting it again would put the stand-ins back to their middle
+  if (mine && s.sig === want) return;
+  s.list = null;
+  s.sig = null;
+  if (!want) {
+    if (mine && app.mixer) app.mixer.setKnobs();
+    return;
+  }
+  const knob = (key, title, name, text, step) => ({
+    title: () => title, subTitle: () => name, valueText: text, value: () => Data.get(key), keys: [key],
+    color: () => Color.main, control: { key: key, color: Color.main }, stepKey: step ? key : undefined,
+  });
+  const duck = lang.DUCKING || "Ducking", fade = lang.FADE || "Fade";
+  s.list = DLZMOD_knobs(want === "ducking" ? [
+    knob("dlzmod.duck.depth", duck, "Depth", (v) => DLZMOD_duckDb(v, false) + " dB", true),
+    knob("dlzmod.duck.threshold", duck, "Threshold", (v) => DLZMOD_duckDb(v, true) + " dB", true), null, null,
+  ] : [
+    knob(prefix + "ctrl.fade.out", fade, lang.FADE_OUT || "Fade Out", (v) => (0 | VtoPadFadeOut(v)) + (lang.MS || "ms")),
+    knob(prefix + "ctrl.fade.in", fade, lang.FADE_IN || "Fade In", (v) => (0 | VtoPadFadeIn(v)) + (lang.MS || "ms")), null, null,
+  ]);
+  s.sig = want;
+  SET_KNOBS(s.list);
+}
+
+function DLZMOD_duckAll(w) {
+  return [w.depth, w.threshold, w.speed, w.always, ...w.trig, ...w.duck];
+}
+
+// the page's sync (patch.py), with every mode (mode, the pad's prefix): the ducking widgets on the
+// Ducking page only, and the knobs of the mode
+function DLZMOD_duckShow(page, mode, prefix) {
+  const w = page.dlzmodDuck;
+  if (!w) return;
+  const on = typeof E_PAD_CONTROL_MODE !== "undefined" && mode === E_PAD_CONTROL_MODE.DUCKING;
+  DLZMOD_duckAll(w).forEach((x) => (on ? x.show() : x.hide()));
+  DLZMOD_padKnobs(mode, prefix);
+}
+
+// the page's paint on the Ducking page, in place of stock's text: the labels, the values, the mod's
+// marks (ground rule 9). Fonts and colours as the Fade page's labels
+function DLZMOD_duckPaint(page, t) {
+  const w = page.dlzmodDuck;
+  if (!w) return;
+  const L = DLZMOD_duckLayout(), strips = DLZMOD_duckStrips();
+  const label = { font: Font.font(500, "14pt"), color: Color.text, align: "left", valign: "middle" };
+  const value = Object.assign({}, label, { align: "right" });
+  const small = { font: Font.font(500, "12pt"), color: Color.gray69, align: "center", valign: "middle" };
+  const mark = (x, y) => DLZMOD_stockMark(t, { geomCenterY: () => y }, x);
+  t.drawText("Lowers the other channels while a trigger mic is heard.", page.w / 2 | 0, L.text,
+    { font: Font.font(500, "13pt"), color: Color.white, align: "center", valign: "middle" });
+  const top = L.slider - 14;
+  [[w.depth, "Depth", DLZMOD_duckDb(Data.get("dlzmod.duck.depth"), false)],
+    [w.threshold, "Threshold", DLZMOD_duckDb(Data.get("dlzmod.duck.threshold"), true)]].forEach(([s, name, db]) => {
+    t.drawText(name, s.x + 11, top, label);
+    t.drawText(db + " dB", s.x + s.w - 11, top, value);
+    mark(s.x, top);
+  });
+  const row2 = w.speed.geomCenterY();
+  t.drawText("Speed", 24, w.speed.y - 14, label);
+  mark(12, w.speed.y - 14);
+  t.drawText("Always on", 312, row2 - 10, label);
+  t.drawText("no pad needed", 312, row2 + 12, Object.assign({}, small, { align: "left" }));
+  mark(300, row2);
+  [[w.trig, "Trigger", strips.mics], [w.duck, "Ducked", strips.ducked]].forEach(([row, name, list]) => {
+    const y = row[0].geomCenterY();
+    t.drawText(name, 24, y, label);
+    mark(12, y);
+    row.forEach((s, n) => t.drawText(list[n][0], s.geomCenterX(), s.y - 2, small));
+  });
 }
 
 // #26: recordings to a computer (dlzmod-server.js, DLZMOD_recHttp). A download button on the Media

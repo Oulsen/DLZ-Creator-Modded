@@ -75,3 +75,76 @@ function DLZMOD_rtaAnalyser() {
 function DLZMOD_hpUsbOut(hp, ch) {
   return 2 + 2 * hp + ch
 }
+
+// #18 ducking (the pad editor's Ducking page, app-mod/dlzmod.js DLZMOD_duck*). Stock, mic 1 is the
+// trigger (an AutoDuckSource on its own buffer) and the rest is ducked. dspserver's AutoDuckSource
+// writes its group's flag (level above the threshold or not) on every cycle, so a second source in
+// the group would overwrite the first [static]: instead every trigger mic is mixed into one buffer of
+// the mod's own, cleared each cycle, and one AutoDuckSource after the mics reads that. A mic ducked
+// by it (one that is not a trigger) runs before that source and so follows the cycle before, a few
+// samples. The keys are global settings (dlzmod-server.js DLZMOD_duckDefaults); their stock values
+// give stock's ducking: mic 1 the trigger, -25 dB, everything else ducked by -15 dB at stock's speed.
+
+// the buffer the trigger mics are mixed into, made on first use (the Clear at the start of each cycle)
+function DLZMOD_duckBuf() {
+  if (!globalThis.DLZMOD_duckBuffer) globalThis.DLZMOD_duckBuffer = createBuffer('dlzmodDuckKey')
+  return globalThis.DLZMOD_duckBuffer
+}
+
+// mic i into the trigger buffer, where stock's AutoDuckSource sat (after the fader and auto mix)
+function DLZMOD_duckTap(i) {
+  return {
+    type: 'GainWithLinMixTo',
+    src: workBuf,
+    gain: 0,
+    bypass: `!@autoDucking || !@dlzmod.duck.src.${i}`,
+    dest: DLZMOD_duckBuf(),
+  }
+}
+
+// the one trigger, after all mics
+function DLZMOD_duckSource() {
+  return [DLZMOD_duckBuf(), {
+    type: 'AutoDuckSource',
+    enable: `@autoDucking`,
+    threshold: `DLZMOD_duckThreshold(@dlzmod.duck.threshold)`,
+  }]
+}
+
+// the slider values (0..1) in dB; app-mod/dlzmod.js shows the same (DLZMOD_duckDb). Depth -30..-5 dB
+// (0.6 = stock's -15), threshold -45..-5 dB (0.5 = stock's -25). A value from elsewhere (a browser)
+// is held to 0..1, and one that is not a number counts as stock's
+function DLZMOD_duckUnit(v, stock) {
+  v = Number(v)
+  return isFinite(v) ? Math.min(1, Math.max(0, v)) : stock
+}
+
+function DLZMOD_duckDepth(v) {
+  return -30 + 25 * DLZMOD_duckUnit(v, 0.6)
+}
+
+function DLZMOD_duckThreshold(v) {
+  return -45 + 40 * DLZMOD_duckUnit(v, 0.5)
+}
+
+// attack, release, hold (what: 0, 1, 2) in ms for speed 0 slow, 1 stock, 2 fast; stock = the value
+// Mackie gives that block (mics 500, 500, 250; the others the plugin's 1000, 1000, 1000)
+function DLZMOD_duckTime(speed, what, stock) {
+  if (speed == 0) return [1000, 2000, 1500][what]
+  if (speed == 2) return [50, 250, 250][what]
+  return stock
+}
+
+// a ducked strip's AutoDuck: key = its hub prefix ('p.0', 's'), ms = stock's attack, release, hold;
+// a mic is never ducked while it is a trigger itself (stock: mic 1)
+function DLZMOD_duck(key, ms, mic) {
+  const notSrc = mic === undefined ? '' : ` && !@dlzmod.duck.src.${mic}`
+  return {
+    type: 'AutoDuck',
+    enable: `@autoDucking && @dlzmod.duck.on.${key}${notSrc}`,
+    atten: `DLZMOD_duckDepth(@dlzmod.duck.depth)`,
+    attack: `DLZMOD_duckTime(@dlzmod.duck.speed, 0, ${ms[0]})`,
+    release: `DLZMOD_duckTime(@dlzmod.duck.speed, 1, ${ms[1]})`,
+    hold: `DLZMOD_duckTime(@dlzmod.duck.speed, 2, ${ms[2]})`,
+  }
+}

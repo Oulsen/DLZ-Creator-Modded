@@ -2732,6 +2732,19 @@ test("headphones: a snapshot without Hear Solo means stock's solo, on headphone 
   assert.strictEqual(Object.keys(snap).length, 6, "nothing else is added");
 });
 
+test("ducking: its settings in Mackie's defaults are stock's ducking (#18)", () => {
+  const e = { "settings.rec.autoDucking": 0, "settings.rec.onetap": 0 };
+  ctx.DLZMOD_duckDefaults(e);
+  assert.strictEqual(e["settings.rec.autoDucking"], 0, "Mackie's keys left as they were");
+  assert.strictEqual(e["dlzmod.duck.depth"], 0.6, "-15 dB");
+  assert.strictEqual(e["dlzmod.duck.threshold"], 0.5, "-25 dB");
+  assert.strictEqual(e["dlzmod.duck.speed"], 1, "stock's times");
+  assert.deepStrictEqual([0, 1, 2, 3].map((i) => e[`dlzmod.duck.src.${i}`]), [1, 0, 0, 0], "mic 1 the trigger");
+  const on = Object.keys(e).filter((k) => k.startsWith("dlzmod.duck.on."));
+  assert.strictEqual(on.length, 10, "both models' strips");
+  assert.ok(on.every((k) => e[k] === 1), "every strip ducked (a triggering mic is not, in the graph)");
+});
+
 // #136: the boot log copied to the SD card once a start has finished (DLZMOD_bootlogCopy). Same rig
 // as the upload: the medium a temp folder, its remount stubbed; the timer never fires, tick() is
 // called by hand. Each test starts as a fresh start: the file seen and its tries are forgotten
