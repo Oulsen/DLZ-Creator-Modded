@@ -273,7 +273,8 @@ the page in the sandbox (XS and full-size) [static]; sound not heard on a mixer 
   `app.js`), on for headphone 1, off for the others, so stock behaviour is the default; a graph
   binding with an unset key would never apply and leave that headphone's source at its default, so
   the defaults matter (`srv_data.json` is merged over them: a mixer that has run before gets the key
-  at its next start). Old snapshots and presets have no such key and leave it as it is.
+  at its next start). A snapshot saved before #60 has no such key, and loading sets only the keys
+  it has; `DLZMOD_snapEq` (server, as for band 4) gives each headphone in it stock's value.
 - **Send to USB**: headphone N writes USB out `3+2N`/`4+2N` (`DLZMOD_hpUsbOut` in
   `graph-mod/dlzmod-graph.js`): 1 on 3/4 as stock, 2 on 5/6, full-size 3 on 7/8 and 4 on 9/10. The
   PC always gets all 14 channels; outside "record to computer" Mackie's strips write silence to

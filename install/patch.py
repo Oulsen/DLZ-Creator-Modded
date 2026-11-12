@@ -568,8 +568,9 @@ APP_PATCHES = [
     ),
     (
         "headphones: each sends to the computer on its own",
-        't=t||Data.get(`a.${e}.send2usb`);this.enabled=(!t||this.value)&&!Data.get("settings.rec.toComputer")',
-        't=t||Data.get(`a.${e}.send2usb`);this.enabled=!Data.get("settings.rec.toComputer")',
+        'let t=!1;for(let e=0;e<chConfig.aux;e++)t=t||Data.get(`a.${e}.send2usb`);'
+        'this.enabled=(!t||this.value)&&!Data.get("settings.rec.toComputer")',
+        'this.enabled=!Data.get("settings.rec.toComputer")',
     ),
     (
         "headphones: the page's headphone",

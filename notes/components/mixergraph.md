@@ -134,7 +134,8 @@ headphone 1 and 2 mixes.
   NDI out.
 - **Headphone setup tone** (`ez.hp.play`): loops `/srv/bankPlayer/default/Mackie After Dark.wav`
   at -10 dB on both headphones.
-- **USB out layout**: normally 1/2 = main mix (or the USB mix-minus), 3/4 = headphone send.
+- **USB out layout**: normally 1/2 = main mix (or the USB mix-minus), 3/4 = headphone send (the mod:
+  headphone N on `3+2N`/`4+2N`, #60).
   With `settings.rec.toComputer`: 1 mic 1, 2 mic 2, 3/4 player 1, 5/6 player 2, 7/8 samples,
   9/10 virtual 1, 11/12 virtual 2, 13/14 main mix.
 - **Recording taps** (`settings.rec.*`): `bypassProc` records the raw source, `postFader` after the

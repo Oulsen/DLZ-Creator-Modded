@@ -3379,23 +3379,29 @@ test("controls: the channel's text is its number and the owner's name, as on the
 });
 
 test("headphones: each Send to USB names its own pair, the same as the graph's (#60)", () => {
+  const before = { SEND_TO: ctx.lang.SEND_TO, USB: ctx.lang.USB };
   Object.assign(ctx.lang, { SEND_TO: "Send to", USB: "USB" });
-  const graph = fs.readFileSync(path.join(__dirname, "..", "graph-mod", "dlzmod-graph.js"), "utf8");
-  const g = vm.createContext({});
-  vm.runInContext(graph, g);
-  [0, 1, 2, 3].forEach((hp) => {
-    const label = ctx.DLZMOD_hpUsbLabel(hp);
-    const want = `Send to\nUSB ${g.DLZMOD_hpUsbOut(hp, 0) + 1}-${g.DLZMOD_hpUsbOut(hp, 1) + 1}`;
-    assert.strictEqual(label, want, "headphone " + (hp + 1));
-  });
-  assert.strictEqual(ctx.DLZMOD_hpUsbLabel(0), "Send to\nUSB 3-4", "headphone 1 as stock");
+  try {
+    const graph = fs.readFileSync(path.join(__dirname, "..", "graph-mod", "dlzmod-graph.js"), "utf8");
+    const g = vm.createContext({});
+    vm.runInContext(graph, g);
+    [0, 1, 2, 3].forEach((hp) => {
+      const label = ctx.DLZMOD_hpUsbLabel(hp);
+      const want = `Send to\nUSB ${g.DLZMOD_hpUsbOut(hp, 0) + 1}-${g.DLZMOD_hpUsbOut(hp, 1) + 1}`;
+      assert.strictEqual(label, want, "headphone " + (hp + 1));
+    });
+    assert.strictEqual(ctx.DLZMOD_hpUsbLabel(0), "Send to\nUSB 3-4", "headphone 1 as stock");
+  } finally {
+    Object.assign(ctx.lang, before);
+  }
 });
 
-test("headphones: the Hear Solo switch in the right column, on its own key (#60)", () => {
-  const page = { dlzmodSolo: null };
-  const w = ctx.DLZMOD_hpSoloSwitch(page, 815);
-  assert.deepStrictEqual(plain(w.anchors), [826, ctx.DLZMOD_hpSoloY()]);
-  assert.ok(!("key" in w), "the key is set per headphone (setAux), not here");
+test("headphones: the Hear Solo switch in the right column, between Color and Send to USB (#60)", () => {
+  const w = ctx.DLZMOD_hpSoloSwitch({}, 815);
+  const [x, y] = plain(w.anchors);
+  assert.strictEqual(x, 826, "Mackie's switches' column (x + 11)");
+  // Mackie's Color box ends at 192 + 50 + 5; Send to USB's two-line label starts ~30 above its 367
+  assert.ok(y - 30 > 247 && y + 44 < 367 - 30, "room for its label above, clear of Send to USB's: " + y);
 });
 
 (async () => {

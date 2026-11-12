@@ -2723,6 +2723,15 @@ test("eq band 4: a snapshot without it means the band flat, per channel", () => 
   assert.strictEqual(Object.keys(snap).length, 8, "nothing else is added");
 });
 
+test("headphones: a snapshot without Hear Solo means stock's solo, on headphone 1 only (#60)", () => {
+  const snap = { "a.0.send2usb": 0, "a.1.send2usb": 1, "a.2.send2usb": 0, "a.2.dlzmodSolo": 1 };
+  ctx.DLZMOD_snapEq(snap);
+  assert.strictEqual(snap["a.0.dlzmodSolo"], 1);
+  assert.strictEqual(snap["a.1.dlzmodSolo"], 0);
+  assert.strictEqual(snap["a.2.dlzmodSolo"], 1, "a snapshot with it keeps it");
+  assert.strictEqual(Object.keys(snap).length, 6, "nothing else is added");
+});
+
 // #136: the boot log copied to the SD card once a start has finished (DLZMOD_bootlogCopy). Same rig
 // as the upload: the medium a temp folder, its remount stubbed; the timer never fires, tick() is
 // called by hand. Each test starts as a fresh start: the file seen and its tries are forgotten

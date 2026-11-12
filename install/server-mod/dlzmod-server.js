@@ -692,10 +692,14 @@ function DLZMOD_knobCatch(key, value, hub, get = globalThis.getDataKey, set = gl
 // #25: a snapshot saved with three bands has no band 4 keys, and loading sets only the keys it has:
 // the band would stay as it is. Such a snapshot means the band flat. Its values are the state's own
 // (dB), per channel on its own: a file may be cut short.
+// #60: the same for Hear Solo (a.N.dlzmodSolo): a headphone in a snapshot without it means stock's
+// solo, on headphone 1 only.
 function DLZMOD_snapEq(snap) {
   for (const k of Object.keys(snap)) {
     const m = /^((?:[ipv]\.\d+\.|[sm]\.)eq\.)b1\.gain$/.exec(k);
     if (m && !(m[1] + "b4.gain" in snap)) snap[m[1] + "b4.gain"] = 0;
+    const a = /^a\.(\d+)\.send2usb$/.exec(k);
+    if (a && !(`a.${a[1]}.dlzmodSolo` in snap)) snap[`a.${a[1]}.dlzmodSolo`] = a[1] === "0" ? 1 : 0;
   }
 }
 
