@@ -87,7 +87,7 @@ function DLZMOD_keys() {
   return { "dlzmod.hideHeader": 0, "dlzmod.meterMode": 0, "dlzmod.preColor": 0, "dlzmod.preLevel": 0,
     "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0, "dlzmod.recDate": 0,
     "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "",
-    "dlzmod.controls": "", ...DLZMOD_duckKeys() };
+    "dlzmod.controls": "" };
 }
 
 // The owner's own colours on top of the theme (#21): the background, and an accent colour for the
@@ -1040,8 +1040,10 @@ function DLZMOD_eqOld(v) {
   };
 }
 
+// DLZMOD_keys stays plain JSON: install/apply-mod.sh reads it as such into srv_data.json. #18's
+// ducking keys come from the server's own defaults (patch.py), and are added here for the app
 function DLZMOD_initKeys() {
-  Object.entries(DLZMOD_keys()).forEach(([k, v]) => Data.has(k) || (Data.data[k] = v));
+  Object.entries(Object.assign({}, DLZMOD_keys(), DLZMOD_duckKeys())).forEach(([k, v]) => Data.has(k) || (Data.data[k] = v));
 }
 
 function DLZMOD_headerHidden() {

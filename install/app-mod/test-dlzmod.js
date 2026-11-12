@@ -538,6 +538,11 @@ test("header: hidden or shown at once, but not on full-screen pages; saved setti
     "dlzmod.preLevel": 0, "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0,
     "dlzmod.recDate": 0, "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "",
     "dlzmod.controls": "", ...plain(ctx.DLZMOD_duckKeys()) });
+  // install/apply-mod.sh reads DLZMOD_keys as JSON (set_mod_defaults): the same regex, the same parse
+  const src = fs.readFileSync(path.join(__dirname, "dlzmod.js"), "utf8");
+  const m = /function DLZMOD_keys\(\) \{\s*return (\{[^}]*\});/.exec(src);
+  assert.ok(m, "apply-mod.sh finds DLZMOD_keys");
+  assert.deepStrictEqual(JSON.parse(m[1]), plain(ctx.DLZMOD_keys()), "and reads it as plain JSON");
 });
 
 // #14: the date and time switch on Settings, Recording / Routing
@@ -3423,8 +3428,14 @@ test("ducking: the same settings and defaults as the server's, all known to the 
   vm.runInContext(fn[0], s);
   const keys = plain(ctx.DLZMOD_duckKeys());
   assert.deepStrictEqual(keys, plain(s.DLZMOD_duckKeys()));
-  const all = plain(ctx.DLZMOD_keys());
-  for (const [k, v] of Object.entries(keys)) assert.strictEqual(all[k], v, k);
+  const saved = Object.assign({}, ctx.Data.data);
+  try {
+    ctx.Data.data = {};
+    ctx.DLZMOD_initKeys();
+    for (const [k, v] of Object.entries(keys)) assert.strictEqual(ctx.Data.data[k], v, "known to the app: " + k);
+  } finally {
+    ctx.Data.data = saved;
+  }
   assert.strictEqual(keys["dlzmod.duck.src.0"], 1, "mic 1 triggers, as stock");
   assert.deepStrictEqual([1, 2, 3].map((i) => keys[`dlzmod.duck.src.${i}`]), [0, 0, 0], "the other mics do not");
 });
