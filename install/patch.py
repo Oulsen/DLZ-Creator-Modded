@@ -221,6 +221,23 @@ APP_PATCHES = [
         "case E_CH_TYPE.VIRTUAL:let t=DLZMOD_ctlScreen(this)&&!!this.bMute&&this.isSelected()",
     ),
     (
+        # the pads' mute on the screen (DLZMOD_padsMute): both models' pads have only a solo button;
+        # made with the strip's widgets, its layout from the strip's sync (DLZMOD_padsMuteLayout)
+        "pads: the mute button on the screen",
+        'postfix:"solo"})}VUDEMO&&(',
+        'postfix:"solo"})}DLZMOD_padsMute(this),VUDEMO&&(',
+    ),
+    (
+        "pads: the mute button follows the selection on the full-size too",
+        "LITE_MODE&&e.curPage===E_PAGE.OVERVIEW&&(selectedStrip&&selectedStrip.sync(),prevSelectedStrip&&prevSelectedStrip.sync())",
+        "(LITE_MODE||DLZMOD_padsSel(selectedStrip,prevSelectedStrip))&&e.curPage===E_PAGE.OVERVIEW&&(selectedStrip&&selectedStrip.sync(),prevSelectedStrip&&prevSelectedStrip.sync())",
+    ),
+    (
+        "pads: the mute button's layout",
+        "}t&&this.update()}initWidgets(){var t=this;let e=14,i=25",
+        "}DLZMOD_padsMuteLayout(this),t&&this.update()}initWidgets(){var t=this;let e=14,i=25",
+    ),
+    (
         # the Overview's knobs next to the screen: one set to another level shows and moves that one
         # (DLZMOD_ctlSideKnobs, through the stand-ins of #238)
         "controls: the Overview's knobs next to the screen",
@@ -604,6 +621,122 @@ APP_PATCHES = [
         "case E_PAD_CONTROL_MODE.DUCKING:e.drawText(wrapText(lang.DUCKING_TEXT,52,24),i,s+80,{...n})}",
         "case E_PAD_CONTROL_MODE.DUCKING:DLZMOD_duckPaint(this,e)}",
     ),
+    # #24 any source on any stereo strip (DLZMOD_src*): the key in the app's state, one source button
+    # in place of the 2-3 of each layout (Pro's Setup page and Standard's: the player panel, input2), the
+    # mix-minus switch on every stereo strip and greyed out on a local source, and a virtual
+    # channel's default icon by its source
+    (
+        "sources: the state's key, players",
+        't[i+"src"]=0,t[i+"mixminus"]=0,',
+        't[i+"src"]=0,t[i+"mixminus"]=0,t[i+"dlzmodSrc"]=-1,',
+    ),
+    (
+        "sources: the state's key, virtual channels",
+        't[i+"src"]=[0,1][e]||0,t[i+"mixminus"]=0,',
+        't[i+"src"]=[0,1][e]||0,t[i+"mixminus"]=0,t[i+"dlzmodSrc"]=-1,',
+    ),
+    (
+        "sources: the Setup page's button",
+        'this.src1=new ToggleButton(this,{anchors:[e,40],...t,groupIndex:0,skey:"src"}),'
+        'this.src2=new ToggleButton(this,{anchors:[e+72+4,40],...t,groupIndex:1,skey:"src"}),'
+        'this.src3=new ToggleButton(this,{anchors:[null,40,e],...t,groupIndex:2,skey:"src"}),',
+        'this.dlzmodSrc=DLZMOD_srcButton(this,[e,34,e],50),this.dlzmodPads=DLZMOD_srcPadsSwitch(this,[null,92,e-10]),',
+    ),
+    (
+        "sources: the Setup page's sync",
+        'sync:function(){let t=SELECTED(),e=t.getSources();this.src1.text=e[0][1],this.src1.icon=e[0][2],'
+        'this.src2.text=e[1][1],this.src2.icon=e[1][2],e[2]?(this.src3.show(),this.src3.text=e[2][1],'
+        'this.src3.icon=e[2][2],this.src3.iconFont=getIconFont(e[2][2],e[2][2]===ICON_FONT.ndi?"23px":"40px")):'
+        'this.src3.hide(),t.haveMixMinus()',
+        'sync:function(){let t=SELECTED();DLZMOD_srcSync(this,t),t.haveMixMinus()',
+    ),
+    (
+        "sources: the pads' panel (Pro)",
+        "case E_CH_TYPE.SAMPLE:this.basic.show(),this.sends.show();break;",
+        "case E_CH_TYPE.SAMPLE:this.basic.show(),this.player.show(),this.player.sync(),this.sends.show();break;",
+    ),
+    (
+        "sources: the mod's mark (Pro)",
+        "t.drawText(lang.CHANNEL_SOURCE,e,21),",
+        "t.drawText(lang.CHANNEL_SOURCE,e,21),DLZMOD_srcMark(this,t),",
+    ),
+    (
+        "sources: the Standard layout's button",
+        'this.src1=new ToggleButton(this,{anchors:[e,55],...t,groupIndex:0,label:lang.SOURCE,skey:"src"}),'
+        'this.src2=new ToggleButton(this,{anchors:[98,55],...t,groupIndex:1,skey:"src"}),'
+        'this.src3=new ToggleButton(this,{anchors:[null,55,e],...t,groupIndex:2,skey:"src"}),',
+        'this.dlzmodSrc=DLZMOD_srcButton(this,[e,46,e],50),this.dlzmodPads=DLZMOD_srcPadsSwitch(this,[null,104,e-10]),',
+    ),
+    (
+        "sources: the Standard layout's sync",
+        'sync:function(){let t=SELECTED().getSources(),e=t=>t.replace(/\\s([^\\s]*)$/,"\\n$1");'
+        'this.src1.text=e(t[0][1]),this.src1.icon=t[0][2],this.src2.text=e(t[1][1]),this.src2.icon=t[1][2],'
+        't[2]?(this.src3.show(),this.src3.text=e(t[2][1]),this.src3.icon=t[2][2],'
+        'this.src3.iconFont=getIconFont(t[2][2],t[2][2]===ICON_FONT.ndi?"23px":"40px")):this.src3.hide()}',
+        'sync:function(){DLZMOD_srcSync(this,SELECTED())}',
+    ),
+    (
+        "sources: the pads' panel (Standard)",
+        "case E_CH_TYPE.SAMPLE:this.preset.show(),s||(this.misc.show(),this.misc.sync());break;",
+        "case E_CH_TYPE.SAMPLE:this.preset.show(),a&&(this.input2.show(),this.input2.sync()),s||(this.misc.show(),this.misc.sync());break;",
+    ),
+    (
+        "sources: the mod's mark (Standard)",
+        't.drawText(lang.CHANNEL_SOURCE,e,22,{color:a,font:o,align:"center",valign:"middle"})',
+        't.drawText(lang.CHANNEL_SOURCE,e,22,{color:a,font:o,align:"center",valign:"middle"}),DLZMOD_srcMark(this,t)',
+    ),
+    (
+        # the pads' source (-1: none), Keep Pads, their own mix-minus and trim (Mackie's trim helper, as the
+        # players': stock's pads channel has neither)
+        "sources: the state's keys, the pads",
+        '{let e="s.";l(e),',
+        '{let e="s.";t[e+"dlzmodSrc"]=-1,t[e+"dlzmodPads"]=1,t[e+"mixminus"]=0,E(e),l(e),',
+    ),
+    (
+        "sources: mix-minus on every stereo strip and the pads",
+        "haveMixMinus(){return(!LITE_MODE||this.type!==E_CH_TYPE.PLAYER||0!=this.subId)&&",
+        "haveMixMinus(){return this.type===E_CH_TYPE.SAMPLE||",
+    ),
+    (
+        # the pads' Trim on the knob next to the screen, through a stand-in (faderlink's table has no
+        # s.trim): the Setup page's list and the other page's with a Trim knob (DLZMOD_srcTrimKnobs)
+        "sources: the pads' trim knob",
+        "SET_KNOBS(s)}initWidgets(){let t=this,e=this.xm",
+        "SET_KNOBS(DLZMOD_srcTrimKnobs(s,t))}initWidgets(){let t=this,e=this.xm",
+    ),
+    (
+        "sources: the pads' trim knob, the other list",
+        's[0].control.key=e+"trim",s[0].control.color=Color.blue),SET_KNOBS(s)}setPrefix(t){this.prefix=t}',
+        's[0].control.key=e+"trim",s[0].control.color=Color.blue),SET_KNOBS(DLZMOD_srcTrimKnobs(s,t))}setPrefix(t){this.prefix=t}',
+    ),
+    (
+        "sources: the mod's mark on the pads' Mix-Minus (Standard)",
+        "this.mixminus.visible&&t.drawText(lang.MIX_MINUS,26,this.mixminus.geomCenterY()-2)",
+        "this.mixminus.visible&&t.drawText(lang.MIX_MINUS,26,this.mixminus.geomCenterY()-2),DLZMOD_srcPadsMark(t,this.mixminus,14)",
+    ),
+    (
+        "sources: mix-minus greyed out on a local source",
+        "isMixMinusBlocked(){let t=this.getSource(),e=[];if(this.type===E_CH_TYPE.PLAYER)if(LITE_MODE)"
+        "{if(1===this.subId)e.push(0)}else switch(this.subId){case 0:case 1:e.push(0);break;case 2:e.push(1)}"
+        "return!!e.includes(t)}",
+        "isMixMinusBlocked(){return DLZMOD_srcBlocked(this)}",
+    ),
+    (
+        "sources: a virtual channel's icon",
+        'if(this.type===E_CH_TYPE.VIRTUAL){let t=this.getValue("src");return[$MI.usb,$MI.usb,ICON_FONT.ndi][t]||0}',
+        "if(this.type===E_CH_TYPE.VIRTUAL)return DLZMOD_srcIcon(this);",
+    ),
+    (
+        "sources: the icon and mix-minus follow the source (Standard)",
+        'this.preset.icon.regKey(i+"src"),this.misc.mixminus.regKey(i+"src"),',
+        'this.preset.icon.regKey(i+"src"),this.misc.mixminus.regKey(i+"src"),'
+        'this.preset.icon.regKey(i+"dlzmodSrc"),this.misc.mixminus.regKey(i+"dlzmodSrc"),',
+    ),
+    (
+        "sources: the icon and mix-minus follow the source (Pro)",
+        'this.basic.icon.regKey(i+"src"),',
+        'this.basic.icon.regKey(i+"src"),this.basic.icon.regKey(i+"dlzmodSrc"),this.player.mixMinus.regKey(i+"dlzmodSrc"),',
+    ),
 ]
 
 SERVER_PATCHES = [
@@ -686,6 +819,15 @@ SERVER_PATCHES = [
         "files: data keys checked (DLZMOD_keyAllowed)",
         "for(const[a,i]of Object.entries(e))if(null!=a){",
         "DLZMOD_ctlRemap(e,t);for(const[a,i]of Object.entries(e))if(null!=a&&(DLZMOD_keyAllowed(a,i,t.send)||(delete e[a],!1))&&(!DLZMOD_knobCatch(a,i,t)||(delete e[a],!1))){",
+    ),
+    (
+        # #276: the pads' mute on the screen. Stock refuses s.mute from a client (the pads had no mute
+        # button) but still passes the message on, so dspserver muted the pads while the hub never kept
+        # it: lost at a restart or when dspserver reconnects, missing from snapshots. Only LR's solo
+        # stays refused. (A pad's own mute action already sets s.mute through setDataKey in stock.)
+        "pads: the hub keeps the pads' mute",
+        'if("m.solo"!=a&&"s.mute"!=a){',
+        'if("m.solo"!=a){',
     ),
     (
         # #23: the LEDs under a knob or fader follow the channel chosen for it. Every way stock sends
@@ -877,6 +1019,33 @@ SERVER_PATCHES = [
         'e["settings.rec.autoDucking"]=0,DLZMOD_duckDefaults(e),',
         2,
     ),
+    # #24 a stereo strip's own source (<strip>.dlzmodSrc, the graph's DLZMOD_src; -1: as Mackie's src
+    # says) in the two copies of Mackie's channel defaults, players and virtual channels: a graph
+    # binding with a key not set never applies, and -1 keeps a mixer that has run before on its sources
+    (
+        "sources: the state's key, players",
+        'e[a+"src"]=0,e[a+"mixminus"]=0,',
+        'e[a+"src"]=0,e[a+"mixminus"]=0,e[a+"dlzmodSrc"]=-1,',
+        2,
+    ),
+    (
+        "sources: the state's key, virtual channels",
+        'e[a+"src"]=[0,1][t]||0,e[a+"mixminus"]=0,',
+        'e[a+"src"]=[0,1][t]||0,e[a+"mixminus"]=0,e[a+"dlzmodSrc"]=-1,',
+        2,
+    ),
+    (
+        # the pads' source (-1: none), Keep Pads, their own mix-minus and trim (Mackie's trim helper, as
+        # the players'; stock's pads channel has neither)
+        "sources: the state's keys, the pads",
+        '{let t="s.";m(t),',
+        '{let t="s.";e[t+"dlzmodSrc"]=-1,e[t+"dlzmodPads"]=1,e[t+"mixminus"]=0,v(t),m(t),',
+    ),
+    (
+        "sources: the state's keys, the pads, second copy",
+        '{let t="s.";ae(t),',
+        '{let t="s.";e[t+"dlzmodSrc"]=-1,e[t+"dlzmodPads"]=1,e[t+"mixminus"]=0,ne(t),ae(t),',
+    ),
 ]
 
 # #131 the sound behind the EQ curve (graph-mod/dlzmod-graph.js): its meters, its buffer cleared at
@@ -923,6 +1092,13 @@ GRAPH_SPECTRUM_PATCHES = [
         "eq spectrum: the analyser",
         "\ncompileGraph(graph)\n",
         "\ngraph.push(DLZMOD_rtaAnalyser())\n\ncompileGraph(graph)\n",
+    ),
+    (
+        # #24: the media player's and NDI's buffers copied at the end of each cycle, for a strip that
+        # reads them before they are filled (DLZMOD_srcHold)
+        "sources: the media player and NDI held for the next cycle",
+        "\ngraph.push(DLZMOD_rtaAnalyser())\n",
+        "\ngraph.push(DLZMOD_srcHold())\ngraph.push(DLZMOD_rtaAnalyser())\n",
     ),
 ]
 
@@ -1024,7 +1200,147 @@ def graph_duck_strip(what, first, prefix):
     )
 
 
-GRAPH_PATCHES = GRAPH_SPECTRUM_PATCHES + GRAPH_HEADPHONE_PATCHES + GRAPH_DUCK_PATCHES + [
+# #24 any source on any stereo strip (graph-mod/dlzmod-graph.js DLZMOD_src*): the strip's input,
+# Mackie's global mix-minus flags, the NDI receiver's enable and every send's mute, rewritten on the
+# kind of the strip's source (pool id from <strip>.dlzmodSrc, else Mackie's src). Each model's own
+# expressions, so two lists; L and R (and reverb/delay) share one anchor, with its count
+def graph_src_mute(what, kind, virt, stock, times):
+    args = f"'{kind}', {virt}, i" + (", auxIdx" if kind == "aux" else "")
+    return (what, f"mute: `{stock}`", f"mute: DLZMOD_muteExpr({args})", times)
+
+
+# the pads' source (DLZMOD_padSrc), mixed in right after the pads, and its level after the trim as
+# the VU group smp.gain (stock's pads have none); the same lines in both models' graphs
+GRAPH_PAD_METER_PATCH = (
+    "sources: the pads' source meter",
+    "    'smp.pre': [ 'vuSmpPreL', 'vuSmpPreR' ],\n",
+    "    'smp.pre': [ 'vuSmpPreL', 'vuSmpPreR' ],\n    'smp.gain': DLZMOD_padSrcMeters(),\n",
+)
+
+# the pads' track with "record unprocessed": the channel with its source (DLZMOD_padRawBufs)
+GRAPH_PAD_RAW_PATCHES = [
+    (f"sources: the pads' unprocessed recording, {side}",
+     f"src: `@settings.rec.bypassProc ? sample{s} :",
+     f"src: `@settings.rec.bypassProc ? DLZMOD_padRawBufs()[{n}] :")
+    for n, (side, s) in enumerate((("left", "L"), ("right", "R")))
+]
+
+GRAPH_PAD_SRC_PATCH = (
+    "sources: the pads' source",
+    "        {type: 'CopyFrom', src: `sample${ch}`},\n",
+    "        {type: 'CopyFrom', src: `sample${ch}`},\n"
+    "        DLZMOD_padSrc(ch),\n",
+)
+
+# the pads channel's sends by its source's kind (DLZMOD_padMuteExpr); the same lines in both graphs
+GRAPH_PAD_MUTE_PATCHES = [GRAPH_PAD_SRC_PATCH, GRAPH_PAD_METER_PATCH] + GRAPH_PAD_RAW_PATCHES + [
+    (f"sources: the pads' {name}, {side}",
+     f"linMul: `{side}ForPan(@s.pan)`, mute: `@ctrl.intercom.{k}.{k}.enable`",
+     f"linMul: `{side}ForPan(@s.pan)`, mute: DLZMOD_padMuteExpr('{k}')")
+    for k, name in (("b", "Bluetooth out"), ("u", "USB out"), ("n", "NDI out")) for side in ("left", "right")
+] + [
+    (f"sources: the pads' main mix, {side}",
+     f"linMul: `{side}ForPan(@s.pan)`, dest: master{side[0].upper()}}}",
+     f"linMul: `{side}ForPan(@s.pan)`, mute: DLZMOD_padMuteExpr('m'), dest: master{side[0].upper()}}}")
+    for side in ("left", "right")
+] + [
+    (f"sources: the pads' {name}, {side}",
+     f"gain: `@s.fx.{fx}.value`, linMul: `{side}ForPan(@s.pan)`, dest: {name}{side[0].upper()}}}",
+     f"gain: `@s.fx.{fx}.value`, linMul: `{side}ForPan(@s.pan)`, mute: DLZMOD_padMuteExpr('fx'), dest: {name}{side[0].upper()}}}")
+    for fx, name in (("1", "reverb"), ("0", "delay")) for side in ("left", "right")
+] + [
+    ("sources: the pads' headphone mixes",
+     "mute: `@ctrl.intercom.${auxIdx+1}.${auxIdx+1}.enable ? 1 : (@a.${auxIdx}.auxMixMode != 0 && @s.aux.${auxIdx}.mute)`",
+     "mute: DLZMOD_padMuteExpr('aux', auxIdx)", 2),
+]
+
+GRAPH_SRC_PATCHES = GRAPH_PAD_MUTE_PATCHES + [
+    ("sources: the players' input",
+     "src: `(${i} == 1 && @p.${i}.src == 1 && @btStatus == 0) ? zero : playerSource${ch}(${i}, @p.${i}.src)`",
+     "src: DLZMOD_srcBufExpr(0, i, ch)"),
+    ("sources: the virtual channels' input",
+     "src: `virtualSource${ch}(${i}, @v.${i}.src)`",
+     "src: DLZMOD_srcBufExpr(1, i, ch)"),
+    ("sources: the Bluetooth mix-minus",
+     "let btMixMinus = '(@p.1.src == 1 && @p.1.mixminus)'",
+     "let btMixMinus = DLZMOD_mixMinusExpr('b')"),
+    ("sources: the USB mix-minus",
+     "let usbMixMinus = '(@v.0.src != 2 && @v.0.mixminus) || (@v.1.src != 2 && @v.1.mixminus)'",
+     "let usbMixMinus = DLZMOD_mixMinusExpr('u')"),
+    ("sources: the NDI mix-minus",
+     "let ndiMixMinus = '(@v.0.src == 2 && @v.0.mixminus) || (@v.1.src == 2 && @v.1.mixminus)'",
+     "let ndiMixMinus = DLZMOD_mixMinusExpr('n')"),
+    ("sources: the NDI receiver",
+     "enable: `@v.0.src == 2 || @v.1.src == 2`",
+     "enable: DLZMOD_srcAnyExpr('n')"),
+    graph_src_mute("sources: players, the Bluetooth out", "b", 0,
+                   "@ctrl.intercom.b.b.enable ? (${i} == 1 ? (@p.1.src == 1 ? @p.1.mixminus : 1) : 1) : (${i} == 1 && ${btMixMinus})", 2),
+    graph_src_mute("sources: players, the USB out", "u", 0,
+                   "@ctrl.intercom.u.u.enable ? (${i} == 1 ? (@p.1.src == 1 ? !@ctrl.intercom.u.b.enable : 1) : 1) : 0", 2),
+    graph_src_mute("sources: players, the NDI out", "n", 0,
+                   "@ctrl.intercom.n.n.enable ? (${i} == 1 ? (@p.1.src == 1 ? !@ctrl.intercom.n.b.enable : 1) : 1) : 0", 2),
+    graph_src_mute("sources: players, the main mix", "m", 0,
+                   "${i} == 1 ? (@p.1.src == 1 && @ctrl.intercom.b.b.enable) : 0", 2),
+    graph_src_mute("sources: players, reverb and delay", "fx", 0,
+                   "${i} == 1 ? (@p.1.src == 1 && (@ctrl.intercom.b.b.enable || @p.1.mixminus)) : 0", 4),
+    graph_src_mute("sources: players, the headphones", "aux", 0,
+                   "@ctrl.intercom.${auxIdx+1}.${auxIdx+1}.enable ? (${i} == 1 ? (@p.1.src == 1 ? !@ctrl.intercom.${auxIdx+1}.b.enable : 1) : 1)"
+                   " : (@a.${auxIdx}.auxMixMode != 0 && @p.${i}.aux.${auxIdx}.mute)", 2),
+    graph_src_mute("sources: virtual channels, the Bluetooth out", "b", 1,
+                   "@ctrl.intercom.b.b.enable ? (@v.${i}.src == 2 ? !@ctrl.intercom.b.n.enable : !@ctrl.intercom.b.u.enable) : 0", 2),
+    graph_src_mute("sources: virtual channels, the USB out", "u", 1,
+                   "@ctrl.intercom.u.u.enable ? (@v.${i}.src == 2 ? !@ctrl.intercom.u.n.enable : @v.${i}.mixminus)"
+                   " : (@v.${i}.src == 2 ? 0 : @v.${i}.mixminus)", 2),
+    graph_src_mute("sources: virtual channels, the NDI out", "n", 1,
+                   "@ctrl.intercom.n.n.enable ? (@v.${i}.src == 2 ? @v.${i}.mixminus : !@ctrl.intercom.n.u.enable)"
+                   " : (@v.${i}.src == 2 ? @v.${i}.mixminus : 0)", 2),
+    graph_src_mute("sources: virtual channels, the main mix", "m", 1,
+                   "(@v.${i}.src != 2 && @ctrl.intercom.u.u.enable) || (@v.${i}.src == 2 && @ctrl.intercom.n.n.enable)", 2),
+    graph_src_mute("sources: virtual channels, reverb and delay", "fx", 1,
+                   "(@v.${i}.src != 2 && (@ctrl.intercom.u.u.enable || @v.${i}.mixminus))"
+                   " || (@v.${i}.src == 2 && (@ctrl.intercom.n.n.enable || @v.${i}.mixminus))", 4),
+    graph_src_mute("sources: virtual channels, the headphones", "aux", 1,
+                   "@ctrl.intercom.${auxIdx+1}.${auxIdx+1}.enable ? (@v.${i}.src != 2 ? !@ctrl.intercom.${auxIdx+1}.u.enable"
+                   " : !@ctrl.intercom.${auxIdx+1}.n.enable) : (@a.${auxIdx}.auxMixMode != 0 && @v.${i}.aux.${auxIdx}.mute)", 2),
+]
+
+GRAPH_FULL_SRC_PATCHES = GRAPH_PAD_MUTE_PATCHES + [
+    ("sources: the players' input",
+     "src: `(${i} == 2 && @p.${i}.src == 0 && @btStatus == 0) ? zero : playerSource${ch}(${i}, @p.${i}.src)`",
+     "src: DLZMOD_srcBufExpr(0, i, ch)"),
+    ("sources: the USB mix-minus",
+     "let usbMixMinus = '((@p.0.src != 0 && @p.0.mixminus) || (@p.1.src != 0 && @p.1.mixminus))'",
+     "let usbMixMinus = DLZMOD_mixMinusExpr('u')"),
+    ("sources: the Bluetooth mix-minus",
+     "let btMixMinus = '(@p.2.src == 0 && @p.2.mixminus)'",
+     "let btMixMinus = DLZMOD_mixMinusExpr('b')"),
+    ("sources: the NDI mix-minus",
+     "let ndiMixMinus = '(@p.2.src == 2 && @p.2.mixminus)'",
+     "let ndiMixMinus = DLZMOD_mixMinusExpr('n')"),
+    ("sources: the NDI receiver",
+     "enable: `@p.2.src == 2`",
+     "enable: DLZMOD_srcAnyExpr('n')"),
+    graph_src_mute("sources: the Bluetooth out", "b", 0,
+                   "@ctrl.intercom.b.b.enable ? (${i} == 2 ? (@p.2.src == 0 ? @p.2.mixminus : (@p.2.src == 1 ? 1 : !@ctrl.intercom.b.n.enable))"
+                   " : (@p.${i}.src == 0 ? 1 : !@ctrl.intercom.b.u.enable)) : (${i} == 2 && ${btMixMinus})", 2),
+    graph_src_mute("sources: the USB out", "u", 0,
+                   "@ctrl.intercom.u.u.enable ? (${i} == 2 ? (@p.2.src == 0 ? !@ctrl.intercom.u.b.enable : (@p.2.src == 1 ? 1 : !@ctrl.intercom.u.n.enable))"
+                   " : (@p.${i}.src == 0 ? 1 : (@p.${i}.src == 0 ? 1 : @p.${i}.mixminus))) : (${i} != 2 && @p.${i}.src != 0 && @p.${i}.mixminus)", 2),
+    graph_src_mute("sources: the NDI out", "n", 0,
+                   "@ctrl.intercom.n.n.enable ? (${i} == 2 ? (@p.2.src == 0 ? !@ctrl.intercom.n.b.enable : (@p.2.src == 1 ? 1 : @p.2.mixminus))"
+                   " : (@p.${i}.src == 0 ? 1 : !@ctrl.intercom.n.u.enable)) : (${i} == 2 && ${ndiMixMinus})", 2),
+    graph_src_mute("sources: the main mix", "m", 0,
+                   "${i} == 2 ? (@p.2.src == 0 && @ctrl.intercom.b.b.enable || @p.2.src == 2 && @ctrl.intercom.n.n.enable)"
+                   " : (@p.${i}.src != 0 && @ctrl.intercom.u.u.enable)", 2),
+    graph_src_mute("sources: reverb and delay", "fx", 0,
+                   "${i} == 2 ? (@p.2.src == 0 && (@ctrl.intercom.b.b.enable || @p.2.mixminus)) || (@p.2.src == 2 && (@ctrl.intercom.n.n.enable || @p.2.mixminus))"
+                   " : (@p.${i}.src != 0 && (@ctrl.intercom.u.u.enable || @p.${i}.mixminus))", 4),
+    graph_src_mute("sources: the headphones", "aux", 0,
+                   "@ctrl.intercom.${auxIdx+1}.${auxIdx+1}.enable ? (${i} == 2 ? (@p.${i}.src == 0 && !@ctrl.intercom.${auxIdx+1}.b.enable)"
+                   " : (@p.${i}.src != 0 && !@ctrl.intercom.${auxIdx+1}.u.enable)) : (@a.${auxIdx}.auxMixMode != 0 && @p.${i}.aux.${auxIdx}.mute)", 2),
+]
+
+GRAPH_PATCHES = GRAPH_SPECTRUM_PATCHES + GRAPH_HEADPHONE_PATCHES + GRAPH_DUCK_PATCHES + GRAPH_SRC_PATCHES + [
     graph_duck_strip("ducking: the players ducked", 3, "p"),
     graph_duck_strip("ducking: the virtual channels ducked", 9, "v"),
     (
@@ -1045,7 +1361,7 @@ GRAPH_PATCHES = GRAPH_SPECTRUM_PATCHES + GRAPH_HEADPHONE_PATCHES + GRAPH_DUCK_PA
 ]
 
 # the full-size's graph: the spectrum, #60's headphones, #18's ducking, and #25's fourth band in its 9 lists of bands
-GRAPH_FULL_PATCHES = GRAPH_SPECTRUM_PATCHES + GRAPH_HEADPHONE_PATCHES + GRAPH_DUCK_PATCHES + [
+GRAPH_FULL_PATCHES = GRAPH_SPECTRUM_PATCHES + GRAPH_HEADPHONE_PATCHES + GRAPH_DUCK_PATCHES + GRAPH_FULL_SRC_PATCHES + [
     graph_duck_strip("ducking: the players ducked", 5, "p"),
     (
         "eq, four bands: the full-size's graph",

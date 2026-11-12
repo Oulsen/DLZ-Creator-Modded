@@ -7,6 +7,9 @@
 - (DLZ FEATURE) Headphone 2 on par with headphone 1: solo and its own computer send
 - (DLZ FEATURE) Choose how ducking works: which mic, how much quieter, how fast
 - (DLZ FEATURE) Set a Fade pad's times with the knobs
+- (DLZ FEATURE) More input choices per channel
+- (DLZ FEATURE) A source on the pads channel, with its own trim and mix-minus
+- (DLZ FEATURE) A mute button on the screen for the pads channel
 - (MOD FEATURE) Prepare the mixers so an update can be undone
 - (MOD FEATURE) Undo an update and go back to the previous version
 - (MOD BUG) Cards with many recordings start more slowly

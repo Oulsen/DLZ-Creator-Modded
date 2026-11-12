@@ -3962,3 +3962,290 @@ function DLZMOD_ovFill(mixer, t) {
   if (x < mixer.w) t.fillRect(x, 0, mixer.w - x, mixer.h);
   return true;
 }
+
+// #24 any source on any stereo strip: the Setup page's Channel Source is one button (as Preset above
+// it) that opens the list of all 7 (6 without NDI), in place of Mackie's 2-3 buttons per strip, on
+// Mackie's Pro and Standard layouts (EZ shows no sources; patch.py "sources: ..."). A strip's source: <strip>.dlzmodSrc 0..6 (the pool id,
+// graph-mod/dlzmod-graph.js DLZMOD_srcPool, same order) or -1, "as Mackie's src says". A choice the
+// strip has in stock is set as Mackie's src (and dlzmodSrc -1), only another one as dlzmodSrc, so a
+// version without #24 or a snapshot from before it still finds a valid src. Any stock code that sets
+// src (the setup assistant) gives the strip that stock source (DLZMOD_srcSetHook). The pads channel
+// ("s.", which has no source in stock) gets the same button: Pads only (s.dlzmodSrc -1, the default)
+// or the pads with one of the 7 mixed in (the graph's DLZMOD_padSrc). Mackie's player panel shows
+// for it with the button, Keep Pads (s.dlzmodPads: off = the source alone), and a Trim and Mix-Minus
+// of their own (s.trim, s.mixminus: stock's pads channel has neither; the trim also on the knob next
+// to the screen, through a stand-in: DLZMOD_srcTrimKnobs).
+
+// the pool, in the graph's order: [id as Mackie's getSources has it, label, icon]
+function DLZMOD_srcList() {
+  const line = LITE_MODE ? ["li34", "li56"] : ["li56", "li78"];
+  const lineName = LITE_MODE ? ["3/4", "5/6"] : ["5/6", "7/8"];
+  return [
+    [line[0], lang.LINE_IN + " " + lineName[0], $MI.wire],
+    [line[1], lang.LINE_IN + " " + lineName[1], $MI.wire],
+    ["usb12", `${lang.USB} 1/2`, $MI.usb],
+    ["usb34", `${lang.USB} 3/4`, $MI.usb],
+    ["sd", lang.DISK, $MI.sd],
+    ["bt", lang.BLUETOOTH, $MI.bluetooth],
+    ["ndi", lang.NETWORK, ICON_FONT.ndi],
+  ];
+}
+
+// the pool ids the list shows: NDI only where Mackie offers it (HAVE_NDI)
+function DLZMOD_srcShown() {
+  const ids = [0, 1, 2, 3, 4, 5];
+  if (typeof HAVE_NDI === "undefined" || HAVE_NDI) ids.push(6);
+  return ids;
+}
+
+function DLZMOD_srcStrip(strip) {
+  return !!strip && (strip.type === E_CH_TYPE.PLAYER || strip.type === E_CH_TYPE.VIRTUAL || DLZMOD_srcPads(strip));
+}
+
+function DLZMOD_srcPads(strip) {
+  return !!strip && strip.type === E_CH_TYPE.SAMPLE;
+}
+
+// the pads' row: [label, icon] of "the pads only" (-1), the channel's own icon
+function DLZMOD_srcPadsOnly(strip) {
+  return ["Pads only", strip.getIcon ? strip.getIcon() : ""];
+}
+
+// what the list (row) and the button show for a pool id (-1 on the pads: the pads only); the pads'
+// button names the pads too while Keep Pads is on
+function DLZMOD_srcLabel(strip, id, row) {
+  if (id < 0) return DLZMOD_srcPadsOnly(strip);
+  const s = DLZMOD_srcList()[id];
+  const both = !row && DLZMOD_srcPads(strip) && Data.get(strip.prefix + "dlzmodPads") !== 0;
+  return [both ? "Pads + " + s[1] : s[1], s[2]];
+}
+
+// the strip's stock choices as pool ids, in the order of its src values
+function DLZMOD_srcStock(strip) {
+  const ids = DLZMOD_srcList().map((s) => s[0]);
+  return strip.getSources().map((s) => ids.indexOf(s[0]));
+}
+
+// the strip's pool id now: dlzmodSrc when it holds one, else its src through its stock choices (an
+// unknown src counts as its first, as the graph does); the pads: their source, -1 for none
+function DLZMOD_srcOf(strip) {
+  const mod = Number(Data.get(strip.prefix + "dlzmodSrc"));
+  if (mod >= 0 && mod < DLZMOD_srcList().length) return Math.floor(mod);
+  if (DLZMOD_srcPads(strip)) return -1;
+  const stock = DLZMOD_srcStock(strip);
+  const v = stock[Data.get(strip.prefix + "src")];
+  return v >= 0 ? v : Math.max(0, stock[0]);
+}
+
+function DLZMOD_srcChoose(strip, id) {
+  if (DLZMOD_srcPads(strip)) return void Data.set(strip.prefix + "dlzmodSrc", id);
+  const v = DLZMOD_srcStock(strip).indexOf(id);
+  if (v >= 0) Data.set(strip.prefix + "src", v);
+  else Data.set(strip.prefix + "dlzmodSrc", id);
+}
+
+// Mackie's src set by any code: the strip follows it (dlzmodSrc back to -1)
+function DLZMOD_srcSetHook(k) {
+  if (typeof k !== "string" || (k[0] !== "p" && k[0] !== "v") || !/^[pv]\.\d+\.src$/.test(k)) return;
+  const mod = k.slice(0, -3) + "dlzmodSrc";
+  if (Data.has(mod) && Data.get(mod) !== -1) Data.set(mod, -1);
+}
+
+{
+  const set = Data.set;
+  if (typeof set === "function") Data.set = function (k, ...rest) {
+    const r = set.call(this, k, ...rest);
+    DLZMOD_srcSetHook(k);
+    return r;
+  };
+}
+
+// mix-minus is for a remote source (Bluetooth, USB, NDI): greyed out on a local one, as stock does
+// for its line inputs and the media player, and on the pads without a source
+function DLZMOD_srcBlocked(strip) {
+  const id = DLZMOD_srcOf(strip);
+  return id < 0 || [0, 1, 4].includes(id);
+}
+
+// a virtual channel's default icon follows its source (stock: by its src)
+function DLZMOD_srcIcon(strip) {
+  return DLZMOD_srcList()[DLZMOD_srcOf(strip)][2] || 0;
+}
+
+function DLZMOD_srcIconFont(icon, px) {
+  return typeof getIconFont === "function" ? getIconFont(icon, icon === ICON_FONT.ndi ? Math.round(px * 0.6) + "px" : px + "px")
+    : Font.mi(px + "px");
+}
+
+// every strip's two source keys, so the button repaints on a change from anywhere
+function DLZMOD_srcKeys() {
+  const keys = [];
+  for (const [p, n] of [["p", 3], ["v", 2]]) {
+    for (let i = 0; i < n; i++) keys.push(`${p}.${i}.src`, `${p}.${i}.dlzmodSrc`);
+  }
+  return keys.concat("s.dlzmodSrc", "s.dlzmodPads");
+}
+
+// the source panel's sync (Pro's player panel, Standard's input2): the button, the trim and its meter
+// (on the pads the source's level after the trim: the graph's smp.gain); on the pads Keep Pads under
+// the button
+function DLZMOD_srcSync(panel, strip) {
+  if (panel.dlzmodSrc) panel.dlzmodSrc.update();
+  const pads = DLZMOD_srcPads(strip);
+  for (const w of [panel.trim, panel.vuTrim]) if (w) w.show();
+  if (panel.vuTrim && panel.vuTrim.reset) panel.vuTrim.reset();
+  const k = panel.dlzmodPads;
+  if (k) {
+    if (pads) {
+      if (k.setKey) k.setKey("s.dlzmodPads");
+      if (k.regKey) k.regKey("s.dlzmodSrc");   // Mackie's setKey unregisters every key first
+      k.show();
+    } else k.hide();
+  }
+}
+
+// Keep Pads: on (the default) the pads with their source, off the source alone; only with a source
+function DLZMOD_srcPadsSwitch(panel, anchors) {
+  const w = new Switcher(panel, {
+    anchors, size: [76, 48], bgColors: [Color.buttonBg, Color.blue], knobMargin: 2, visible: !1,
+    getState: function () {
+      this.value = this.getVal ? this.getVal() : Data.get("s.dlzmodPads");
+      this.enabled = DLZMOD_srcOf(SELECTED()) >= 0;
+    },
+  });
+  // Mackie's regKey is a method: a parameter of that name would replace it
+  if (w.regKey) w.regKey(["s.dlzmodSrc", "s.dlzmodPads"]);
+  return w;
+}
+
+function DLZMOD_srcLabelStyle() {
+  return { color: "#d0d0d0", font: Font.font(500, "12pt"), align: "left", valign: "middle" };
+}
+
+// from the panel's paint: the mod's mark left of the source button (DLZMOD_stockMark), and on the
+// pads Keep Pads' label and the marks of what stock's pads channel has not (Keep Pads, Trim, Mix-Minus)
+function DLZMOD_srcMark(panel, t) {
+  const b = panel.dlzmodSrc;
+  if (!b || !b.visible) return;
+  const x = b.x - 12;
+  DLZMOD_stockMark(t, b, x);
+  if (!DLZMOD_srcPads(SELECTED())) return;
+  const k = panel.dlzmodPads;
+  if (k && k.visible) {
+    t.drawText("Keep Pads", b.x, k.geomCenterY(), DLZMOD_srcLabelStyle());
+    DLZMOD_stockMark(t, k, x);
+  }
+  if (panel.trim && panel.trim.visible) DLZMOD_stockMark(t, { geomCenterY: () => panel.trim.y - 15 }, x);
+  DLZMOD_srcPadsMark(t, panel.mixMinus, x);
+}
+
+// the mark on the pads' Mix-Minus (a switch of Mackie's panels), at x
+function DLZMOD_srcPadsMark(t, w, x) {
+  if (w && w.visible && DLZMOD_srcPads(SELECTED())) DLZMOD_stockMark(t, w, x);
+}
+
+// a knob list with Mackie's Trim entry first (knob 1, players and virtual channels): on the pads, which
+// stock gives none, the pads' trim, through the stand-in (faderlink's table has no s.trim)
+function DLZMOD_srcTrimKnobs(list, strip) {
+  if (!DLZMOD_srcPads(strip) || !list) return list;
+  const out = list.slice(), key = strip.prefix + "trim", title = (out[1] && out[1].title) || (() => "");
+  out[0] = { title, subTitle: () => lang.TRIM, valueText: typeof v2trimText === "function" ? v2trimText : undefined,
+    value: () => Data.get(key), keys: [key], color: () => Color.blue, control: { key, color: Color.blue }, stepKey: key };
+  return DLZMOD_knobs(out);
+}
+
+// the page's button: the source's icon on the left, its name, the arrow of Mackie's Preset button
+function DLZMOD_srcButton(page, anchors, h) {
+  const b = new Button(page, {
+    anchors, size: [0, h], round: 6, colors: [Color.buttonBg, Color.blue2], triggerOnUp: !0,
+    textColor: Color.white, textStyle: { font: Font.font(500, "13pt"), margin: 3, dy: 19 },
+    getState: function () {
+      const strip = SELECTED();
+      if (!DLZMOD_srcStrip(strip)) return;
+      [this.text, this.dlzmodIcon] = DLZMOD_srcLabel(strip, DLZMOD_srcOf(strip));
+    },
+    paintOverlay: function (t) {
+      t.fillStyle = "rgba(255,255,255,0.33)";
+      t.fillPolygon(this.w - 10, this.h / 2 | 0, 6, 3, 0);
+      if (this.dlzmodIcon) t.drawText(this.dlzmodIcon, 30, this.h / 2 | 0,
+        { font: DLZMOD_srcIconFont(this.dlzmodIcon, 28), color: Color.white, align: "center", valign: "middle" });
+    },
+    onPress: () => DLZMOD_srcPopup(page),
+  });
+  if (b.regKey) b.regKey(DLZMOD_srcKeys());   // a method of Mackie's: not a parameter
+  return b;
+}
+
+// the list: one row per source, the strip's own lit, a tap sets it and closes
+function DLZMOD_srcPopup(page) {
+  const strip = SELECTED();
+  if (!DLZMOD_srcStrip(strip) || DLZMOD_srcPopup.open) return;
+  const ids = (DLZMOD_srcPads(strip) ? [-1] : []).concat(DLZMOD_srcShown()), ROW = 52, TOP = 64, W = 460;
+  DLZMOD_srcPopup.open = new PopupWindow(app, {
+    w: W, h: TOP + ids.length * ROW + 14, bgColor: Color.bgPopup,
+    initWidgets: function () {
+      const now = DLZMOD_srcOf(strip);
+      ids.forEach((id, n) => {
+        const s = [id].concat(DLZMOD_srcLabel(strip, id, !0));
+        new Button(this, {
+          anchors: [16, TOP + n * ROW], size: [W - 32, ROW - 6], round: 6, text: s[1], triggerOnUp: !0,
+          colors: id === now ? [Util.hex2rgba(Color.main, 0.5), Color.main50] : [Color.buttonBgPopup, Color.main50],
+          textColor: Color.white, textStyle: { font: Font.font(500, "14pt") },
+          paintOverlay: function (t) {
+            t.drawText(s[2], 34, this.h / 2 | 0, { font: DLZMOD_srcIconFont(s[2], 28), color: Color.white, align: "center", valign: "middle" });
+          },
+          onPress: () => {
+            this.close();
+            DLZMOD_srcChoose(strip, id);
+            page.update();
+          },
+        });
+      });
+      new Button(this, {
+        anchors: [null, 8, 8], size: [48, 48], text: $FA.times, triggerOnUp: !0, colors: [Color.bgPopup, Color.buttonBg],
+        textColor: Color.white, textStyle: { font: Font.fa("26px") }, onPress: () => this.close(),
+      });
+    },
+    onDestroy: function () {
+      DLZMOD_srcPopup.open = null;
+      PopupWindow.prototype.onDestroy.call(this);
+      DLZMOD_repaintSoon();
+    },
+    paint: function (t) {
+      PopupWindow.prototype.paint.call(this, t);
+      t.drawText(lang.CHANNEL_SOURCE, W / 2 | 0, 32, { color: Color.main, font: Font.font(600, "17pt"), align: "center", valign: "middle" });
+    },
+  });
+}
+
+// The pads channel's mute on the screen: on both models the pads have only a solo button (the XS a
+// knob, the full-size a fader), and no mute. As Mackie's LR on the XS (patch.py "pads: ..."): a mute
+// button in the Overview's strip, shown while the strip is selected there, its meter and fader marks
+// raised to make room. Not on the Aux page's copy of the strip (noMarks). An XS pads strip without a
+// knob (#23) has the screen fader's layout, which shows the button as well (DLZMOD_ctlScreen).
+function DLZMOD_padsMute(strip) {
+  if (strip.type !== E_CH_TYPE.SAMPLE || strip.bMute || strip.noMarks) return;
+  strip.bMute = new E1ToggleButton(strip, {
+    anchors: [1, null, null, strip.botHeight + 5, !0], size: [48, 38], colors: [Color.stripBg, Color.red],
+    borderColors: [Color.red, Color.red], textColors: [Color.red, Color.black], border: 1.5, text: ICON_FONT.mute,
+    font: Font.svg("19px"), textStyle: { offsetY: 0 }, postfix: "mute", visible: !1,
+  });
+}
+
+// its layout, from the strip's sync: selected on the Overview, room for the button (Mackie's 61 px as
+// for LR), else stock's (the meters 25 px above the name, the fader marks 21)
+function DLZMOD_padsMuteLayout(strip) {
+  if (strip.type !== E_CH_TYPE.SAMPLE || !strip.bMute || strip.noMarks) return;
+  if (LITE_MODE && DLZMOD_ctlScreen(strip)) return;
+  const on = strip.isSelected() && app.curPage === E_PAGE.OVERVIEW, e = on ? 61 : 25, b = strip.botHeight;
+  for (const w of [strip.vu, strip.vu2]) if (w) w.anchors.bottom = b + e;
+  for (const w of [strip.mixPos, strip.mixPos2]) if (w) w.anchors.bottom = b + e - 4;
+  strip.updateGeometry();
+  on ? strip.bMute.show() : strip.bMute.hide();
+}
+
+// Mackie syncs the newly and the last selected strip on the Overview on the XS only (their layout
+// follows the selection there); the pads' mute button needs it on the full-size too
+function DLZMOD_padsSel(a, b) {
+  return [a, b].some((s) => s && s.type === E_CH_TYPE.SAMPLE && !!s.bMute);
+}
