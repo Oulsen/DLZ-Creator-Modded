@@ -4098,6 +4098,7 @@ function DLZMOD_srcSync(panel, strip) {
   if (k) {
     if (pads) {
       if (k.setKey) k.setKey("s.dlzmodPads");
+      if (k.regKey) k.regKey("s.dlzmodSrc");   // Mackie's setKey unregisters every key first
       k.show();
     } else k.hide();
   }

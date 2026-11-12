@@ -366,6 +366,15 @@ function DLZMOD_muteAuxPads(id, full, dd, db, du, dn, mode, auxMute) {
   return DLZMOD_muteAux(id, full, dd, db, du, dn, mode, auxMute)
 }
 
+// the pads channel as it is right after its source is mixed in (and the pads silenced by Keep Pads),
+// before any processing: what its track records with "record unprocessed" (settings.rec.bypassProc),
+// where stock's reads the pads' own buffers (sampleL/R) and so would miss the source; the stereo
+// strips' own copy (origSrc) is after their input and trim too
+function DLZMOD_padRawBufs() {
+  if (!globalThis.DLZMOD_padRawBuffers) globalThis.DLZMOD_padRawBuffers = createBuffer(['dlzmodPadRawL', 'dlzmodPadRawR'])
+  return globalThis.DLZMOD_padRawBuffers
+}
+
 // at run time: the pads silenced (a source set, Keep Pads off, no bleep)
 function DLZMOD_padsOff(mod, keep, bleep, tone) {
   return DLZMOD_padSrcId(mod) >= 0 && !keep && !bleep && !tone
@@ -399,5 +408,7 @@ function DLZMOD_padSrc(ch) {
       mute: `@Bleep.sample.mute`,
       dest: side ? workBufR : workBuf,
     },
+    DLZMOD_padRawBufs()[side],
+    {type: 'CopyFrom', src: side ? workBufR : workBuf},
   ]
 }

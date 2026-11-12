@@ -1208,6 +1208,14 @@ GRAPH_PAD_METER_PATCH = (
     "    'smp.pre': [ 'vuSmpPreL', 'vuSmpPreR' ],\n    'smp.gain': DLZMOD_padSrcMeters(),\n",
 )
 
+# the pads' track with "record unprocessed": the channel with its source (DLZMOD_padRawBufs)
+GRAPH_PAD_RAW_PATCHES = [
+    (f"sources: the pads' unprocessed recording, {side}",
+     f"src: `@settings.rec.bypassProc ? sample{s} :",
+     f"src: `@settings.rec.bypassProc ? DLZMOD_padRawBufs()[{n}] :")
+    for n, (side, s) in enumerate((("left", "L"), ("right", "R")))
+]
+
 GRAPH_PAD_SRC_PATCH = (
     "sources: the pads' source",
     "        {type: 'CopyFrom', src: `sample${ch}`},\n",
@@ -1216,7 +1224,7 @@ GRAPH_PAD_SRC_PATCH = (
 )
 
 # the pads channel's sends by its source's kind (DLZMOD_padMuteExpr); the same lines in both graphs
-GRAPH_PAD_MUTE_PATCHES = [GRAPH_PAD_SRC_PATCH, GRAPH_PAD_METER_PATCH] + [
+GRAPH_PAD_MUTE_PATCHES = [GRAPH_PAD_SRC_PATCH, GRAPH_PAD_METER_PATCH] + GRAPH_PAD_RAW_PATCHES + [
     (f"sources: the pads' {name}, {side}",
      f"linMul: `{side}ForPan(@s.pan)`, mute: `@ctrl.intercom.{k}.{k}.enable`",
      f"linMul: `{side}ForPan(@s.pan)`, mute: DLZMOD_padMuteExpr('{k}')")

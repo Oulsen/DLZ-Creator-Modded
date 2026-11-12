@@ -3765,11 +3765,12 @@ test("sources: the pads: Pads only first, the 7 mixed in, their own key only; th
     // the panel: on the pads Keep Pads on its key, the trim and its meter (the source's level); on a
     // stereo strip no Keep Pads
     const w = () => ({ visible: true, hide() { this.visible = false; }, show() { this.visible = true; },
-      setKey(k) { this.key = k; } });
+      setKey(k) { this.key = k; this.regs = []; }, regKey(k) { (this.regs = this.regs || []).push(k); } });
     const panel = { dlzmodSrc: new Widget(null, {}), trim: w(), vuTrim: w(), dlzmodPads: w() };
     ctx.DLZMOD_srcSync(panel, pads);
     assert.deepStrictEqual([panel.trim.visible, panel.vuTrim.visible, panel.dlzmodPads.visible, panel.dlzmodPads.key],
       [true, true, true, "s.dlzmodPads"]);
+    assert.deepStrictEqual(panel.dlzmodPads.regs, ["s.dlzmodSrc"], "still follows the source after Mackie's setKey");
     ctx.DLZMOD_srcSync(panel, srcStrip("xs", "p.0."));
     assert.deepStrictEqual([panel.trim.visible, panel.vuTrim.visible, panel.dlzmodPads.visible], [true, true, false]);
     // Keep Pads greyed out without a source; mix-minus greyed out without one or on a local one

@@ -396,7 +396,8 @@ a mixer yet, and the side knob not turned on one.
   source or on a local one). In Standard the same in `input2`, Mix-Minus in Mackie's `misc` panel.
 - **Keys** (Mackie's three copies of the pads' defaults; snapshots and channel presets like the
   others): `s.dlzmodSrc` (-1 none, the default), `s.dlzmodPads` (1), `s.mixminus` (0), `s.trim`
-  (Mackie's trim helper, as the players': -10 dB). A snapshot without them: Pads only, Keep Pads on.
+  (Mackie's trim helper, as the players': -10 dB). A snapshot without them: Pads only, Keep Pads on
+  (found by `s.pan`: Mackie's SNAP_SAVE leaves every `*.mix` out of a snapshot) [static].
 - **Knob**: knob 1 next to the screen is the pads' Trim on the Setup page (and on Mackie's other
   list with a Trim knob), as on a player. faderlink's table has `p.N.trim` and `v.N.trim` but no
   `s.trim` [static, faderlink's strings], so it goes through the #238 stand-ins
@@ -408,7 +409,10 @@ a mixer yet, and the side knob not turned on one.
   DC filter, the trim and a meter (`vuSmpGainL/R`, the VU group `smp.gain`, which app.js already reads
   for a channel's trim meter; stock has none for the pads), mixed in at 0 dB only while a source is
   set and muted while the bleep runs. So the source shares the pads' EQ, dynamics, fader, sends and
-  ducking. Disk and NDI reach the pads through the copies of the cycle before (above). The pads' sends follow the source's kind (`DLZMOD_padMuteExpr`, mix-minus on
+  ducking. Disk and NDI reach the pads through the copies of the cycle before (above). The pads'
+  track with "record unprocessed" (`settings.rec.bypassProc`) reads the channel right after the source
+  is mixed in (`DLZMOD_padRawBufs`), where stock's reads the pads' own buffers and would miss the
+  source and keep pads that Keep Pads silenced. The pads' sends follow the source's kind (`DLZMOD_padMuteExpr`, mix-minus on
   `s.mixminus`), as a stereo strip on that source; without one or on a local one, stock's pads rules
   (a headphone's intercom mix mutes the pads on both models). Mix-minus keeps the whole channel, pads
   too, out of the caller's return. The gate and the mix are the mod's only blocks that write a buffer

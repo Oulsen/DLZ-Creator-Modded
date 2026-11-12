@@ -229,7 +229,9 @@ const freqs = JSON.parse(gm[1]);
 assert.deepStrictEqual(list("DLZMOD_rtaFreqs"), freqs, "the app and the graph have the same bands");
 
 const HELD = { dlzmodHeldMediaL: "mediaPlayer", dlzmodHeldMediaR: "mediaPlayerR", dlzmodHeldNdiL: "ndiL", dlzmodHeldNdiR: "ndiR" };
-const OWN = new Set(["dlzmodRta", "dlzmodRtaBand", "dlzmodDuckKey", "dlzmodPadSrcL", "dlzmodPadSrcR", ...Object.keys(HELD)]);
+// the pads' unprocessed copy: as stock's pads buffers while the pads have no source
+const PADRAW = { dlzmodPadRawL: "sampleL", dlzmodPadRawR: "sampleR" };
+const OWN = new Set(["dlzmodRta", "dlzmodRtaBand", "dlzmodDuckKey", "dlzmodPadSrcL", "dlzmodPadSrcR", ...Object.keys(HELD), ...Object.keys(PADRAW)]);
 // a block with a dest writes there (its own buffer is only where it sits), the others their buffer
 const writes = (b) => [b.p.dest ? String(b.p.dest).replace(/^buffer:/, "") : b.buf];
 const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").startsWith("dlzmodRta");
@@ -244,7 +246,7 @@ const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").st
     if (b.type === "GainWithLinMixTo" && /^buffer:dlzmodPadSrc[LR]$/.test(b.p.src)) mixes.push(i);
   });
   const ok = mixes.length === 2 && mixes.every((i, n) => {
-    const s = "LR"[n], b = patched.blocks[i], meter = patched.blocks[i - 1], trim = patched.blocks[i - 2];
+    const s = "LR"[n], b = patched.blocks[i], meter = patched.blocks[i - 1], trim = patched.blocks[i - 2], raw = patched.blocks[i + 1];
     const dc = patched.blocks[i - 3], gate = patched.blocks[i - 4], cp = patched.blocks[i - 5];
     const work = n ? "workBufR" : "workBuf";
     return b.p.src === `buffer:dlzmodPadSrc${s}` && b.p.dest === `buffer:${work}` && b.p.gain === 0
@@ -254,9 +256,13 @@ const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").st
       && dc.type === "DCFilter" && dc.buf === `dlzmodPadSrc${s}` && new RegExp(`^DLZMOD_padSrcIn\\(@s\\.dlzmodSrc, ${n}, @btStatus, [0-3]\\)$`).test(dc.p.src)
       && gate.type === "Gain" && gate.buf === work && gate.p.gain === 0
       && gate.p.mute === "DLZMOD_padsOff(@s.dlzmodSrc, @s.dlzmodPads, @Bleep.sample.mute, @censorBleep)"
-      && cp.type === "CopyFrom" && cp.buf === work && cp.p.src === `sample${s}`;
+      && cp.type === "CopyFrom" && cp.buf === work && cp.p.src === `sample${s}`
+      && raw.type === "CopyFrom" && raw.buf === `dlzmodPadRaw${s}` && raw.p.src === `buffer:${work}`;
   });
-  check(ok, "sources: the pads' source mixed in right after the pads, each side through its own DC filter, its trim and meter, muted with the bleep; the pads silenced only by Keep Pads");
+  check(ok, "sources: the pads' source mixed in right after the pads, each side through its own DC filter, its trim and meter, muted with the bleep; the pads silenced only by Keep Pads; the channel copied for its unprocessed track");
+  const tracks = patched.blocks.filter((b) => /^@settings\.rec\.bypassProc \? DLZMOD_padRawBufs\(\)\[[01]\] :/.test(String(b.p.src)));
+  check(tracks.length === 2 && ["[0]", "[1]"].every((x) => tracks.some((b) => b.p.src.includes("DLZMOD_padRawBufs()" + x))),
+    "sources: the pads' unprocessed track reads the channel with its source (left and right)");
   const off = (m, k, b, t) => vm.runInContext(`DLZMOD_padsOff(${JSON.stringify(m)}, ${k}, ${b}, ${t})`, patched.ctx);
   check([0, 3, 6].every((m) => off(m, 0, 0, 0) && !off(m, 1, 0, 0) && !off(m, 0, 1, 0) && !off(m, 0, 0, 1))
     && [-1, 7, "x"].every((m) => !off(m, 0, 0, 0)),
@@ -283,7 +289,7 @@ const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").st
         if (!(k in K)) throw new Error("no value for " + k);
         return K[k];
       });
-      return v && typeof v === "object" && "name" in v ? "buffer:" + (raw ? v.name : HELD[v.name] || v.name) : !!v;
+      return v && typeof v === "object" && "name" in v ? "buffer:" + (raw ? v.name : HELD[v.name] || PADRAW[v.name] || v.name) : !!v;
     };
   };
   const evS = evalIn(stock.ctx), evP = evalIn(patched.ctx);
@@ -314,7 +320,7 @@ const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").st
       yield K;
     }
   }
-  const MOD = /DLZMOD_(src|padSrcId)\(/;
+  const MOD = /DLZMOD_(src|padSrcId|padRawBufs)\(/;
   const evSt = (e, K) => (e === undefined ? false : evS(e, K));   // a mute stock has not: never muted
   const rewritten = [];   // { at, pb, sb, keys: [param names] }
   let srcBad = [], nCases = 0, pi = 0;
