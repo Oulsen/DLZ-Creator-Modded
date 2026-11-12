@@ -89,8 +89,9 @@ headphone 1 and 2 mixes.
   `src` values (`btMixMinus` on `p.1.src == 1`, `usbMixMinus`/`ndiMixMinus` on `v.N.src`), so more
   source choices mean updating those too. Only one NDI receiver, one media player and one Bluetooth
   stream exist; two strips on the same source would get a copy.
-- **From the PC only 4 channels come in** (USB 1/2 and 3/4); 14 go out. Whether the USB interface
-  offers the PC more playback channels than the graph reads is open (question 8).
+- **From the PC only 4 channels come in** (USB 1/2 and 3/4); 14 go out. The USB interface offers the
+  PC exactly those 4 playback channels [device, XS, [../hardware.md](../hardware.md) USB audio], so
+  more PC inputs over USB are not possible without the USB chip's firmware (#279).
 - **Meter taps** (`MaxMeter`, `configureVU`): per input `vuInPre`/`vuInGain` (before/after gain),
   `vuInDynIn`, `vuInGate`, `vuInComp`, `vuInDS`, `vuInDynOut`, `vuInPost` (after fader); the same
   pattern for players, virtuals and samples, plus `vuMasterDynIn/Out`. A PFL meter mode needs no DSP
