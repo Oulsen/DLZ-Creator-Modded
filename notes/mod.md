@@ -330,6 +330,102 @@ adjustable; its "Auto-Ducking" setting (`settings.rec.autoDucking`) exists but s
   that source and follows the previous cycle's flag (a few samples later than stock's mic 2). Every
   `AutoDuck` takes its enable, depth and times from the keys.
 
+## Any source on any stereo channel (#24)
+
+Stock, each stereo strip has 2 or 3 sources of its own (XS: 3/4 line 3/4 or Disk, 5/6 line 5/6 or
+Bluetooth, 9/10 and 11/12 USB 1/2, USB 3/4 or NDI; full-size: 5/6 and 7/8 their line input or USB
+1/2, 3/4, 9/10 Bluetooth, Disk or NDI), and the mix-minus and intercom rules in the graph test those
+src values strip by strip ([components/mixergraph.md](components/mixergraph.md), "Source
+selection"). Both models have the same 7 stereo sources, and the mod gives every stereo strip all of
+them. Both models; graph checked by `tests/graph-check.js`, the page in the sandbox (XS, full-size;
+Pro and Standard layouts) [static]; not heard on a mixer yet.
+
+- **Where**: the Setup page's Channel Source is one button, in the look of Preset above it (the
+  source's icon, its name, the arrow), opening a list of the 7 (Network only where Mackie offers NDI,
+  `HAVE_NDI`) with the strip's own lit; a tap sets it and closes (the maintainer's choice over a grid
+  of buttons). Pro and Standard layouts (`player` and `input2` widgets); EZ shows no sources, its
+  Channel Setup is Mackie's assistant. The Mix-Minus switch shows on every stereo strip (stock: not
+  on the XS's 3/4) and is greyed out on a local source (a line input, Disk), as stock for its own.
+  A virtual channel's default icon follows its source.
+- **Keys**: `<strip>.dlzmodSrc` (`p.N`, `v.N`): the pool id 0..6 (first line input, second, USB 1/2,
+  USB 3/4, Disk, Bluetooth, NDI; `DLZMOD_srcPool` in the graph, `DLZMOD_srcList` in the app, the same
+  order), or -1 = "as Mackie's `src` says". A choice the strip has in stock is set as Mackie's `src`
+  (and -1), only another one as `dlzmodSrc`, so a version without #24 (Go Back, #269) or a snapshot
+  from before it still finds a valid `src` and the stock routing. In the three copies of Mackie's
+  channel defaults (players, virtual channels), so the graph's bindings apply from the start and a
+  mixer that has run before keeps its sources (-1). Per channel, in snapshots and channel presets
+  like `src`. A snapshot without it: -1 (`DLZMOD_snapEq`). Any stock code that sets `src` (the setup
+  assistant) puts the strip back on that stock source (`DLZMOD_srcSetHook`, a wrap of `Data.set`:
+  only the screen's own changes pass there, the server's come in by `Data.put`); a channel preset
+  holds `src` before `dlzmodSrc`, so a new one keeps the own source and an old one gives stock's.
+- **Graph** (`graph-mod/dlzmod-graph.js`, `patch.py` "sources: ..."): every strip's input
+  (`DLZMOD_srcBuf`: Bluetooth silent while nothing is connected, stock's rule for its Bluetooth strip,
+  now on any strip), Mackie's global flags `btMixMinus`, `usbMixMinus`, `ndiMixMinus` and the NDI
+  receiver's enable (some strip on that kind of source), and every send's mute (Bluetooth, USB and
+  NDI outs, main mix, reverb/delay, headphones) are rewritten on the kind of the strip's source
+  ('' local, `b`, `u`, `n`: the letters of the intercom keys), not on the strip. What stock does for
+  its Bluetooth strip is done for any strip on Bluetooth, the same for USB and NDI. One stock
+  difference kept per model: in a headphone's intercom mode the XS mutes local sources there, the
+  full-size does not, nor its NDI strip (`DLZMOD_muteAux`). Two strips on one source both get it (as
+  stock with USB). On the XS the NDI receiver runs after the players, so a player on NDI hears the
+  cycle before (a few ms) [static].
+- **Mark**: the mod's yellow bar left of the source button on every channel that has one (Pro and
+  Standard, `DLZMOD_srcMark`), and on the pads also by Keep Pads, Trim and Mix-Minus.
+- **Checked** (`tests/graph-check.js`): every rewritten expression is run against stock's over all
+  key values with `dlzmodSrc` -1 (~190,000 cases on the XS, ~100,000 on the full-size); every strip on
+  each of the 7 against the stock strip that has that source; the global flags by kind; no stock
+  rule on `src` left; the key only on the strips whose `src` stock reads.
+
+### The pads channel's source (#275)
+
+Stock's pads channel (samples, `s.`: XS 7/8, full-size 11/12) has no source, trim or mix-minus: its
+sound is the 48 pad players, the preview and the censor tone. The mod lets it take one of the 7 too.
+Built with #24; graph checked, the page in the sandbox (XS; Pro and Standard) [static]; not heard on
+a mixer yet, and the side knob not turned on one.
+
+- **Where**: Mackie's player panel shows on the pads' Setup page too (stock: empty there): the source
+  button ("Pads only" first in its list, the default; the button reads "Pads + USB 1/2" while Keep
+  Pads is on, "USB 1/2" when off), **Keep Pads** right under it (on: pads and source, off: the source
+  alone; greyed out without a source), Trim with its meter, and Mix-Minus (greyed out without a
+  source or on a local one). In Standard the same in `input2`, Mix-Minus in Mackie's `misc` panel.
+- **Keys** (Mackie's three copies of the pads' defaults; snapshots and channel presets like the
+  others): `s.dlzmodSrc` (-1 none, the default), `s.dlzmodPads` (1), `s.mixminus` (0), `s.trim`
+  (Mackie's trim helper, as the players': -10 dB). A snapshot without them: Pads only, Keep Pads on.
+- **Knob**: knob 1 next to the screen is the pads' Trim on the Setup page (and on Mackie's other
+  list with a Trim knob), as on a player. faderlink's table has `p.N.trim` and `v.N.trim` but no
+  `s.trim` [static, faderlink's strings], so it goes through the #238 stand-ins
+  (`DLZMOD_srcTrimKnobs`). Mackie's `haveTrim` stays as it is: it would also put a gain slider and a
+  meter for the pads on other pages.
+- **Graph** (`DLZMOD_padSrc`, after the pads' `CopyFrom`, both models): a `Gain` on the channel that
+  silences the pads (`DLZMOD_padsOff`: a source set, Keep Pads off, but never while the censor bleep
+  or its tone plays, both on the pads' buffer); then on the mod's own buffers the source through a
+  DC filter, the trim and a meter (`vuSmpGainL/R`, the VU group `smp.gain`, which app.js already reads
+  for a channel's trim meter; stock has none for the pads), mixed in at 0 dB only while a source is
+  set and muted while the bleep runs. So the source shares the pads' EQ, dynamics, fader, sends and
+  ducking. The pads' sends follow the source's kind (`DLZMOD_padMuteExpr`, mix-minus on
+  `s.mixminus`), as a stereo strip on that source; without one or on a local one, stock's pads rules
+  (a headphone's intercom mix mutes the pads on both models). Mix-minus keeps the whole channel, pads
+  too, out of the caller's return. The gate and the mix are the mod's only blocks that write a buffer
+  of Mackie's; `graph-check.js` checks them where they are and the pads' 16 (XS) / 20 (full-size)
+  sends against stock: as the stock strip with a remote source, as stock's pads with a local one.
+
+### The pads channel's mute on the screen (#276)
+
+On both models the pads have only a solo button, no mute (XS: a knob, full-size: a fader; only LR
+has a mute button of its own) [maintainer, photo of the full-size]. Stock's XS gives LR a mute and
+9/10, 11/12 a mute and solo on the screen, shown while the strip is selected on the Overview; the
+full-size has none. Both models; sandbox (XS, full-size) [static]; a real tap not tried yet (the
+sandbox's synthetic taps reach no on-screen strip button, Mackie's LR mute neither; pressing it in
+code toggles `s.mute`).
+
+- `DLZMOD_padsMute` (from the strip's `initWidgets`, `patch.py` "pads: ...") makes LR's button
+  (`E1ToggleButton`, postfix `mute`, 48×38, 5 px above the name plate) for the samples strip, not for
+  the Aux page's copy (`noMarks`). `DLZMOD_padsMuteLayout` (the strip's sync) raises the meters and
+  fader marks by Mackie's 61 px while the strip is selected on the Overview, else stock's 25 / 21. An
+  XS pads strip without a knob (#23) has the screen fader's layout, which shows it the same way.
+- Mackie's `SELECT` syncs the newly and the last selected strip on the Overview on the XS only; the
+  full-size now does too when one of them is the pads strip (`DLZMOD_padsSel`).
+
 ## Mod settings (Settings → DLZ Creator Modded)
 
 Sub-tabs Display / Colors / Time / Network / Remote / Mod (a browser: Display / Colors / Time / Mod); layout and how to add a setting:

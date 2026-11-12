@@ -3619,6 +3619,233 @@ test("pad editor: the knobs on the Ducking page (depth, threshold) and the Fade 
   }
 });
 
+// #24 any source on any stereo strip. Mackie's choices per strip (getSources' ids, by src value)
+const SRC_STOCK = {
+  xs: { "p.0.": ["li34", "sd"], "p.1.": ["li56", "bt"], "v.0.": ["usb12", "usb34", "ndi"], "v.1.": ["usb12", "usb34", "ndi"] },
+  full: { "p.0.": ["li56", "usb12", "usb34"], "p.1.": ["li78", "usb12", "usb34"], "p.2.": ["bt", "sd", "ndi"] },
+};
+const srcStrip = (model, prefix) => ({ type: prefix[0] === "v" ? 5 : 1, prefix,
+  getSources: () => SRC_STOCK[model][prefix].map((id) => [id, id, "icon"]) });
+const withSrc = (model, fn) => {
+  const keep = { lite: ctx.LITE_MODE, type: ctx.E_CH_TYPE, sel: ctx.SELECTED, data: ctx.Data.data, sets: ui.sets.length };
+  Object.assign(ctx, { LITE_MODE: model === "xs" ? 1 : 0, E_CH_TYPE: Object.assign({ PLAYER: 1 }, keep.type),
+    lang: Object.assign({ LINE_IN: "Line In", USB: "USB", DISK: "Disk", BLUETOOTH: "Bluetooth", NETWORK: "Network",
+      CHANNEL_SOURCE: "Channel Source" }, ctx.lang), $MI: Object.assign({}, ctx.$MI), ICON_FONT: Object.assign({}, ctx.ICON_FONT) });
+  ctx.Data.data = {};
+  for (const p of Object.keys(SRC_STOCK[model])) Object.assign(ctx.Data.data, { [p + "src"]: 0, [p + "dlzmodSrc"]: -1 });
+  try {
+    return fn();
+  } finally {
+    Object.assign(ctx, { LITE_MODE: keep.lite, E_CH_TYPE: keep.type, SELECTED: keep.sel });
+    ctx.Data.data = keep.data;
+    ui.sets.length = keep.sets;
+  }
+};
+
+test("sources: the pool in the graph's order, each model's labels, every stock choice in it, local ones as the graph has them (#24)", () => {
+  const g = duckGraph();
+  for (const model of ["xs", "full"]) {
+    withSrc(model, () => {
+      const list = plain(ctx.DLZMOD_srcList());
+      assert.deepStrictEqual(list.map((s) => s[0]), model === "xs"
+        ? ["li34", "li56", "usb12", "usb34", "sd", "bt", "ndi"] : ["li56", "li78", "usb12", "usb34", "sd", "bt", "ndi"]);
+      assert.deepStrictEqual(list.slice(0, 2).map((s) => s[1]), model === "xs"
+        ? ["Line In 3/4", "Line In 5/6"] : ["Line In 5/6", "Line In 7/8"]);
+      for (const p of Object.keys(SRC_STOCK[model])) {
+        const stock = plain(ctx.DLZMOD_srcStock(srcStrip(model, p)));
+        assert.ok(stock.every((id) => id >= 0), `${model} ${p}: every stock choice in the pool`);
+      }
+      // the first line input is the first player's first choice, the second the second's (the graph's order)
+      assert.deepStrictEqual([0, 1].map((i) => ctx.DLZMOD_srcStock(srcStrip(model, `p.${i}.`))[0]), [0, 1]);
+    });
+  }
+  for (let id = 0; id < 7; id++) {
+    assert.strictEqual(withSrc("xs", () => {
+      ctx.Data.data["v.0.dlzmodSrc"] = id;
+      return ctx.DLZMOD_srcBlocked(srcStrip("xs", "v.0."));
+    }), g.DLZMOD_srcKind(id) === "", "mix-minus greyed out on a local source, as the graph's kind: " + id);
+  }
+  assert.deepStrictEqual(plain(withSrc("xs", () => ctx.DLZMOD_srcShown())), [0, 1, 2, 3, 4, 5, 6], "NDI where Mackie offers it");
+});
+
+test("sources: a stock choice sets Mackie's src and the strip's own key back to -1, another only the own key (#24)", () => {
+  for (const model of ["xs", "full"]) {
+    withSrc(model, () => {
+      const D = ctx.Data.data;
+      for (const p of Object.keys(SRC_STOCK[model])) {
+        const s = srcStrip(model, p), stock = plain(ctx.DLZMOD_srcStock(s));
+        for (let id = 0; id < 7; id++) {
+          D[p + "src"] = 0;
+          ctx.DLZMOD_srcChoose(s, id);
+          assert.strictEqual(ctx.DLZMOD_srcOf(s), id, `${model} ${p} on ${id}`);
+          if (stock.includes(id)) {
+            assert.deepStrictEqual([D[p + "src"], D[p + "dlzmodSrc"]], [stock.indexOf(id), -1], `${model} ${p}: stock's ${id}`);
+          } else {
+            assert.deepStrictEqual([D[p + "src"], D[p + "dlzmodSrc"]], [0, id], `${model} ${p}: own ${id}, src left`);
+          }
+        }
+      }
+    });
+  }
+});
+
+test("sources: Mackie's src set by other code puts the strip on it; the own key read as the graph does (#24)", () => {
+  withSrc("xs", () => {
+    const D = ctx.Data.data, s = srcStrip("xs", "p.1.");
+    D["p.1.dlzmodSrc"] = 3;
+    ctx.Data.set("p.1.src", 1);   // the setup assistant: Bluetooth
+    assert.strictEqual(D["p.1.dlzmodSrc"], -1);
+    assert.strictEqual(ctx.DLZMOD_srcOf(s), 5);
+    D["p.1.dlzmodSrc"] = 2;
+    ctx.Data.set("p.1.dlzmodSrc", 4);
+    ctx.Data.set("i.0.src", 1);
+    assert.strictEqual(D["p.1.dlzmodSrc"], 4, "only a stereo strip's src resets it");
+    // as the graph's DLZMOD_src: a value out of range or not a number follows src, an unknown src = the first
+    const g = duckGraph();
+    vm.runInContext("var playerInSource = [[['a'], ['m']], [['b'], ['bt']]]; var virtualInSource = [];"
+      + "var lineIn = [['a'], ['b']], usbIn = [['u1'], ['u2']], btIn = ['bt'], mediaPlayer = 'm', mediaPlayerR = 'mR', ndiL = 'n', ndiR = 'nR';", g);
+    for (const [mod, src] of [[-1, 1], [7, 1], ["x", 0], [-1, 9], [2.5, 0], [6, 0]]) {
+      D["p.1.dlzmodSrc"] = mod;
+      D["p.1.src"] = src;
+      assert.strictEqual(ctx.DLZMOD_srcOf(s), g.DLZMOD_src(0, 1, src, mod), `as the graph: ${mod} / ${src}`);
+    }
+  });
+});
+
+test("sources: the list shows every source, the strip's lit; a tap sets it and closes (#24)", () => {
+  withSrc("full", () => {
+    const strip = srcStrip("full", "p.2.");
+    ctx.SELECTED = () => strip;
+    ctx.Data.data["p.2.src"] = 2;   // NDI
+    const page = new Widget(null, {});
+    const n = ui.windows.length;
+    ctx.DLZMOD_srcPopup(page);
+    ctx.DLZMOD_srcPopup(page);
+    assert.strictEqual(ui.windows.length, n + 1, "one at a time");
+    const pop = ui.windows[n];
+    const rows = ui.widgets.filter((w) => w.parent === pop && w.text !== ctx.$FA.times);
+    assert.strictEqual(rows.length, 7);
+    const lit = rows.filter((r) => r.colors[0] !== ctx.Color.buttonBgPopup);
+    assert.deepStrictEqual(lit.map((r) => rows.indexOf(r)), [6], "NDI lit");
+    rows[1].onPress();   // Line In 7/8
+    assert.ok(pop.closed, "closed");
+    assert.deepStrictEqual([ctx.Data.data["p.2.src"], ctx.Data.data["p.2.dlzmodSrc"]], [2, 1]);
+    assert.ok(page.updates > 0, "the page shows it");
+    assert.ok(!ctx.DLZMOD_srcPopup.open, "a new one can open");
+  });
+});
+
+test("sources: the pads: Pads only first, the 7 mixed in, their own key only; the panel without the trim (#24)", () => {
+  withSrc("xs", () => {
+    ctx.E_CH_TYPE.SAMPLE = 2;
+    const pads = { type: 2, prefix: "s.", getIcon: () => "P", getSources: () => [] };
+    ctx.SELECTED = () => pads;
+    ctx.Data.data["s.dlzmodSrc"] = -1;
+    assert.strictEqual(ctx.DLZMOD_srcOf(pads), -1);
+    assert.deepStrictEqual(plain(ctx.DLZMOD_srcLabel(pads, -1)), ["Pads only", "P"]);
+    const usb = ctx.DLZMOD_srcList()[2][1];
+    ctx.Data.data["s.dlzmodPads"] = 1;
+    assert.strictEqual(ctx.DLZMOD_srcLabel(pads, 2)[0], "Pads + " + usb, "the button with Keep Pads on");
+    ctx.Data.data["s.dlzmodPads"] = 0;
+    assert.strictEqual(ctx.DLZMOD_srcLabel(pads, 2)[0], usb, "and off: the source alone");
+    assert.strictEqual(ctx.DLZMOD_srcLabel(pads, 2, true)[0], usb, "a row of the list: the source");
+    ctx.Data.data["s.dlzmodPads"] = 1;
+    const page = new Widget(null, {});
+    const n = ui.windows.length;
+    ctx.DLZMOD_srcPopup(page);
+    const pop = ui.windows[n];
+    const rows = ui.widgets.filter((w) => w.parent === pop && w.text !== ctx.$FA.times);
+    assert.deepStrictEqual(rows.map((r) => r.text).slice(0, 2), ["Pads only", "Line In 3/4"]);
+    assert.strictEqual(rows.length, 8);
+    assert.strictEqual(rows.filter((r) => r.colors[0] !== ctx.Color.buttonBgPopup).map((r) => rows.indexOf(r))[0], 0, "Pads only lit");
+    rows[6].onPress();   // Pads + Bluetooth
+    assert.deepStrictEqual([ctx.Data.data["s.dlzmodSrc"], "s.src" in ctx.Data.data], [5, false], "only the pads' own key");
+    ctx.DLZMOD_srcChoose(pads, -1);
+    assert.strictEqual(ctx.Data.data["s.dlzmodSrc"], -1, "back to the pads only");
+    // the panel: on the pads Keep Pads on its key, the trim and its meter (the source's level); on a
+    // stereo strip no Keep Pads
+    const w = () => ({ visible: true, hide() { this.visible = false; }, show() { this.visible = true; },
+      setKey(k) { this.key = k; } });
+    const panel = { dlzmodSrc: new Widget(null, {}), trim: w(), vuTrim: w(), dlzmodPads: w() };
+    ctx.DLZMOD_srcSync(panel, pads);
+    assert.deepStrictEqual([panel.trim.visible, panel.vuTrim.visible, panel.dlzmodPads.visible, panel.dlzmodPads.key],
+      [true, true, true, "s.dlzmodPads"]);
+    ctx.DLZMOD_srcSync(panel, srcStrip("xs", "p.0."));
+    assert.deepStrictEqual([panel.trim.visible, panel.vuTrim.visible, panel.dlzmodPads.visible], [true, true, false]);
+    // Keep Pads greyed out without a source; mix-minus greyed out without one or on a local one
+    const sw = ctx.DLZMOD_srcPadsSwitch(page, [0, 0]);
+    ctx.Data.data["s.dlzmodPads"] = 1;
+    ctx.Data.data["s.dlzmodSrc"] = -1;
+    sw.getState();
+    assert.strictEqual(sw.enabled, false);
+    assert.strictEqual(ctx.DLZMOD_srcBlocked(pads), true, "no source: no mix-minus");
+    ctx.Data.data["s.dlzmodSrc"] = 2;
+    sw.getState();
+    assert.strictEqual(sw.enabled, true);
+    assert.strictEqual(ctx.DLZMOD_srcBlocked(pads), false, "USB: mix-minus");
+    ctx.Data.data["s.dlzmodSrc"] = 4;
+    assert.strictEqual(ctx.DLZMOD_srcBlocked(pads), true, "Disk: none");
+    // the knob: Trim first on the pads, on the stand-in; another strip's list as it was
+    const list = [null, { title: () => "T", control: { key: "s.pan" } }, { control: { key: "s.fx.1.value" } }];
+    const knobs = ctx.DLZMOD_srcTrimKnobs(list, pads);
+    assert.strictEqual(knobs[0].control.key, "a.0.pan", "knob 1 on its stand-in");
+    assert.strictEqual(ctx.DLZMOD_knobs.steps[0], "s.trim", "which moves the pads' trim");
+    assert.strictEqual(knobs[1].control.key, "s.pan", "the rest as it was");
+    assert.strictEqual(ctx.DLZMOD_srcTrimKnobs(list, srcStrip("xs", "p.0.")), list, "a stereo strip's list untouched");
+    delete ctx.E_CH_TYPE.SAMPLE;
+  });
+});
+
+test("pads: the mute button on the screen, shown while the strip is selected on the Overview, both models (#24)", () => {
+  const keep = { T: ctx.E1ToggleButton, type: ctx.E_CH_TYPE, page: ctx.E_PAGE, app: ctx.app, lite: ctx.LITE_MODE, icon: ctx.ICON_FONT,
+    font: ctx.Font };
+  const made = [];
+  try {
+    Object.assign(ctx, {
+      E1ToggleButton: kind((b) => made.push(b)), E_CH_TYPE: Object.assign({ SAMPLE: 2, PLAYER: 1 }, keep.type),
+      E_PAGE: { OVERVIEW: 0, SETUP: 1 }, app: { curPage: 0 }, ICON_FONT: Object.assign({ mute: "M" }, keep.icon),
+      Font: Object.assign({ svg: (s) => s }, keep.font),
+    });
+    for (const lite of [0, 1]) {
+      ctx.LITE_MODE = lite;
+      made.length = 0;
+      let sel = true;
+      const w = () => ({ anchors: { bottom: 0 } });
+      const strip = { type: 2, botHeight: 84, noMarks: false, vu: w(), vu2: w(), mixPos: w(), mixPos2: w(),
+        isSelected: () => sel, updateGeometry() {}, prefix: "s." };
+      ctx.DLZMOD_padsMute(strip);
+      ctx.DLZMOD_padsMute(strip);
+      assert.strictEqual(made.length, 1, "one button");
+      assert.strictEqual(strip.bMute.postfix, "mute", "on the strip's own mute key");
+      assert.strictEqual(strip.bMute.anchors[3], 89, "where Mackie's LR mute sits on the XS");
+      strip.bMute.show = function () { this.visible = true; };
+      strip.bMute.hide = function () { this.visible = false; };
+      ctx.DLZMOD_padsMuteLayout(strip);
+      assert.deepStrictEqual([strip.bMute.visible, strip.vu.anchors.bottom, strip.mixPos.anchors.bottom], [true, 145, 141]);
+      sel = false;
+      ctx.DLZMOD_padsMuteLayout(strip);
+      assert.deepStrictEqual([strip.bMute.visible, strip.vu.anchors.bottom, strip.mixPos2.anchors.bottom], [false, 109, 105],
+        "stock's layout when not selected");
+      sel = true;
+      ctx.app.curPage = 1;
+      ctx.DLZMOD_padsMuteLayout(strip);
+      assert.strictEqual(strip.bMute.visible, false, "only on the Overview");
+      ctx.app.curPage = 0;
+      assert.strictEqual(ctx.DLZMOD_padsSel(strip, null), true, "the selection syncs it");
+      assert.strictEqual(ctx.DLZMOD_padsSel({ type: 1 }, null), false, "another strip: as stock");
+    }
+    const copy = { type: 2, noMarks: true, botHeight: 84 };
+    ctx.DLZMOD_padsMute(copy);
+    assert.strictEqual(copy.bMute, undefined, "not on the Aux page's copy");
+    const player = { type: 1, botHeight: 84 };
+    ctx.DLZMOD_padsMute(player);
+    assert.strictEqual(player.bMute, undefined, "not on another strip");
+  } finally {
+    Object.assign(ctx, { E1ToggleButton: keep.T, E_CH_TYPE: keep.type, E_PAGE: keep.page, app: keep.app, LITE_MODE: keep.lite,
+      ICON_FONT: keep.icon, Font: keep.font });
+  }
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {

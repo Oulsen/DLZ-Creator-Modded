@@ -694,12 +694,17 @@ function DLZMOD_knobCatch(key, value, hub, get = globalThis.getDataKey, set = gl
 // (dB), per channel on its own: a file may be cut short.
 // #60: the same for Hear Solo (a.N.dlzmodSolo): a headphone in a snapshot without it means stock's
 // solo, on headphone 1 only.
+// #24: the same for a stereo strip's own source (<strip>.dlzmodSrc): a strip in a snapshot without
+// it takes the snapshot's src, as Mackie's (-1); the pads (by s.mix) their pads only, Keep Pads on.
 function DLZMOD_snapEq(snap) {
   for (const k of Object.keys(snap)) {
     const m = /^((?:[ipv]\.\d+\.|[sm]\.)eq\.)b1\.gain$/.exec(k);
     if (m && !(m[1] + "b4.gain" in snap)) snap[m[1] + "b4.gain"] = 0;
     const a = /^a\.(\d+)\.send2usb$/.exec(k);
     if (a && !(`a.${a[1]}.dlzmodSolo` in snap)) snap[`a.${a[1]}.dlzmodSolo`] = a[1] === "0" ? 1 : 0;
+    const s = /^([pv]\.\d+\.)src$/.exec(k) || /^(s\.)mix$/.exec(k);
+    if (s && !(s[1] + "dlzmodSrc" in snap)) snap[s[1] + "dlzmodSrc"] = -1;
+    if (k === "s.mix" && !("s.dlzmodPads" in snap)) snap["s.dlzmodPads"] = 1;
   }
 }
 

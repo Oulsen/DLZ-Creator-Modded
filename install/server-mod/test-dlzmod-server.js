@@ -2732,6 +2732,21 @@ test("headphones: a snapshot without Hear Solo means stock's solo, on headphone 
   assert.strictEqual(Object.keys(snap).length, 6, "nothing else is added");
 });
 
+test("sources: a snapshot without a strip's own source takes its src, as Mackie's; the pads their pads only (#24)", () => {
+  const snap = { "p.0.src": 1, "p.1.src": 0, "p.1.dlzmodSrc": 5, "v.1.src": 2, "i.0.src": 0, "s.mix": 0.5, "i.0.mix": 0.5 };
+  ctx.DLZMOD_snapEq(snap);
+  assert.strictEqual(snap["p.0.dlzmodSrc"], -1);
+  assert.strictEqual(snap["v.1.dlzmodSrc"], -1);
+  assert.strictEqual(snap["s.dlzmodSrc"], -1, "the pads: the pads only");
+  assert.strictEqual(snap["s.dlzmodPads"], 1, "Keep Pads on");
+  assert.strictEqual(snap["p.1.dlzmodSrc"], 5, "a snapshot with it keeps it");
+  assert.strictEqual(snap["p.0.src"], 1, "src as it was");
+  assert.strictEqual(Object.keys(snap).length, 11, "nothing else is added (not for a mic)");
+  const kept = { "s.mix": 0.5, "s.dlzmodSrc": 2 };
+  ctx.DLZMOD_snapEq(kept);
+  assert.strictEqual(kept["s.dlzmodSrc"], 2, "the pads' source in a new snapshot kept");
+});
+
 test("ducking: its settings in Mackie's defaults are stock's ducking (#18)", () => {
   const e = { "settings.rec.autoDucking": 0, "settings.rec.onetap": 0 };
   ctx.DLZMOD_duckDefaults(e);
