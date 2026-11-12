@@ -44,6 +44,18 @@ below. They all start as stock: turn on what you want.
   selected *(Colors)*
 - The mod's own startup screens
 
+### Channels
+
+- Every stereo channel can play any of the 7 stereo sources: both line inputs, USB 1/2 and 3/4, the
+  SD card / USB player, Bluetooth and NDI, picked from a list; mix-minus and the intercom follow the
+  source, wherever it plays *(Channel, Setup, Channel Source)*
+- The pads channel can take one of those sources too: mixed in with the pads, or on its own with
+  Keep Pads off, with its own trim (also on the knob next to the screen) and mix-minus *(the pads
+  channel, Setup)*
+- A mute button for the pads channel, which has only a solo button on the mixer: on the screen while
+  its strip is selected on the Overview, and on a knob or fader set to the pads; it stays muted after
+  a restart
+
 ### Knobs and faders
 
 - Choose which channel or headphone mix each channel knob (XS) or fader (full-size) and each knob

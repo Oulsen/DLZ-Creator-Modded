@@ -18,6 +18,10 @@
 // - #18: each mic into the ducking trigger buffer by its key, one AutoDuckSource on that buffer after
 //   the mics, every AutoDuck on its strip's key and the settings; the checks above see those blocks
 //   put back as stock's
+// - #24: every rule of Mackie's on a strip's source rewritten, each giving stock's value for every
+//   stock choice (run, over all key values), each strip on any of the 7 sources as the stock strip
+//   that has that source, and the global mix-minus flags and the NDI receiver by the source's kind;
+//   the checks above see those blocks put back as stock's
 const fs = require("fs");
 const vm = require("vm");
 const assert = require("assert");
@@ -80,7 +84,7 @@ function run(file) {
     + "globalThis.cin = createBuffer(['cin0', 'cin1']); globalThis.cout = createBuffer(['cout0', 'cout1', 'cout2', 'cout3']);", ctx);
   vm.runInContext(fs.readFileSync(file, "utf8"), ctx, { filename: file });
   if (!blocks) throw new Error(file + " never calls compileGraph");
-  return { blocks, vus };
+  return { blocks, vus, ctx };
 }
 
 const stock = run(stockFile), patched = run(patchedFile);
@@ -224,10 +228,278 @@ assert.ok(gm, "DLZMOD_rtaFreqs in the graph mod");
 const freqs = JSON.parse(gm[1]);
 assert.deepStrictEqual(list("DLZMOD_rtaFreqs"), freqs, "the app and the graph have the same bands");
 
-const OWN = new Set(["dlzmodRta", "dlzmodRtaBand", "dlzmodDuckKey"]);
+const HELD = { dlzmodHeldMediaL: "mediaPlayer", dlzmodHeldMediaR: "mediaPlayerR", dlzmodHeldNdiL: "ndiL", dlzmodHeldNdiR: "ndiR" };
+// the pads' unprocessed copy: as stock's pads buffers while the pads have no source
+const PADRAW = { dlzmodPadRawL: "sampleL", dlzmodPadRawR: "sampleR" };
+const OWN = new Set(["dlzmodRta", "dlzmodRtaBand", "dlzmodDuckKey", "dlzmodPadSrcL", "dlzmodPadSrcR", ...Object.keys(HELD), ...Object.keys(PADRAW)]);
 // a block with a dest writes there (its own buffer is only where it sits), the others their buffer
 const writes = (b) => [b.p.dest ? String(b.p.dest).replace(/^buffer:/, "") : b.buf];
 const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").startsWith("dlzmodRta");
+
+// #24 the pads' source: right after the pads are copied in, on each side the pads silenced when Keep
+// Pads is off (never during a bleep), the source through a DC filter on the mod's own buffer and mixed
+// in at the channel's trim, only while s.dlzmodSrc holds one, muted with the censor bleep. The gate and
+// the mix are the mod's only blocks that write a buffer of Mackie's: checked here, then taken out
+{
+  const mixes = [];
+  patched.blocks.forEach((b, i) => {
+    if (b.type === "GainWithLinMixTo" && /^buffer:dlzmodPadSrc[LR]$/.test(b.p.src)) mixes.push(i);
+  });
+  const ok = mixes.length === 2 && mixes.every((i, n) => {
+    const s = "LR"[n], b = patched.blocks[i], meter = patched.blocks[i - 1], trim = patched.blocks[i - 2], raw = patched.blocks[i + 1];
+    const dc = patched.blocks[i - 3], gate = patched.blocks[i - 4], cp = patched.blocks[i - 5];
+    const work = n ? "workBufR" : "workBuf";
+    return b.p.src === `buffer:dlzmodPadSrc${s}` && b.p.dest === `buffer:${work}` && b.p.gain === 0
+      && trim.type === "Gain" && trim.buf === `dlzmodPadSrc${s}` && trim.p.gain === "@s.trim"
+      && meter.type === "MaxMeter" && meter.buf === `dlzmodPadSrc${s}` && meter.p.vu === `vuSmpGain${s}`
+      && b.p.mute === "@Bleep.sample.mute" && b.p.bypass === "DLZMOD_padSrcId(@s.dlzmodSrc) < 0"
+      && dc.type === "DCFilter" && dc.buf === `dlzmodPadSrc${s}` && new RegExp(`^DLZMOD_padSrcIn\\(@s\\.dlzmodSrc, ${n}, @btStatus, [0-3]\\)$`).test(dc.p.src)
+      && gate.type === "Gain" && gate.buf === work && gate.p.gain === 0
+      && gate.p.mute === "DLZMOD_padsOff(@s.dlzmodSrc, @s.dlzmodPads, @Bleep.sample.mute, @censorBleep)"
+      && cp.type === "CopyFrom" && cp.buf === work && cp.p.src === `sample${s}`
+      && raw.type === "CopyFrom" && raw.buf === `dlzmodPadRaw${s}` && raw.p.src === `buffer:${work}`;
+  });
+  check(ok, "sources: the pads' source mixed in right after the pads, each side through its own DC filter, its trim and meter, muted with the bleep; the pads silenced only by Keep Pads; the channel copied for its unprocessed track");
+  const tracks = patched.blocks.filter((b) => /^@settings\.rec\.bypassProc \? DLZMOD_padRawBufs\(\)\[[01]\] :/.test(String(b.p.src)));
+  check(tracks.length === 2 && ["[0]", "[1]"].every((x) => tracks.some((b) => b.p.src.includes("DLZMOD_padRawBufs()" + x))),
+    "sources: the pads' unprocessed track reads the channel with its source (left and right)");
+  const off = (m, k, b, t) => vm.runInContext(`DLZMOD_padsOff(${JSON.stringify(m)}, ${k}, ${b}, ${t})`, patched.ctx);
+  check([0, 3, 6].every((m) => off(m, 0, 0, 0) && !off(m, 1, 0, 0) && !off(m, 0, 1, 0) && !off(m, 0, 0, 1))
+    && [-1, 7, "x"].every((m) => !off(m, 0, 0, 0)),
+    "sources: the pads silent only with a source, Keep Pads off and no bleep or censor tone");
+  const at = mixes.flatMap((i) => [i, i - 4]);
+  patched.blocks = patched.blocks.filter((b, i) => !at.includes(i));
+}
+
+// #24 any source on any stereo strip: the rewritten expressions (they call DLZMOD_src) are run, in
+// their own graph's context, against stock's over every value of the keys they read (src over its
+// strip's stock choices, dlzmodSrc -1: "as src says", the rest 0/1, auxMixMode 0-2); a buffer counts by
+// its name, anything else by truth. Then they are put back as stock's for the checks below
+{
+  const evalIn = (ctx, raw) => {
+    const cache = new Map();
+    return (expr, K) => {
+      let f = cache.get(expr);
+      if (!f) {
+        const js = expr.replace(/@([A-Za-z_][\w.]*\w)/g, (m, k) => `K(${JSON.stringify(k)})`);
+        f = vm.runInContext(`(function (K) { return (${js}) })`, ctx);
+        cache.set(expr, f);
+      }
+      const v = f((k) => {
+        if (!(k in K)) throw new Error("no value for " + k);
+        return K[k];
+      });
+      return v && typeof v === "object" && "name" in v ? "buffer:" + (raw ? v.name : HELD[v.name] || PADRAW[v.name] || v.name) : !!v;
+    };
+  };
+  const evS = evalIn(stock.ctx), evP = evalIn(patched.ctx);
+  const keysOf = (e) => [...new Set([...String(e).matchAll(/@([A-Za-z_][\w.]*\w)/g)].map((m) => m[1]))];
+  const rowLen = (pv, i) => vm.runInContext(`(${pv === "v" ? "virtualInSource" : "playerInSource"})[${i}].length`, stock.ctx);
+  const domain = (k) => {
+    let m;
+    if ((m = /^([pv])\.(\d)\.src$/.exec(k))) return [...Array(rowLen(m[1], +m[2])).keys()];
+    if (/\.dlzmodSrc$/.test(k)) return [-1];
+    if (/\.auxMixMode$/.test(k)) return [0, 1, 2];
+    return [0, 1];
+  };
+  // every assignment of the keys (fixed ones as given), or 20000 drawn ones when there are more
+  function* cases(keys, fixed = {}) {
+    keys = keys.filter((k) => !(k in fixed));
+    const doms = keys.map(domain);
+    const total = doms.reduce((n, d) => n * d.length, 1);
+    let seed = 24;
+    const rnd = (n) => ((seed = (seed * 1103515245 + 12345) % 2147483648) % n);
+    for (let c = 0; c < Math.min(total, 20000); c++) {
+      const K = Object.assign({}, fixed);
+      let x = c;
+      keys.forEach((k, j) => {
+        const d = doms[j];
+        K[k] = total > 20000 ? d[rnd(d.length)] : d[x % d.length];
+        x = Math.floor(x / d.length);
+      });
+      yield K;
+    }
+  }
+  const MOD = /DLZMOD_(src|padSrcId|padRawBufs)\(/;
+  const evSt = (e, K) => (e === undefined ? false : evS(e, K));   // a mute stock has not: never muted
+  const rewritten = [];   // { at, pb, sb, keys: [param names] }
+  let srcBad = [], nCases = 0, pi = 0;
+  const back = patched.blocks.map((b) => {
+    if (ours(b)) return b;
+    const sb = stock.blocks[pi++];
+    const ks = sb ? Object.keys(b.p).filter((k) => MOD.test(String(b.p[k])) && b.p[k] !== sb.p[k]) : [];
+    if (!ks.length) return b;
+    for (const k of ks) {
+      for (const K of cases([...new Set([...keysOf(b.p[k]), ...keysOf(sb.p[k])])])) {
+        nCases++;
+        if (evP(b.p[k], K) !== evSt(sb.p[k], K)) {
+          srcBad.push(`${b.type} ${k} ${JSON.stringify(K)}: ${evP(b.p[k], K)} / stock ${evSt(sb.p[k], K)}`);
+          break;
+        }
+      }
+    }
+    rewritten.push({ pb: b, sb, ks });
+    const p = Object.assign({}, b.p);
+    for (const k of ks) sb.p[k] === undefined ? delete p[k] : (p[k] = sb.p[k]);
+    return Object.assign({}, b, { p });
+  });
+  check(rewritten.length > 0 && srcBad.length === 0,
+    `sources: ${rewritten.length} rewritten blocks give stock's value for every stock choice (${nCases} cases)`
+    + (srcBad.length ? ": " + srcBad.slice(0, 3).join("; ") : ""));
+  const left = stock.blocks.filter((b) => /@[pv]\.\d\.src\b/.test(JSON.stringify(b)) && !rewritten.some((r) => r.sb === b));
+  check(left.length === 0, "sources: no rule of Mackie's on a strip's src left" + (left.length ? ": " + JSON.stringify(left[0]) : ""));
+  // the strips' own keys are set where Mackie's defaults set src and mixminus (patch.py, players and
+  // virtual channels): only strips whose src Mackie's graph reads
+  const ownKeys = new Set(patched.blocks.flatMap((b) => [...JSON.stringify(b.p).matchAll(/@([pv]\.\d+)\.dlzmodSrc/g)].map((m) => m[1])));
+  const stockSrc = new Set(stock.blocks.flatMap((b) => [...JSON.stringify(b.p).matchAll(/@([pv]\.\d+)\.src\b/g)].map((m) => m[1])));
+  check(ownKeys.size > 0 && [...ownKeys].every((k) => stockSrc.has(k)) && [...stockSrc].every((k) => ownKeys.has(k)),
+    `sources: the own key on the strips whose src stock reads: ${[...ownKeys].sort().join(" ")}`);
+
+  // the pool: the 7 sources stock offers somewhere, each once; the two line inputs as the first
+  // player's and the second's first choice (the app's labels follow that order)
+  const pool = vm.runInContext("DLZMOD_srcPool().map((p) => p[0].name)", patched.ctx);
+  const strips = vm.runInContext("DLZMOD_srcStrips()", patched.ctx).map(([v, i]) => `${v ? "v" : "p"}.${i}`);
+  const offers = [];   // [strip, src, name]
+  for (const s of strips) {
+    const [pv, i] = s.split(".");
+    for (let v = 0; v < rowLen(pv, +i); v++) {
+      offers.push([s, v, vm.runInContext(`(${pv === "v" ? "virtualInSource" : "playerInSource"})[${i}][${v}][0].name`, stock.ctx)]);
+    }
+  }
+  const stockNames = [...new Set(offers.map((o) => o[2]))];
+  check(pool.length === 7 && new Set(pool).size === 7 && stockNames.length === 7 && stockNames.every((n) => pool.includes(n))
+    && pool[0] === offers.find((o) => o[0] === "p.0")[2] && pool[1] === offers.find((o) => o[0] === "p.1")[2],
+    `sources: the pool is stock's 7, the line inputs first: ${pool.join(" ")}`);
+  const nameIn = (e) => vm.runInContext(e, stock.ctx);
+  const kindOf = (n) => [nameIn("usbIn[0][0].name"), nameIn("usbIn[1][0].name")].includes(n) ? "u"
+    : n === nameIn("btIn[0].name") ? "b" : n === nameIn("ndiL.name") ? "n" : "";
+
+  // each strip S on each pool source k as the stock strip T that has it (src v): S's blocks against
+  // T's stock blocks (the same block with T's keys for S's), T's src = v for both
+  const sig = (b, ks, pre) => JSON.stringify({ type: b.type, buf: b.buf,
+    p: Object.fromEntries(Object.entries(b.p).filter(([k]) => !ks.includes(k))) }).split(`@${pre}.`).join("@X.");
+  let crossBad = [], nCross = 0;
+  for (const S of strips) {
+    const mine = rewritten.filter((r) => r.ks.every((k) => String(r.pb.p[k]).includes(`@${S}.dlzmodSrc`)
+      && !strips.some((o) => o !== S && String(r.pb.p[k]).includes(`@${o}.dlzmodSrc`))));
+    for (let k = 0; k < pool.length; k++) {
+      const [T, v] = offers.find((o) => o[2] === pool[k]);
+      for (const r of mine) {
+        const tw = stock.blocks.filter((b) => sig(b, r.ks, T) === sig(r.pb, r.ks, S) && JSON.stringify(b).includes(`@${T}.`));
+        if (tw.length !== 1) {
+          crossBad.push(`${S} ${r.pb.type}: ${tw.length} stock blocks of ${T} match`);
+          continue;
+        }
+        for (const key of r.ks) {
+          const te = String(tw[0].p[key]).split(`@${T}.`).join(`@${S}.`);
+          const fixed = { [`${S}.dlzmodSrc`]: k, [`${S}.src`]: v };
+          for (const K of cases([...new Set([...keysOf(r.pb.p[key]), ...keysOf(te)])], fixed)) {
+            nCross++;
+            if (evP(r.pb.p[key], K) !== evS(te, K)) {
+              crossBad.push(`${S} on ${pool[k]} (as ${T} src ${v}) ${r.pb.type} ${key} ${JSON.stringify(K)}`);
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+  check(crossBad.length === 0, `sources: each of ${strips.join(" ")} on each of the 7 as the stock strip with that source (${nCross} cases)`
+    + (crossBad.length ? ": " + crossBad.slice(0, 3).join("; ") : ""));
+
+  // the pads' sends: on a remote source as the stock strip with it, on a local one as stock's pads
+  const padBlocks = rewritten.filter((r) => r.ks.every((k) => String(r.pb.p[k]).includes("@s.dlzmodSrc")
+    && !strips.some((o) => String(r.pb.p[k]).includes(`@${o}.dlzmodSrc`))));
+  let padsBad = [], nPads = 0;
+  for (let k = 0; k < pool.length; k++) {
+    const remote = kindOf(pool[k]) !== "";
+    const [T, v] = offers.find((o) => o[2] === pool[k]);
+    for (const r of padBlocks) {
+      const tw = remote ? stock.blocks.filter((b) => sig(b, r.ks, T) === sig(r.pb, r.ks, "s") && JSON.stringify(b).includes(`@${T}.`)) : [r.sb];
+      if (tw.length !== 1) {
+        padsBad.push(`${r.pb.type} ${r.pb.p.dest}: ${tw.length} stock blocks of ${T} match`);
+        continue;
+      }
+      for (const key of r.ks) {
+        const te = remote ? String(tw[0].p[key]).split(`@${T}.`).join("@s.") : tw[0].p[key];
+        const fixed = { "s.dlzmodSrc": k, "s.src": v };
+        for (const K of cases([...new Set([...keysOf(r.pb.p[key]), ...keysOf(te)])], fixed)) {
+          nPads++;
+          if (evP(r.pb.p[key], K) !== evSt(te, K)) {
+            padsBad.push(`pads on ${pool[k]} ${r.pb.type} ${r.pb.p.dest} ${key} ${JSON.stringify(K)}`);
+            break;
+          }
+        }
+      }
+    }
+  }
+  check(padBlocks.length > 0 && padsBad.length === 0,
+    `sources: the pads' ${padBlocks.length} sends on each of the 7: as the stock strip with a remote one, as stock's pads with a local one (${nPads} cases)`
+    + (padsBad.length ? ": " + padsBad.slice(0, 3).join("; ") : ""));
+
+  // the media player and NDI: a strip's input read before their block (in the whole graph) reads the
+  // copy of the cycle before, one read after it the buffer itself; the copies made after both blocks
+  {
+    const evRaw = evalIn(patched.ctx, true);
+    const at = (type) => withB4.findIndex((b) => b.type === type);
+    const writer = { mediaPlayer: at("StereoPlayer"), ndiL: at("NDIInputStereo") };
+    const held = { mediaPlayer: ["dlzmodHeldMediaL", "dlzmodHeldMediaR"], ndiL: ["dlzmodHeldNdiL", "dlzmodHeldNdiR"] };
+    const live = { mediaPlayer: ["mediaPlayer", "mediaPlayerR"], ndiL: ["ndiL", "ndiR"] };
+    const bad = [];
+    let readers = 0, early = 0;
+    withB4.forEach((b, i) => {
+      if (b.type !== "DCFilter" || !/DLZMOD_(srcBuf|padSrcIn)\(/.test(String(b.p.src))) return;
+      readers++;
+      const side = +/,\s*([01]),\s*@btStatus/.exec(b.p.src)[1];
+      for (const src of ["mediaPlayer", "ndiL"]) {
+        const k = pool.indexOf(src);
+        const K = {};
+        for (const key of keysOf(b.p.src)) K[key] = /dlzmodSrc$/.test(key) ? k : /\.src$/.test(key) ? 0 : 1;
+        const want = (i < writer[src] ? held : live)[src][side];
+        if (i < writer[src]) early++;
+        const got = evRaw(b.p.src, K);
+        if (got !== "buffer:" + want) bad.push(`${b.buf} at ${i} on ${src}: ${got}, not ${want}`);
+      }
+    });
+    const copies = withB4.map((b, i) => ({ b, i })).filter((x) => x.b.type === "CopyFrom" && x.b.buf in HELD);
+    const copiesOk = copies.length === 4 && copies.every((x) => x.i > Math.max(writer.mediaPlayer, writer.ndiL)
+      && x.b.p.src === "buffer:" + HELD[x.b.buf]);
+    check(readers > 0 && bad.length === 0 && copiesOk,
+      `sources: the media player and NDI read live after their block, as last cycle's copy before it (${readers} inputs, ${early} reads of a copy)`
+      + (bad.length ? ": " + bad.slice(0, 3).join("; ") : "") + (copiesOk ? "" : "; the copies: " + JSON.stringify(copies.map((x) => [x.i, x.b]))));
+  }
+
+  // the global flags: one strip on source k with its mix-minus on, the rest on src 0 without
+  const flag = (name) => vm.runInContext(name, patched.ctx);
+  let flagBad = [];
+  // the pads ("s") with a source of their own and their mix-minus as well
+  for (const S of strips.concat("s")) {
+    for (let k = 0; k < pool.length; k++) {
+      const K = { "s.dlzmodSrc": S === "s" ? k : -1, "s.mixminus": S === "s" ? 1 : 0 };
+      for (const o of strips) Object.assign(K, { [`${o}.src`]: 0, [`${o}.dlzmodSrc`]: o === S ? k : -1, [`${o}.mixminus`]: o === S ? 1 : 0 });
+      const kind = kindOf(pool[k]);
+      const got = ["btMixMinus", "usbMixMinus", "ndiMixMinus"].map((n) => evP(flag(n), K)).concat(
+        evP(patched.blocks.find((b) => b.type === "NDIInputStereo").p.enable, K));
+      const want = [kind === "b", kind === "u", kind === "n", kind === "n"];
+      if (JSON.stringify(got) !== JSON.stringify(want)) flagBad.push(`${S} on ${pool[k]}: ${got} / ${want}`);
+    }
+  }
+  check(flagBad.length === 0, "sources: the Bluetooth, USB and NDI mix-minus and the NDI receiver by the kind of source (the pads' source too)"
+    + (flagBad.length ? ": " + flagBad.slice(0, 3).join("; ") : ""));
+  // the pads' source buffer: each pool source, Bluetooth silent while nothing is connected, none = silence
+  const padIn = (mod, side, bt) => vm.runInContext(`DLZMOD_padSrcIn(${JSON.stringify(mod)}, ${side}, ${bt}).name`, patched.ctx);
+  const sides = vm.runInContext("DLZMOD_srcPool().map((p) => [p[0].name, p[1].name])", patched.ctx);
+  const padBad = [];
+  for (let k = 0; k < pool.length; k++) {
+    for (const side of [0, 1]) {
+      const want = kindOf(pool[k]) === "b" ? "zero" : sides[k][side];
+      if (padIn(k, side, 1) !== sides[k][side] || padIn(k, side, 0) !== want) padBad.push(`${k}/${side}`);
+    }
+  }
+  for (const none of [-1, 7, "x"]) if (padIn(none, 0, 1) !== "zero") padBad.push("none " + none);
+  check(padBad.length === 0, "sources: the pads' source buffer, each of the 7 on both sides, silence without one" + (padBad.length ? ": " + padBad : ""));
+  patched.blocks = back;
+}
 // Mackie's blocks: the patched list without ours is the stock list
 const theirs = patched.blocks.filter((b) => !ours(b));
 check(theirs.length === stock.blocks.length, `graph: Mackie's ${stock.blocks.length} blocks all there (${theirs.length})`);
@@ -301,8 +573,11 @@ const bandsOk = an.length === 4 * freqs.length && freqs.every((f, k) => {
 check(bandsOk, `analyser: ${freqs.length} bands (copy, high-pass, low-pass, meter): ${freqs.join(" ")} Hz`);
 const vuOk = JSON.stringify(patched.vus["dlzmod.rta"]) === JSON.stringify(freqs.map((f, k) => "dlzmodRta" + k));
 check(vuOk, "VU group dlzmod.rta: one meter per band");
+check(JSON.stringify(patched.vus["smp.gain"]) === JSON.stringify(["vuSmpGainL", "vuSmpGainR"]) && !stock.vus["smp.gain"],
+  "VU group smp.gain: the pads' source after its trim (#24; stock's pads have none)");
 const rest = Object.assign({}, patched.vus);
 delete rest["dlzmod.rta"];
+delete rest["smp.gain"];
 check(JSON.stringify(rest) === JSON.stringify(stock.vus), `Mackie's ${Object.keys(stock.vus).length} VU groups as they were`);
 
 checkB4();
