@@ -2741,10 +2741,12 @@ test("sources: a snapshot without a strip's own source takes its src, as Mackie'
   assert.strictEqual(snap["s.dlzmodPads"], 1, "Keep Pads on");
   assert.strictEqual(snap["p.1.dlzmodSrc"], 5, "a snapshot with it keeps it");
   assert.strictEqual(snap["p.0.src"], 1, "src as it was");
-  assert.strictEqual(Object.keys(snap).length, 11, "nothing else is added (not for a mic)");
-  const kept = { "s.pan": 0.5, "s.dlzmodSrc": 2 };
+  assert.strictEqual(snap["s.mute"], 0, "the pads not muted (#276)");
+  assert.strictEqual(Object.keys(snap).length, 12, "nothing else is added (not for a mic)");
+  const kept = { "s.pan": 0.5, "s.dlzmodSrc": 2, "s.mute": 1 };
   ctx.DLZMOD_snapEq(kept);
   assert.strictEqual(kept["s.dlzmodSrc"], 2, "the pads' source in a new snapshot kept");
+  assert.strictEqual(kept["s.mute"], 1, "the pads' mute in a new snapshot kept");
 });
 
 test("ducking: its settings in Mackie's defaults are stock's ducking (#18)", () => {
@@ -3437,6 +3439,27 @@ test("controls: mute and solo go with the knob; one the channel does not have do
     assert.deepStrictEqual(plain(msg), { "i.1.mute": 0, "v.0.mute": 1, "v.0.solo": 0 }, "LR has no solo: dropped");
     await new Promise((r) => setImmediate(r));
     assert.deepStrictEqual(sent, [{ "s.solo": 0 }], "the knob's solo LED back to LR's (none)");
+  } finally {
+    ctx.DLZMOD_ctlFader = null;
+  }
+});
+
+test("controls: a knob or fader on the pads mutes them, its LED shows their mute (#276)", async () => {
+  const sent = [];
+  const sio = () => {};
+  sio.dlzmodLocal = true;
+  sio.dlzmodSio = true;
+  const state = { "dlzmod.controls": "i.0=s,s=i.0", "s.mute": 1 };
+  const get = (k) => state[k];
+  ctx.DLZMOD_ctlFader = { send: (m) => sent.push(plain(m)) };
+  try {
+    const msg = { "i.0.mute": 0 };
+    ctx.DLZMOD_ctlRemap(msg, { send: sio }, get, 0);
+    assert.deepStrictEqual(plain(msg), { "s.mute": 0 }, "fader 1 on the pads: their mute");
+    assert.strictEqual(ctx.DLZMOD_ctlLedOf("s", "mute", get), 1, "its LED: the pads' mute");
+    assert.strictEqual(ctx.DLZMOD_ctlLedOf("m", "solo", get), 0, "LR's solo still none");
+    const src = fs.readFileSync(path.join(__dirname, "..", "patch.py"), "utf8");
+    assert.ok(src.includes(`'if("m.solo"!=a){'`), "the hub keeps s.mute, refuses only m.solo");
   } finally {
     ctx.DLZMOD_ctlFader = null;
   }

@@ -53,7 +53,8 @@ below. They all start as stock: turn on what you want.
   Keep Pads off, with its own trim (also on the knob next to the screen) and mix-minus *(the pads
   channel, Setup)*
 - A mute button for the pads channel, which has only a solo button on the mixer: on the screen while
-  its strip is selected on the Overview
+  its strip is selected on the Overview, and on a knob or fader set to the pads; it stays muted after
+  a restart
 
 ### Knobs and faders
 

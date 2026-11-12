@@ -338,7 +338,9 @@ Bluetooth, 9/10 and 11/12 USB 1/2, USB 3/4 or NDI; full-size: 5/6 and 7/8 their 
 src values strip by strip ([components/mixergraph.md](components/mixergraph.md), "Source
 selection"). Both models have the same 7 stereo sources, and the mod gives every stereo strip all of
 them. Both models; graph checked by `tests/graph-check.js`, the page in the sandbox (XS, full-size;
-Pro and Standard layouts) [static]; not heard on a mixer yet.
+Pro and Standard layouts) [static]; on the XS mixer the list, the marker, Mix-Minus and sound from
+USB, Bluetooth and NDI as expected [device, XS]. One source on several strips plays on each (both
+up: that source twice in the mix).
 
 - **Where**: the Setup page's Channel Source is one button, in the look of Preset above it (the
   source's icon, its name, the arrow), opening a list of the 7 (Network only where Mackie offers NDI,
@@ -386,8 +388,9 @@ Pro and Standard layouts) [static]; not heard on a mixer yet.
 
 Stock's pads channel (samples, `s.`: XS 7/8, full-size 11/12) has no source, trim or mix-minus: its
 sound is the 48 pad players, the preview and the censor tone. The mod lets it take one of the 7 too.
-Built with #24; graph checked, the page in the sandbox (XS; Pro and Standard) [static]; not heard on
-a mixer yet, and the side knob not turned on one.
+Built with #24; graph checked, the page in the sandbox (XS; Pro and Standard) [static]; on the XS
+mixer a source with the pads and alone (Disk and NDI too), the Trim meter, knob 1 on Trim and
+Mix-Minus as expected [device, XS].
 
 - **Where**: Mackie's player panel shows on the pads' Setup page too (stock: empty there): the source
   button ("Pads only" first in its list, the default; the button reads "Pads + USB 1/2" while Keep
@@ -397,7 +400,8 @@ a mixer yet, and the side knob not turned on one.
 - **Keys** (Mackie's three copies of the pads' defaults; snapshots and channel presets like the
   others): `s.dlzmodSrc` (-1 none, the default), `s.dlzmodPads` (1), `s.mixminus` (0), `s.trim`
   (Mackie's trim helper, as the players': -10 dB). A snapshot without them: Pads only, Keep Pads on
-  (found by `s.pan`: Mackie's SNAP_SAVE leaves every `*.mix` out of a snapshot) [static].
+  (found by `s.pan`: Mackie's SNAP_SAVE leaves every `*.mix` out of a snapshot), and not muted
+  (`s.mute` 0, #276) [static].
 - **Knob**: knob 1 next to the screen is the pads' Trim on the Setup page (and on Mackie's other
   list with a Trim knob), as on a player. faderlink's table has `p.N.trim` and `v.N.trim` but no
   `s.trim` [static, faderlink's strings], so it goes through the #238 stand-ins
@@ -424,9 +428,18 @@ a mixer yet, and the side knob not turned on one.
 On both models the pads have only a solo button, no mute (XS: a knob, full-size: a fader; only LR
 has a mute button of its own) [maintainer, photo of the full-size]. Stock's XS gives LR a mute and
 9/10, 11/12 a mute and solo on the screen, shown while the strip is selected on the Overview; the
-full-size has none. Both models; sandbox (XS, full-size) [static]; a real tap not tried yet (the
-sandbox's synthetic taps reach no on-screen strip button, Mackie's LR mute neither; pressing it in
-code toggles `s.mute`).
+full-size has none. Both models; sandbox (XS, full-size) [static]; on the XS mixer the button shows
+when the pads are selected and mutes them [device, XS] (the sandbox's synthetic taps reach no
+on-screen strip button, Mackie's LR mute neither).
+
+- **Kept by the hub**: stock's `la()` refuses `s.mute` from a client ("m.solo or s.mute is not
+  supported") but still passes the message on, so dspserver muted the pads while the hub's state
+  never had it: gone after a restart or a dspserver reconnect, missing from snapshots [static]. The
+  mod lets `la()` refuse only `m.solo` (`patch.py` "pads: the hub keeps the pads' mute"); a pad's own
+  mute action already sets `s.mute` through `setDataKey` in stock, and faderlink already got it then,
+  so the GD32 sees nothing new. A snapshot without it: not muted (`DLZMOD_snapEq`).
+- **With #23**: a knob or fader set to the pads mutes them with its mute button, and its LED shows
+  the pads' mute (`DLZMOD_CTL_NONE` is now LR's solo only).
 
 - `DLZMOD_padsMute` (from the strip's `initWidgets`, `patch.py` "pads: ...") makes LR's button
   (`E1ToggleButton`, postfix `mute`, 48×38, 5 px above the name plate) for the samples strip, not for

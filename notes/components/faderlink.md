@@ -49,8 +49,9 @@ Owned by package `faderlink` 521 (binary, flash scripts, firmware, bitstreams). 
   - XS: knobs 1-4 have mute and solo (`i.0 i.1 p.0 p.1`), knob 5 only solo (`s.solo`) [device]
   - `la()` in `server.js` flips `i.N.mute` / `p.N.mute` whatever the value (a pad can hold a mute
     too: its own count per channel, list `i.0 i.1 p.0 p.1 s v.0 v.1 m` on the XS, `i.0-3 p.0-2 s m`
-    on the full-size); `s.mute` and `m.solo` are refused ("not supported"); other solos and mutes are
-    stored as sent [static]
+    on the full-size); `s.mute` and `m.solo` are refused ("not supported", yet the message is still
+    passed on to every client); other solos and mutes are stored as sent [static]. The mod keeps
+    `s.mute` (the pads' mute, #276), so only `m.solo` stays refused
   - The LEDs show the hub key of the button's own channel (`*.mute`, `*.solo`, `*.colorhex` pass the
     forward filter below) [static]
   - Telling faderlink from dspserver: both connect to `ws://localhost:80/socket.io/` with the same

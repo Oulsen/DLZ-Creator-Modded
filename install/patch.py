@@ -821,6 +821,15 @@ SERVER_PATCHES = [
         "DLZMOD_ctlRemap(e,t);for(const[a,i]of Object.entries(e))if(null!=a&&(DLZMOD_keyAllowed(a,i,t.send)||(delete e[a],!1))&&(!DLZMOD_knobCatch(a,i,t)||(delete e[a],!1))){",
     ),
     (
+        # #276: the pads' mute on the screen. Stock refuses s.mute from a client (the pads had no mute
+        # button) but still passes the message on, so dspserver muted the pads while the hub never kept
+        # it: lost at a restart or when dspserver reconnects, missing from snapshots. Only LR's solo
+        # stays refused. (A pad's own mute action already sets s.mute through setDataKey in stock.)
+        "pads: the hub keeps the pads' mute",
+        'if("m.solo"!=a&&"s.mute"!=a){',
+        'if("m.solo"!=a){',
+    ),
+    (
         # #23: the LEDs under a knob or fader follow the channel chosen for it. Every way stock sends
         # keys out (a client's message passed on, setDataKey, ra) also tells DLZMOD_ctlLeds, which
         # sends faderlink alone the chosen channel's mute, solo and colour under the control's keys

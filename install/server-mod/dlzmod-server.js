@@ -535,9 +535,11 @@ function DLZMOD_ctlLocalSio(conn) {
   return !!(send && send.dlzmodLocal === true && send.dlzmodSio === true);
 }
 
-// Stock refuses these two ("not supported"): Samples has no mute, LR no solo. var, not const: setDataKey
-// (DLZMOD_ctlLeds) may run before this file's lines do
-var DLZMOD_CTL_NONE = ["s.mute", "m.solo"];
+// Stock refuses LR's solo ("not supported"): LR has none. It refused Samples' mute too, but the mod
+// gives the pads a mute on the screen (#276) and the hub keeps it (patch.py), so a knob or fader on
+// the pads mutes them as well. var, not const: setDataKey (DLZMOD_ctlLeds) may run before this file's
+// lines do
+var DLZMOD_CTL_NONE = ["m.solo"];
 var DLZMOD_CTL_LED = ["mute", "solo", "colorhex"];
 // the channel colours by their number (`<ch>.color`, 1-10), as the screen draws them. Stock keeps a
 // colorhex only for the inputs, players and Samples; 9/10, 11/12 and LR have the number alone
@@ -696,7 +698,8 @@ function DLZMOD_knobCatch(key, value, hub, get = globalThis.getDataKey, set = gl
 // solo, on headphone 1 only.
 // #24: the same for a stereo strip's own source (<strip>.dlzmodSrc): a strip in a snapshot without
 // it takes the snapshot's src, as Mackie's (-1); the pads their pads only, Keep Pads on (found by
-// s.pan: Mackie's SNAP_SAVE leaves every *.mix out of a snapshot).
+// s.pan: Mackie's SNAP_SAVE leaves every *.mix out of a snapshot), and not muted (#276: stock's hub
+// never kept a mute of the pads from the screen).
 function DLZMOD_snapEq(snap) {
   for (const k of Object.keys(snap)) {
     const m = /^((?:[ipv]\.\d+\.|[sm]\.)eq\.)b1\.gain$/.exec(k);
@@ -706,6 +709,7 @@ function DLZMOD_snapEq(snap) {
     const s = /^([pv]\.\d+\.)src$/.exec(k) || /^(s\.)pan$/.exec(k);
     if (s && !(s[1] + "dlzmodSrc" in snap)) snap[s[1] + "dlzmodSrc"] = -1;
     if (k === "s.pan" && !("s.dlzmodPads" in snap)) snap["s.dlzmodPads"] = 1;
+    if (k === "s.pan" && !("s.mute" in snap)) snap["s.mute"] = 0;
   }
 }
 
