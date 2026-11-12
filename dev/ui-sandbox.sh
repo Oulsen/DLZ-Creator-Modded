@@ -9,6 +9,7 @@
 # DLZ_FULLSIZE=1: the full-size DLZ Creator's UI (no /root/.dlzlite), in its own copy
 # dumps/sandbox-full (first run: a copy of dumps/sandbox/srv). Each start patches the copy it runs with
 # the mod of this checkout (install/patch.py, from the kept .orig).
+#        dev/ui-sandbox.sh patch <sandbox folder>   only that patch (sandbox.sh repatch)
 # The shim serves index.html with #INT forced: the on-device layout (knob panel on the right)
 # instead of the remote-control layout a browser normally gets. Screenshots: ui-sandbox/shot.js.
 # First run copies /srv from the dump (WSL distro Ubuntu, install/mount-ro.sh). No DSP, no faders:
@@ -17,6 +18,28 @@ set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 SB=$REPO/dumps/sandbox
+# sandbox.sh stop sets it: a model switch under way (no node.exe on 80/89 for a moment) ends here too
+STOP=/tmp/dlz-sandbox.stop
+
+# The mod of this checkout onto a sandbox copy: patch.py patches from the kept .orig (made on its first
+# run), so it can run any number of times and a failed patch stops a start. Then what was patched in,
+# for the dev page (dlzmod-sandbox.json in the folder: the shim cannot ask git, it blocks every program).
+patch_copy() {
+  local sb=$1 branch commit dirty=false
+  python "$REPO/install/patch.py" app "$sb/srv/app.js" > /dev/null
+  python "$REPO/install/patch.py" server "$sb/srv/server.js" > /dev/null
+  branch=$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')
+  commit=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo '?')
+  [ -z "$(git -C "$REPO" status --porcelain -- install/app-mod install/server-mod install/patch.py 2>/dev/null)" ] || dirty=true
+  printf '{"branch":"%s","commit":"%s","dirty":%s,"patched":"%s"}\n' \
+    "$branch" "$commit" "$dirty" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$sb/dlzmod-sandbox.json"
+  echo "patched $sb with the mod of $branch @ $commit$([ $dirty = true ] && echo ' + uncommitted changes')"
+}
+if [ "${1:-}" = patch ]; then
+  [ -f "${2:-}/srv/app.js" ] || { echo "no sandbox copy in ${2:-?}" >&2; exit 1; }
+  patch_copy "$2"
+  exit 0
+fi
 
 if [ ! -f "$SB/srv/server.js" ]; then
   mkdir -p "$SB"   # cp -r into a missing folder would make the folder itself the copy of srv
@@ -24,6 +47,7 @@ if [ ! -f "$SB/srv/server.js" ]; then
   MSYS_NO_PATHCONV=1 wsl -d Ubuntu -u root -e bash -c \
     "mountpoint -q /mnt/dlz || bash $WREPO/install/mount-ro.sh; cp -r /mnt/dlz/srv $WREPO/dumps/sandbox/"
 fi
+rm -f "$STOP"
 FULL=${DLZ_FULLSIZE:-}
 # The dev page's model switch (http://127.0.0.1/, #277): the shim ends with code 75 and the
 # loop starts the other model; any other end (Ctrl+C, sandbox.sh stop) ends this script too.
@@ -37,17 +61,8 @@ while :; do
   fi
   mkdir -p "$sb/root" "$sb/tmp" "$sb/dev/disk/by-id"
   if [ "$FULL" = 1 ]; then rm -f "$sb/root/.dlzlite"; else touch "$sb/root/.dlzlite"; fi
-  # Every start (a switch too) runs this branch's mod: patch.py patches from the kept .orig (made on
-  # its first run), so both models' copies stay current and a failed patch stops the start
-  python "$REPO/install/patch.py" app "$sb/srv/app.js" > /dev/null
-  python "$REPO/install/patch.py" server "$sb/srv/server.js" > /dev/null
-  echo "patched $sb with this branch's mod"
-  # what was patched in, for the dev page (the shim cannot ask git: it blocks every program)
-  export DLZ_SANDBOX_BRANCH DLZ_SANDBOX_COMMIT DLZ_SANDBOX_DIRTY
-  DLZ_SANDBOX_BRANCH=$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')
-  DLZ_SANDBOX_COMMIT=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo '?')
-  DLZ_SANDBOX_DIRTY=
-  [ -z "$(git -C "$REPO" status --porcelain -- install/app-mod install/server-mod install/patch.py 2>/dev/null)" ] || DLZ_SANDBOX_DIRTY=1
+  patch_copy "$sb"
+  [ ! -e "$STOP" ] || { echo "stopped during a model switch"; rm -f "$STOP"; exit 0; }
 
   cd "$sb/srv"
   echo "open http://127.0.0.1/ (Ctrl+C to stop)"

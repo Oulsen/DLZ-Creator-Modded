@@ -69,21 +69,22 @@ function start(env) {
   const child = cp.spawn(process.execPath, ['-r', SHIM, 'server.js'], {
     cwd: path.join(ROOT, 'srv'),
     env: { ...process.env, DLZ_SANDBOX_ROOT: ROOT, DLZ_SANDBOX_LOOP: '', DLZ_SANDBOX_REMOTE: '', DLZ_FAKE_MEDIA: '',
-      DLZ_FAKE_WIFI: '', DLZ_SANDBOX_BRANCH: '', DLZ_SANDBOX_COMMIT: '', DLZ_SANDBOX_DIRTY: '', ...env },
+      DLZ_FAKE_WIFI: '', ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let out = '';
   child.exited = new Promise((ok) => child.on('exit', (code) => ok(code)));
   child.ready = new Promise((ok, fail) => {
+    const timer = setTimeout(() => fail(new Error('no start in 15 s:\n' + out)), 15000);
     child.stdout.on('data', (d) => {
       out += d;
       const m = /^READY (.*)$/m.exec(out);
-      if (m) ok(JSON.parse(m[1]));
+      if (m) { clearTimeout(timer); ok(JSON.parse(m[1])); }
     });
     child.stderr.on('data', (d) => { out += d; });
-    child.exited.then((code) => fail(new Error('the shim ended (' + code + ') before it listened:\n' + out)));
-    setTimeout(() => fail(new Error('no start in 15 s:\n' + out)), 15000);
+    child.exited.then((code) => { clearTimeout(timer); fail(new Error('the shim ended (' + code + ') before it listened:\n' + out)); });
   });
+  child.ready.catch(() => {});   // looked at by the caller; a later end is not an unhandled rejection
   child.output = () => out;
   return child;
 }
@@ -124,7 +125,7 @@ function plain(port, text) {
     s.on('data', (d) => { got += d; });
     s.on('close', () => ok(got));
     s.on('error', (e) => (e.code === 'ECONNRESET' ? ok(got) : fail(e)));
-    setTimeout(() => { s.destroy(); ok(got); }, 3000);
+    setTimeout(() => { s.destroy(); ok(got); }, 3000).unref();
   });
 }
 
@@ -205,10 +206,15 @@ async function main() {
       const x = JSON.parse((await request(W, { url: '/__dev/model' })).body);
       assert.strictEqual(x.model, 'xs');
       assert.strictEqual(x.version, fs.readFileSync(path.join(REPO, 'VERSION'), 'utf8').trim());
-      assert.strictEqual(x.branch, '');
-      assert.strictEqual(x.dirty, false);
+      assert.deepStrictEqual([x.branch, x.commit, x.dirty, x.patched], ['', '', false, '']);
       assert.deepStrictEqual(x.extras, []);
-      assert.ok(Date.now() - Date.parse(x.started) < 60000);
+    });
+    await check('/__dev/model reads what was patched in at each request (sandbox.sh repatch)', async () => {
+      const info = { branch: 'feature/x', commit: 'abc1234', dirty: true, patched: '2026-01-02T03:04:05Z' };
+      fs.writeFileSync(path.join(ROOT, 'dlzmod-sandbox.json'), JSON.stringify(info));
+      const x = JSON.parse((await request(W, { url: '/__dev/model' })).body);
+      fs.rmSync(path.join(ROOT, 'dlzmod-sandbox.json'));
+      assert.deepStrictEqual([x.branch, x.commit, x.dirty, x.patched], [info.branch, info.commit, true, info.patched]);
     });
     await check('the switch: only a POST, only with this PC\'s Origin', async () => {
       assert.strictEqual((await request(W, { url: '/__dev/switch' })).status, 404);
@@ -225,26 +231,42 @@ async function main() {
     await a.exited;
   }
 
-  // full-size (no /root/.dlzlite), started as dev/ui-sandbox.sh does
+  // full-size (no /root/.dlzlite), started as dev/ui-sandbox.sh does, with a pretend phone
   fs.rmSync(path.join(ROOT, 'root', '.dlzlite'));
-  const b = start({ DLZ_SANDBOX_LOOP: '1', DLZ_SANDBOX_BRANCH: 'feature/x', DLZ_SANDBOX_COMMIT: 'abc1234', DLZ_SANDBOX_DIRTY: '1', DLZ_FAKE_MEDIA: 'sd,usb' });
+  const b = start({ DLZ_SANDBOX_LOOP: '1', DLZ_SANDBOX_REMOTE: '1', DLZ_FAKE_MEDIA: 'sd,usb' });
+  // within ms, or 'still running'
+  const endsWithin = (ms) => {
+    let t;
+    return Promise.race([b.exited, new Promise((ok) => { t = setTimeout(() => ok('still running'), ms); })])
+      .finally(() => clearTimeout(t));
+  };
   try {
     const W = (await b.ready).web.port;
-    await check('/__dev/model says the full-size, the checkout and the extras', async () => {
+    await check('/__dev/model says the full-size and the extras', async () => {
       const x = JSON.parse((await request(W, { url: '/__dev/model' })).body);
       assert.strictEqual(x.model, 'full');
-      assert.deepStrictEqual([x.branch, x.commit, x.dirty], ['feature/x', 'abc1234', true]);
-      assert.deepStrictEqual(x.extras, ['pretend SD card', 'pretend USB stick']);
+      assert.deepStrictEqual(x.extras, ['pretend SD card', 'pretend USB stick', 'phone at http://localhost/']);
     });
-    await check('the switch from the sandbox page: answered, then the shim ends with 75', async () => {
+    await check('the switch: refused from the pretend phone\'s page (http://localhost with DLZ_SANDBOX_REMOTE)', async () => {
+      for (const origin of ['http://localhost', 'http://localhost:80']) {
+        const x = await request(W, { method: 'POST', url: '/__dev/switch', host: 'localhost', origin });
+        assert.strictEqual(x.status, 403, origin);
+      }
+    });
+    await check('the switch from the sandbox page: answered, then the shim ends with 75 after a state save', async () => {
+      // a save under way (server.js writes srv_data.json.tmp, then moves it): no end while it is there
+      const tmp = path.join(ROOT, 'srv', 'srv_data.json.tmp');
+      fs.writeFileSync(tmp, '{');
       const x = await request(W, { method: 'POST', url: '/__dev/switch', origin: 'http://127.0.0.1' });
       assert.strictEqual(x.status, 200);
       assert.deepStrictEqual(JSON.parse(x.body), { model: 'full', to: 'xs' });
-      const code = await Promise.race([b.exited, new Promise((ok) => setTimeout(() => ok('still running'), 5000))]);
-      assert.strictEqual(code, 75);
+      assert.strictEqual(await endsWithin(4500), 'still running', 'ended while a save was under way');
+      fs.rmSync(tmp);
+      assert.strictEqual(await endsWithin(2000), 75);
     });
   } finally {
     b.kill();
+    await b.exited;
   }
 }
 

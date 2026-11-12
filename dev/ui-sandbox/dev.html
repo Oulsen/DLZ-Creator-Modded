@@ -74,14 +74,15 @@ function chip(label, value, cls, mono) {
   c.append(v);
   return c;
 }
-// the info: mod version, what was patched in, when this model started (= was patched), the extras
+// the info: mod version, what was patched in and when (a start, a switch or sandbox.sh repatch), the extras
 function showInfo(x) {
-  const started = new Date(x.started).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
   const chips = [chip('mod', x.version)];
   if (x.branch) chips.push(chip('branch', x.branch, '', true), chip('commit', x.commit, '', true));
-  else chips.push(chip('', 'not started by dev/ui-sandbox.sh', 'warn'));
+  else chips.push(chip('', 'not patched by dev/ui-sandbox.sh', 'warn'));
   if (x.dirty) chips.push(chip('', '+ uncommitted mod changes', 'warn'));
-  chips.push(chip('started', started));
+  if (x.patched) {
+    chips.push(chip('patched', new Date(x.patched).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })));
+  }
   for (const e of x.extras) chips.push(chip('', e, 'extra'));
   $('info').replaceChildren(...chips);
 }
@@ -138,8 +139,12 @@ $('ui').src = UI_URL + '#INT';
 // the model now, then every 2 s: another tab (or curl) may switch too, and this page follows
 async function poll() {
   if (switching) return;
-  try { follow(await current()); }
-  catch (e) { show(null, model === null && frameModel === null ? 'sandbox does not answer' : 'restarting…'); }
+  try {
+    const m = await current();
+    if (!switching) follow(m);   // a click while this poll was out: the switch decides, not this answer
+  } catch (e) {
+    if (!switching) show(null, model === null && frameModel === null ? 'sandbox does not answer' : 'restarting…');
+  }
 }
 poll();
 setInterval(poll, 2000);

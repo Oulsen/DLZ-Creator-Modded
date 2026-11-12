@@ -8,7 +8,8 @@
 #                                     server.js a restart (which patches again by itself)
 #   bash sandbox.sh open              the dev page in the default browser (the XS / Full-size switch
 #                                     above Mackie's page)
-#   bash sandbox.sh stop              node.exe on 80/89 ended (and a drive an older start mapped, unmapped)
+#   bash sandbox.sh stop              node.exe on 80/89 ended, also during a model switch (~4 s; and a
+#                                     drive an older start mapped, unmapped)
 #
 # Starting is not done here: run "bash dev/ui-sandbox.sh" (DLZ_FULLSIZE=1 for the full-size UI) as a
 # background task from the repo root, then "wait". Stopping that task alone leaves node.exe listening
@@ -43,30 +44,35 @@ case ${1:-status} in
     echo "no answer after $n s (see the background task's output)"; exit 1 ;;
   repatch)
     case ${2:-} in
-      xs) sbs=$REPO/dumps/sandbox ;;
-      full) sbs=$REPO/dumps/sandbox-full ;;
-      *) sbs="$REPO/dumps/sandbox $REPO/dumps/sandbox-full" ;;
+      xs) sbs=("$REPO/dumps/sandbox") ;;
+      full) sbs=("$REPO/dumps/sandbox-full") ;;
+      *) sbs=("$REPO/dumps/sandbox" "$REPO/dumps/sandbox-full") ;;
     esac
     done_any=0
-    for sb in $sbs; do
+    for sb in "${sbs[@]}"; do
       [ -f "$sb/srv/app.js" ] || { echo "no sandbox copy in $sb (a start makes it)"; continue; }
-      python "$REPO/install/patch.py" app "$sb/srv/app.js" > /dev/null \
-        && python "$REPO/install/patch.py" server "$sb/srv/server.js" > /dev/null \
-        && { echo "patched $sb"; done_any=1; } || exit 1
+      # the launcher's own patch step, so the dev page shows what was patched in
+      bash "$REPO/dev/ui-sandbox.sh" patch "$sb" || exit 1
+      done_any=1
     done
     [ $done_any = 1 ] || exit 1
     echo "reload the browser (app.js); server.js changes need a restart (it patches again by itself)" ;;
   open)
     cmd //c start http://127.0.0.1/ ;;
   stop)
-    for p in $(listeners); do
-      img=$(image "$p")
-      if [ "$img" = node.exe ]; then taskkill //PID "$p" //F > /dev/null && echo "ended node.exe (pid $p)"
-      else echo "pid $p ($img) listens on 80/89 but is not node.exe: left alone"; fi
+    # the flag ends dev/ui-sandbox.sh's loop if a model switch is under way (nothing on 80/89 for a
+    # moment); a start in that moment is caught by watching the ports for 3 s more
+    touch /tmp/dlz-sandbox.stop
+    for _ in 1 2 3 4; do
+      for p in $(listeners); do
+        img=$(image "$p")
+        if [ "$img" = node.exe ]; then taskkill //PID "$p" //F > /dev/null && echo "ended node.exe (pid $p)"
+        else echo "pid $p ($img) listens on 80/89 but is not node.exe: left alone"; fi
+      done
+      sleep 1
     done
     for d in $(drives); do subst "$d:" //D && echo "drive $d: unmapped"; done
-    sleep 1
     [ -z "$(listeners)" ] && [ -z "$(drives)" ] && echo "stopped" || { echo "something is still there:"; bash "$0" status; } ;;
   *)
-    sed -n '2,16p' "$0"; exit 2 ;;
+    sed -n '2,17p' "$0"; exit 2 ;;
 esac

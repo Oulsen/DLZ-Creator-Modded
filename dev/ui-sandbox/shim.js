@@ -54,6 +54,9 @@ const ONE = ['access', 'appendFile', 'chmod', 'chown', 'createReadStream', 'crea
   'lstat', 'lutimes', 'mkdir', 'mkdtemp', 'open', 'opendir', 'readdir', 'readFile', 'readlink', 'realpath', 'rm', 'rmdir',
   'stat', 'statfs', 'truncate', 'unlink', 'unwatchFile', 'utimes', 'watch', 'watchFile', 'writeFile'];
 const TWO = ['copyFile', 'cp', 'link', 'rename', 'symlink'];
+// the shim's own files (dev.html, fake-vu-live.js, the repo's VERSION) read without the redirect: a repo
+// under D:\dev\ or D:\tmp\ would otherwise be looked for in the sandbox folder
+const readOwn = fs.readFileSync;
 function redirect(obj, name, two) {
   const f = obj[name];
   if (typeof f !== 'function') return;
@@ -327,28 +330,42 @@ function asPhone(req) {
 // The model is fixed when server.js starts (/root/.dlzlite and the sandbox folder), so a switch is a
 // restart: POST /__dev/switch answers, then this process ends with SWITCH_EXIT and dev/ui-sandbox.sh
 // starts the other model. The page polls /__dev/model until the new one answers, then reloads the
-// iframe. Only a POST from the sandbox's own page (an Origin of this PC, on top of the Host check below).
+// iframe. Only a POST from the sandbox's own page: an Origin of this PC (on top of the Host check below),
+// and with DLZ_SANDBOX_REMOTE not http://localhost, which is then the pretend phone's page.
 const DEV_URL = '/__dev';
 const SWITCH_EXIT = 75;
 const MODEL = fs.existsSync('/root/.dlzlite') ? 'xs' : 'full';
-// For the dev page's info: the mod version, what dev/ui-sandbox.sh patched in (branch, commit, uncommitted
-// changes to the mod),
-// when this start was (= when it was patched), and the pretend extras that are on
-let VERSION = '?';
-try { VERSION = fs.readFileSync(path.join(__dirname, '..', '..', 'VERSION'), 'utf8').trim(); } catch (e) { /* not in a checkout */ }
-const INFO = {
-  version: VERSION,
-  branch: process.env.DLZ_SANDBOX_BRANCH || '',
-  commit: process.env.DLZ_SANDBOX_COMMIT || '',
-  dirty: process.env.DLZ_SANDBOX_DIRTY === '1',
-  started: new Date().toISOString(),
-  extras: [
-    ...(process.env.DLZ_FAKE_MEDIA || '').split(',').filter((m) => m === 'sd' || m === 'usb')
-      .map((m) => (m === 'sd' ? 'pretend SD card' : 'pretend USB stick')),
-    ...(process.env.DLZ_SANDBOX_REMOTE === '1' ? ['phone at http://localhost/'] : []),
-    ...(process.env.DLZ_FAKE_WIFI === 'nostick' ? ['no Wi-Fi stick'] : []),
-  ],
-};
+// For the dev page's info, read at each request (sandbox.sh repatch changes them while it runs): the
+// mod version, what was patched in (dlzmod-sandbox.json in the sandbox folder, written by
+// dev/ui-sandbox.sh at each start and by its patch mode: branch, commit, uncommitted changes to the mod,
+// when), and the pretend extras that are on
+const EXTRAS = [
+  ...(process.env.DLZ_FAKE_MEDIA || '').split(',').filter((m) => m === 'sd' || m === 'usb')
+    .map((m) => (m === 'sd' ? 'pretend SD card' : 'pretend USB stick')),
+  ...(REMOTE ? ['phone at http://localhost/'] : []),
+  ...(process.env.DLZ_FAKE_WIFI === 'nostick' ? ['no Wi-Fi stick'] : []),
+];
+function info() {
+  const read = (file) => { try { return readOwn(file, 'utf8').trim(); } catch (e) { return ''; } };
+  let patched = {};
+  try { patched = JSON.parse(read(path.join(ROOT, 'dlzmod-sandbox.json')) || '{}'); } catch (e) { /* half written */ }
+  return {
+    version: read(path.join(__dirname, '..', '..', 'VERSION')) || '?',
+    branch: String(patched.branch || ''),
+    commit: String(patched.commit || ''),
+    dirty: patched.dirty === true,
+    patched: String(patched.patched || ''),
+    extras: EXTRAS,
+  };
+}
+// The end after a switch: server.js saves its state every 3 s (to srv_data.json.tmp, then the mv over
+// srv_data.json), so wait for one more round and until no save is half done, or the last changes are lost
+const SAVE_TMP = '/srv/srv_data.json.tmp';
+function endForSwitch() {
+  const until = Date.now() + 6000;
+  const tick = () => (fs.existsSync(SAVE_TMP) && Date.now() < until ? setTimeout(tick, 100) : process.exit(SWITCH_EXIT));
+  setTimeout(tick, 3200);
+}
 function devRoute(req, res) {
   const url = req.url.split('?')[0];
   const send = (code, type, body) => {
@@ -356,13 +373,16 @@ function devRoute(req, res) {
     res.end(body);
   };
   if (req.method === 'GET' && url === DEV_URL + '/model') {
-    send(200, 'application/json', JSON.stringify({ model: MODEL, ...INFO }));
+    send(200, 'application/json', JSON.stringify({ model: MODEL, ...info() }));
   } else if (req.method === 'POST' && url === DEV_URL + '/switch') {
-    if (!LOCAL_ORIGIN.test(req.headers.origin || '')) return send(403, 'text/plain', 'sandbox: only from the dev page\n');
+    const origin = req.headers.origin || '';
+    if (!LOCAL_ORIGIN.test(origin) || (REMOTE && /\/\/localhost\b/i.test(origin))) {
+      return send(403, 'text/plain', 'sandbox: only from the dev page\n');
+    }
     if (process.env.DLZ_SANDBOX_LOOP !== '1') return send(409, 'text/plain', 'sandbox: not started by dev/ui-sandbox.sh\n');
     const to = MODEL === 'xs' ? 'full' : 'xs';
     console.log(`[sandbox] switching to ${to === 'xs' ? 'the XS' : 'the full-size'}: restarting`);
-    res.on('finish', () => setTimeout(() => process.exit(SWITCH_EXIT), 100));
+    res.on('finish', endForSwitch);
     send(200, 'application/json', JSON.stringify({ model: MODEL, to }));
   } else {
     send(404, 'text/plain', 'sandbox: no such dev route\n');
@@ -386,7 +406,7 @@ http.Server.prototype.emit = function (event, req, res) {
   const phone = (event === 'request' || event === 'upgrade') && asPhone(req);
   if (!phone && event === 'request' && req.method === 'GET' && /^\/(\?.*)?$/.test(req.url)) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(fs.readFileSync(path.join(__dirname, 'dev.html')));
+    res.end(readOwn(path.join(__dirname, 'dev.html')));
     return true;
   }
   if (!phone && event === 'request' && req.method === 'GET' && /^\/index\.html(\?.*)?$/.test(req.url)) {
@@ -400,7 +420,7 @@ http.Server.prototype.emit = function (event, req, res) {
   }
   if (event === 'request' && req.method === 'GET' && req.url === FAKE_VU_URL) {
     res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(fs.readFileSync(path.join(__dirname, 'fake-vu-live.js')));
+    res.end(readOwn(path.join(__dirname, 'fake-vu-live.js')));
     return true;
   }
   return emit.apply(this, arguments);
