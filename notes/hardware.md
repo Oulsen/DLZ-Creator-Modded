@@ -61,7 +61,20 @@ The board, Mackie's device tree, the boot chain, the eMMC layout and the SD slot
   endpoints 1-2 to 13-14 (seven stereo pairs). Playback 1-2 arrives on the mixer's computer channel
   (9/10); recording 1-2 carries the main mix, the computer channel included only with its mix-minus
   off; the other returns were silent with no mic in use [device, XS dev card, `dev/usbloop.py`,
-  #257]. The full-size's endpoints were not checked.
+  #257]. Windows lists playback 1-2 and 3-4 as two separate playback devices, so each can take its
+  own app (Windows "App volume and device preferences") [device, XS, 2026-11-12]. The channel
+  count comes from the USB chip's descriptor, so a driver cannot add playback channels (#279). The
+  full-size's endpoints were not checked.
+- USB descriptor of `0A73:003A` (UsbTreeView, XS, 2026-11-12) [device]: vendor ID `0x0A73` is
+  registered to SYDEC N.V. (a Sydec USB audio design; "LOUD Audio, LLC" is only the manufacturer
+  string), `bcdDevice` 1.30, one configuration, three interfaces (audio control, playback,
+  recording), no DFU interface. Playback: the only standard streaming setting carries 4 channels,
+  24-bit in 4-byte slots (512-byte isochronous packets, room for far more; the count is the
+  firmware's choice); a host-programmable clock and a volume control (no mute) on that path.
+  Recording: 14 channels. Both streaming interfaces also have vendor-specific alternate settings
+  (2-10, one interrupt endpoint each, 64-512 bytes out, 128-1024 in) with no format or channel
+  count; Windows' class driver ignores them, their purpose is unknown [guess: Sydec's own transfer
+  modes]. Nothing in it offers more than 4 channels from the PC.
 
 ### Full-size DLZ Creator
 

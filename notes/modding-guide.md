@@ -156,9 +156,10 @@ over editing Mackie files. They survive package updates, and they are ours to pu
 
 Looked into and not doable on this hardware or within the ground rules:
 
-- **More computer channels** (each app on its own strip): the XS reads only 2 stereo USB pairs from
-  the computer, and both are already selectable on the virtual strips; per-app routing is done on
-  the computer (Q22 would show whether there are more playback channels).
+- **More computer channels over USB** (each app on its own strip): the USB chip offers the computer
+  exactly 2 stereo playback pairs [device, XS], set in its own firmware, so neither the mod nor a
+  driver can add more; Windows shows them as two devices, one app each, both selectable on any
+  stereo strip (#24). More apps on their own strips over the network: #279.
 - **Bluetooth headphones or speakers as a monitor, a Bluetooth headset as input/output**: the
   Bluetooth module (an Actions ATS2853 speaker chip with Mackie's own firmware) is a phone-side
   sink with its own protocol and no connect-out command in faderlink, not a Linux Bluetooth stack;
