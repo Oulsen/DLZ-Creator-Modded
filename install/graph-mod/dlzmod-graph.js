@@ -163,9 +163,37 @@ function DLZMOD_duck(key, ms, mic) {
 
 // the 7 sources, [left, right] each; app-mod/dlzmod.js lists them in the same order (DLZMOD_srcIds):
 // the first line input (XS 3/4, full-size 5/6), the second (5/6, 7/8), USB 1/2, USB 3/4, the media
-// player, Bluetooth, NDI. Two strips on one source both get it
+// player, Bluetooth, NDI. Two strips on one source both get it. Made once: the buffers are fixed
 function DLZMOD_srcPool() {
-  return [lineIn[0], lineIn[1], usbIn[0], usbIn[1], [mediaPlayer, mediaPlayerR], btIn, [ndiL, ndiR]]
+  if (!globalThis.DLZMOD_srcPoolList) {
+    globalThis.DLZMOD_srcPoolList = [lineIn[0], lineIn[1], usbIn[0], usbIn[1], [mediaPlayer, mediaPlayerR], btIn, [ndiL, ndiR]]
+  }
+  return globalThis.DLZMOD_srcPoolList
+}
+
+// The media player and the NDI receiver fill their buffers during the cycle (cleared at its start),
+// the line, USB and Bluetooth inputs are there from its start. A strip that reads its input before
+// that block has run (the pads on both models, the XS's players for NDI) would get silence: it reads
+// a copy of the cycle before instead, made at the end of each cycle (DLZMOD_srcHold), a few ms later.
+// Which reader needs it is decided while the graph is built, by the blocks pushed so far
+function DLZMOD_srcHeldBufs() {
+  if (!globalThis.DLZMOD_srcHeldBuffers) {
+    globalThis.DLZMOD_srcHeldBuffers = createBuffer(['dlzmodHeldMediaL', 'dlzmodHeldMediaR', 'dlzmodHeldNdiL', 'dlzmodHeldNdiR'])
+  }
+  return globalThis.DLZMOD_srcHeldBuffers
+}
+
+// the copies, at the end of the graph (after every block of Mackie's)
+function DLZMOD_srcHold() {
+  let h = DLZMOD_srcHeldBufs()
+  return [[mediaPlayer, mediaPlayerR, ndiL, ndiR].map((b, n) => [h[n], {type: 'CopyFrom', src: b}])]
+}
+
+// while the graph is built: what a reader pushed now must take from the copies (1: the media player,
+// 2: NDI), as their blocks are not in the graph yet
+function DLZMOD_srcHeldNow() {
+  let has = (g, type) => g.some(x => Array.isArray(x) ? has(x, type) : !!x && x.type === type)
+  return (has(graph, 'StereoPlayer') ? 0 : 1) | (has(graph, 'NDIInputStereo') ? 0 : 2)
 }
 
 // a source's kind: '' a local one (line inputs, the media player), 'b' Bluetooth, 'u' USB, 'n' NDI,
@@ -203,12 +231,16 @@ function DLZMOD_srcExpr(virt, i) {
 // the strip's input buffer (ch 'L' or 'R'): silence on Bluetooth while nothing is connected, as stock
 // for its Bluetooth strip
 function DLZMOD_srcBufExpr(virt, i, ch) {
-  return `DLZMOD_srcBuf(${DLZMOD_srcExpr(virt, i)}, ${ch === 'L' ? 0 : 1}, @btStatus)`
+  return `DLZMOD_srcBuf(${DLZMOD_srcExpr(virt, i)}, ${ch === 'L' ? 0 : 1}, @btStatus, ${DLZMOD_srcHeldNow()})`
 }
 
-function DLZMOD_srcBuf(id, side, bt) {
+// held: DLZMOD_srcHeldNow() where the reader sits
+function DLZMOD_srcBuf(id, side, bt, held) {
   if (DLZMOD_srcKind(id) === 'b' && bt == 0) return zero
-  return DLZMOD_srcPool()[id][side]
+  let b = DLZMOD_srcPool()[id], h = DLZMOD_srcHeldBufs()
+  if (b[0] === mediaPlayer && (held & 1)) return h[side]
+  if (b[0] === ndiL && (held & 2)) return h[2 + side]
+  return b[side]
 }
 
 // Mackie's global mix-minus flags (btMixMinus, usbMixMinus, ndiMixMinus): some strip on a source of
@@ -294,9 +326,9 @@ function DLZMOD_padSrcBufs() {
 }
 
 // at run time: the pads' source buffer, silence while it holds none
-function DLZMOD_padSrcIn(mod, side, bt) {
-  mod = Number(mod)
-  return mod >= 0 && mod < DLZMOD_srcPool().length ? DLZMOD_srcBuf(Math.floor(mod), side, bt) : zero
+function DLZMOD_padSrcIn(mod, side, bt, held) {
+  let id = DLZMOD_padSrcId(mod)
+  return id < 0 ? zero : DLZMOD_srcBuf(id, side, bt, held)
 }
 
 // the pads' pool id: their source, -1 for none (the kind of none is a local one: stock's rules)
@@ -336,8 +368,7 @@ function DLZMOD_muteAuxPads(id, full, dd, db, du, dn, mode, auxMute) {
 
 // at run time: the pads silenced (a source set, Keep Pads off, no bleep)
 function DLZMOD_padsOff(mod, keep, bleep, tone) {
-  mod = Number(mod)
-  return mod >= 0 && mod < DLZMOD_srcPool().length && !keep && !bleep && !tone
+  return DLZMOD_padSrcId(mod) >= 0 && !keep && !bleep && !tone
 }
 
 // the pads' source level after its trim, as the VU group smp.gain: app.js shows a channel's "gain"
@@ -357,14 +388,14 @@ function DLZMOD_padSrc(ch) {
       mute: `DLZMOD_padsOff(@s.dlzmodSrc, @s.dlzmodPads, @Bleep.sample.mute, @censorBleep)`,
     },
     buf,
-    {type: 'DCFilter', src: `DLZMOD_padSrcIn(@s.dlzmodSrc, ${side}, @btStatus)`},
+    {type: 'DCFilter', src: `DLZMOD_padSrcIn(@s.dlzmodSrc, ${side}, @btStatus, ${DLZMOD_srcHeldNow()})`},
     {type: 'Gain', gain: `@s.trim`},
     {type: 'MaxMeter', vu: DLZMOD_padSrcMeters()[side], threshold: VU_THRESHOLD},
     {
       type: 'GainWithLinMixTo',
       src: buf,
       gain: 0,
-      bypass: `!(@s.dlzmodSrc >= 0 && @s.dlzmodSrc < 7)`,
+      bypass: `DLZMOD_padSrcId(@s.dlzmodSrc) < 0`,
       mute: `@Bleep.sample.mute`,
       dest: side ? workBufR : workBuf,
     },

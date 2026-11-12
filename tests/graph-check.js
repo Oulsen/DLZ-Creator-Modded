@@ -228,7 +228,8 @@ assert.ok(gm, "DLZMOD_rtaFreqs in the graph mod");
 const freqs = JSON.parse(gm[1]);
 assert.deepStrictEqual(list("DLZMOD_rtaFreqs"), freqs, "the app and the graph have the same bands");
 
-const OWN = new Set(["dlzmodRta", "dlzmodRtaBand", "dlzmodDuckKey", "dlzmodPadSrcL", "dlzmodPadSrcR"]);
+const HELD = { dlzmodHeldMediaL: "mediaPlayer", dlzmodHeldMediaR: "mediaPlayerR", dlzmodHeldNdiL: "ndiL", dlzmodHeldNdiR: "ndiR" };
+const OWN = new Set(["dlzmodRta", "dlzmodRtaBand", "dlzmodDuckKey", "dlzmodPadSrcL", "dlzmodPadSrcR", ...Object.keys(HELD)]);
 // a block with a dest writes there (its own buffer is only where it sits), the others their buffer
 const writes = (b) => [b.p.dest ? String(b.p.dest).replace(/^buffer:/, "") : b.buf];
 const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").startsWith("dlzmodRta");
@@ -249,8 +250,8 @@ const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").st
     return b.p.src === `buffer:dlzmodPadSrc${s}` && b.p.dest === `buffer:${work}` && b.p.gain === 0
       && trim.type === "Gain" && trim.buf === `dlzmodPadSrc${s}` && trim.p.gain === "@s.trim"
       && meter.type === "MaxMeter" && meter.buf === `dlzmodPadSrc${s}` && meter.p.vu === `vuSmpGain${s}`
-      && b.p.mute === "@Bleep.sample.mute" && b.p.bypass === "!(@s.dlzmodSrc >= 0 && @s.dlzmodSrc < 7)"
-      && dc.type === "DCFilter" && dc.buf === `dlzmodPadSrc${s}` && dc.p.src === `DLZMOD_padSrcIn(@s.dlzmodSrc, ${n}, @btStatus)`
+      && b.p.mute === "@Bleep.sample.mute" && b.p.bypass === "DLZMOD_padSrcId(@s.dlzmodSrc) < 0"
+      && dc.type === "DCFilter" && dc.buf === `dlzmodPadSrc${s}` && new RegExp(`^DLZMOD_padSrcIn\\(@s\\.dlzmodSrc, ${n}, @btStatus, [0-3]\\)$`).test(dc.p.src)
       && gate.type === "Gain" && gate.buf === work && gate.p.gain === 0
       && gate.p.mute === "DLZMOD_padsOff(@s.dlzmodSrc, @s.dlzmodPads, @Bleep.sample.mute, @censorBleep)"
       && cp.type === "CopyFrom" && cp.buf === work && cp.p.src === `sample${s}`;
@@ -269,7 +270,7 @@ const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").st
 // strip's stock choices, dlzmodSrc -1: "as src says", the rest 0/1, auxMixMode 0-2); a buffer counts by
 // its name, anything else by truth. Then they are put back as stock's for the checks below
 {
-  const evalIn = (ctx) => {
+  const evalIn = (ctx, raw) => {
     const cache = new Map();
     return (expr, K) => {
       let f = cache.get(expr);
@@ -282,7 +283,7 @@ const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").st
         if (!(k in K)) throw new Error("no value for " + k);
         return K[k];
       });
-      return v && typeof v === "object" && "name" in v ? "buffer:" + v.name : !!v;
+      return v && typeof v === "object" && "name" in v ? "buffer:" + (raw ? v.name : HELD[v.name] || v.name) : !!v;
     };
   };
   const evS = evalIn(stock.ctx), evP = evalIn(patched.ctx);
@@ -429,6 +430,38 @@ const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").st
   check(padBlocks.length > 0 && padsBad.length === 0,
     `sources: the pads' ${padBlocks.length} sends on each of the 7: as the stock strip with a remote one, as stock's pads with a local one (${nPads} cases)`
     + (padsBad.length ? ": " + padsBad.slice(0, 3).join("; ") : ""));
+
+  // the media player and NDI: a strip's input read before their block (in the whole graph) reads the
+  // copy of the cycle before, one read after it the buffer itself; the copies made after both blocks
+  {
+    const evRaw = evalIn(patched.ctx, true);
+    const at = (type) => withB4.findIndex((b) => b.type === type);
+    const writer = { mediaPlayer: at("StereoPlayer"), ndiL: at("NDIInputStereo") };
+    const held = { mediaPlayer: ["dlzmodHeldMediaL", "dlzmodHeldMediaR"], ndiL: ["dlzmodHeldNdiL", "dlzmodHeldNdiR"] };
+    const live = { mediaPlayer: ["mediaPlayer", "mediaPlayerR"], ndiL: ["ndiL", "ndiR"] };
+    const bad = [];
+    let readers = 0, early = 0;
+    withB4.forEach((b, i) => {
+      if (b.type !== "DCFilter" || !/DLZMOD_(srcBuf|padSrcIn)\(/.test(String(b.p.src))) return;
+      readers++;
+      const side = +/,\s*([01]),\s*@btStatus/.exec(b.p.src)[1];
+      for (const src of ["mediaPlayer", "ndiL"]) {
+        const k = pool.indexOf(src);
+        const K = {};
+        for (const key of keysOf(b.p.src)) K[key] = /dlzmodSrc$/.test(key) ? k : /\.src$/.test(key) ? 0 : 1;
+        const want = (i < writer[src] ? held : live)[src][side];
+        if (i < writer[src]) early++;
+        const got = evRaw(b.p.src, K);
+        if (got !== "buffer:" + want) bad.push(`${b.buf} at ${i} on ${src}: ${got}, not ${want}`);
+      }
+    });
+    const copies = withB4.map((b, i) => ({ b, i })).filter((x) => x.b.type === "CopyFrom" && x.b.buf in HELD);
+    const copiesOk = copies.length === 4 && copies.every((x) => x.i > Math.max(writer.mediaPlayer, writer.ndiL)
+      && x.b.p.src === "buffer:" + HELD[x.b.buf]);
+    check(readers > 0 && bad.length === 0 && copiesOk,
+      `sources: the media player and NDI read live after their block, as last cycle's copy before it (${readers} inputs, ${early} reads of a copy)`
+      + (bad.length ? ": " + bad.slice(0, 3).join("; ") : "") + (copiesOk ? "" : "; the copies: " + JSON.stringify(copies.map((x) => [x.i, x.b]))));
+  }
 
   // the global flags: one strip on source k with its mix-minus on, the rest on src 0 without
   const flag = (name) => vm.runInContext(name, patched.ctx);

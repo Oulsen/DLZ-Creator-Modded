@@ -656,10 +656,9 @@ APP_PATCHES = [
         "case E_CH_TYPE.SAMPLE:this.basic.show(),this.player.show(),this.player.sync(),this.sends.show();break;",
     ),
     (
-        # and the trim's target level only with the trim (not on the pads)
         "sources: the mod's mark (Pro)",
-        "t.drawText(lang.CHANNEL_SOURCE,e,21),DRAW_VU_TARGET_LEVEL(t,this.vuTrim)",
-        "t.drawText(lang.CHANNEL_SOURCE,e,21),DLZMOD_srcMark(this,t),this.vuTrim.visible&&DRAW_VU_TARGET_LEVEL(t,this.vuTrim)",
+        "t.drawText(lang.CHANNEL_SOURCE,e,21),",
+        "t.drawText(lang.CHANNEL_SOURCE,e,21),DLZMOD_srcMark(this,t),",
     ),
     (
         "sources: the Standard layout's button",
@@ -685,11 +684,6 @@ APP_PATCHES = [
         "sources: the mod's mark (Standard)",
         't.drawText(lang.CHANNEL_SOURCE,e,22,{color:a,font:o,align:"center",valign:"middle"})',
         't.drawText(lang.CHANNEL_SOURCE,e,22,{color:a,font:o,align:"center",valign:"middle"}),DLZMOD_srcMark(this,t)',
-    ),
-    (
-        "sources: the trim's target level only with the trim (Standard)",
-        "this.vuTrim&&DRAW_VU_TARGET_LEVEL(t,this.vuTrim)}}),this.misc=",
-        "this.vuTrim&&this.vuTrim.visible&&DRAW_VU_TARGET_LEVEL(t,this.vuTrim)}}),this.misc=",
     ),
     (
         # the pads' source (-1: none), Keep Pads, their own mix-minus and trim (Mackie's trim helper, as the
@@ -733,10 +727,15 @@ APP_PATCHES = [
         "if(this.type===E_CH_TYPE.VIRTUAL)return DLZMOD_srcIcon(this);",
     ),
     (
-        "sources: the icon and mix-minus follow the source",
+        "sources: the icon and mix-minus follow the source (Standard)",
         'this.preset.icon.regKey(i+"src"),this.misc.mixminus.regKey(i+"src"),',
         'this.preset.icon.regKey(i+"src"),this.misc.mixminus.regKey(i+"src"),'
         'this.preset.icon.regKey(i+"dlzmodSrc"),this.misc.mixminus.regKey(i+"dlzmodSrc"),',
+    ),
+    (
+        "sources: the icon and mix-minus follow the source (Pro)",
+        'this.basic.icon.regKey(i+"src"),',
+        'this.basic.icon.regKey(i+"src"),this.basic.icon.regKey(i+"dlzmodSrc"),this.player.mixMinus.regKey(i+"dlzmodSrc"),',
     ),
 ]
 
@@ -1084,6 +1083,13 @@ GRAPH_SPECTRUM_PATCHES = [
         "eq spectrum: the analyser",
         "\ncompileGraph(graph)\n",
         "\ngraph.push(DLZMOD_rtaAnalyser())\n\ncompileGraph(graph)\n",
+    ),
+    (
+        # #24: the media player's and NDI's buffers copied at the end of each cycle, for a strip that
+        # reads them before they are filled (DLZMOD_srcHold)
+        "sources: the media player and NDI held for the next cycle",
+        "\ngraph.push(DLZMOD_rtaAnalyser())\n",
+        "\ngraph.push(DLZMOD_srcHold())\ngraph.push(DLZMOD_rtaAnalyser())\n",
     ),
 ]
 

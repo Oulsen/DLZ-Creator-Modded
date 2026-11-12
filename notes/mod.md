@@ -367,8 +367,14 @@ Pro and Standard layouts) [static]; not heard on a mixer yet.
   its Bluetooth strip is done for any strip on Bluetooth, the same for USB and NDI. One stock
   difference kept per model: in a headphone's intercom mode the XS mutes local sources there, the
   full-size does not, nor its NDI strip (`DLZMOD_muteAux`). Two strips on one source both get it (as
-  stock with USB). On the XS the NDI receiver runs after the players, so a player on NDI hears the
-  cycle before (a few ms) [static].
+  stock with USB).
+- **Read before written**: each cycle starts by clearing the media player's and NDI's buffers, which
+  their blocks fill later in it; the line, USB and Bluetooth inputs are there from the start. On the
+  XS the NDI receiver runs after the players, and on both models the media player and NDI after the
+  pads: such a reader would get silence. It reads a copy of the cycle before instead
+  (`DLZMOD_srcHold`, four `CopyFrom`s at the end of the graph; one cycle, a few ms, later); which
+  reader needs it is decided while the graph is built, by the blocks pushed so far
+  (`DLZMOD_srcHeldNow`). `graph-check.js` checks every input against the block order [static].
 - **Mark**: the mod's yellow bar left of the source button on every channel that has one (Pro and
   Standard, `DLZMOD_srcMark`), and on the pads also by Keep Pads, Trim and Mix-Minus.
 - **Checked** (`tests/graph-check.js`): every rewritten expression is run against stock's over all
@@ -402,7 +408,7 @@ a mixer yet, and the side knob not turned on one.
   DC filter, the trim and a meter (`vuSmpGainL/R`, the VU group `smp.gain`, which app.js already reads
   for a channel's trim meter; stock has none for the pads), mixed in at 0 dB only while a source is
   set and muted while the bleep runs. So the source shares the pads' EQ, dynamics, fader, sends and
-  ducking. The pads' sends follow the source's kind (`DLZMOD_padMuteExpr`, mix-minus on
+  ducking. Disk and NDI reach the pads through the copies of the cycle before (above). The pads' sends follow the source's kind (`DLZMOD_padMuteExpr`, mix-minus on
   `s.mixminus`), as a stereo strip on that source; without one or on a local one, stock's pads rules
   (a headphone's intercom mix mutes the pads on both models). Mix-minus keeps the whole channel, pads
   too, out of the caller's return. The gate and the mix are the mod's only blocks that write a buffer

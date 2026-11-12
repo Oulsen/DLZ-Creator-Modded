@@ -88,7 +88,10 @@ headphone 1 and 2 mixes.
   the strip number and its `p.N.src` / `v.N.src` key, pick buffers (`usbIn[]`, NDI, line, media, Bluetooth). The mix-minus expressions test the same
   `src` values (`btMixMinus` on `p.1.src == 1`, `usbMixMinus`/`ndiMixMinus` on `v.N.src`), so more
   source choices mean updating those too. Only one NDI receiver, one media player and one Bluetooth
-  stream exist; two strips on the same source would get a copy. Both models have the same 7 stereo
+  stream exist; two strips on the same source would get a copy. The media player's and NDI's
+  buffers are cleared at the start of each cycle and filled by their blocks later in it (XS: after
+  the pads, NDI also after the players; full-size: after the pads), so a strip earlier in the graph
+  would read silence; the mod reads a copy of the cycle before there (#24). Both models have the same 7 stereo
   sources (two line inputs, USB 1/2, USB 3/4, media player, Bluetooth, NDI), split differently over
   their stereo strips; the full-size has 3 players (5/6, 7/8, 9/10) and no virtual channels. The mod
   gives every stereo strip all 7 and rewrites these rules on the kind of source (#24,

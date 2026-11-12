@@ -4030,7 +4030,7 @@ function DLZMOD_srcStock(strip) {
 // unknown src counts as its first, as the graph does); the pads: their source, -1 for none
 function DLZMOD_srcOf(strip) {
   const mod = Number(Data.get(strip.prefix + "dlzmodSrc"));
-  if (mod >= 0 && mod < 7) return Math.floor(mod);
+  if (mod >= 0 && mod < DLZMOD_srcList().length) return Math.floor(mod);
   if (DLZMOD_srcPads(strip)) return -1;
   const stock = DLZMOD_srcStock(strip);
   const v = stock[Data.get(strip.prefix + "src")];
