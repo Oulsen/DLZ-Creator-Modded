@@ -38,7 +38,9 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
    Known: it can show up under two identities, `0A73:003A` (normal, LOUD's driver) and once
    `0A4A:AC1E` (a standard USB Audio 2.0 device) [device]; neither ID is in any file on the rootfs,
    the FPGA bitstreams or the GD32 firmware [static], so most likely a chip with its own firmware
-   [guess] (hardware.md). `lsusb -v` of both identities would name it.
+   [guess] (hardware.md). The `0A73:003A` descriptor names no chip; vendor ID `0x0A73` is SYDEC
+   N.V.'s, so it is a Sydec design [device, hardware.md]. Still open: the chip itself (a board
+   photo would show it) and the `0A4A:AC1E` identity's descriptor.
 9. Stock's media scan filters out `/` by lsblk's `mountpoint` column: is that column still in
    `lsblk -O` on the mod card? (Which `mmcblk` is which is answered: hardware.md, Storage.)
 10. GD32 UART protocol and baud rate on ttyS2.
