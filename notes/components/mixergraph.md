@@ -113,7 +113,13 @@ headphone 1 and 2 mixes.
   per-headphone switch (#60, [../mod.md](../mod.md)).
 - **Auto ducking** (`autoDucking`): mic 1 is the only trigger (threshold -25 dB). Everything else
   ducks by a fixed -15 dB (mic 2: attack/release 500 ms, hold 250 ms; others: plugin defaults).
-  Nothing about it is adjustable in the UI.
+  Nothing about it is adjustable in the UI. The mod makes all of it a setting (#18,
+  [../mod.md](../mod.md)).
+- **How the ducking blocks talk** [static, dspserver disassembly]: `AutoDuckSource` measures its
+  buffer's peak each cycle and writes "above the threshold" (1/0) into a byte per group (0-3);
+  `AutoDuck` reads that byte; `AutoDuckPrepare` only clears it while disabled. A source overwrites
+  the byte, so with two sources in one group the one processed last decides; several trigger mics
+  need one source on a mix of them (what #18 does).
 - **Auto mix** (`amix`, `i.N.amix`, `i.N.amixweight`): mics only.
 - **Auto gain** (`i.N.autogain`): holds the preamp at 10 dB while measuring, target offset -3.
 - **Fade in/out** (`ctrl.fade.*`): all strips; `ctrl.fade.excl` keeps mic 1 out of the fade.

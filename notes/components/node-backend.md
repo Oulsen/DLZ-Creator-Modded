@@ -154,7 +154,9 @@ All [static].
   app.js.
 - **Ducking**: the ducking pad sets `pad.ducking` and `autoDucking` (the graph key). The setting
   `settings.rec.autoDucking` sets both to its own value and keeps the ducking pad lit, so ducking can
-  already stay on without a pad; what the setting is called in the UI is still to check in the sandbox.
+  stay on without a pad. Stock never shows that setting: app.js has its text (`lang.AUTO_DUCKING`,
+  "Auto-Ducking") and its default, but no widget uses either [static]. The mod shows it on the pad
+  editor's Ducking page as "Always on" (#18, [../mod.md](../mod.md)).
 - **NDI name**: key `settings.ndi.devicename` (default "DLZ Creator XS", "DLZ Creator" on the
   full-size). Stock's NDI settings already edit it: the button under the "NDI Output Name" label
   shows the current name and opens the on-screen keyboard; an empty input changes nothing (app.js,

@@ -703,6 +703,24 @@ function DLZMOD_snapEq(snap) {
   }
 }
 
+// #18 ducking: its settings (the pad editor's Ducking page; graph-mod/dlzmod-graph.js reads them),
+// global like settings.rec.autoDucking: put into Mackie's defaults next to that key (patch.py), so
+// they are in the state from the start (a graph binding with a key not set would never apply, and
+// the strips would never duck), out of snapshots, and set back by a factory reset. Stock's values:
+// mic 1 the trigger at -25 dB (threshold 0.5), every strip ducked by -15 dB (depth 0.6) at stock's
+// speed (1). Both models' strips: the keys of a strip a model has not are never read.
+// app-mod/dlzmod.js has the same list (DLZMOD_duckKeys)
+function DLZMOD_duckKeys() {
+  const k = { "dlzmod.duck.depth": 0.6, "dlzmod.duck.threshold": 0.5, "dlzmod.duck.speed": 1 };
+  for (let i = 0; i < 4; i++) k[`dlzmod.duck.src.${i}`] = i === 0 ? 1 : 0;
+  for (const s of ["i.0", "i.1", "i.2", "i.3", "p.0", "p.1", "p.2", "v.0", "v.1", "s"]) k[`dlzmod.duck.on.${s}`] = 1;
+  return k;
+}
+
+function DLZMOD_duckDefaults(data) {
+  Object.assign(data, DLZMOD_duckKeys());
+}
+
 // ms on Date.now()'s scale, but a clock that never jumps: waits measured with it (a medium's 10 s
 // before read-only, the wrong-PIN pause) stay right when the clock is set back (by hand, #13, or
 // chrony after a phone's time that was ahead); with Date.now() a medium stayed writable that long

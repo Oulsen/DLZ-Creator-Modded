@@ -283,6 +283,59 @@ the page in the sandbox (XS and full-size) [static]; sound not heard on a mixer 
   on, and its label names the pair (`DLZMOD_hpUsbLabel`). Who used headphone 2's send before now
   finds it on USB 5/6. Send to NDI stays one headphone at a time (one NDI output).
 
+## Ducking: which mics, which strips, how deep and how fast (#18)
+
+Stock, mic 1 is the only trigger (-25 dB) and every other strip ducks by -15 dB, with nothing
+adjustable; its "Auto-Ducking" setting (`settings.rec.autoDucking`) exists but stock never shows it
+([components/mixergraph.md](components/mixergraph.md), "Features in the graph";
+[components/node-backend.md](components/node-backend.md), "Ducking"). Both models. Graph checked by
+`tests/graph-check.js`, the page in the sandbox (XS and full-size) [static]; not heard on a mixer yet.
+
+- **Where**: the pad editor's Ducking page (Pads, a pad in Control mode, Ducking), in place of stock's
+  one line of text, as the Fade page holds Fade's settings and Mute Group its row of channels (the
+  maintainer's choice; Settings → Recording / Routing is full since #14). Mackie's widgets and
+  colours, the mod's mark on each row: Depth and Threshold sliders, Speed (Slow / Normal / Fast),
+  Always on (stock's `settings.rec.autoDucking`: ducking without a pad, the pad stays lit), a Trigger
+  row (the mics) and a Ducked row (every strip, labelled as on the Overview: the samples are 7/8 on
+  the XS, 11/12 on the full-size). A mic that triggers is never ducked itself: its Ducked switch is
+  greyed out meanwhile.
+- **Knobs** (`DLZMOD_padKnobs`, also #272 for Fade): stock leaves the knobs next to the screen on the
+  Overview's (`app.mixer.setKnobs`, the pad editor's onShow) on every Control mode. On the Ducking
+  page knob 1 moves the depth and knob 2 the threshold (1/80 of the range a step), through the
+  stand-ins of #238 (faderlink's table has no `dlzmod.*` keys). On the Fade page knob 1 moves the
+  pad's fade-out time and knob 2 its fade-in time, on the pad's own `B.x.y.ctrl.fade.out` / `.in`,
+  which faderlink's table has (as stock's sample editor puts a sample's fades on the knobs). 3 and 4
+  dark; panel and LED rings in `Color.main` (the owner's accent, #21). Set once per mode and pad
+  from the Control page's sync (again would put the stand-ins back to their middle); another mode,
+  or the page hidden (its onHide), gives the Overview's back, but only while the panel still holds
+  that list, so a page that set its own knobs meanwhile keeps them [static, sandbox; not turned on a
+  mixer yet; the LED ring has only shown Mackie's palette colours so far].
+- **Knobs**: on the Ducking page knob 1 moves the depth and knob 2 the threshold (1/80 of the range a
+  step), through the stand-ins of #238 (`DLZMOD_duckKnobs`; faderlink's table has no `dlzmod.*`
+  keys); 3 and 4 dark; panel and LED rings in `Color.main` (the owner's accent, #21). The pad
+  editor's own knobs are the Overview's (its onShow): they come back on another mode and when the
+  page goes (the Control page's onHide), but only while the panel still holds the Ducking list, so a
+  page that set its own knobs meanwhile keeps them [static, sandbox; not turned on a mixer yet; the
+  ring has only shown Mackie's palette colours so far].
+- **Keys**: `dlzmod.duck.depth` (0..1 = -30..-5 dB, 0.6 = stock's -15), `dlzmod.duck.threshold`
+  (0..1 = -45..-5 dB, 0.5 = stock's -25), `dlzmod.duck.speed` (0 slow: attack/release/hold
+  1000/2000/1500 ms; 1 = each block's stock times: mics 500/500/250, the rest the plugin's
+  1000/1000/1000; 2 fast: 50/250/250), `dlzmod.duck.src.N` (mic N triggers; mic 1 on),
+  `dlzmod.duck.on.<strip>` (`i.N`, `p.N`, `v.N`, `s`; all on). Global, like the setting next to
+  them: `DLZMOD_duckDefaults` puts them into Mackie's defaults right after `settings.rec.autoDucking`
+  (both copies in `server.js`), so they are set from the start (a graph binding with an unset key
+  never applies: the strips would never duck), snapshots leave them out (they skip
+  `createGlobalData`'s keys) and a factory reset sets them back. Both models' keys on both (10
+  strips, 4 mics); a model never reads the others.
+- **The graph** (`graph-mod/dlzmod-graph.js`): dspserver's `AutoDuckSource` overwrites its group's
+  flag on every cycle (mixergraph.md, "DSP block catalogue"), so two sources would not add up.
+  Instead each mic is mixed (0 dB, bypassed unless it triggers) into the mod's buffer
+  `dlzmodDuckKey`, where stock's source sat (after the fader and auto mix), the buffer is cleared at
+  the start of each cycle, and one `AutoDuckSource` on it follows the mic loop, before the strips it
+  ducks. Two mics both just under the threshold can add up to above it. A ducked mic runs before
+  that source and follows the previous cycle's flag (a few samples later than stock's mic 2). Every
+  `AutoDuck` takes its enable, depth and times from the keys.
+
 ## Mod settings (Settings → DLZ Creator Modded)
 
 Sub-tabs Display / Colors / Time / Network / Remote / Mod (a browser: Display / Colors / Time / Mod); layout and how to add a setting:

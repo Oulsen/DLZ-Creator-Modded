@@ -58,6 +58,15 @@ below. They all start as stock: turn on what you want.
   headphone 1 on 3-4 as stock, headphone 2 on 5-6 (it used 3-4 before), on the full-size 3 on 7-8
   and 4 on 9-10 *(headphone page, Send to USB)*
 
+### Pads
+
+- Choose how ducking works: which mics make the other channels quieter (stock: mic 1 only), which
+  channels get quieter, how much (stock -15 dB), from what level (stock -25 dB) and how fast; the
+  knobs next to the screen set the depth and the level *(Pads, a pad in Control mode, Ducking)*
+- Ducking always on, without a pad *(the same page, Always on)*
+- The knobs next to the screen set a Fade pad's fade-out and fade-in times *(Pads, a pad in Control
+  mode, Fade)*
+
 ### Network and remote control
 
 - Wi-Fi from the mixer's screen, with a USB Wi-Fi stick *(Network)*
