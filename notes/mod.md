@@ -310,13 +310,6 @@ adjustable; its "Auto-Ducking" setting (`settings.rec.autoDucking`) exists but s
   or the page hidden (its onHide), gives the Overview's back, but only while the panel still holds
   that list, so a page that set its own knobs meanwhile keeps them [static, sandbox; not turned on a
   mixer yet; the LED ring has only shown Mackie's palette colours so far].
-- **Knobs**: on the Ducking page knob 1 moves the depth and knob 2 the threshold (1/80 of the range a
-  step), through the stand-ins of #238 (`DLZMOD_duckKnobs`; faderlink's table has no `dlzmod.*`
-  keys); 3 and 4 dark; panel and LED rings in `Color.main` (the owner's accent, #21). The pad
-  editor's own knobs are the Overview's (its onShow): they come back on another mode and when the
-  page goes (the Control page's onHide), but only while the panel still holds the Ducking list, so a
-  page that set its own knobs meanwhile keeps them [static, sandbox; not turned on a mixer yet; the
-  ring has only shown Mackie's palette colours so far].
 - **Keys**: `dlzmod.duck.depth` (0..1 = -30..-5 dB, 0.6 = stock's -15), `dlzmod.duck.threshold`
   (0..1 = -45..-5 dB, 0.5 = stock's -25), `dlzmod.duck.speed` (0 slow: attack/release/hold
   1000/2000/1500 ms; 1 = each block's stock times: mics 500/500/250, the rest the plugin's

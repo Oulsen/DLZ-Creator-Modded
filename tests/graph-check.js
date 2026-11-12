@@ -156,11 +156,13 @@ const nmic = stock.blocks.filter((b) => b.type === "AutoDuckSource").length;
 check(duckBad.length === 0, "ducking: taps and AutoDucks in the mod's form" + (duckBad.length ? ": " + duckBad.join(" ") : ""));
 check(nmic >= 2 && JSON.stringify(duckTaps.map((t) => t.i)) === JSON.stringify([...Array(nmic).keys()]),
   `ducking: each of the ${nmic} mics into the trigger buffer by its own key (${duckTaps.map((t) => t.i).join(" ")})`);
-const duckSrc = withB4.map((b, at) => ({ b, at })).filter((x) => x.b.type === "AutoDuckSource");
+// positions in patched.blocks, as the taps' and the AutoDucks' (band 4 left out); the taps there are
+// stock's sources again, so the mod's one is the one on its buffer, and the graph has no other
+const duckSrc = patched.blocks.map((b, at) => ({ b, at })).filter((x) => x.b.type === "AutoDuckSource" && x.b.buf === "dlzmodDuckKey");
 const lastTap = Math.max(...duckTaps.map((t) => t.at));
 const firstStrip = Math.min(...ducks.filter((d) => !d.key.startsWith("i.")).map((d) => d.at));
-const duckClear = withB4.findIndex((b) => b.type === "Clear" && b.buf === "dlzmodDuckKey");
-check(duckSrc.length === 1 && duckSrc[0].b.buf === "dlzmodDuckKey" && duckSrc[0].b.p.enable === "@autoDucking"
+const duckClear = patched.blocks.findIndex((b) => b.type === "Clear" && b.buf === "dlzmodDuckKey");
+check(withB4.filter((b) => b.type === "AutoDuckSource").length === 1 && duckSrc.length === 1 && duckSrc[0].b.p.enable === "@autoDucking"
   && duckSrc[0].b.p.threshold === "DLZMOD_duckThreshold(@dlzmod.duck.threshold)"
   && duckSrc[0].at > lastTap && duckSrc[0].at < firstStrip && duckClear >= 0 && duckClear < Math.min(...duckTaps.map((t) => t.at)),
   "ducking: the trigger buffer cleared before the first tap, its one AutoDuckSource after the last mic, before the other strips");

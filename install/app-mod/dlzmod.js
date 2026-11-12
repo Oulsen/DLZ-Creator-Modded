@@ -3644,8 +3644,7 @@ function DLZMOD_duckWidgets(page) {
       alphaOn: 1, textColorOn: Color.white, border: 0, borderOn: 0,
       textStyle: { offsetX: 0, offsetY: 1, font: Font.font(500, "13pt"), align: "center", valign: "middle" },
     }, hidden)),
-    always: new Switcher(page, Object.assign({ anchors: [590 - 24 - 68, L.row2], size: [68, 44], margin: 0,
-      bgColors: [Color.buttonBg, Color.main], knobMargin: 0, key: "settings.rec.autoDucking" }, hidden)),
+    always: new E1Switcher(page, Object.assign({ anchors: [590 - 24 - 68, L.row2], key: "settings.rec.autoDucking" }, hidden)),
     trig: strips.mics.map(([, i], n) => sw(L.rowX + L.pitch * n, L.trig, `dlzmod.duck.src.${i}`)),
     duck: strips.ducked.map(([, k], n) => sw(L.rowX + L.pitch * n, L.duck, `dlzmod.duck.on.${k}`, {
       // a mic that triggers is never ducked itself (the graph): its switch greyed out meanwhile
