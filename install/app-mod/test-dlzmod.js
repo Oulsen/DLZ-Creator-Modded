@@ -558,6 +558,10 @@ test("recording date: a row like the panel's own, its key known before the panel
   assert.strictEqual(t.calls.length, 1, "no row: no mark");
   ctx.DLZMOD_stockMark(t, { geomCenterY: () => 104 }, 18);
   assert.deepStrictEqual(t.calls[1], ["#FFD600", 18, 95, 3, 18], "another x (the EQ page's box)");
+  // a real fRect sets the fill style; the next stock label (Color) must not draw in yellow
+  const c = { fillStyle: "#FFFFFF", fRect(col) { this.fillStyle = col; } };
+  ctx.DLZMOD_stockMark(c, { geomCenterY: () => 334 });
+  assert.strictEqual(c.fillStyle, "#FFFFFF", "the fill style is put back");
 });
 
 // #193: the player's title line

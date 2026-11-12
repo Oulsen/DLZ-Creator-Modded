@@ -3639,7 +3639,11 @@ function DLZMOD_trackName(name) {
 // the mod's mark on a setting in a stock screen (ground rule 9, for bug reports and support): a short
 // bar in the mod's yellow left of the setting's label (at x), at the height of its control w
 function DLZMOD_stockMark(t, w, x = 10) {
-  if (w) t.fRect(DLZMOD_yellow(), x, w.geomCenterY() - 9, 3, 18);
+  if (!w) return;
+  // fRect leaves its colour as the fill style, and Mackie's next label (Color, #60) draws in it
+  const fill = t.fillStyle;
+  t.fRect(DLZMOD_yellow(), x, w.geomCenterY() - 9, 3, 18);
+  t.fillStyle = fill;
 }
 
 // the Media page's path ("sd:\DLZ_Creator_XS_Recordings") to {medium, dir} when it is a recordings
