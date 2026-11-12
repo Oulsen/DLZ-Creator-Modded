@@ -305,11 +305,11 @@ adjustable; its "Auto-Ducking" setting (`settings.rec.autoDucking`) exists but s
   stand-ins of #238 (faderlink's table has no `dlzmod.*` keys). On the Fade page knob 1 moves the
   pad's fade-out time and knob 2 its fade-in time, on the pad's own `B.x.y.ctrl.fade.out` / `.in`,
   which faderlink's table has (as stock's sample editor puts a sample's fades on the knobs). 3 and 4
-  dark; panel and LED rings in `Color.main` (the owner's accent, #21). Set once per mode and pad
+  dark; in `Color.main`: the panel in the owner's accent (#21), the LED rings in Mackie's own blue (every `K.N.color` goes out as Mackie's colour, `DLZMOD_ledColor`). Set once per mode and pad
   from the Control page's sync (again would put the stand-ins back to their middle); another mode,
   or the page out of sight once stock's code is done (its onHide, checked a tick later: stock's setMode hides and shows the page on every sync of the editor), gives the Overview's back, but only while the panel still holds
   that list, so a page that set its own knobs meanwhile keeps them [static, sandbox; not turned on a
-  mixer yet; the LED ring has only shown Mackie's palette colours so far].
+  mixer yet].
 - **Keys**: `dlzmod.duck.depth` (0..1 = -30..-5 dB, 0.6 = stock's -15), `dlzmod.duck.threshold`
   (0..1 = -45..-5 dB, 0.5 = stock's -25), `dlzmod.duck.speed` (0 slow: attack/release/hold
   1000/2000/1500 ms; 1 = each block's stock times: mics 500/500/250, the rest the plugin's
