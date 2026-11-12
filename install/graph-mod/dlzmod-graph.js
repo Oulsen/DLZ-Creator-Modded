@@ -389,10 +389,10 @@ function DLZMOD_padSrcMeters() {
 // the pads' source on one side (ch 'L' or 'R'), mixed into the channel's buffer; a list of its own
 function DLZMOD_padSrc(ch) {
   let side = ch === 'L' ? 0 : 1, buf = DLZMOD_padSrcBufs()[side]
+  // the list starts on the channel's buffer (its parent's current one): the gate works on that
   return [
     {
       type: 'Gain',
-      buf: side ? workBufR : workBuf,
       gain: 0,
       mute: `DLZMOD_padsOff(@s.dlzmodSrc, @s.dlzmodPads, @Bleep.sample.mute, @censorBleep)`,
     },
