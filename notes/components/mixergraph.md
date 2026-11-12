@@ -97,8 +97,9 @@ headphone 1 and 2 mixes.
   gives every stereo strip all 7 and rewrites these rules on the kind of source (#24,
   [../mod.md](../mod.md)). Stock's headphone intercom rule differs per model: the XS mutes local
   sources in a headphone's intercom mix, the full-size does not (nor its NDI strip) [static].
-- **From the PC only 4 channels come in** (USB 1/2 and 3/4); 14 go out. Whether the USB interface
-  offers the PC more playback channels than the graph reads is open (question 8).
+- **From the PC only 4 channels come in** (USB 1/2 and 3/4); 14 go out. The USB interface offers the
+  PC exactly those 4 playback channels [device, XS, [../hardware.md](../hardware.md) USB audio], so
+  more PC inputs over USB are not possible without the USB chip's firmware (#279).
 - **Meter taps** (`MaxMeter`, `configureVU`): per input `vuInPre`/`vuInGain` (before/after gain),
   `vuInDynIn`, `vuInGate`, `vuInComp`, `vuInDS`, `vuInDynOut`, `vuInPost` (after fader); the same
   pattern for players, virtuals and samples, plus `vuMasterDynIn/Out`. A PFL meter mode needs no DSP
