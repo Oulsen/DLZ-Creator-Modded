@@ -3438,6 +3438,8 @@ test("ducking: the page shows the graph's dB, stock's at the defaults (#18)", ()
   assert.ok(Math.abs(g.DLZMOD_duckDepth(keys["dlzmod.duck.depth"]) + 15) < 1e-9, "stock's -15 dB");
   assert.ok(Math.abs(g.DLZMOD_duckThreshold(keys["dlzmod.duck.threshold"]) + 25) < 1e-9, "stock's -25 dB");
   assert.strictEqual(keys["dlzmod.duck.speed"], 1, "stock's speed");
+  // a value set from elsewhere (a browser): held to the range, not a number = stock's
+  assert.deepStrictEqual([g.DLZMOD_duckDepth(2), g.DLZMOD_duckDepth(-1), g.DLZMOD_duckThreshold("x")], [-5, -30, -25]);
   assert.deepStrictEqual([0, 1, 2].map((n) => g.DLZMOD_duckTime(1, n, [500, 500, 250][n])), [500, 500, 250],
     "speed 1 passes each block's stock time");
   for (const n of [0, 1, 2]) {
@@ -3461,8 +3463,9 @@ test("ducking: each model's strips, their switches on the settings' keys (#18)",
   assert.ok(L.rowX + L.pitch * 7 + 68 <= 590, "8 switches fit");
 });
 
-test("ducking: the widgets show on the Ducking page only; a triggering mic's Ducked switch is greyed out (#18)", () => {
-  const before = { E1Switcher: ctx.E1Switcher, E1HSlider: ctx.E1HSlider, range: ctx.Util.range, lite: ctx.LITE_MODE };
+test("ducking: the widgets show on the Ducking page only; a triggering mic's Ducked switch is greyed out; leaving gives the knobs back (#18)", async () => {
+  const before = { E1Switcher: ctx.E1Switcher, E1HSlider: ctx.E1HSlider, range: ctx.Util.range, lite: ctx.LITE_MODE,
+    app: ctx.app, set: ctx.SET_KNOBS };
   const sw = kind();
   Object.assign(sw.prototype, {
     getVal() {
@@ -3487,9 +3490,15 @@ test("ducking: the widgets show on the Ducking page only; a triggering mic's Duc
   const saved = Object.assign({}, ctx.Data.data);
   try {
     Object.assign(ctx.Data.data, plain(ctx.DLZMOD_duckKeys()));
+    // the pad editor (its visible) and its Control page; the panel and the Overview's knobs
+    const editor = { visible: true }, calls = [];
     const page = { bgColor: "bg", visible: true, updates: 0, update() {
       this.updates++;
+    }, globalVisible() {
+      return this.visible && editor.visible;
     } };
+    const app = { panel: { data: null }, mixer: { setKnobs: () => calls.push("overview") } };
+    Object.assign(ctx, { app, SET_KNOBS: (l) => (calls.push("set"), (app.panel.data = l)) });
     const w = ctx.DLZMOD_duckWidgets(page);
     page.dlzmodDuck = w;
     const all = ctx.DLZMOD_duckAll(w);
@@ -3512,9 +3521,25 @@ test("ducking: the widgets show on the Ducking page only; a triggering mic's Duc
     assert.ok(all.every((x) => !x.visible), "hidden on the other modes");
     regs["dlzmod.duck.src.1"].forEach((f) => f());
     assert.strictEqual(page.updates, n + 1, "and then no repaint");
+    // stock's setMode: the page hidden and shown again in one go, on every sync of the editor
+    ctx.DLZMOD_duckShow(page, 5, "B.1.0.");
+    calls.length = 0;
+    page.visible = false;
+    page.onHide();
+    page.visible = true;
+    ctx.DLZMOD_duckShow(page, 5, "B.1.0.");
+    await tick(5);
+    assert.deepStrictEqual(calls, [], "hidden and shown again: the knobs stay, not set again");
+    // the editor left (its page stays visible itself, the editor is not)
+    editor.visible = false;
+    page.onHide();
+    assert.deepStrictEqual(calls, [], "not before the stock code is done");
+    await tick(5);
+    assert.deepStrictEqual(calls, ["overview"], "then the Overview's knobs back");
   } finally {
     ctx.Data.data = saved;
-    Object.assign(ctx, { E1Switcher: before.E1Switcher, E1HSlider: before.E1HSlider, LITE_MODE: before.lite });
+    Object.assign(ctx, { E1Switcher: before.E1Switcher, E1HSlider: before.E1HSlider, LITE_MODE: before.lite,
+      app: before.app, SET_KNOBS: before.set });
     delete ctx.E_PAD_CONTROL_MODE;
     ctx.Util.range = before.range;
     ctx.SwitchBox.prototype.show = sbShow;

@@ -112,13 +112,19 @@ function DLZMOD_duckSource() {
 }
 
 // the slider values (0..1) in dB; app-mod/dlzmod.js shows the same (DLZMOD_duckDb). Depth -30..-5 dB
-// (0.6 = stock's -15), threshold -45..-5 dB (0.5 = stock's -25)
+// (0.6 = stock's -15), threshold -45..-5 dB (0.5 = stock's -25). A value from elsewhere (a browser)
+// is held to 0..1, and one that is not a number counts as stock's
+function DLZMOD_duckUnit(v, stock) {
+  v = Number(v)
+  return isFinite(v) ? Math.min(1, Math.max(0, v)) : stock
+}
+
 function DLZMOD_duckDepth(v) {
-  return -30 + 25 * v
+  return -30 + 25 * DLZMOD_duckUnit(v, 0.6)
 }
 
 function DLZMOD_duckThreshold(v) {
-  return -45 + 40 * v
+  return -45 + 40 * DLZMOD_duckUnit(v, 0.5)
 }
 
 // attack, release, hold (what: 0, 1, 2) in ms for speed 0 slow, 1 stock, 2 fast; stock = the value

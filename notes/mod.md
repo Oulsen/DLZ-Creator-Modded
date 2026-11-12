@@ -307,14 +307,14 @@ adjustable; its "Auto-Ducking" setting (`settings.rec.autoDucking`) exists but s
   which faderlink's table has (as stock's sample editor puts a sample's fades on the knobs). 3 and 4
   dark; panel and LED rings in `Color.main` (the owner's accent, #21). Set once per mode and pad
   from the Control page's sync (again would put the stand-ins back to their middle); another mode,
-  or the page hidden (its onHide), gives the Overview's back, but only while the panel still holds
+  or the page out of sight once stock's code is done (its onHide, checked a tick later: stock's setMode hides and shows the page on every sync of the editor), gives the Overview's back, but only while the panel still holds
   that list, so a page that set its own knobs meanwhile keeps them [static, sandbox; not turned on a
   mixer yet; the LED ring has only shown Mackie's palette colours so far].
 - **Keys**: `dlzmod.duck.depth` (0..1 = -30..-5 dB, 0.6 = stock's -15), `dlzmod.duck.threshold`
   (0..1 = -45..-5 dB, 0.5 = stock's -25), `dlzmod.duck.speed` (0 slow: attack/release/hold
   1000/2000/1500 ms; 1 = each block's stock times: mics 500/500/250, the rest the plugin's
   1000/1000/1000; 2 fast: 50/250/250), `dlzmod.duck.src.N` (mic N triggers; mic 1 on),
-  `dlzmod.duck.on.<strip>` (`i.N`, `p.N`, `v.N`, `s`; all on). Global, like the setting next to
+  `dlzmod.duck.on.<strip>` (`i.N`, `p.N`, `v.N`, `s`; all on). The graph holds depth and threshold to 0..1 (a browser can set any value) and takes stock's for one that is not a number; `tests/graph-check.js` checks that every key the graph binds is in the defaults. Global, like the setting next to
   them: `DLZMOD_duckDefaults` puts them into Mackie's defaults right after `settings.rec.autoDucking`
   (both copies in `server.js`), so they are set from the start (a graph binding with an unset key
   never applies: the strips would never duck), snapshots leave them out (they skip

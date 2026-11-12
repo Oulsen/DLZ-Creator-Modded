@@ -166,6 +166,20 @@ check(withB4.filter((b) => b.type === "AutoDuckSource").length === 1 && duckSrc.
   && duckSrc[0].b.p.threshold === "DLZMOD_duckThreshold(@dlzmod.duck.threshold)"
   && duckSrc[0].at > lastTap && duckSrc[0].at < firstStrip && duckClear >= 0 && duckClear < Math.min(...duckTaps.map((t) => t.at)),
   "ducking: the trigger buffer cleared before the first tap, its one AutoDuckSource after the last mic, before the other strips");
+// every dlzmod.duck key the graph binds is in the server's defaults: a binding with a key not set never
+// applies (an AutoDuckSource left at its -200 dB threshold would duck everything all the time)
+{
+  const srv = fs.readFileSync(require("path").join(__dirname, "..", "install", "server-mod", "dlzmod-server.js"), "utf8");
+  const fn = /function DLZMOD_duckKeys\(\) \{[\s\S]*?\n\}/.exec(srv);
+  const s = vm.createContext({});
+  if (fn) vm.runInContext(fn[0], s);
+  const defaults = fn ? Object.keys(s.DLZMOD_duckKeys()) : [];
+  const bound = new Set();
+  for (const b of withB4) for (const v of Object.values(b.p)) for (const m of String(v).matchAll(/@(dlzmod\.duck\.[0-9a-zA-Z._]*[0-9a-zA-Z_])/g)) bound.add(m[1]);
+  const missing = [...bound].filter((k) => !defaults.includes(k));
+  check(bound.size > 0 && missing.length === 0,
+    `ducking: the ${bound.size} keys the graph binds all in the server's defaults` + (missing.length ? ": missing " + missing.join(" ") : ""));
+}
 const stockDucked = [...Array(nmic).keys()].map((i) => `i.${i}`).concat(
   model0().filter((k) => !k.startsWith("i.")).flatMap((k) => [k, k]));
 check(JSON.stringify(ducks.map((d) => d.key)) === JSON.stringify(stockDucked),

@@ -3658,10 +3658,15 @@ function DLZMOD_duckWidgets(page) {
   for (const k of Object.keys(DLZMOD_duckKeys()).concat("settings.rec.autoDucking")) {
     Data.regWidget(k, () => page.visible && w.depth.visible && page.update());
   }
-  // leaving the pad editor (or its Control page) gives the knobs back
+  // leaving the pad editor (or its Control page) gives the knobs back. Stock's setMode hides the
+  // editor's three sub-pages and then shows one, on every sync of the editor: only when the page is
+  // still out of sight once that is done, or the knobs would go back and forth (their stand-ins to
+  // the middle, the rings flashing)
   const onHide = page.onHide;
   page.onHide = function () {
-    DLZMOD_padKnobs(null);
+    setTimeout(() => {
+      if (!(typeof page.globalVisible === "function" ? page.globalVisible() : page.visible)) DLZMOD_padKnobs(null);
+    }, 0);
     return typeof onHide === "function" ? onHide.apply(this, arguments) : undefined;
   };
   return w;
