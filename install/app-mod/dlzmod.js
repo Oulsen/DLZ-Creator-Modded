@@ -3680,8 +3680,18 @@ function DLZMOD_duckWidgets(page) {
 // the pad's fade-out time, knob 2 its fade-in time, on the pad's own keys (B.x.y.ctrl.fade.*, in
 // faderlink's table), as stock's sample editor puts its fades on the knobs. 3 and 4 dark. Any other
 // mode, or the page gone: the Overview's back, but only while the panel still has this list, so a
-// page shown meanwhile keeps its own. prefix = the pad's keys ("B.1.0.")
+// page shown meanwhile keeps its own. prefix = the pad's keys ("B.1.0.").
+// A moment after the call (DLZMOD_padKnobs.delay ms), so the page's own frame goes out first: done in
+// the same tick, the knobs' keys and the panel's redraw held the new page back on the mixer, the
+// rings changing well before the screen [user]. The last call within that moment counts
 function DLZMOD_padKnobs(mode, prefix) {
+  const s = DLZMOD_padKnobs;
+  clearTimeout(s.timer);
+  s.timer = setTimeout(() => DLZMOD_padKnobsNow(mode, prefix), s.delay);
+}
+DLZMOD_padKnobs.delay = 150;
+
+function DLZMOD_padKnobsNow(mode, prefix) {
   if (typeof app === "undefined" || !app || !app.panel || DLZMOD_external()) return;
   const M = typeof E_PAD_CONTROL_MODE === "undefined" ? {} : E_PAD_CONTROL_MODE;
   const want = mode === undefined || mode === null ? null

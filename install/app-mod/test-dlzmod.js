@@ -3510,6 +3510,7 @@ test("ducking: the widgets show on the Ducking page only; a triggering mic's Duc
     } };
     const app = { panel: { data: null }, mixer: { setKnobs: () => calls.push("overview") } };
     Object.assign(ctx, { app, SET_KNOBS: (l) => (calls.push("set"), (app.panel.data = l)) });
+    ctx.DLZMOD_padKnobs.delay = 0;
     const w = ctx.DLZMOD_duckWidgets(page);
     page.dlzmodDuck = w;
     const all = ctx.DLZMOD_duckAll(w);
@@ -3534,23 +3535,25 @@ test("ducking: the widgets show on the Ducking page only; a triggering mic's Duc
     assert.strictEqual(page.updates, n + 1, "and then no repaint");
     // stock's setMode: the page hidden and shown again in one go, on every sync of the editor
     ctx.DLZMOD_duckShow(page, 5, "B.1.0.");
+    await tick(5);
     calls.length = 0;
     page.visible = false;
     page.onHide();
     page.visible = true;
     ctx.DLZMOD_duckShow(page, 5, "B.1.0.");
-    await tick(5);
+    await tick(30);
     assert.deepStrictEqual(calls, [], "hidden and shown again: the knobs stay, not set again");
     // the editor left (its page stays visible itself, the editor is not)
     editor.visible = false;
     page.onHide();
     assert.deepStrictEqual(calls, [], "not before the stock code is done");
-    await tick(5);
+    await tick(30);
     assert.deepStrictEqual(calls, ["overview"], "then the Overview's knobs back");
   } finally {
     ctx.Data.data = saved;
     Object.assign(ctx, { E1Switcher: before.E1Switcher, E1HSlider: before.E1HSlider, LITE_MODE: before.lite,
       app: before.app, SET_KNOBS: before.set });
+    ctx.DLZMOD_padKnobs.delay = 150;
     delete ctx.E_PAD_CONTROL_MODE;
     ctx.Util.range = before.range;
     ctx.SwitchBox.prototype.show = sbShow;
@@ -3560,27 +3563,28 @@ test("ducking: the widgets show on the Ducking page only; a triggering mic's Duc
   }
 });
 
-test("pad editor: the knobs on the Ducking page (depth, threshold) and the Fade page (the pad's times), the Overview's otherwise (#18)", () => {
+test("pad editor: the knobs on the Ducking page (depth, threshold) and the Fade page (the pad's times), the Overview's otherwise (#18)", async () => {
   const before = { app: ctx.app, set: ctx.SET_KNOBS };
   const saved = Object.assign({}, ctx.Data.data);
-  const calls = [];
+  const calls = [], delay = ctx.DLZMOD_padKnobs.delay;
+  ctx.DLZMOD_padKnobs.delay = 0;
   const app = { panel: { data: null }, mixer: { setKnobs: () => calls.push("overview") } };
   Object.assign(ctx, { app, SET_KNOBS: (l) => (calls.push("set"), (app.panel.data = l)),
     E_PAD_CONTROL_MODE: { MUTE: 1, FADE: 4, DUCKING: 5 }, VtoPadFadeOut: (v) => v * 1000 + 0.4,
     VtoPadFadeIn: (v) => v * 2000 });
   try {
     Object.assign(ctx.Data.data, plain(ctx.DLZMOD_duckKeys()));
-    ctx.DLZMOD_padKnobs(5, "B.1.0.");
+    ctx.DLZMOD_padKnobs(5, "B.1.0."); await tick(5);
     let list = app.panel.data;
     assert.deepStrictEqual(plain(list.map((e) => e && e.control.key)), ["a.0.pan", "a.1.pan", null, null], "ducking: the stand-ins");
     assert.deepStrictEqual([list[0].valueText(0.6), list[1].valueText(0.5)], ["-15 dB", "-25 dB"], "shown in dB");
-    ctx.DLZMOD_padKnobs(5, "B.1.0.");
+    ctx.DLZMOD_padKnobs(5, "B.1.0."); await tick(5);
     assert.deepStrictEqual(calls, ["set"], "set once, not again on every sync");
     ctx.DLZMOD_knobStep({ knob: 0, steps: 8 });
     ctx.DLZMOD_knobStep({ knob: 1, steps: -4 });
     assert.ok(Math.abs(ctx.Data.data["dlzmod.duck.depth"] - 0.7) < 1e-9, "knob 1: the depth");
     assert.ok(Math.abs(ctx.Data.data["dlzmod.duck.threshold"] - 0.45) < 1e-9, "knob 2: the threshold");
-    ctx.DLZMOD_padKnobs(4, "B.1.0.");
+    ctx.DLZMOD_padKnobs(4, "B.1.0."); await tick(5);
     list = app.panel.data;
     assert.deepStrictEqual(plain(list.map((e) => e && e.control.key)), ["B.1.0.ctrl.fade.out", "B.1.0.ctrl.fade.in", null, null],
       "fade: the pad's own keys, which faderlink knows");
@@ -3589,18 +3593,29 @@ test("pad editor: the knobs on the Ducking page (depth, threshold) and the Fade 
     ctx.DLZMOD_knobStep({ knob: 0, steps: 8 });
     assert.strictEqual(ctx.Data.data["B.1.0.ctrl.fade.out"], 0.5, "the ducking steps no longer apply");
     assert.strictEqual(list[0].valueText(0.5), "500ms", "in ms, as the page shows it");
-    ctx.DLZMOD_padKnobs(4, "B.1.1.");
+    ctx.DLZMOD_padKnobs(4, "B.1.1."); await tick(5);
     assert.strictEqual(app.panel.data[0].control.key, "B.1.1.ctrl.fade.out", "another pad: its keys");
-    ctx.DLZMOD_padKnobs(1, "B.1.1.");
+    ctx.DLZMOD_padKnobs(1, "B.1.1."); await tick(5);
     assert.deepStrictEqual(calls, ["set", "set", "set", "overview"], "another mode: the pad editor's own knobs back");
-    ctx.DLZMOD_padKnobs(5, "B.1.1.");
+    ctx.DLZMOD_padKnobs(5, "B.1.1."); await tick(5);
     app.panel.data = ["another page's"];
-    ctx.DLZMOD_padKnobs(null);
+    ctx.DLZMOD_padKnobs(null); await tick(5);
     assert.deepStrictEqual(calls.slice(4), ["set"], "a page that set its own knobs meanwhile keeps them");
+    // a moment later, so the page's own frame goes out first; of quick calls the last counts
+    ctx.DLZMOD_padKnobs.delay = 30;
+    calls.length = 0;
+    app.panel.data = null;
+    ctx.DLZMOD_padKnobs(5, "B.1.0.");
+    ctx.DLZMOD_padKnobs(4, "B.1.0.");
+    assert.deepStrictEqual(calls, [], "not in the same tick as the page");
+    await tick(60);
+    assert.deepStrictEqual(calls, ["set"], "once, then");
+    assert.strictEqual(app.panel.data[0].control.key, "B.1.0.ctrl.fade.out", "the last mode's");
   } finally {
     ctx.Data.data = saved;
     Object.assign(ctx, { app: before.app, SET_KNOBS: before.set });
     for (const k of ["E_PAD_CONTROL_MODE", "VtoPadFadeOut", "VtoPadFadeIn"]) delete ctx[k];
+    ctx.DLZMOD_padKnobs.delay = delay;
   }
 });
 
