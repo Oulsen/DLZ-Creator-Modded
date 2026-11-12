@@ -19,21 +19,29 @@ All from the repo root in Git Bash; `S=.claude/skills/ui-sandbox/sandbox.sh`.
 
 1. `bash $S status`: already running? Then do not start a second one (ports 80 and 89 are taken).
 2. Start as a **background task**: `bash dev/ui-sandbox.sh` (XS layout), or
-   `DLZ_FULLSIZE=1 bash dev/ui-sandbox.sh` (full-size, its own copy `dumps/sandbox-full`).
+   `DLZ_FULLSIZE=1 bash dev/ui-sandbox.sh` (full-size, its own copy `dumps/sandbox-full`). Each
+   start, and each model switch, first patches the copy it runs with the mod of the checkout it
+   is started from, so both models always show the same, current mod.
    `DLZ_SANDBOX_REMOTE=1` in front: http://localhost/
    plays another device on the network, a computer's browser (pairing, #45), http://127.0.0.1/
    stays the mixer's screen. `DLZ_FAKE_MEDIA=sd` (or `usb`, `sd,usb`) in front: a pretend SD card /
    USB stick with a few recordings (`notes/modding-guide.md`, "PC sandbox").
 3. `bash $S wait`: until http://127.0.0.1/ answers (first start: it copies `/srv` from the dump,
    which needs WSL distro Ubuntu and the read-only mount; that takes a while).
-4. `bash $S open`: the page in the user's browser (or tell them the address).
+4. `bash $S open`: the page in the user's browser (or tell them the address). http://127.0.0.1/
+   is the dev page: an XS / Full-size switch above Mackie's page (which is
+   http://127.0.0.1/index.html on its own). A click restarts the sandbox as the other model (the
+   background task keeps running) and reloads it. Without a browser: `curl -X POST -H "Origin:
+   http://127.0.0.1" http://127.0.0.1/__dev/switch`, then poll `curl http://127.0.0.1/__dev/model`
+   until it names the other model. Screenshots (`shot.js`) use Mackie's page alone.
 
 ## After a change to the mod
 
-- `install/app-mod/`, `install/server-mod/` or `install/patch.py` changed: `bash $S repatch`
-  (`repatch full` for the full-size copy). It always patches from the kept `.orig`, so it can run
-  any number of times.
-- `app.js` changes: reload the browser. `server.js` changes: `stop`, then start again.
+- `install/app-mod/`, `install/server-mod/` or `install/patch.py` changed while it runs:
+  `bash $S repatch` (both models' copies; `repatch xs` or `repatch full` for one). It always
+  patches from the kept `.orig`, so it can run any number of times.
+- `app.js` changes: reload the browser. `server.js` changes: a restart, which patches again by
+  itself: two model switches on the dev page, or `stop` and start again.
 
 ## Screenshots (for checking a UI change)
 

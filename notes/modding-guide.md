@@ -247,9 +247,21 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
 `bash dev/ui-sandbox.sh` (Git Bash) runs Mackie's `server.js` with Windows Node on a copy of
 `/srv` in `dumps/sandbox/`, and serves the browser UI in XS mode.
 
+- **Both models.** The model is fixed when `server.js` starts (`/root/.dlzlite` in the sandbox folder
+  or not). `DLZ_FULLSIZE=1` starts the full-size in its own copy `dumps/sandbox-full/` (first run: a
+  copy of `dumps/sandbox/srv`). Switching without a stop and start (#277): http://127.0.0.1/ is the
+  dev page (`dev/ui-sandbox/dev.html`), an XS / Full-size switch above Mackie's page, which runs in
+  an iframe at `/index.html` (so it and `shot.js` stay as they are). A click posts `/__dev/switch` (refused without an Origin of this PC, on top of
+  the Host/Origin check below); the shim answers and ends with exit code 75, `dev/ui-sandbox.sh`
+  loops on that code and starts the other model, and the page polls `/__dev/model` until the new
+  one answers, then reloads the iframe (about 1 s). Any other end of the shim ends the script. The
+  page polls `/__dev/model` every 2 s, so every open dev page follows a switch, and shows what runs:
+  the mod version, the branch and commit the launcher patched in (`DLZ_SANDBOX_BRANCH` / `_COMMIT`,
+  a warning for uncommitted changes to the mod), the start time and the pretend extras.
+
 - **Device layout by default.** In a browser app.js runs as a remote control
   (`EXTERNAL = !$ENV.isNode`): no knob panel on the right, so tabs and pages get 86 px more width
-  and the nav bar shows an empty slot. The shim makes http://127.0.0.1/ always open with `#INT`
+  and the nav bar shows an empty slot. The shim makes `/index.html` always open with `#INT`
   (on-device layout). A design that fits in remote mode can overflow on the device (Settings is
   938 px wide there). On a real mixer, phone/laptop browsers stay in remote mode; check mods there too.
 - **Why remote mode has no knob panel** [static, app.js]: the panel (`RightPanel`) is not only a
@@ -321,8 +333,9 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
   state), so only a few meters move until they are opened.
 - Patch `dumps/sandbox/srv/app.js` and reload the browser; restart the script for `server.js`.
   Reset: delete `dumps/sandbox/` and run the script again (it re-copies `/srv` from the dump). A
-  worktree has no `dumps/`: the first start there copies a fresh `/srv` (patch it with `repatch`
-  before the first start).
+  worktree has no `dumps/`: the first start there copies a fresh `/srv`. Every start, and every
+  model switch, patches the copy it runs with the mod of the checkout it is started from
+  (`install/patch.py`, from the kept `.orig`), so the XS and the full-size copy never drift apart.
 - Observed [static, sandbox]: the hub does not echo a key write back to its sender; writing
   `i.0.mute` produced a broadcast with a different value (mute groups?), not yet understood.
 
