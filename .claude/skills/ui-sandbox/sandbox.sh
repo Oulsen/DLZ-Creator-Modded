@@ -61,7 +61,9 @@ case ${1:-status} in
     cmd //c start http://127.0.0.1/ ;;
   stop)
     # the flag ends dev/ui-sandbox.sh's loop if a model switch is under way (nothing on 80/89 for a
-    # moment); a start in that moment is caught by watching the ports for 3 s more
+    # moment); a start in that moment is caught by watching the ports for 3 s more. The loop takes
+    # only a flag set since its switch began, so one left by a stop with nothing running ends no
+    # later switch
     touch /tmp/dlz-sandbox.stop
     for _ in 1 2 3 4; do
       for p in $(listeners); do

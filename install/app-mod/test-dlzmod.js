@@ -3143,6 +3143,28 @@ const ctlMap = () => plain(ctx.DLZMOD_ctlMap());
 const CTL_XS = ["i.0", "i.1", "p.0", "p.1", "s", "a.0", "a.1", "v.0", "v.1"];
 const CTL_FULL = ["i.0", "i.1", "i.2", "i.3", "p.0", "p.1", "p.2", "s", "m", "a.0", "a.1", "a.2", "a.3"];
 
+// #285: the server mod keeps its own copy of the controls tables and the ducking keys
+// (dlzmod-server.js); both must read dlzmod.controls and default the ducking alike. Loaded here as
+// test-dlzmod-server.js loads it, so a load that fails fails this test only
+test("controls and ducking: the server mod's copies match the app's, both models", () => {
+  const srv = vm.createContext({ require, process, Buffer, setTimeout, clearTimeout, setImmediate, setInterval, clearInterval,
+    console: { log() {}, error() {} } });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "server-mod", "dlzmod-server.js"), "utf8"), srv);
+  const raws = ["", undefined, "s=m,m=s", "i.0=p.0,p.0=i.0", "a.0=v.0,v.0=a.0", "i.2=m,m=i.2", "a.3=a.2,a.2=a.3",
+    "i.0=p.0", "s=s", "x=y", "m=a.0,a.0=m", "v.1=i.0,i.0=v.1,p.1=a.1,a.1=p.1", "garbage,=,s="];
+  for (const lite of [true, false]) {
+    ctlWith(lite, "", () => {
+      assert.deepStrictEqual(plain(srv.DLZMOD_ctlStock(lite)), plain(ctx.DLZMOD_ctlControls().map((c) => c[1])), "stock levels");
+      assert.deepStrictEqual(plain(srv.DLZMOD_ctlChannels(lite)), plain(ctx.DLZMOD_ctlChannels().map((c) => c[0])), "channels");
+      assert.strictEqual(srv.DLZMOD_ctlKnobs(lite), ctx.DLZMOD_ctlKnobs(), "channel knobs or faders");
+    });
+    for (const raw of raws) {
+      ctlWith(lite, raw, () => assert.deepStrictEqual(plain(srv.DLZMOD_ctlMap(raw, lite)), ctlMap(), `map of "${raw}", lite ${lite}`));
+    }
+  }
+  assert.deepStrictEqual(plain(srv.DLZMOD_duckKeys()), plain(ctx.DLZMOD_duckKeys()));
+});
+
 test("controls: stock until set, both models: the channel knobs or faders, then the knobs next to the screen", () => {
   ctlWith(true, "", () => assert.deepStrictEqual(ctlMap(), CTL_XS));
   ctlWith(false, undefined, () => assert.deepStrictEqual(ctlMap(), CTL_FULL));

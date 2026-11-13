@@ -503,7 +503,9 @@ function DLZMOD_keyAllowed(key, value, send) {
 // controls set elsewhere as "stock=level" pairs, e.g. "s=m,m=s", so a backup means the same on both
 // models. Per model: every control's stock level (the channel knobs or faders first, then the knobs
 // next to the screen: the phones, on the XS also 9/10 and 11/12), and the levels a control can take;
-// a value that does not fit the model, or gives one level two controls, counts as stock.
+// a value that does not fit the model, or gives one level two controls, counts as stock. The app has
+// the same tables (dlzmod.js DLZMOD_ctlControls, ...Channels, ...Knobs, ...Map; test-dlzmod.js checks
+// they match on both models, #285).
 function DLZMOD_ctlStock(lite) {
   return lite ? ["i.0", "i.1", "p.0", "p.1", "s", "a.0", "a.1", "v.0", "v.1"]
     : ["i.0", "i.1", "i.2", "i.3", "p.0", "p.1", "p.2", "s", "m", "a.0", "a.1", "a.2", "a.3"];
@@ -613,22 +615,31 @@ function DLZMOD_ctlFaderSend(msg, fader = DLZMOD_ctlFader) {
   });
 }
 
+// The controls' map for a dlzmod.controls value and model, and whether it moves any channel knob or
+// fader; the last one kept (#285: worked out once per choice, not for every message)
+function DLZMOD_ctlMapOf(raw, lite) {
+  const id = (lite ? "x:" : "f:") + String(raw || ""), c = DLZMOD_ctlMapOf.last;
+  if (c && c.id === id) return c;
+  const stock = DLZMOD_ctlStock(lite), map = DLZMOD_ctlMap(raw, lite);
+  return (DLZMOD_ctlMapOf.last = { id, stock, map, moved: stock.slice(0, DLZMOD_ctlKnobs(lite)).some((s, n) => map[n] !== s) });
+}
+
 // The LEDs under a control (mute, solo, colour) show its chosen channel: faderlink gets that channel's
 // state under the control's stock keys, whenever either changes, after a change of dlzmod.controls
 // (all of them; back to stock: the stock values again), and when faderlink (re)connects. Called with
 // every message stock sends out, inside stock's own paths (setDataKey): an error of ours is caught.
-// A faderlink that restarts sends btStatus again and takes the place of the old connection.
+// A faderlink that restarts sends btStatus again and takes the place of the old connection. With no
+// channel knob or fader moved, an ordinary message's keys are not looked at (#285).
 function DLZMOD_ctlLeds(msg, conn, get = globalThis.getDataKey, lite = globalThis.isDLZLite) {
   try {
     // DLZMOD_CTL_LED still undefined: setDataKey ran before this file's lines did; nothing set yet
     if (!msg || typeof msg !== "object" || !DLZMOD_CTL_LED) return;
-    const keys = Object.keys(msg);
     const fader = "btStatus" in msg && DLZMOD_ctlLocalSio(conn);
-    if (!fader && !(DLZMOD_ctlFader && keys.some((k) => k === "dlzmod.controls" || /\.(mute|solo|colorhex|color)$/.test(k)))) return;
-    const stock = DLZMOD_ctlStock(!!lite);
-    const map = DLZMOD_ctlMap(get("dlzmod.controls"), !!lite);
     // a change of the choice: every control (back to stock too); faderlink (re)connected: the moved ones
     const all = "dlzmod.controls" in msg;
+    if (!fader && !all && !DLZMOD_ctlFader) return;
+    const { stock, map, moved } = DLZMOD_ctlMapOf(get("dlzmod.controls"), !!lite);
+    if (!fader && !all && (!moved || !Object.keys(msg).some((k) => /\.(mute|solo|colorhex|color)$/.test(k)))) return;
     if (fader) DLZMOD_ctlFader = conn;
     if (!DLZMOD_ctlFader) return;
     const out = {};
@@ -719,7 +730,7 @@ function DLZMOD_snapEq(snap) {
 // the strips would never duck), out of snapshots, and set back by a factory reset. Stock's values:
 // mic 1 the trigger at -25 dB (threshold 0.5), every strip ducked by -15 dB (depth 0.6) at stock's
 // speed (1). Both models' strips: the keys of a strip a model has not are never read.
-// app-mod/dlzmod.js has the same list (DLZMOD_duckKeys)
+// app-mod/dlzmod.js has the same list (DLZMOD_duckKeys; test-dlzmod.js checks they match, #285)
 function DLZMOD_duckKeys() {
   const k = { "dlzmod.duck.depth": 0.6, "dlzmod.duck.threshold": 0.5, "dlzmod.duck.speed": 1 };
   for (let i = 0; i < 4; i++) k[`dlzmod.duck.src.${i}`] = i === 0 ? 1 : 0;

@@ -18,8 +18,18 @@ set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 SB=$REPO/dumps/sandbox
-# sandbox.sh stop sets it: a model switch under way (no node.exe on 80/89 for a moment) ends here too
+# sandbox.sh stop sets it: a model switch under way (no node.exe on 80/89 for a moment) ends here too.
+# Only a flag set during this switch counts (#285): one a stop left before it (with nothing running,
+# or from another session) is older than the switch's own mark, and is removed
 STOP=/tmp/dlz-sandbox.stop
+SWITCH=/tmp/dlz-sandbox.switch.$$   # touched when the shim asks for the other model
+stop_now() {   # true when a stop came since the start or the last switch; the flag goes either way
+  [ -e "$STOP" ] || return 1
+  local now=0
+  [ -e "$SWITCH" ] && [ "$SWITCH" -nt "$STOP" ] || now=1
+  rm -f "$STOP"
+  [ "$now" = 1 ]
+}
 
 # The mod of this checkout onto a sandbox copy: patch.py patches from the kept .orig (made on its first
 # run), so it can run any number of times and a failed patch stops a start. Then what was patched in,
@@ -48,6 +58,7 @@ if [ ! -f "$SB/srv/server.js" ]; then
     "mountpoint -q /mnt/dlz || bash $WREPO/install/mount-ro.sh; cp -r /mnt/dlz/srv $WREPO/dumps/sandbox/"
 fi
 rm -f "$STOP"
+trap 'rm -f "$SWITCH"' EXIT
 FULL=${DLZ_FULLSIZE:-}
 # The dev page's model switch (http://127.0.0.1/, #277): the shim ends with code 75 and the
 # loop starts the other model; any other end (Ctrl+C, sandbox.sh stop) ends this script too.
@@ -62,7 +73,7 @@ while :; do
   mkdir -p "$sb/root" "$sb/tmp" "$sb/dev/disk/by-id"
   if [ "$FULL" = 1 ]; then rm -f "$sb/root/.dlzlite"; else touch "$sb/root/.dlzlite"; fi
   patch_copy "$sb"
-  [ ! -e "$STOP" ] || { echo "stopped during a model switch"; rm -f "$STOP"; exit 0; }
+  stop_now && { echo "stopped during a model switch"; exit 0; }
 
   cd "$sb/srv"
   echo "open http://127.0.0.1/ (Ctrl+C to stop)"
@@ -70,5 +81,6 @@ while :; do
   DLZ_SANDBOX_LOOP=1 DLZ_SANDBOX_ROOT=$(cygpath -w "$sb") \
     node -r "$(cygpath -w "$REPO/dev/ui-sandbox/shim.js")" server.js || code=$?
   [ "$code" = 75 ] || exit "$code"
+  touch "$SWITCH"
   if [ "$FULL" = 1 ]; then FULL=; else FULL=1; fi
 done
