@@ -976,11 +976,16 @@ rm -f $B.dlzmod-stock $B.dlzmod-prev $ST/boot-left
 put "$PKG"; rm -f $ST/approved; n1=$(reports); run_asking
 [ "$(sha $B)" = "$(sha $W/boot.scr.kept)" ] && ok "an update file waits: not placed" || bad "placed while an update file waits"
 rm -f $U/${PKG##*/} $U/${PKG##*/}.sig $ST/pending
+# a hard link that cannot be made (#284): not placed, in a report once, tried again at every start
+chattr +i $R/boot; n1=$(reports); run; run; chattr -i $R/boot
+[ "$(sha $B)" = "$(sha $W/boot.scr.kept)" ] && [ "$(reports)" = "$((n1 + 1))" ] && said "could not be kept: the new one not placed" && [ -s $ST/boot-fail ] \
+  && ok "the stock copy cannot be made: not placed, one report for 2 starts" || bad "a failing hard link: placed, or reported $(( $(reports) - n1 )) times"
 cutoff gone-package5; chattr +i $R/srv/app.js; run
 said "RESTORE INCOMPLETE" && [ "$(sha $B)" = "$(sha $W/boot.scr.kept)" ] && ok "a put-back fails: not placed" || bad "placed while a put-back was pending"
 chattr -i $R/srv/app.js; n1=$(reports); run
 said "previous files restored" && said "placed the card's start-up script (#221" && [ "$(sha $B)" = "$BSUM" ] && [ "$(stat -c %a $B)" = 644 ] \
   && ok "put back, then placed in the same start (644, the updater's image)" || bad "not placed after the put-back ($(sha $B | cut -c1-12))"
+[ ! -e $ST/boot-fail ] && ok "placed: the note on the failed try cleared" || bad "boot-fail left after placing"
 backnow "put-back before the start-up script"
 cmp -s $B.dlzmod-stock $W/boot.scr.kept && [ "$(stat -c %i $B.dlzmod-stock)" = "$(stat -c %i $B.dlzmod-prev)" ] && [ "$(stat -c %i $B.dlzmod-stock)" != "$(stat -c %i $B)" ] \
   && ok "stock kept as boot.scr.dlzmod-stock and -prev, the old inode (hard links)" || bad "stock not kept next to it as the old inode"
@@ -1085,6 +1090,47 @@ echo "nocount" > $ST/confirm; run
 [ "$(cat $ST/confirm)" = "nocount 0" ] && ! said "unbound variable" && ok "a damaged start count: started again, the updater went on" \
   || bad "damaged start count: '$(cat $ST/confirm 2>/dev/null)'"
 rm -f $ST/confirm
+fi
+
+if case_ "81: Go Back to a version without the pads' mute button (#284): pads muted since the update unmuted, only their line changed, owner and mode kept; muted before the update, not muted, or back to one with the button: the settings file untouched"; then
+mute() { python3 -I - $R/srv/srv_data.json "$1" << 'EOF'
+import json, sys
+f = sys.argv[1]; d = json.load(open(f, encoding="utf-8"))
+if sys.argv[2] == "?": print(d.get("s.mute"), d.get("dlzmodGoBackTest")); sys.exit(0)
+d["s.mute"] = int(sys.argv[2]); d["dlzmodGoBackTest"] = "é1"
+json.dump(d, open(f, "w", encoding="utf-8"), ensure_ascii=False, indent=2)   # as server.js writes it
+EOF
+}
+cp -p $R/srv/app.js $W/app.js.kept; cp -p $R/srv/srv_data.json $W/srv_data.81
+sed -i 's/DLZMOD_padsMute/DLZMOD_padsMutX/g' $R/srv/app.js   # the version before the update: no mute button for the pads (v0.5.x)
+mute 0; goback; rm -f $ST/confirm
+mute 1; chown 1000:1000 $R/srv/srv_data.json; chmod 640 $R/srv/srv_data.json; cp -p $R/srv/srv_data.json $W/srv_data.muted
+cut -d' ' -f1 $ST/revertable > $ST/revert; run
+said "GONE BACK to $INST0" && grep -q DLZMOD_padsMutX $R/srv/app.js && said "the pads were muted: unmuted" && [ "$(mute '?')" = "0 é1" ] \
+  && [ "$(diff $W/srv_data.muted $R/srv/srv_data.json | grep -c '^[<>]')" = 2 ] \
+  && [ "$(stat -c '%a %u:%g' $R/srv/srv_data.json)" = "640 1000:1000" ] && [ ! -e $R/srv/srv_data.json.dlzmod-new ] \
+  && ok "muted since the update, back to a version without the button: unmuted, only that line changed, 640 1000:1000 kept" \
+  || bad "without the button: s.mute and test key '$(mute '?')', $(stat -c '%a %u:%g' $R/srv/srv_data.json), $(diff $W/srv_data.muted $R/srv/srv_data.json | grep -c '^[<>]') lines differ"
+chown 0:0 $R/srv/srv_data.json; rm -f $ST/previous-settings.json
+mute 1; goback; rm -f $ST/confirm   # muted before the update (by a pad's mute action, as v0.5.x can)
+DATA1=$(sha $R/srv/srv_data.json)
+cut -d' ' -f1 $ST/revertable > $ST/revert; run
+said "GONE BACK to $INST0" && ! said "the pads" && [ "$(sha $R/srv/srv_data.json)" = "$DATA1" ] \
+  && ok "muted already before the update: left muted, the settings file untouched" || bad "muted before: the settings file changed or a line about the pads"
+rm -f $ST/previous-settings.json
+mute 0; goback; rm -f $ST/confirm
+DATA1=$(sha $R/srv/srv_data.json)
+cut -d' ' -f1 $ST/revertable > $ST/revert; run
+said "GONE BACK to $INST0" && ! said "the pads" && [ "$(sha $R/srv/srv_data.json)" = "$DATA1" ] \
+  && ok "without the button, not muted: the settings file untouched" || bad "not muted: the settings file changed or a line about the pads"
+rm -f $ST/previous-settings.json
+cp -p $W/app.js.kept $R/srv/app.js   # the version before the update has the button (v0.6.0 on)
+goback; rm -f $ST/confirm
+mute 1; DATA1=$(sha $R/srv/srv_data.json)
+cut -d' ' -f1 $ST/revertable > $ST/revert; run
+gone_back "with the button"
+! said "the pads" && [ "$(sha $R/srv/srv_data.json)" = "$DATA1" ] && ok "with the button: left muted, the settings file untouched" || bad "with the button: the settings file changed"
+cp -p $W/srv_data.81 $R/srv/srv_data.json; rm -f $ST/previous-settings.json
 fi
 
 if case_ "63: stops before DLZDATA (not on an SD card): no report file left in /tmp"; then

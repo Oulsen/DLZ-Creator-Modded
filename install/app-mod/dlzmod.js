@@ -4223,6 +4223,8 @@ function DLZMOD_srcPopup(page) {
 // button in the Overview's strip, shown while the strip is selected there, its meter and fader marks
 // raised to make room. Not on the Aux page's copy of the strip (noMarks). An XS pads strip without a
 // knob (#23) has the screen fader's layout, which shows the button as well (DLZMOD_ctlScreen).
+// Keep this name: going back from a later version looks for it to tell whether the version gone back to
+// has the button (dlzmod-update, pads_unmute, #284).
 function DLZMOD_padsMute(strip) {
   if (strip.type !== E_CH_TYPE.SAMPLE || strip.bMute || strip.noMarks) return;
   strip.bMute = new E1ToggleButton(strip, {
