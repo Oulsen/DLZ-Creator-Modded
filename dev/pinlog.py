@@ -29,10 +29,13 @@ REGS = (("cfg0", 0x8FC, 0x00000FFF),   # PH0-PH2 function, 4 bits each
         ("dat", 0x90C, 0x00001007),    # PH0, PH1, PH2, PH12
         ("pull0", 0x918, 0x0300003F))  # PH0-PH2 and PH12 pull, 2 bits each
 PINS = (0, 1, 2, 12)
+CODEC = (0x00000FFF, 0, 0x00000007, 0x0000003F)  # the bits of PH0-PH2 in each of REGS; the rest is PH12
 STEP = 0.001         # asks for 1 ms; the 4 ms tick sets the real pace
 ALIVE = 3600.0       # seconds between "alive" lines
-MAX_LINES = 60       # change lines per minute at most; more are counted, one summary a minute
-WINDOW = 60.0
+WINDOW = 60.0        # the line budget counts per minute of uptime (fixed minutes, not a sliding one)
+# change lines per minute at most, more are counted in one summary line a minute; two budgets, so
+# PH12 (faderlink's pin) toggling can neither crowd out a PH0-PH2 change nor flood the card's syslog
+BUDGET = {"codec": 60, "PH12": 10}
 
 
 def uptime():
@@ -41,6 +44,17 @@ def uptime():
 
 def stop(signum, frame):
     raise SystemExit(0)
+
+
+def rss_mb():
+    try:
+        with open("/proc/self/status") as f:
+            for row in f:
+                if row.startswith("VmRSS:"):
+                    return int(row.split()[1]) / 1024
+    except (OSError, ValueError):
+        pass
+    return -1.0
 
 
 def main(once=False):
@@ -68,8 +82,9 @@ def main(once=False):
 
     signal.signal(signal.SIGTERM, stop)  # systemd's stop at shutdown: still write the end lines
     changes = 0
-    win = int(uptime() // WINDOW)  # the minute the line budget counts in
-    lines = skipped = 0
+    win = int(uptime() // WINDOW)
+    lines = dict.fromkeys(BUDGET, 0)
+    skipped = dict.fromkeys(BUDGET, 0)
     t_prev = t_alive = uptime()
     cpu_alive = time.process_time()
     reads, gap_max = 0, 0.0
@@ -79,14 +94,17 @@ def main(once=False):
         span = t - t_alive
         cpu = time.process_time() - cpu_alive
         print("pinlog %.3f %s: %d reads in %.0f s, mean gap %.1f ms, longest %.1f ms, CPU %.1f s"
-              " (%.2f %% of one core), %d changes so far"
+              " (%.2f %% of one core), %.1f MB in memory, %d changes so far"
               % (t, what, reads, span, span / reads * 1000 if reads else 0.0, gap_max * 1000, cpu,
-                 cpu / span * 100 if span else 0.0, changes), flush=True)
+                 cpu / span * 100 if span else 0.0, rss_mb(), changes), flush=True)
         t_alive, cpu_alive, reads, gap_max = t, time.process_time(), 0, 0.0
 
-    def flush_skipped(t, v):
-        if skipped:
-            line(t, v, "skipped %d changes in the minute from %d s (more than %d), now" % (skipped, win * WINDOW, MAX_LINES))
+    def flush_skipped(t):
+        # the state the skipped changes ended in (last): the reading that follows is compared to it
+        for kind, n in skipped.items():
+            if n:
+                line(t, last, "skipped %d %s changes in the minute from %d s (more than %d), now"
+                     % (n, kind, win * WINDOW, BUDGET[kind]))
 
     try:
         while True:
@@ -96,24 +114,31 @@ def main(once=False):
             gap_max = max(gap_max, t - t_prev)
             t_prev = t
             if int(t // WINDOW) != win:
-                flush_skipped(t, v)
-                win, lines, skipped = int(t // WINDOW), 0, 0
+                flush_skipped(t)
+                win = int(t // WINDOW)
+                lines = dict.fromkeys(BUDGET, 0)
+                skipped = dict.fromkeys(BUDGET, 0)
             if v != last:
                 changes += 1
-                if lines < MAX_LINES:
+                kind = "codec" if any((a ^ b) & c for a, b, c in zip(v, last, CODEC)) else "PH12"
+                if lines[kind] < BUDGET[kind]:
                     line(t, v, "change")
-                    lines += 1
+                    lines[kind] += 1
                 else:
-                    skipped += 1
+                    skipped[kind] += 1
                 last = v
             if t - t_alive >= ALIVE:
                 alive(t, "alive")
             time.sleep(STEP)
     finally:
-        t = uptime()
-        flush_skipped(t, last)
-        alive(t, "alive at the end")
-        line(t, last, "last (%d changes)" % changes)
+        # at a shutdown the journal's stream may already be gone: then the end lines are lost, quietly
+        try:
+            t = uptime()
+            flush_skipped(t)
+            alive(t, "alive at the end")
+            line(t, last, "last (%d changes)" % changes)
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":
