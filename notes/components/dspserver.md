@@ -211,8 +211,9 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   (a full codec setup) did not bring the sound back (above), so PH2 is likely a sign of something
   else on the board dropping out (power, a reset on the analog side, the GD32) that the A40i cannot
   set right again [guess]. One silent start: whether every silent start has the pulse, and only
-  those, needs more of them; the pin log samples every 5 ms and stops at 120 s, so a shorter pulse
-  or one later in a session would be missed (#287).
+  those, needs more of them. That start's pin log read every 5-8 ms and stopped at 120 s; since #287
+  it runs the whole session and reads every ~4 ms (the kernel's tick), so a pulse later in a
+  session is caught too, one shorter than ~4 ms can still fall between two reads.
 
 ## Audio loop and headroom
 
