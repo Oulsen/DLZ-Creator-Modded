@@ -60,8 +60,10 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   only a reboot did. On 2026-11-11 (XS dev card at develop `9dfd5b9`, #257) the same restart kept
   the sound (Bluetooth on 5/6, heard). It ran the full codec setup again, PH0 pulse included: the
   network log lacks those lines only because it lost them (below, "The restart's lines"). What
-  differed the first time is not known; it may have been a start that was silent already. Whether a
-  restart brings the sound back in a silent start is not tested yet (#257).
+  differed the first time is not known; it may have been a start that was silent already. **In a
+  silent start a restart does not bring the sound back** [device, XS dev card, 2026-11-13, #257]: the
+  full codec setup ran again without errors (PH0 pulse, AKM DAC/ADC, THAT), the outputs stayed
+  silent; a reboot of the mixer brought the sound back.
 - Harmless at every boot: kernel stack dumps `set_cpus_allowed_ptr: core 4 is set in the mask`
   (from the kernel's own workqueue code, `worker_attach_to_pool`, once dspserver has set the
   workqueue cpumask; not from an affinity call of dspserver [static]), and
@@ -133,7 +135,9 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   (#261) will show. No kernel
   or Mackie program drives PH2, so another chip on the board holds it low and lets go [guess: the GD32
   or the codec]. If a codec lost its settings while PH2 stayed high, this repair would not run and
-  the outputs would stay silent until a reboot [guess, a candidate for the silent starts]. A repair
+  the outputs would stay silent until a reboot [guess]. A silent start did have a short PH2 low,
+  before the loop ran (below, "A silent start in the pin log"), but setting the codecs up again did
+  not help there, so lost codec settings alone do not explain it. A repair
   leaves an extra `Initialising AKM` pair in the log: none so far, one setup per start in the network
   logs of 2026-10-28, -29 and 2026-11-11 and the `syslog-last-boots` copies of #196 and #239 [device].
 - **The restart's lines were lost in the network log** [device]: the restarted dspserver of 2026-11-11
@@ -192,9 +196,23 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   that link; in the silent starts all meters moved, pre and post fader [user]. Stopping dspserver for
   3 s and 10 s (`kill -STOP`/`-CONT`, as glesgui does) stops sound and meters, then both come back, with
   no drop and no watchdog line. So neither the link nor dspserver's processing loses it: the sound is
-  lost on the codec path after the mix, or never reaches the mixer. Open: in daily use the sound comes from the PC over USB (its own chip, `hardware.md`); a USB
-  link that comes up half-working (cf. #88) would silence the computer's audio while Bluetooth and
-  mics work. Whether the USB channel's meter moved in the silent starts is not known.
+  lost on the codec path after the mix, or never reaches the mixer.
+- **A silent start in the pin log: only the output side is dead** (#257) [device, XS dev card,
+  2026-11-13]: main L/R and headphones silent, every meter moving, the mics' meters too (so the AKM
+  ADC works). USB is not the cause: a tone into USB 1-2 came back on the main-mix return 1-2
+  (`dev/usbloop.py check`), so USB in, the mix and USB out worked. The start's log was normal: wait-hub
+  (port 80 after 2.9 s, graphics after 12.2 s), one codec setup at 29.6 s without I2C errors,
+  dspserver's link without a drop. **The pin log (#261) shows PH2 low for ~11 ms at 30.87 s**, ~1.2 s
+  after the setup, while dspserver still waited for the graphics (`Done.` at 33.4 s), so its repair
+  loop was not running yet and did not set the codecs up again. The 4 starts before it in the saved
+  syslogs (with sound, as far as the user remembers) have no PH2 low after the setup. Around that
+  moment the screen came up (glesgui `Client connected.`) and DLZDATA went read-only again, but both
+  happen at the same time in starts with sound too; nothing else was logged. Restarting dspserver
+  (a full codec setup) did not bring the sound back (above), so PH2 is likely a sign of something
+  else on the board dropping out (power, a reset on the analog side, the GD32) that the A40i cannot
+  set right again [guess]. One silent start: whether every silent start has the pulse, and only
+  those, needs more of them; the pin log samples every 5 ms and stops at 120 s, so a shorter pulse
+  or one later in a session would be missed (#287).
 
 ## Audio loop and headroom
 
