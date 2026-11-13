@@ -3512,6 +3512,32 @@ test("controls: the LEDs under a knob show its channel, only on faderlink's conn
   }
 });
 
+test("controls: with no knob or fader moved, a message's keys are not looked at; a new choice counts at once (#285)", async () => {
+  const sent = [];
+  const fader = { send: (m) => sent.push(plain(m)) };
+  fader.send.dlzmodLocal = true;
+  fader.send.dlzmodSio = true;
+  const state = { "dlzmod.controls": "", "m.mute": 1, "s.mute": 0 };
+  const get = (k) => state[k];
+  // a message that counts how often its keys are listed
+  let listed = 0;
+  const counted = new Proxy({ "s.mute": 1 }, { ownKeys: (t) => (listed++, Reflect.ownKeys(t)) });
+  ctx.DLZMOD_ctlFader = fader;
+  try {
+    ctx.DLZMOD_ctlLeds(counted, undefined, get, 1);
+    state["dlzmod.controls"] = "a.0=a.1,a.1=a.0";   // the knobs next to the screen swapped: no channel knob moved
+    ctx.DLZMOD_ctlLeds(counted, undefined, get, 1);
+    assert.strictEqual(listed, 0, "no channel knob or fader moved: the keys not listed");
+    state["dlzmod.controls"] = "s=m,m=s";   // the XS has no master control: its "m=s" is left out
+    ctx.DLZMOD_ctlLeds({ "m.mute": 1 }, undefined, get, 1);
+    ctx.DLZMOD_ctlLeds({ "m.mute": 1 }, undefined, get, 0);
+    await new Promise((r) => setImmediate(r));
+    assert.deepStrictEqual(sent, [{ "s.mute": 1 }, { "s.mute": 1, "m.mute": 0 }], "a choice made since: the LEDs follow at once, both models");
+  } finally {
+    ctx.DLZMOD_ctlFader = null;
+  }
+});
+
 test("controls: full-size LEDs: the samples and master faders swapped show each other's channel", async () => {
   const sent = [];
   const fader = { send: (m) => sent.push(plain(m)) };

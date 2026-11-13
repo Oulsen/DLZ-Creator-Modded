@@ -18,8 +18,16 @@ set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 SB=$REPO/dumps/sandbox
-# sandbox.sh stop sets it: a model switch under way (no node.exe on 80/89 for a moment) ends here too
+# sandbox.sh stop sets it: a model switch under way (no node.exe on 80/89 for a moment) ends here too.
+# Only a fresh one counts: a stop with no sandbox running leaves it behind, and a later switch (this
+# session's or another's) must not end on that (#285); a switch takes seconds, a stop waits 4 s
 STOP=/tmp/dlz-sandbox.stop
+stop_now() {   # true (and the flag gone) when a stop came during the last minute; a stale flag is removed
+  [ -e "$STOP" ] || return 1
+  local age=$(( $(date +%s) - $(stat -c %Y "$STOP" 2>/dev/null || echo 0) ))
+  rm -f "$STOP"
+  [ "$age" -lt 60 ]
+}
 
 # The mod of this checkout onto a sandbox copy: patch.py patches from the kept .orig (made on its first
 # run), so it can run any number of times and a failed patch stops a start. Then what was patched in,
@@ -62,7 +70,7 @@ while :; do
   mkdir -p "$sb/root" "$sb/tmp" "$sb/dev/disk/by-id"
   if [ "$FULL" = 1 ]; then rm -f "$sb/root/.dlzlite"; else touch "$sb/root/.dlzlite"; fi
   patch_copy "$sb"
-  [ ! -e "$STOP" ] || { echo "stopped during a model switch"; rm -f "$STOP"; exit 0; }
+  stop_now && { echo "stopped during a model switch"; exit 0; }
 
   cd "$sb/srv"
   echo "open http://127.0.0.1/ (Ctrl+C to stop)"
