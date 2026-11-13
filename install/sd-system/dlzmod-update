@@ -453,13 +453,17 @@ d = struct.pack(">II", len(s), 0) + s
 h = struct.pack(">7I4B32s", 0x27051956, 0, 0, len(d), 0, 0, zlib.crc32(d), 5, 2, 6, 0, b"")
 sys.stdout.buffer.write(h[:4] + struct.pack(">I", zlib.crc32(h)) + h[8:] + d)' > "$1"
 }
+boot_fail() {   # boot_fail <text>: in an update report once; the same text at a later start in the journal only
+  if [ "$(cat "$STATE/boot-fail" 2>/dev/null)" = "$1" ]; then echo "dlzmod-update: $1"; return 0; fi
+  echo "$1" > "$STATE/boot-fail"; log "$1"
+}
 place_bootscr() {
   local t=$ROOT/boot/boot.scr cur
   [ -n "$BOOT_CMD" ] || return 0
   # (a link or anything but a file is not the card's own script: left alone, below)
   [ -f "$t" ] && [ ! -L "$t" ] && cur=$(sha256sum < "$t" | cut -d' ' -f1) || cur=none
   # (every normal start: one sha256 of a 4 KiB file; a note on an unknown script is over once it is gone)
-  [ "$cur" = "$BOOT_SUM" ] && { rm -f "$STATE/boot-left"; return 0; }
+  [ "$cur" = "$BOOT_SUM" ] && { rm -f "$STATE/boot-left" "$STATE/boot-fail"; return 0; }
   if ! grep -q "^$cur " <<< "$BOOT_KNOWN"; then
     [ -e "$STATE/boot-left" ] && [ "$(cat "$STATE/boot-left")" = "$cur" ] && return 0   # said so already
     echo "$cur" > "$STATE/boot-left"
@@ -474,16 +478,16 @@ place_bootscr() {
   # (one cut between the directory and the inode block gives a script U-Boot's CRC check refuses: it
   # then runs the eMMC's stock script, which boots this card, whose kernel replays the journal)
   if [ "${BOOT_KNOWN%% *}" = "$cur" ] && [ ! -e "$t.dlzmod-stock" ] && ! ln "$t" "$t.dlzmod-stock"; then
-    echo "dlzmod-update: the stock start-up script could not be kept: the new one not placed"; return 0
+    boot_fail "the stock start-up script could not be kept: the new one not placed (tried again at the next start)"; return 0
   fi
-  ln -f "$t" "$t.dlzmod-prev" || { echo "dlzmod-update: the start-up script could not be kept as -prev: the new one not placed"; return 0; }
+  ln -f "$t" "$t.dlzmod-prev" || { boot_fail "the start-up script could not be kept as -prev: the new one not placed (tried again at the next start)"; return 0; }
   # written next to it, checked, then renamed over it (ext4: the old or the new script, never half of one)
   if boot_image "$t.dlzmod-new" && chmod 644 "$t.dlzmod-new" && sync "$t.dlzmod-new" \
      && [ "$(sha256sum < "$t.dlzmod-new" | cut -d' ' -f1)" = "$BOOT_SUM" ] && mv -f "$t.dlzmod-new" "$t"; then
-    sync
+    sync; rm -f "$STATE/boot-fail"
     log "placed the card's start-up script (#221, sha256 ${BOOT_SUM:0:12}); it applies from the next start"
   else
-    rm -f "$t.dlzmod-new"; echo "dlzmod-update: the card's start-up script could not be placed"
+    rm -f "$t.dlzmod-new"; boot_fail "the card's start-up script could not be placed (tried again at the next start)"
   fi
 }
 place_dropins() {   # place_dropins <what> <issue> <units> <text>
@@ -529,6 +533,37 @@ missing_dropins() {
 # Only at a start without a cut-off try waiting to be put back, with the eMMC locked, never in checks
 # only. Then this start ends here: the update files on DLZDATA (if any) are looked at by the next.
 revert_label() { tar -xOf "$STATE/previous.tar" var/lib/dlzmod-update/installed 2>/dev/null | head -n 1; }
+# #284: v0.6.0 gave the pads channel a mute button on the screen (#276). A version gone back to without
+# it (its app has no DLZMOD_padsMute) can take that mute away only with a pad set to the mute action, so
+# pads muted now are unmuted. srv_data.json is changed only then, atomically, owner and mode kept (this
+# unit runs before the server, which writes it)
+pads_unmute() {
+  local f=$ROOT/srv/srv_data.json
+  [ -f "$f" ] && ! grep -q DLZMOD_padsMute "$ROOT/srv/app.js" 2>/dev/null || return 0
+  case $(python3 -I -B - "$f" 2>/dev/null << 'PY_EOF'
+import json, os, sys
+f = sys.argv[1]
+d = json.load(open(f, encoding="utf-8"))
+if not isinstance(d, dict) or not d.get("s.mute"):
+    print("not muted")
+    sys.exit(0)
+d["s.mute"] = 0
+st = os.stat(f)
+with open(f + ".dlzmod-new", "w", encoding="utf-8") as o:
+    json.dump(d, o, ensure_ascii=False, separators=(",", ":"))
+    o.flush()
+    os.fsync(o.fileno())
+os.chown(f + ".dlzmod-new", st.st_uid, st.st_gid)
+os.chmod(f + ".dlzmod-new", st.st_mode & 0o7777)
+os.replace(f + ".dlzmod-new", f)
+print("unmuted")
+PY_EOF
+  ) in
+    "not muted") ;;
+    unmuted) sync; log "the pads were muted: unmuted, as ${label:-the version gone back to} has no mute button for them on the screen (#284)" ;;
+    *) rm -f "$f.dlzmod-new"; log "(the pads' mute could not be checked: if they stay silent, a pad set to the mute action unmutes them)" ;;
+  esac
+}
 put_state() {   # put_state <name> <line>: atomically, flushed
   echo "$2" > "$STATE/$1.dlzmod-new" && sync "$STATE/$1.dlzmod-new" && mv -f "$STATE/$1.dlzmod-new" "$STATE/$1" && sync -f "$STATE"
 }
@@ -572,6 +607,7 @@ go_back() {
   fi
   label=$(revert_label)
   LOGV=back-to-${label%% *}; [ -n "${label%% *}" ] || LOGV=back
+  LOGV=$(printf '%s' "$LOGV" | tr -cd 'A-Za-z0-9._+-' | cut -c1-40)
   # a put-back that does not finish is tried at 3 starts, then given up (not a write at every start)
   t=$(head -n 1 "$STATE/revert-tries" 2>/dev/null)
   case "$t" in ''|*[!0-9]*) t=1 ;; *) t=$(( 10#${t:0:3} + 1 )) ;; esac
@@ -594,6 +630,7 @@ go_back() {
       "$STATE/previous.tar" "$STATE/previous.list"
     [ -z "$rec" ] || echo "$rec" > "$STATE/failed"
     sync
+    pads_unmute
     guards_ok || log "WARNING: the version gone back to does not pass this updater's guard check (above)"
     log "GONE BACK to $label; the settings stay as they are, the ones from before the update are kept aside"
     log "(var/lib/dlzmod-update/previous-settings.json). The app, the server, the audio engine and udev rules use it now;"
