@@ -144,7 +144,7 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   log copy on DLZDATA does.
 - **PH0, PH1 and PH2 high after the setup** [device, XS dev card, 2026-11-11]: `PH_DAT` read `0x1007`
   (PH0, PH1, PH2 and PH12 high; PH0/PH1 outputs, PH2 input with pull-up) 75 s into a start with sound
-  and 2.4 h into another. The dev card logs these pins through the first 120 s of each start (#261),
+  and 2.4 h into another. The dev card logs these pins from each start until the shutdown (#261, #287; a read every ~4 ms),
   to compare starts with sound and silent ones; on the full-size the same logger runs, but what PH2
   means there is not known.
 - **Silent outputs with moving meters also come without either cause above** (see also glesgui's

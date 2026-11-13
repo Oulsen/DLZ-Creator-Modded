@@ -1,6 +1,6 @@
 #!/bin/bash
-# Put the codec pin log (dev/pinlog.py, #261) on the dev card or take it off (Git Bash). Once on, it
-# runs at every start for its first 120 s and writes to the journal, which the network log
+# Put the codec pin log (dev/pinlog.py, #261, #287) on the dev card or take it off (Git Bash). Once
+# on, it runs from every start until the shutdown and writes to the journal, which the network log
 # (dev/netlog.sh) carries to the PC. Dev card only: it never goes into the mod or an installer.
 # Writes /usr/local/sbin/dlzdev-pinlog and /etc/systemd/system/dlzdev-pinlog.service over SSH, each
 # whole (temp, sync, rename); off removes both. Settings in dev/push.env, as for push.sh.
@@ -35,7 +35,7 @@ UNIT=/etc/systemd/system/dlzdev-pinlog.service
 unit() {
   cat <<'EOF'
 [Unit]
-Description=dlzdev: log the audio chips' pins during a start (dev card only, #261)
+Description=dlzdev: log the audio chips' pins for the whole session (dev card only, #261, #287)
 # early and on its own: nothing is ordered after it, so it delays no other unit
 DefaultDependencies=no
 After=systemd-journald.socket local-fs.target
