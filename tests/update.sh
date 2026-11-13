@@ -1092,26 +1092,34 @@ echo "nocount" > $ST/confirm; run
 rm -f $ST/confirm
 fi
 
-if case_ "81: Go Back to a version without the pads' mute button (#284): muted pads unmuted, the other settings, owner and mode kept; to one with the button, or not muted: the settings file untouched"; then
+if case_ "81: Go Back to a version without the pads' mute button (#284): pads muted since the update unmuted, only their line changed, owner and mode kept; muted before the update, not muted, or back to one with the button: the settings file untouched"; then
 mute() { python3 -I - $R/srv/srv_data.json "$1" << 'EOF'
 import json, sys
 f = sys.argv[1]; d = json.load(open(f, encoding="utf-8"))
 if sys.argv[2] == "?": print(d.get("s.mute"), d.get("dlzmodGoBackTest")); sys.exit(0)
 d["s.mute"] = int(sys.argv[2]); d["dlzmodGoBackTest"] = "é1"
-json.dump(d, open(f, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+json.dump(d, open(f, "w", encoding="utf-8"), ensure_ascii=False, indent=2)   # as server.js writes it
 EOF
 }
 cp -p $R/srv/app.js $W/app.js.kept; cp -p $R/srv/srv_data.json $W/srv_data.81
 sed -i 's/DLZMOD_padsMute/DLZMOD_padsMutX/g' $R/srv/app.js   # the version before the update: no mute button for the pads (v0.5.x)
-goback; rm -f $ST/confirm
-mute 1; chown 0:0 $R/srv/srv_data.json; chmod 640 $R/srv/srv_data.json
+mute 0; goback; rm -f $ST/confirm
+mute 1; chown 1000:1000 $R/srv/srv_data.json; chmod 640 $R/srv/srv_data.json; cp -p $R/srv/srv_data.json $W/srv_data.muted
 cut -d' ' -f1 $ST/revertable > $ST/revert; run
 said "GONE BACK to $INST0" && grep -q DLZMOD_padsMutX $R/srv/app.js && said "the pads were muted: unmuted" && [ "$(mute '?')" = "0 é1" ] \
-  && [ "$(stat -c '%a %u' $R/srv/srv_data.json)" = "640 0" ] && [ ! -e $R/srv/srv_data.json.dlzmod-new ] \
-  && ok "gone back to a version without the button: unmuted, the other settings and mode 640 kept" || bad "without the button: s.mute and test key '$(mute '?')', mode $(stat -c %a $R/srv/srv_data.json)"
+  && [ "$(diff $W/srv_data.muted $R/srv/srv_data.json | grep -c '^[<>]')" = 2 ] \
+  && [ "$(stat -c '%a %u:%g' $R/srv/srv_data.json)" = "640 1000:1000" ] && [ ! -e $R/srv/srv_data.json.dlzmod-new ] \
+  && ok "muted since the update, back to a version without the button: unmuted, only that line changed, 640 1000:1000 kept" \
+  || bad "without the button: s.mute and test key '$(mute '?')', $(stat -c '%a %u:%g' $R/srv/srv_data.json), $(diff $W/srv_data.muted $R/srv/srv_data.json | grep -c '^[<>]') lines differ"
+chown 0:0 $R/srv/srv_data.json; rm -f $ST/previous-settings.json
+mute 1; goback; rm -f $ST/confirm   # muted before the update (by a pad's mute action, as v0.5.x can)
+DATA1=$(sha $R/srv/srv_data.json)
+cut -d' ' -f1 $ST/revertable > $ST/revert; run
+said "GONE BACK to $INST0" && ! said "the pads" && [ "$(sha $R/srv/srv_data.json)" = "$DATA1" ] \
+  && ok "muted already before the update: left muted, the settings file untouched" || bad "muted before: the settings file changed or a line about the pads"
 rm -f $ST/previous-settings.json
-goback; rm -f $ST/confirm
-mute 0; DATA1=$(sha $R/srv/srv_data.json)
+mute 0; goback; rm -f $ST/confirm
+DATA1=$(sha $R/srv/srv_data.json)
 cut -d' ' -f1 $ST/revertable > $ST/revert; run
 said "GONE BACK to $INST0" && ! said "the pads" && [ "$(sha $R/srv/srv_data.json)" = "$DATA1" ] \
   && ok "without the button, not muted: the settings file untouched" || bad "not muted: the settings file changed or a line about the pads"

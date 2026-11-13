@@ -491,9 +491,12 @@ touch the eMMC, GD32 or other hardware, reach the system's daemons, or leave any
   `node-backend.md`, "State persistence"; the mod only adds missing keys, `set_mod_defaults`]
   [static, PC rehearsal: `tests/update.sh` cases 78-80, both models]. A stock key a newer version
   lets the screen set where the older one cannot: the pads' `s.mute` (#276, v0.6.0). Going back to
-  a version whose app has no `DLZMOD_padsMute` unmutes pads muted now (`pads_unmute`, #284;
-  `srv_data.json` rewritten atomically, owner and mode kept, only when they are muted; the older
+  a version whose app has no `DLZMOD_padsMute` unmutes pads muted since the update (`pads_unmute`,
+  #284; not when `previous-settings.json` has them muted too, as the older version's own pad action
+  can; only the `s.mute` line of `srv_data.json` changed, atomically, owner and mode kept; the older
   version can unmute them only with a pad set to the mute action) [static, PC rehearsal: case 81].
+  Snapshots saved since keep their `s.mute`: loading one on the older version can mute the pads
+  again (accepted: loading another snapshot, or the pad action, unmutes them).
   Accepted as it is: several headphones with Send to USB on (v0.6.0 gives each its own USB pair)
   are mixed onto USB 3/4 by an older version, as stock does, and its screen can switch them off.
 - **No full install before v1.0** (decided at v0.3.0, the last full install so far): the boot logic

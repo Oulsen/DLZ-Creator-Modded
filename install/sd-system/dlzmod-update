@@ -179,6 +179,7 @@ WORK=""
 CHECK_STATE=""
 APPLYING=no
 LOGV=""   # the package's version and build for the report's name, once known (step 1)
+logv_clean() { printf '%s' "$1" | tr -cd 'A-Za-z0-9._+-' | cut -c1-40; }   # LOGV as a file name part
 uptime_s() { local u; read -r u _ < /proc/uptime; echo "${u%.*}"; }   # whole seconds since the start (#96)
 finish() {   # the report next to the other logs, then DLZDATA released
   local n name f last
@@ -453,9 +454,12 @@ d = struct.pack(">II", len(s), 0) + s
 h = struct.pack(">7I4B32s", 0x27051956, 0, 0, len(d), 0, 0, zlib.crc32(d), 5, 2, 6, 0, b"")
 sys.stdout.buffer.write(h[:4] + struct.pack(">I", zlib.crc32(h)) + h[8:] + d)' > "$1"
 }
+put_state() {   # put_state <name> <line>: atomically, flushed
+  echo "$2" > "$STATE/$1.dlzmod-new" && sync "$STATE/$1.dlzmod-new" && mv -f "$STATE/$1.dlzmod-new" "$STATE/$1" && sync -f "$STATE"
+}
 boot_fail() {   # boot_fail <text>: in an update report once; the same text at a later start in the journal only
   if [ "$(cat "$STATE/boot-fail" 2>/dev/null)" = "$1" ]; then echo "dlzmod-update: $1"; return 0; fi
-  echo "$1" > "$STATE/boot-fail"; log "$1"
+  put_state boot-fail "$1" || true; log "$1"
 }
 place_bootscr() {
   local t=$ROOT/boot/boot.scr cur
@@ -466,7 +470,7 @@ place_bootscr() {
   [ "$cur" = "$BOOT_SUM" ] && { rm -f "$STATE/boot-left" "$STATE/boot-fail"; return 0; }
   if ! grep -q "^$cur " <<< "$BOOT_KNOWN"; then
     [ -e "$STATE/boot-left" ] && [ "$(cat "$STATE/boot-left")" = "$cur" ] && return 0   # said so already
-    echo "$cur" > "$STATE/boot-left"
+    echo "$cur" > "$STATE/boot-left"; rm -f "$STATE/boot-fail"
     log "the card's start-up script is not one this updater knows (sha256 $cur): left as it is, the new one (#56) not placed"
     return 0
   fi
@@ -534,23 +538,39 @@ missing_dropins() {
 # only. Then this start ends here: the update files on DLZDATA (if any) are looked at by the next.
 revert_label() { tar -xOf "$STATE/previous.tar" var/lib/dlzmod-update/installed 2>/dev/null | head -n 1; }
 # #284: v0.6.0 gave the pads channel a mute button on the screen (#276). A version gone back to without
-# it (its app has no DLZMOD_padsMute) can take that mute away only with a pad set to the mute action, so
-# pads muted now are unmuted. srv_data.json is changed only then, atomically, owner and mode kept (this
-# unit runs before the server, which writes it)
+# it (its app has no DLZMOD_padsMute, a name dlzmod.js keeps for this) can take that mute away only with
+# a pad set to the mute action, so pads muted now are unmuted, unless they were muted already before the
+# update (previous-settings.json; that version's own pad action did it). srv_data.json is changed only
+# then: its one "s.mute" line as text, the rest byte for byte, atomically, owner and mode kept (this unit
+# runs before the server, which writes it). Snapshots saved since keep their s.mute (accepted: loading
+# another one, or the pad action, unmutes them)
 pads_unmute() {
   local f=$ROOT/srv/srv_data.json
   [ -f "$f" ] && ! grep -q DLZMOD_padsMute "$ROOT/srv/app.js" 2>/dev/null || return 0
-  case $(python3 -I -B - "$f" 2>/dev/null << 'PY_EOF'
-import json, os, sys
-f = sys.argv[1]
-d = json.load(open(f, encoding="utf-8"))
+  case $(python3 -I -B - "$f" "$STATE/previous-settings.json" 2>> "$REPORT" << 'PY_EOF'
+import json, os, re, sys
+f, prev = sys.argv[1:]
+text = open(f, encoding="utf-8").read()
+d = json.loads(text)
 if not isinstance(d, dict) or not d.get("s.mute"):
     print("not muted")
     sys.exit(0)
-d["s.mute"] = 0
+try:
+    if json.load(open(prev, encoding="utf-8")).get("s.mute"):
+        print("muted before")
+        sys.exit(0)
+except (OSError, ValueError, AttributeError):
+    pass
+m = re.findall(r'"s\.mute": *[^,\s}]+', text)
+if len(m) != 1:
+    sys.exit("srv_data.json: the s.mute line not found exactly once")
+new = text.replace(m[0], '"s.mute": 0')
+n = json.loads(new)
+if n.get("s.mute") != 0 or {k: v for k, v in n.items() if k != "s.mute"} != {k: v for k, v in d.items() if k != "s.mute"}:
+    sys.exit("srv_data.json: the changed file differs in more than s.mute")
 st = os.stat(f)
-with open(f + ".dlzmod-new", "w", encoding="utf-8") as o:
-    json.dump(d, o, ensure_ascii=False, separators=(",", ":"))
+with open(f + ".dlzmod-new", "w", encoding="utf-8", newline="") as o:
+    o.write(new)
     o.flush()
     os.fsync(o.fileno())
 os.chown(f + ".dlzmod-new", st.st_uid, st.st_gid)
@@ -559,13 +579,10 @@ os.replace(f + ".dlzmod-new", f)
 print("unmuted")
 PY_EOF
   ) in
-    "not muted") ;;
+    "not muted"|"muted before") ;;
     unmuted) sync; log "the pads were muted: unmuted, as ${label:-the version gone back to} has no mute button for them on the screen (#284)" ;;
-    *) rm -f "$f.dlzmod-new"; log "(the pads' mute could not be checked: if they stay silent, a pad set to the mute action unmutes them)" ;;
+    *) rm -f "$f.dlzmod-new"; log "(the pads' mute could not be checked (above): if they stay silent, a pad set to the mute action unmutes them)" ;;
   esac
-}
-put_state() {   # put_state <name> <line>: atomically, flushed
-  echo "$2" > "$STATE/$1.dlzmod-new" && sync "$STATE/$1.dlzmod-new" && mv -f "$STATE/$1.dlzmod-new" "$STATE/$1" && sync -f "$STATE"
 }
 go_back() {
   local why rec="" c n sum label t
@@ -607,7 +624,7 @@ go_back() {
   fi
   label=$(revert_label)
   LOGV=back-to-${label%% *}; [ -n "${label%% *}" ] || LOGV=back
-  LOGV=$(printf '%s' "$LOGV" | tr -cd 'A-Za-z0-9._+-' | cut -c1-40)
+  LOGV=$(logv_clean "$LOGV")
   # a put-back that does not finish is tried at 3 starts, then given up (not a write at every start)
   t=$(head -n 1 "$STATE/revert-tries" 2>/dev/null)
   case "$t" in ''|*[!0-9]*) t=1 ;; *) t=$(( 10#${t:0:3} + 1 )) ;; esac
@@ -778,7 +795,7 @@ log "version $NEWV ($(penv BUILD)), models $(penv MODELS), evolve-node $(penv EV
 # the report's name like the package's (v0.1.0, v0.1.0-dev-c0e3084); FAT-safe characters only
 LOGV=$NEWV
 case $(penv BUILD) in ''|release) ;; *) LOGV=$NEWV-$(penv BUILD) ;; esac
-LOGV=$(printf '%s' "$LOGV" | tr -cd 'A-Za-z0-9._+-' | cut -c1-40)
+LOGV=$(logv_clean "$LOGV")
 # #63: the keys the package withdraws (WITHDRAWN, comma list), onto this card's list right after its
 # signature and contents are checked, before the checks that can refuse it below: the signature says
 # it is the signer's. Only the spare release key adds one (a leaked release key cannot withdraw the
