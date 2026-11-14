@@ -281,6 +281,26 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
 
 ## Audio loop and headroom
 
+**DSP budget**: what each feature that adds work to the audio core leaves free, measured with
+`dev/dsp-headroom.sh` on the dev card (share of each block spent waiting: mean / worst block). A PR
+that adds blocks to the audio graph measures before and after and adds a row (`docs/DEVELOPMENT.md`,
+"On the mixer before the merge"). The worst block moves between ~28 and 32 % across runs of the
+same setup, so smaller differences are noise. **Threshold**: the worst block below 15 % free on
+either model means first making the graph cheaper (lighter blocks, switching unused ones off), and
+only then reopening #5 (a higher processor speed). The other cores (screen, node, NDI, Bluetooth)
+are not in this table: their load and memory over long sessions are #8 (planned: a line every
+minute in the dev card's pin log).
+
+| Feature | Model | Mean waiting | Worst block left | Source |
+|---|---|---|---|---|
+| Normal use, mixer page, mic muted | XS | 60.4 % | 31.1 % | #226 |
+| Normal use, EQ page, mic open | XS | 58.9 % | 32.3 % | #226 |
+| 4th EQ band at +6 dB on 14 blocks (#25) | XS | 56.6 % | 31.6 % | 2026-11-05 |
+| Spectrum with 20 bands on, EQ page (#217) | XS | 59.8 % | 28.4 % | 2026-11-05 |
+| Any | full-size | not measured | not measured | |
+
+The details of each measurement follow.
+
 - **Block** [device]: 128 frames at 48 kHz, 2.667 ms, 375 blocks/s, timed with the CPU counter
   (CNTVCT, 24.00 MHz against the wall clock; user-space reads allowed, clocksource
   `arch_sys_counter`).
