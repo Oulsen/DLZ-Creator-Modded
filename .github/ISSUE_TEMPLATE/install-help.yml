@@ -38,4 +38,4 @@ body:
     id: logs
     attributes:
       label: Logs
-      description: Drag the files from the card's `dlzmod-logs/` folder here (on the part named `DLZDATA`, or `DLZLOG`).
+      description: Drag the files from the card's `dlzmod-logs/` folder here (on the part named `DLZDATA`, or `DLZLOG`; when it stopped during the checks, the installer card's own drive `DLZINSTALL`).
