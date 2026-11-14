@@ -1,6 +1,6 @@
 # The checks that need no mixer, no dump and no Mackie files: the server mod's unit tests, the build
 # tools' key guards (tests/guards.sh), the report of each start (tests/bootreport.sh), a dev card's
-# network log (tests/netlog.sh), the release notes (tests/release-notes.sh), the Discord message of a
+# network log (tests/netlog.sh) and pin log (tests/pinlog.sh), the release notes (tests/release-notes.sh), the Discord message of a
 # release (tests/announce.sh), the updater
 # checks (tests/update-checks.sh), the UI sandbox's guards (tests/ui-sandbox.js), the mixer-ssh
 # skill's read-only guard (offline), and a syntax check of every shell script, JavaScript and Python
@@ -60,6 +60,9 @@ jobs:
 
       - name: Network log of a dev card
         run: bash tests/netlog.sh
+
+      - name: Pin log of a dev card
+        run: bash tests/pinlog.sh
 
       - name: Install time left, replayed on a real install
         run: bash tests/estimates.sh
