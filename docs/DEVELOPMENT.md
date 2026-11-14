@@ -447,6 +447,10 @@ issue's technical notes point to the note section instead of copying it.
   fix from the device review or the drop-in is a new commit on the PR; the device review reads it
   again at its tier, and the drop-in shows it. A change a drop-in cannot carry (a full install, see
   "Dev card") gets its device review before the merge and is tried with the next dev install image.
+  A PR that adds blocks to the audio graph (a new effect, channel or receiver) also measures the
+  audio core's headroom before and after on the dev card (`dev/dsp-headroom.sh`; end with a reboot,
+  its measuring copy restarts dspserver) and adds a row to the DSP budget in
+  `notes/components/dspserver.md` ("Audio loop and headroom"), on both models when both are at hand.
   An image (installer, dev or release
   card) still gets a device review for what it adds beyond the merged PRs: build scripts, the card,
   the installer.
