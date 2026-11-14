@@ -86,7 +86,9 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   [static, #257; "The start's codec setup" below].
 - **How it drives the chips** [static]: no kernel driver. It maps physical `0x01C00000` (8 MB) from
   `/dev/mem` and toggles port I pins itself: the AKM chips through a bit-banged I2C on PI0 (clock)
-  and PI1 (data), the THAT preamps through a 3-wire serial write on PI15/PI16 (chip selects), PI17
+  and PI1 (data) (but the bit-bang routines `0x365c4` and `0x37068` toggle bit 13 of `PI_DAT` as the
+  clock, with PI13 made an output, and set PI0 high only once at the I2C init: the clock may be PI13
+  [static, to check on the device]), the THAT preamps through a 3-wire serial write on PI15/PI16 (chip selects), PI17
   (clock) and PI18 (data). The DTB's kernel users of those pins (i2c3, spi1, uart2) are disabled;
   the touch (TWI1) and the PMIC (TWI0) are on other buses. The chip init runs in a thread pinned to
   core 3 at SCHED_FIFO 99. Before it, dspserver waits until `Xwayland` and `glesgui` processes exist
@@ -110,7 +112,29 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   data to 0x22`, `Couldn't initialise AKM DAC (possibly dead): failed to send I2C data`, then the same
   for the AKM ADC at `0x26`, and dspserver carried on. Only `Couldn't initialise audio hardware,
   exiting` ends it [static]. So a chip that fails at start gives moving meters and a silent output
-  until the next start [guess on the effect]. AKM DAC = I2C `0x22`, AKM ADC = `0x26` [device].
+  until the next start [guess on the effect]. AKM DAC = I2C `0x22`, AKM ADC = `0x26` [device]. Those
+  are 8-bit address bytes: the write helper (`0x370f8`) sends `addr & 0xFE`, then register and
+  value, so the chips sit at 7-bit `0x11` and `0x13`, AKM's usual range [static].
+- **The AKM writes** [static]: no read-back or check (a failed write only logs), no soft mute and no
+  power-down register written. DAC (`0x38090`): reg `0x0A` = `0x8D`, `0x00` = `0x0D`, `0x02` = `0x04`.
+  ADC (`0x38170`): `0x00` = `0xFF`, `0x01` = `0x00`, `0x02` = `0x34`, `0x03` = `0x40`, `0x04` = `0x00`,
+  `0x01` = `0x01` (reset held, then released). By the register maps the DAC is likely an AK4458/AK4438
+  (8 channels) and the ADC an AK5558 [guess]. The repair loop (`0x38288`) writes the same two
+  sequences, without a PH0 pulse.
+- **The audio clocks are dspserver's own** [static]: the kernel has no I2S driver (the I2S nodes in the
+  device tree are disabled). `0x33da0`, before PH0 goes low, muxes the I2S0 pins on port B, writes
+  PLL_AUDIO (CCU `+0x08`) = `0x80047F18` (~24.576 MHz [guess]) without waiting for its lock bit (bit
+  28; a 5 ms sleep only), sets the I2S0/I2S1 module clocks (`+0xB0`/`+0xB4`), ungates and releases
+  them (`+0x68`, `+0x2D0`, bits 12-13) and enables MCLK out. So MCLK is set up before the codecs'
+  reset is released; whether it is locked and present at the pin is not checked. `0x32f50` also sets
+  up the on-chip codec (CCU `+0x140`). PI12 (`clk_out_a` by the device tree) is made an input at start
+  and read when I2S stops: likely not a codec clock.
+- **Other lines dspserver drives** [static]: at start (`0x19fa0`) PI14 output high, PH0/PH1 outputs low,
+  PH2 input with pull-up, PI12 input, PI15-PI18 outputs high (THAT), PI0 high at the I2C init. On exit
+  (`0x348a8`, called from the main loop at `0x19454` once its stop flag is set) PI14 and PH0 go low.
+  So PI14 looks like an output enable or mute release [guess], and a restart already cycles PI14, PH0
+  and PH1. Nothing else in dspserver touches PH0-PH2; faderlink's PH12 is the Bluetooth bring-up (with
+  PG5-PG7 as its UART).
 - **The codec pins** (#257) [static]: GPIO port H, read and written through the `/dev/mem` mapping
   (base + `0x2090c` = `PH_DAT` at `0x01C2090C`; the PIO controller is at `0x01C20800`). dspserver's
   own start (`0x19fa0`) makes PH0 and PH1 outputs driven low and PH2 an input with pull-up; no other
@@ -229,6 +253,31 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   together with a USB disconnect on Windows, and a reboot did not bring it back. The USB audio chip
   runs its own firmware ([hardware.md](../hardware.md)), so a USB drop at the same moment points
   at a board-level event (supply or reset), not at software [guess].
+- **What the research ruled out, and what is left** (#257, 2026-11-14):
+  - Not phantom power: it is the `i.N.phantom` key (server.js keeps it in `/srv/srv_data.json`; the
+    dump has mic 1 on), which dspserver turns into bit `0x10000` of the THAT shadow word (`0x3471c`)
+    and writes with the preamps; `THAT[0]` changes from `0x300030` to `0x310b30` 4.5-5.7 s after
+    `Audio initialisation is done.` [device, older logs], so ~3.5 s after the PH2 drop.
+  - Not the PLL step: `0x3a56c` raises the CPU from 1008 to 1056 MHz at a fixed voltage and switches
+    PLL_DDR0 (480 MHz) and PLL_GPU (408 MHz) on [static, field layout from mainline `ccu-sun8i-r40`],
+    in every start, ≥1.3 s before the drop, and touches neither PLL_AUDIO nor `clk_out_a`.
+  - Not the AKM chips alone: a restart pulses PH0 and writes them again (and cycles PI14 and PH1,
+    above) without bringing the sound back. So nothing the processor is known to drive reaches what
+    stays dead [static + device].
+  - Not the GD32 link: faderlink forwards only fader, LED, lock, brightness and recording keys; the
+    GD32 firmware's strings have no audio, codec, power or reset message [static, strings only].
+    server.js, glesgui and the units have no GPIO or `/dev/mem` use; glesgui sets no backlight
+    (faderlink writes it from `settings.brightness.screen`).
+  - Left [guess]: the output side behind the DAC (output stage, mute circuit or their supply) stays
+    off after a short event, and only a power-off resets it. The full-size has a separate analog board
+    ([hardware.md](../hardware.md), "Sources"); the XS is not opened yet. Closest event to the drop:
+    glesgui's `Client connected` and the state push that follows (LED and button brightness to the
+    GD32), a load step on the board's supply. Whether the processor still streams to the DAC in a
+    silent start the pin log's snapshots now show (#293: the I2S sample counters).
+  - Logs cannot tell a cold start from a reboot by shutdown lines: none in any log, the rear switch
+    cuts the power. Nearly every start is cold.
+  - Online (2026-11-14): no public report of this symptom; USB-only disconnect reports exist (Windows
+    10 losing the device after a power cycle, the XS's USB audio under Linux 6.8+).
 
 ## Audio loop and headroom
 
