@@ -128,7 +128,8 @@ exactly, or the kernel may set other voltages at boot.
   (stock does the same). Leaving a regulator out of the tree leaves it alone [guess]. `dc1sw` is on
   at every boot until then: the SPL enables it together with DCDC1 (`axp_set_dcdc1` sets
   `DCDC1SW_EN` for any non-zero DCDC1 voltage, and Mackie's defconfig has `AXP_DCDC1_VOLT=3300`),
-  so that is stock behaviour [static]
+  so that is stock behaviour [static]. On the XS the kernel logs `dc5ldo`, `vdd1v2-sata` and
+  `vdd2v5-sata` as `disabling` at ~33.8 s [device, 2026-11-14]
 - **SD** = mmc0 `/soc/mmc@1c0f000` (PF0–PF5, 4-bit, cd-gpios PH13 active-low, vmmc dcdc1).
   Hiding it from stock: `fdt set /soc/mmc@1c0f000 status disabled`.
   **eMMC** = mmc2 `/soc/mmc@1c11000` (PC5–PC15, PC24, 8-bit, non-removable, vmmc = vqmmc = dcdc1,
@@ -141,6 +142,8 @@ exactly, or the kernel may set other voltages at boot.
 - **GPIO fixed regulators**: `/vcc8v0` (PB13), `/vcc5v0-usb0` (PA13), `/vcc5v0-usb1` (PE4);
   reg-fixed drives their GPIO low at probe, so an own device tree should leave them (and the
   Bluetooth and GD32 UARTs, the codec nodes, USB, Ethernet, Mali) out unless it needs them.
+  `/vcc8v0` has no consumer in the tree, so Linux leaves it off; what PB13 switches on the board,
+  and whether anything else drives it, is not known [static]
   `clk_out_a` on PI12 may clock an external chip [guess]
 
 ## Boot chain
