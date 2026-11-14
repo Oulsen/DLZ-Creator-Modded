@@ -54,6 +54,9 @@ put $B/regulator/regulator.8/state enabled
 put $B/regulator/regulator.9/name "vcc 3v3"     # a name with a space
 put $B/regulator/regulator.9/state enabled
 put $B/thermal/thermal_zone0/temp 45000
+put $B/thermal/thermal_zone0/type cpu_thermal
+put $B/thermal/thermal_zone1/temp 30000          # a zone on the PMIC's ADC: an I2C read, skipped
+put $B/thermal/thermal_zone1/type axp221-adc
 put sys/bus/iio/devices/iio:device0/in_temp_raw 1234   # the PMIC's ADC: an I2C read, never taken
 irqs 3
 
@@ -78,14 +81,17 @@ run --once > "$TMP/out" 2>&1; rc=$?
   && has "sys .*bl.backlight.brightness=541" && has "reg.dc5ldo.state=enabled" \
   && has "drm.card0-LVDS-1.dpms=On" \
   && has "irq 82:sunxi_pio_edge_22_Edge_gt911=99 92:sunxi-nmi_0_Level_axp22x_irq_chip=3" \
-  && has "sensors temp.thermal_zone0=45000$" \
+  && has "sensors temp.thermal_zone0.cpu_thermal=45000$" \
   && ok "--once: snapshot of pins, screen, rails, interrupts, sensors" || bad "snapshot: $(cat "$TMP/out")"
 has "reg.dc5ldo.state@regulator.8=enabled" && has "reg.vcc_3v3.state=enabled" \
   && ok "--once: two rails of one name kept apart, a space in a name" || bad "names: $(grep 'snapshot first: sys' "$TMP/out")"
-grep -q "adc\.\|in_temp_raw" "$TMP/out" && bad "the PMIC's ADC was read" || ok "--once: no PMIC ADC (I2C) reading"
+grep -q "adc\.\|in_temp_raw\|thermal_zone1" "$TMP/out" && bad "the PMIC's ADC was read" || ok "--once: no PMIC ADC (I2C) reading"
 has "clk pll_cpu=0 pll_audio=90047f18 .*bus_gate2=3000 bus_rst3=1000 .*audio_pll_locked=1$" \
   && has "i2s i2s0 ctl=17 .*txcnt=1234 rxcnt=0 tx+0 rx+0 in 10ms, i2s1=off, i2s2=off$" \
   && ok "--once: clocks, and only the I2S that is clocked and out of reset" || bad "clk/i2s: $(grep -E 'clk|i2s' "$TMP/out")"
+# the I2S page refused (here: a file that ends before it): the pins are still logged
+head -c $((0x01C20000 + 4096)) "$MEM" > "$TMP/short"
+DLZ_PINLOG_MEM=$TMP/short run --once > "$TMP/out" 2>&1 && has "first PH0=1" && has "snapshot first: i2s unmapped"   && ok "--once: no I2S page, the rest still logged" || bad "unmapped: $(cat "$TMP/out")"
 
 # 2. the unit: run in the background, change things, stop it as systemd does. It starts as at
 # sysinit, before dspserver: PH2 not set up yet (function 7, data low)
@@ -106,6 +112,10 @@ poke B 4 0x0            # PB3, an output, goes low
 sleep 0.2
 poke B 1 0x00100000     # PB13 becomes an output
 sleep 0.2
+poke B 4 0x4            # PB2's data bit rises while it is the PWM: not a change...
+sleep 0.1
+poke B 0 0x1100         # ...and PB2 becomes an output, high: a function change, no made-up edge
+sleep 0.2
 poke H 4 0x7            # PH1 high: the codec setup is done
 sleep 0.2
 poke H 4 0x3 0x7        # PH2 low for 10 ms (one python, so its start does not stretch it)
@@ -118,7 +128,8 @@ poke B 4 $(for i in $(seq 1 15); do echo 0x8 0x0; done)   # PB3 toggles 30 times
 sleep 4                 # past the first rescan (5 s)
 kill -TERM $pid; wait $pid 2> /dev/null; pid=
 
-grep -q "pins PB2" "$TMP/out" && bad "PB2's PWM data bit was logged" || ok "a hardware-function pin's data bit is ignored"
+sed "/pins PB2 f2>1/q" "$TMP/out" | grep -q "pins PB2 d" && bad "PB2's PWM data bit was logged" || ok "a hardware-function pin's data bit is ignored"
+has "pins PB2 f2>1$" && ok "PWM to output: the function change, no made-up data edge" || bad "PB2: $(grep 'pins PB2' "$TMP/out")"
 has "pins PB3 d1>0$" && ok "PB3 output going low" || bad "PB3: $(grep pins "$TMP/out" | head -3)"
 has "pins PB13 f0>1$" && ok "PB13 becoming an output" || bad "PB13: $(grep pins "$TMP/out" | head -3)"
 [ "$(grep -c "pins PH" "$TMP/out")" = 1 ] && has "pins PH0 r0>1$" \
@@ -128,7 +139,7 @@ has "pins PB13 f0>1$" && ok "PB13 becoming an output" || bad "PB13: $(grep pins 
 has "change PH0=1 PH1=1 PH2=1 PH12=0" && has "snapshot PH1 high (codec setup done): pio" \
   && ok "PH1 high: codec line and snapshot" || bad "PH1: $(grep -E 'change|snapshot PH1' "$TMP/out")"
 has "change PH0=1 PH1=1 PH2=0 PH12=0" && has "snapshot PH2 low: sys" && has "snapshot PH2 high again: irq" \
-  && ok "a 20 ms PH2 low: caught, snapshots at both edges" || bad "PH2: $(grep -E 'PH2' "$TMP/out" | head)"
+  && ok "a 10 ms PH2 low: caught, snapshots at both edges" || bad "PH2: $(grep -E 'PH2' "$TMP/out" | head)"
 lo=$(grep "change PH0=1 PH1=1 PH2=0" "$TMP/out" | head -1 | cut -d' ' -f2)
 hi=$(grep "change PH0=1 PH1=1 PH2=1" "$TMP/out" | sed -n 2p | cut -d' ' -f2)
 awk -v a="$lo" -v b="$hi" 'BEGIN { exit !(b - a > 0.005 && b - a < 0.04) }' \
@@ -145,6 +156,7 @@ n=$(grep -c "pins PB" "$TMP/out")
 has "alive at the end: " && has "snapshot at the end: sensors" && grep -Eq "last \([0-9]+ changes\) PH0=1 PH1=1 PH2=1" "$TMP/out" \
   && ok "the end lines at SIGTERM" || bad "end: $(tail -5 "$TMP/out")"
 grep -v "^pinlog " "$TMP/out" && bad "lines other than pinlog's (above)" || ok "nothing else written"
+grep "failed" "$TMP/out" && bad "a snapshot or rescan failed (above)" || ok "no job failed"
 
 [ $fail -eq 0 ] && echo "ALL OK" || { echo "--- output"; cat "$TMP/out"; }
 exit $fail

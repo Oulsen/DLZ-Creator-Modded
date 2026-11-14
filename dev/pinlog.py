@@ -69,10 +69,11 @@ RESCAN_EARLY, RESCAN_LATE, EARLY = 5.0, 60.0, 120.0  # new screen/rail/sensor fi
 # the first 2 minutes of the unit (from ~11 s uptime), then every minute
 ALIVE = 3600.0       # seconds between "alive" lines (each with a snapshot)
 MINUTE_IN = 60.0     # one more snapshot at this uptime, when a start has settled
-WINDOW = float(os.environ.get("DLZ_PINLOG_WINDOW", 60.0))  # the line budgets count per minute of
-# uptime (fixed minutes, not a sliding one); the test makes it longer so it never crosses one
-# change lines per minute at most, more are counted in one summary line a minute; separate budgets,
-# so a busy pin or rail can neither crowd out a PH0-PH2 change nor flood the card's syslog
+# the line budgets count per minute of uptime (fixed minutes, not a sliding one); the test makes the
+# window longer so it never crosses one
+WINDOW = float(os.environ.get("DLZ_PINLOG_WINDOW", 60.0))
+# change lines per window at most, more are counted in one summary line; separate budgets, so a busy
+# pin or rail can neither crowd out a PH0-PH2 change nor flood the card's syslog
 BUDGET = dict({"codec": 60, "PH12": 10, "sys": 60, "snapshot": 10},
               **{"P" + p: 20 for p in PORTS})
 IRQ_WATCH = ("axp", "nmi", "pek")  # interrupt lines logged on change; all of them in a snapshot
@@ -144,8 +145,9 @@ def pin_changes(old, new):
             for k, name in enumerate("fdrp"):  # function, data, drive, pull
                 if o[k] == w[k] or (in_codec and k != 2):
                     continue  # a codec pin's function, data and pull are in the codec line
-                if k == 1 and o[0] == w[0] and o[0] > 1:
-                    continue  # a data bit counts only while the pin is a plain input (0) or output (1)
+                if k == 1 and (o[0] > 1 or w[0] > 1):
+                    continue  # a data bit counts only while the pin is a plain input (0) or output
+                    # (1) on both sides: across a function change the masked bit would invent an edge
                 got.append("%s%d>%d" % (name, o[k], w[k]))
             if got:
                 parts.append("P%s%d %s" % (p, n, " ".join(got)))
@@ -231,7 +233,7 @@ class Interrupts:
 class Sources:
     def __init__(self):
         self.fast, self.slow, self.temps = Files(), Files(), Files()
-        self.known = set()
+        self.known = {}  # regulator directory: its name
         self.scan()
 
     def scan(self):
@@ -242,30 +244,39 @@ class Sources:
             for a in ("status", "enabled", "dpms"):
                 self.fast.add("drm.%s.%s" % (os.path.basename(d), a), "%s/%s" % (d, a), "")
         for d in sorted(glob.glob(ROOT + "/sys/class/regulator/regulator.*")):
-            if d in self.known:
-                continue  # a regulator's files do not change once it is there
-            self.known.add(d)
-            try:
-                with open(d + "/name") as f:
-                    name = clean(f.read())
-            except OSError:
-                name = os.path.basename(d)
+            if d not in self.known:  # its name once; its files are looked for at every scan
+                try:
+                    with open(d + "/name") as f:
+                        self.known[d] = clean(f.read())
+                except OSError:
+                    continue  # still being registered: the next scan
             for a in ("state", "num_users", "microvolts"):
                 if os.path.exists("%s/%s" % (d, a)):
-                    self.slow.add("reg.%s.%s" % (name, a), "%s/%s" % (d, a), os.path.basename(d))
+                    self.slow.add("reg.%s.%s" % (self.known[d], a), "%s/%s" % (d, a),
+                                  os.path.basename(d))
         for d in sorted(glob.glob(ROOT + "/sys/class/thermal/thermal_zone*")):
-            self.temps.add("temp.%s" % os.path.basename(d), d + "/temp", "")
+            # only the SoC's own sensors: a zone on an ADC (the PMIC's) would read it over I2C
+            try:
+                with open(d + "/type") as f:
+                    kind = f.read().strip().lower()
+            except OSError:
+                continue
+            if not any(w in kind for w in ("axp", "adc", "iio", "pmic", "battery")):
+                self.temps.add("temp.%s.%s" % (os.path.basename(d), clean(kind)), d + "/temp", "")
 
 
 def main(once=False):
     fd = os.open(MEM, os.O_RDONLY | os.O_SYNC)
     m = mmap.mmap(fd, 4096, mmap.MAP_SHARED, mmap.PROT_READ, offset=PAGE)
-    mi = mmap.mmap(fd, 4096, mmap.MAP_SHARED, mmap.PROT_READ, offset=I2S_PAGE)
+    try:  # optional: without it the snapshots say so, and the pins are still logged
+        i2s_page = memoryview(mmap.mmap(fd, 4096, mmap.MAP_SHARED, mmap.PROT_READ,
+                                        offset=I2S_PAGE)).cast("I")
+    except (OSError, ValueError) as e:  # refused, or (a stand-in file) past its end
+        i2s_page, i2s_error = None, getattr(e, "errno", None) or 0
     os.close(fd)
     # one 4-byte load per register (as dspserver reads them), all ports in one C loop
     page = memoryview(m).cast("I")
     block = page[PIO:PIO + len(PORTS) * PW]
-    i2s_page = memoryview(mi).cast("I")
 
     def read():
         return block.tolist()
@@ -334,6 +345,9 @@ def main(once=False):
         ccu = clocks()
         say(t, "snapshot %s: clk %s audio_pll_locked=%d" % (why, " ".join(
             "%s=%x" % kv for kv in ccu.items()), ccu["pll_audio"] >> 28 & 1))
+        if i2s_page is None:
+            say(t, "snapshot %s: i2s unmapped (error %d)" % (why, i2s_error))
+            return
         first = i2s()
         time.sleep(0.01)
         again = i2s()
@@ -359,11 +373,16 @@ def main(once=False):
     # snapshots in their own thread: the pin loop only queues them, so it keeps reading at an edge
     jobs = queue.Queue()
 
+    scan_pending = threading.Event()  # at most one scan waiting: a hung sysfs read cannot pile them up
+
     def worker():
         while True:
             job = jobs.get()
             if job is None:
                 return
+            # while the worker runs, the interpreter lock changes hands every 0.5 ms (Python's default
+            # is 5 ms), so the pin loop waits at most that long; idle, the default costs nothing
+            sys.setswitchinterval(0.0005)
             try:
                 if job == "scan":
                     src.scan()  # a driver that came up after this unit: its files from now on
@@ -371,12 +390,13 @@ def main(once=False):
                     snapshot(*job)
             except Exception as e:  # a failed job must not end the thread
                 say(uptime(), "pinlog job failed: %s" % e)
+            finally:
+                if job == "scan":
+                    scan_pending.clear()
+                sys.setswitchinterval(0.005)
 
     snapper = threading.Thread(target=worker, daemon=True)
     snapper.start()
-    # the worker gives the GIL back every 0.5 ms (Python's default is 5 ms), so the pin loop waits at
-    # most that long for it while a snapshot runs
-    sys.setswitchinterval(0.0005)
     raw_last = last
     mask = plain_mask(last)
     last = masked(last, mask)
@@ -472,7 +492,9 @@ def main(once=False):
                 if dat & 2 and not dat_last & 2 and f1 == 1 and f1_last == 1:
                     queue_snapshot(t, raw, "PH1 high (codec setup done)")
             if t - t_scan >= (RESCAN_EARLY if t - t_start < EARLY else RESCAN_LATE):
-                jobs.put("scan")  # in the worker: globs and opens would hold up the pin reads
+                if not scan_pending.is_set():  # in the worker: globs and opens would hold up the pins
+                    scan_pending.set()
+                    jobs.put("scan")
                 t_scan = t
             if t - t_fast >= FAST:
                 now = dict(sys_last)
@@ -487,10 +509,10 @@ def main(once=False):
                 t_fast = t
             if t - t_alive >= ALIVE:
                 alive(t, "alive")
-                queue_snapshot(t, raw_last, "hourly", planned=True)
+                queue_snapshot(t, raw, "hourly", planned=True)  # this read, not the last changed one
             if not minute_done and t >= MINUTE_IN:
                 minute_done = True
-                queue_snapshot(t, raw_last, "a minute in", planned=True)
+                queue_snapshot(t, raw, "a minute in", planned=True)
             time.sleep(STEP)
     finally:
         # at a shutdown the journal's stream may already be gone: then the end lines are lost, quietly.
@@ -512,7 +534,7 @@ def main(once=False):
             flush_skipped(t)
             alive(t, "alive at the end")
             if not snapper.is_alive():
-                snapshot(t, raw_last, "at the end")
+                snapshot(t, read(), "at the end")
             line(t, codec(last), "last (%d changes)" % changes)
         except OSError:
             pass
