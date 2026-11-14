@@ -179,6 +179,31 @@ def pin(v, b, n):
             (v[b + 5 + n // 16] >> (2 * (n % 16))) & 3, (v[b + 7 + n // 16] >> (2 * (n % 16))) & 3)
 
 
+def changed_pins(old, new, b):
+    # the pins of the port at b whose function, data, drive or pull bits differ, from the XOR of each
+    # register: a toggling pin costs one pin's work, not 32 (the mixer has pins toggling 60-120 times a
+    # second, e.g. PA14/PA15 [device])
+    pins = set()
+    for k in range(4):  # CFG0-3: 4 bits per pin, 8 pins per word
+        x = old[b + k] ^ new[b + k]
+        while x:
+            low = (x & -x).bit_length() - 1
+            pins.add(k * 8 + low // 4)
+            x &= ~(0xF << (low // 4 * 4))
+    x = old[b + 4] ^ new[b + 4]  # DAT: 1 bit per pin
+    while x:
+        low = (x & -x).bit_length() - 1
+        pins.add(low)
+        x &= x - 1
+    for k in (5, 6, 7, 8):  # DRV0-1, PULL0-1: 2 bits per pin, 16 pins per word
+        x = old[b + k] ^ new[b + k]
+        while x:
+            low = (x & -x).bit_length() - 1
+            pins.add((k - 5) % 2 * 16 + low // 2)
+            x &= ~(0x3 << (low // 2 * 2))
+    return sorted(pins)
+
+
 def pin_changes(old, new):
     # [("PB3", "d1>0 ...")] for every pin change the codec line does not show
     out = []
@@ -186,7 +211,7 @@ def pin_changes(old, new):
         b = i * PW
         if old[b:b + PW] == new[b:b + PW]:
             continue
-        for n in range(32):
+        for n in changed_pins(old, new, b):
             o, w = pin(old, b, n), pin(new, b, n)
             if o == w:
                 continue
@@ -618,9 +643,26 @@ def main(once=False):
     cpu_alive = time.process_time()
     reads, gap_max = 0, 0.0
     minute_done = uptime() >= MINUTE_IN  # started later by hand: no "a minute in" snapshot
-    raw_last = last
+    raw_last = raw_prev = last
     mask = level_mask(last)
-    last = masked(last, mask)
+    # a pin whose data changes used up its lines for the window is left out of the comparison until
+    # the window ends ("muted"): a pin toggling 120 times a second would otherwise send nearly every
+    # read through the change handling, which cost ~25 % of one core on the mixer [device]. Its
+    # toggles are still counted, one bit test per read, for the window's "skipped" line
+    muted = [0] * len(PORTS)
+    muted_pins = []  # (port index, bit, "PA14")
+
+    def effective():
+        return [m & ~u for m, u in zip(mask, muted)]
+
+    mask_eff = effective()
+    last = masked(last, mask_eff)
+
+    def flush_main(t):
+        nonlocal muted, muted_pins, mask_eff
+        flush(budget, t)
+        muted, muted_pins = [0] * len(PORTS), []
+        mask_eff = effective()
 
     def alive(t, what):
         nonlocal t_alive, cpu_alive, reads, gap_max
@@ -644,14 +686,22 @@ def main(once=False):
         while not stopping.is_set():
             t = uptime()
             raw = read()
-            v = masked(raw, mask)
-            if v != last and cfgs(raw) != cfgs(raw_last):
-                mask = level_mask(raw)  # a pin's function changed: which data bits count, anew
-                v = masked(raw, mask)
             reads += 1
             gap_max = max(gap_max, t - t_prev)
             t_prev = t
-            budget.roll(t, lambda t: flush(budget, t))
+            if budget.win != int(t // WINDOW):
+                budget.roll(t, flush_main)  # unmutes: compare those pins from the previous read on
+                last = masked(raw_prev, mask_eff)
+            for i, bit, name in muted_pins:  # a muted pin's toggles, counted
+                if (raw[i * PW + 4] ^ raw_prev[i * PW + 4]) & bit:
+                    budget.skipped[name] = budget.skipped.get(name, 0) + 1
+                    counts["other"] += 1
+            raw_prev = raw
+            v = masked(raw, mask_eff)
+            if v != last and cfgs(raw) != cfgs(raw_last):
+                mask = level_mask(raw)  # a pin's function changed: which data bits count, anew
+                mask_eff = effective()
+                v = masked(raw, mask_eff)
             if v != last:
                 c, c_last = codec(v), codec(last)
                 if c != c_last:
@@ -664,8 +714,16 @@ def main(once=False):
                     counts["other"] += 1
                     if budget.take(name):
                         by_port.setdefault(name[1], []).append("%s %s" % (name, text))
+                    elif text.startswith("d") and " " not in text and name != "PH12":
+                        # only its level changed and its lines are used up: mute it for the window
+                        i, n = PORTS.index(name[1]), int(name[2:])
+                        if not muted[i] >> n & 1:
+                            muted[i] |= 1 << n
+                            muted_pins.append((i, 1 << n, name))
+                            mask_eff = effective()
                 for p in sorted(by_port):
                     say(t, "pins %s" % ", ".join(by_port[p]))
+                v = masked(raw, mask_eff)  # a pin muted just now: compare without it from here on
                 # edges only while the pin is set up as dspserver sets it: PH2 an input, PH1 an output
                 dat, dat_last = c[2], c_last[2]
                 f1, f1_last = c[0] >> 4 & 7, c_last[0] >> 4 & 7
