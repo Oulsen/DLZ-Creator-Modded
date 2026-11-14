@@ -14,14 +14,15 @@ bad() { echo "FAIL  $*"; fail=1; }
 
 MEM=$TMP/mem
 R=$TMP/root
-truncate -s $((0x01C20000 + 4096)) "$MEM"
+truncate -s $((0x01C22000 + 4096)) "$MEM"   # the CCU/PIO page and the I2S page
 # poke PORT REG VALUE...: write 32-bit words into a port's registers (REG 0-3 CFG, 4 DAT, 5-6 DRV, 7-8
-# PULL); with several values they are written one after the other, 10 ms apart
+# PULL); with several values they are written one after the other, 10 ms apart. PORT "@" takes REG as
+# a physical address (the CCU, the I2S registers)
 poke() {
   python3 - "$MEM" "$@" << 'EOF'
 import os, struct, sys, time
-mem, port, reg, vals = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4:]
-off = 0x01C20000 + 0x800 + "ABCDEFGHI".index(port) * 0x24 + reg * 4
+mem, port, reg, vals = sys.argv[1], sys.argv[2], int(sys.argv[3], 0), sys.argv[4:]
+off = reg if port == "@" else 0x01C20000 + 0x800 + "ABCDEFGHI".index(port) * 0x24 + reg * 4
 fd = os.open(mem, os.O_WRONLY)
 for i, v in enumerate(vals):
     if i:
@@ -55,19 +56,27 @@ irqs 3
 # its data bit high, PB3 an output, high
 poke H 0 0x011; poke H 4 0x5
 poke B 0 0x1200; poke B 4 0xC
+# the clocks: audio PLL on and locked; I2S0 clocked and out of reset with sample counters, I2S1 only
+# clocked (still in reset: must not be read), I2S2 off
+poke @ $((0x01C20008)) 0x90047F18
+poke @ $((0x01C20068)) 0x3000; poke @ $((0x01C202D0)) 0x1000
+poke @ $((0x01C22000)) 0x17; poke @ $((0x01C22028)) 0x1234; poke @ $((0x01C22400)) 0x99
 export DLZ_PINLOG_MEM=$MEM DLZ_PINLOG_ROOT=$R DLZ_PINLOG_WINDOW=3600
 run() { python3 "$SCRIPT" "$@"; }
 has() { grep -q -- "$1" "$TMP/out"; }
 
-# 1. --once: the codec line in its old format, then a snapshot of four lines
+# 1. --once: the codec line in its old format, then a snapshot of six lines
 run --once > "$TMP/out" 2>&1; rc=$?
 [ $rc -eq 0 ] && grep -Eq '^pinlog [0-9.]+ first PH0=1 PH1=0 PH2=1 PH12=0 \| f0=1 f1=1 f2=0 f12=0 \| p0=0 p1=0 p2=0 p12=0$' "$TMP/out" \
   && ok "--once: the codec line as before" || bad "--once: $(cat "$TMP/out")"
-[ "$(grep -c 'snapshot first: ' "$TMP/out")" = 4 ] && has "pio .*B=1200,0,0,0,c," \
+[ "$(grep -c 'snapshot first: ' "$TMP/out")" = 6 ] && has "pio .*B=1200,0,0,0,c," \
   && has "sys .*bl.brightness=541" && has "reg.dc5ldo.state=enabled" && has "drm.LVDS-1.dpms=On" \
   && has "irq 82:sunxi_pio_edge_22_Edge_gt911=99 92:sunxi-nmi_0_Level_axp22x_irq_chip=3" \
   && has "sensors temp.thermal_zone0=45000" \
   && ok "--once: snapshot of pins, screen, rails, interrupts, sensors" || bad "snapshot: $(cat "$TMP/out")"
+has "clk pll_cpu=0 pll_audio=90047f18 .*bus_gate2=3000 bus_rst3=1000 .*audio_pll_locked=1$" \
+  && has "i2s i2s0 ctl=17 .*txcnt=1234 rxcnt=0 tx+0 rx+0 in 10ms, i2s1=off, i2s2=off$" \
+  && ok "--once: clocks, and only the I2S that is clocked and out of reset" || bad "clk/i2s: $(grep -E 'clk|i2s' "$TMP/out")"
 
 # 2. the unit: run in the background, change things, stop it as systemd does
 python3 "$SCRIPT" > "$TMP/out" 2>&1 &  # python itself, so the TERM reaches it

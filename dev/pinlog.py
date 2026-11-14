@@ -23,8 +23,14 @@
 # shorter than that can fall between two reads. Every hour (and at the end) an "alive" line says how
 # many reads it made, their mean and longest gap, and the CPU time it used.
 #
-# Read-only: one page of /dev/mem mapped PROT_READ (reading the PIO registers has no side effects),
-# and reads of /sys and /proc. The PMIC is never addressed over I2C (its interrupt status clears on a
+# - in each snapshot also the clocks dspserver sets (CPU, DDR, GPU and audio PLLs, the I2S gates,
+#   resets and module clocks) and the registers of each I2S that is clocked and out of reset, with
+#   its sample counters read twice 10 ms apart: whether the processor still streams audio to the
+#   codecs in a silent start. One more snapshot a minute into the start.
+#
+# Read-only: two pages of /dev/mem mapped PROT_READ (the CCU and PIO page, and the I2S page; the
+# registers read have no side effects, the I2S FIFO registers are never read), and reads of /sys and
+# /proc. The PMIC is never addressed over I2C (its interrupt status clears on a
 # write). DLZ_PINLOG_MEM and DLZ_PINLOG_ROOT point it at a stand-in file and tree (tests/pinlog.sh).
 # Usage: dlzdev-pinlog            (the unit: until it is stopped)
 #        dlzdev-pinlog --once     (one reading and one snapshot, for dev/pinlog.sh on)
@@ -55,6 +61,19 @@ WINDOW = float(os.environ.get("DLZ_PINLOG_WINDOW", 60.0))  # the line budgets co
 BUDGET = dict({"codec": 60, "PH12": 10, "sys": 60, "snapshot": 10},
               **{"P" + p: 20 for p in PORTS})
 IRQ_WATCH = ("axp", "nmi", "pek")  # interrupt lines logged on change; all of them in a snapshot
+# the clock unit (CCU) shares the PIO's page: the PLLs dspserver sets at its start (CPU, DDR, GPU, and
+# the audio PLL it writes without waiting for the lock bit, bit 28), the I2S bus gates and resets
+# (bits 12-14 = I2S0-2) and the I2S module clocks; for snapshots only
+CCU = (("pll_cpu", 0x00), ("pll_audio", 0x08), ("pll_ddr0", 0x20), ("pll_gpu", 0x38),
+       ("bus_gate2", 0x68), ("bus_rst3", 0x2D0), ("i2s0_clk", 0xB0), ("i2s1_clk", 0xB4),
+       ("i2s2_clk", 0xB8))
+I2S_PAGE = 0x01C22000  # I2S0 at +0x000, I2S1 at +0x400, I2S2 at +0x800
+# readable without side effects: CTL, FMT0, FMT1, ISTA, FCTL, FSTA, INT, CLKD, TXCNT, RXCNT. Never
+# 0x10 (RXFIFO: a read takes a sample out) or 0x20 (TXFIFO). TXCNT/RXCNT count the samples moved, so
+# two reads 10 ms apart say whether that I2S is streaming
+I2S = (("ctl", 0x00), ("fmt0", 0x04), ("fmt1", 0x08), ("ista", 0x0C), ("fctl", 0x14), ("fsta", 0x18),
+       ("int", 0x1C), ("clkd", 0x24), ("txcnt", 0x28), ("rxcnt", 0x2C))
+MINUTE_IN = 60.0       # one more snapshot at this uptime, when a start has settled
 
 
 def uptime():
@@ -185,9 +204,25 @@ def sources():
 def main(once=False):
     fd = os.open(MEM, os.O_RDONLY | os.O_SYNC)
     m = mmap.mmap(fd, 4096, mmap.MAP_SHARED, mmap.PROT_READ, offset=PAGE)
+    mi = mmap.mmap(fd, 4096, mmap.MAP_SHARED, mmap.PROT_READ, offset=I2S_PAGE)
     os.close(fd)
     # one 4-byte load per register (as dspserver reads them), all ports in one C loop
-    block = memoryview(m).cast("I")[PIO:PIO + len(PORTS) * PW]
+    page = memoryview(m).cast("I")
+    block = page[PIO:PIO + len(PORTS) * PW]
+    i2s_page = memoryview(mi).cast("I")
+
+    def clocks():
+        return {name: page[off // 4] for name, off in CCU}
+
+    def i2s(ccu):
+        # only an I2S whose bus clock is on and whose reset is released: a block held in reset or
+        # without its clock is never touched
+        regs = {}
+        for n in range(3):
+            bit = 1 << (12 + n)
+            if ccu["bus_gate2"] & bit and ccu["bus_rst3"] & bit:
+                regs[n] = {name: i2s_page[(0x400 * n + off) // 4] for name, off in I2S}
+        return regs
 
     def read():
         return block.tolist()
@@ -211,6 +246,22 @@ def main(once=False):
         say(t, "snapshot %s: sys %s" % (why, " ".join("%s=%s" % kv for kv in sorted(sys_now.items()))))
         say(t, "snapshot %s: irq %s" % (why, " ".join("%s=%d" % kv for kv in interrupts().items())))
         say(t, "snapshot %s: sensors %s" % (why, " ".join("%s=%s" % kv for kv in sensors.read().items())))
+        ccu = clocks()
+        say(t, "snapshot %s: clk %s audio_pll_locked=%d" % (why, " ".join(
+            "%s=%x" % kv for kv in ccu.items()), ccu["pll_audio"] >> 28 & 1))
+        first = i2s(ccu)
+        time.sleep(0.01)
+        again = i2s(clocks())
+        parts = []
+        for n in range(3):
+            if n not in first or n not in again:
+                parts.append("i2s%d=off" % n)
+                continue
+            regs = " ".join("%s=%x" % kv for kv in first[n].items())
+            parts.append("i2s%d %s tx+%d rx+%d in 10ms" % (
+                n, regs, (again[n]["txcnt"] - first[n]["txcnt"]) & 0xFFFFFFFF,
+                (again[n]["rxcnt"] - first[n]["rxcnt"]) & 0xFFFFFFFF))
+        say(t, "snapshot %s: i2s %s" % (why, ", ".join(parts)))
 
     last = read()
     sys_last = dict(fast.read(), **slow.read(), **watched(interrupts()))
@@ -228,6 +279,7 @@ def main(once=False):
     t_prev = t_alive = t_fast = t_slow = uptime()
     cpu_alive = time.process_time()
     reads, gap_max = 0, 0.0
+    minute_done = uptime() >= MINUTE_IN  # started later by hand: no "a minute in" snapshot
 
     def alive(t, what):
         nonlocal t_alive, cpu_alive, reads, gap_max
@@ -313,6 +365,9 @@ def main(once=False):
             if t - t_alive >= ALIVE:
                 alive(t, "alive")
                 snapshot(t, last, sys_last, "hourly")
+            if not minute_done and t >= MINUTE_IN:
+                minute_done = True
+                snapshot(t, last, sys_last, "a minute in")
             time.sleep(STEP)
     finally:
         # at a shutdown the journal's stream may already be gone: then the end lines are lost, quietly
