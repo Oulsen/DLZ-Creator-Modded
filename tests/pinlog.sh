@@ -7,7 +7,8 @@ cd "$(dirname "$0")/.." || exit 2
 SCRIPT=$PWD/dev/pinlog.py
 TMP=$(mktemp -d)
 pid=
-trap 'kill $pid 2> /dev/null; rm -rf "$TMP"' EXIT
+busy=
+trap 'kill $pid $busy 2> /dev/null; rm -rf "$TMP"' EXIT
 fail=0
 ok() { echo "ok    $*"; }
 bad() { echo "FAIL  $*"; fail=1; }
@@ -59,6 +60,20 @@ put $B/thermal/thermal_zone1/temp 30000          # a zone on the PMIC's ADC: an 
 put $B/thermal/thermal_zone1/type axp221-adc
 put sys/bus/iio/devices/iio:device0/in_temp_raw 1234   # the PMIC's ADC: an I2C read, never taken
 irqs 3
+# the mixer's load (#8): core 0 half busy (cpustat() below), 512 MB available, two of Mackie's processes
+cpustat() {  # cpustat N: N steps of 100 jiffies on core 0 (50 busy), cores 1-3 idle
+  put proc/stat "cpu  0 0 0 0 0 0 0 0 0 0
+cpu0 $((50 * $1)) 0 0 $((50 * $1)) 0 0 0 0 0 0
+cpu1 0 0 0 $((100 * $1)) 0 0 0 0 0 0
+cpu2 0 0 0 $((100 * $1)) 0 0 0 0 0 0
+cpu3 $((100 * $1)) 0 0 0 0 0 0 0 0 0
+intr 0"
+}
+cpustat 1
+put proc/meminfo "MemTotal: 1000000 kB
+MemAvailable: 524288 kB"
+put proc/123/comm dspserver; put proc/123/status "VmRSS:	30720 kB"; printf 'dspserver\0' > "$R/proc/123/cmdline"
+put proc/124/comm node; put proc/124/status "VmRSS:	81920 kB"; printf 'node\0/srv/server.js\0' > "$R/proc/124/cmdline"
 
 # the start: PH0/PH1 outputs, PH2 input, PH0 and PH2 high; PB2 the backlight's PWM (function 2) with
 # its data bit high, PB3 an output, high
@@ -97,8 +112,10 @@ DLZ_PINLOG_MEM=$TMP/short run --once > "$TMP/out" 2>&1 && has "first PH0=1" && h
 # 2. the unit: run in the background, change things, stop it as systemd does. It starts as at
 # sysinit, before dspserver: PH2 not set up yet (function 7, data low)
 poke H 0 0x711; poke H 4 0x1
-python3 "$SCRIPT" > "$TMP/out" 2>&1 &  # python itself, so the TERM reaches it
+DLZ_PINLOG_LOAD=2 python3 "$SCRIPT" > "$TMP/out" 2>&1 &  # python itself, so the TERM reaches it
 pid=$!
+( for i in $(seq 2 40); do sleep 0.25; cpustat "$i"; done ) &  # core 0 keeps working, half the time
+busy=$!
 sleep 0.5
 poke H 4 0x5            # dspserver sets PH2 up: input with pull-up, so its data goes high...
 sleep 0.05
@@ -131,7 +148,7 @@ irqs 4
 sleep 0.8
 poke B 4 $(for i in $(seq 1 15); do echo 0x8 0x0; done)   # PB3 toggles 30 times
 sleep 4                 # past the first rescan (5 s)
-kill -TERM $pid; wait $pid 2> /dev/null; pid=
+kill -TERM $pid; wait $pid 2> /dev/null; pid=; kill $busy 2> /dev/null; wait $busy 2> /dev/null
 
 sed "/pins PB2 f2>1/q" "$TMP/out" | grep -q "pins PB2 d" && bad "PB2's PWM data bit was logged" || ok "a hardware-function pin's data bit is ignored"
 has "pins PB2 f2>1$" && ok "PWM to output: the function change, no made-up data edge" || bad "PB2: $(grep 'pins PB2' "$TMP/out")"
@@ -162,6 +179,9 @@ n=$(grep -c "PB3 d" "$TMP/out")
   && ok "a pin's own budget: 10 lines for PB3, the rest counted" || bad "budget: $n PB3 lines, $(grep skipped "$TMP/out")"
 has "alive at the end: " && has "snapshot at the end: sensors" && grep -Eq "last \([0-9]+ changes\) PH0=1 PH1=1 PH2=1" "$TMP/out" \
   && ok "the end lines at SIGTERM" || bad "end: $(tail -5 "$TMP/out")"
+grep -Eq "load cpu0 50% max 50%, cpu1 0% max 0%, cpu2 0% max 0%, MemAvailable 512 MB, RSS MB dspserver=30 node:server.js=80$" "$TMP/out" \
+  && ! grep -q "cpu3" "$TMP/out" && ok "the mixer's load: cores 0-2, memory, Mackie's processes (#8)" \
+  || bad "load: $(grep ' load ' "$TMP/out" | head -3)"
 grep -v "^pinlog " "$TMP/out" && bad "lines other than pinlog's (above)" || ok "nothing else written"
 grep "failed" "$TMP/out" && bad "a snapshot or rescan failed (above)" || ok "no job failed"
 

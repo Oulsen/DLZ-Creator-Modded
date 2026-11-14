@@ -14,6 +14,10 @@
 #   (AXP221, NMI, power key), every 500 ms each regulator's state, users and voltage: each change.
 #   Drivers that come up after this unit (it starts early) are picked up by a rescan, every 5 s in
 #   the first 2 minutes, then every minute;
+# - every minute a "load" line for #8 (memory and processor over long sessions): per core 0-2 the
+#   average busy share and the highest second (sampled every second; core 3 is dspserver's, which
+#   spins there, so it always reads ~99 %), MemAvailable and the memory (RSS, MB) of dspserver, the
+#   node processes, glesgui and faderlink; outside the line budgets;
 # - a full snapshot (all pin registers, all of the above read anew, every interrupt line's count, the
 #   SoC's temperatures, the clocks dspserver sets: CPU, DDR, GPU and audio PLLs, the I2S gates, resets
 #   and module clocks, and the registers of each I2S that is clocked and out of reset, with its sample
@@ -73,6 +77,8 @@ SLOW = 0.5           # regulators
 RESCAN_EARLY, RESCAN_LATE, EARLY = 5.0, 60.0, 120.0  # new screen/rail/sensor files: every 5 s for
 # the first 2 minutes of the unit (from ~11 s uptime), then every minute
 ALIVE = 3600.0       # seconds between "alive" lines (each with a snapshot)
+LOAD_SAMPLE = 1.0    # the mixer's load (#8): cores 0-2 sampled every second...
+LOAD_LINE = float(os.environ.get("DLZ_PINLOG_LOAD", 60.0))  # ...one line a minute (the test: sooner)
 MINUTE_IN = 60.0     # one more snapshot at this uptime, when a start has settled
 # the line budgets count per minute of uptime (fixed minutes, not a sliding one); the test makes the
 # window longer so it never crosses one
@@ -331,6 +337,85 @@ class Sources:
         return dict(self.fast_now(), **self.slow.read())
 
 
+class Load:
+    # the whole mixer's load for #8 (memory and processor over long sessions): cores 0-2 sampled every
+    # second from /proc/stat (core 3 left out: dspserver spins there while it waits, ~99 % always; its
+    # headroom is dev/dsp-headroom.sh's), and once a line period the average and the highest second
+    # per core, MemAvailable and the memory (RSS) of Mackie's processes. Outside the line budgets
+    CORES = ("cpu0", "cpu1", "cpu2")
+    PROCS = ("dspserver", "node", "glesgui", "faderlink")
+
+    def __init__(self):
+        self.prev = self.stat()
+        self.busy = {c: [] for c in self.CORES}
+
+    @staticmethod
+    def stat():
+        out = {}
+        try:
+            with open(ROOT + "/proc/stat") as f:
+                for row in f:
+                    f_ = row.split()
+                    if f_ and f_[0] in Load.CORES:
+                        n = [int(x) for x in f_[1:]]
+                        out[f_[0]] = (sum(n), n[3] + (n[4] if len(n) > 4 else 0))  # total, idle+iowait
+        except (OSError, ValueError):
+            pass
+        return out
+
+    def sample(self):
+        now = self.stat()
+        for c in self.CORES:
+            if c in now and c in self.prev:
+                total, idle = now[c][0] - self.prev[c][0], now[c][1] - self.prev[c][1]
+                if total > 0:
+                    self.busy[c].append(100.0 * (total - idle) / total)
+        self.prev = now
+
+    @staticmethod
+    def mem_available():
+        try:
+            with open(ROOT + "/proc/meminfo") as f:
+                for row in f:
+                    if row.startswith("MemAvailable:"):
+                        return "%d MB" % (int(row.split()[1]) // 1024)
+        except (OSError, ValueError):
+            pass
+        return "-"
+
+    @staticmethod
+    def rss():
+        # each of Mackie's processes by name; node's (evolve-node, evolve-app) by their script
+        out = []
+        for d in glob.glob(ROOT + "/proc/[0-9]*"):
+            try:
+                with open(d + "/comm") as f:
+                    comm = f.read().strip()
+                if comm not in Load.PROCS:
+                    continue
+                name = comm
+                if comm == "node":
+                    with open(d + "/cmdline", "rb") as f:
+                        args = [a for a in f.read().split(b"\0") if a]
+                    script = [a for a in args[1:] if not a.startswith(b"-")]
+                    name = "node:" + (os.path.basename(script[0].decode(errors="replace")) if script else "?")
+                with open(d + "/status") as f:
+                    kb = [int(r.split()[1]) for r in f if r.startswith("VmRSS:")]
+                if kb:
+                    out.append("%s=%d" % (name, kb[0] // 1024))
+            except (OSError, ValueError, IndexError):
+                continue  # gone in between, or a kernel thread
+        return " ".join(sorted(out)) or "-"
+
+    def line(self):
+        parts = []
+        for c in self.CORES:
+            b = self.busy[c]
+            parts.append("%s %.0f%% max %.0f%%" % (c, sum(b) / len(b), max(b)) if b else "%s -" % c)
+        self.busy = {c: [] for c in self.CORES}
+        return "load %s, MemAvailable %s, RSS MB %s" % (", ".join(parts), self.mem_available(), self.rss())
+
+
 def main(once=False):
     stopping = threading.Event()
     if not once:  # from the very start: a stop during the first snapshot still ends with the end lines
@@ -448,11 +533,18 @@ def main(once=False):
         budget = Budget({"sys": BUDGET["sys"]})
         cached = src.slow.read()
         sys_last = dict(src.fast_now(), **cached)
-        t_slow = t_scan = t_start = uptime()
+        t_slow = t_scan = t_start = t_sample = t_load = uptime()
+        load = Load()
         while not stopping.wait(FAST):
             try:
                 t = uptime()
                 with Busy():
+                    if t - t_sample >= LOAD_SAMPLE:
+                        load.sample()
+                        t_sample = t
+                    if t - t_load >= LOAD_LINE:
+                        say(t, load.line())
+                        t_load = t
                     if t - t_scan >= (RESCAN_EARLY if t - t_start < EARLY else RESCAN_LATE):
                         src.scan()  # a driver that came up after this unit: its files from now on
                         t_scan = t
