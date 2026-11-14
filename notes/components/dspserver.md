@@ -223,7 +223,7 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   logged around it (no kernel line, no power message); by glesgui's own clock its first frame
   came ~360 ms after the drop. Leads [guess]: the screen (the display driver may switch panel and
   backlight off and on when glesgui takes over, a current surge) and the power side (AXP221, whose
-  interrupt had fired 3 times by then). #293 widens the pin log to every pin, the screen and the
+  interrupt had fired 3 times in that session, when is not known). #293 widens the pin log to every pin, the screen and the
   power chip. **Stock has the symptom too** [user report, 2026-11-14]: an owner on build 1731
   without the mod had silent outputs with moving meters, standalone too, starting mid-session
   together with a USB disconnect on Windows, and a reboot did not bring it back. The USB audio chip
