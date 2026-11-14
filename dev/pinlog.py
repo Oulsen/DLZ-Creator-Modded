@@ -10,8 +10,9 @@
 #   hardware function (the backlight's PWM, a UART, I2S at MHz rates) toggles all the time, its data
 #   bit is masked; for the codec pins their drive, which the codec line does not carry. Budgets per
 #   pin, so a busy one (dspserver's bit-banged I2C on port I) cannot hide another (PI14);
-# - every 100 ms the screen (backlight, the display connectors) and the power chip's interrupt lines
-#   (AXP221, NMI, power key), every 500 ms each regulator's state, users and voltage: each change.
+# - every 100 ms the screen (backlight, the display connectors), every 500 ms the power chip's
+#   interrupt lines (AXP221, NMI, power key), every 5 s each regulator's state, users and voltage:
+#   each change.
 #   Drivers that come up after this unit (it starts early) are picked up by a rescan, every 5 s in
 #   the first 2 minutes, then every minute;
 # - every minute a "load" line for #8 (memory and processor over long sessions): per core 0-2 the
@@ -74,8 +75,11 @@ CODEC_PINS = (0, 1, 2, 12)                         # PH0-PH2 and PH12: the codec
 CODEC = (0x00000FFF, 0, 0x00000007, 0x0000003F)    # the bits of PH0-PH2 in each codec field
 LEVEL = (0, 1, 6)    # functions whose data bit is the pin's level: input, output, interrupt input
 STEP = 0.001         # asks for 1 ms; the 4 ms tick sets the real pace
-FAST = 0.1           # screen and interrupt lines
-SLOW = 0.5           # regulators
+# the poller's pace; its cost on the mixer was 3.6 % of one core with regulators every 0.5 s and the
+# interrupt table every 0.1 s [device], so the slower sources are read less often
+FAST = 0.1           # the screen (backlight, display connectors)
+IRQ = 0.5            # the power chip's interrupt lines (/proc/interrupts)
+SLOW = 5.0           # regulators (rarely change; the kernel also logs the ones it switches off)
 RESCAN_EARLY, RESCAN_LATE, EARLY = 5.0, 60.0, 120.0  # new screen/rail/sensor files: every 5 s for
 # the first 2 minutes of the unit (from ~11 s uptime), then every minute
 ALIVE = 3600.0       # seconds between "alive" lines (each with a snapshot)
@@ -597,8 +601,9 @@ def main(once=False):
     def poller():
         budget = Budget({"sys": BUDGET["sys"]})
         cached = src.slow.read()
-        sys_last = dict(src.fast_now(), **cached)
-        t_slow = t_scan = t_start = t_sample = t_load = uptime()
+        irq_cached = src.irqs.watched()
+        sys_last = dict(src.fast.read(), **irq_cached, **cached)
+        t_slow = t_irq = t_scan = t_start = t_sample = t_load = uptime()
         load = Load()
         while not stopping.wait(FAST):
             try:
@@ -617,7 +622,10 @@ def main(once=False):
                     if t - t_slow >= SLOW:
                         cached = src.slow.read()
                         t_slow = t
-                    now = dict(src.fast_now(), **cached)
+                    if t - t_irq >= IRQ:
+                        irq_cached = src.irqs.watched()
+                        t_irq = t
+                    now = dict(src.fast.read(), **irq_cached, **cached)
                 budget.roll(t, lambda t: flush(budget, t))
                 diff = [k for k in sorted(set(now) | set(sys_last)) if now.get(k) != sys_last.get(k)]
                 if diff:
@@ -664,6 +672,10 @@ def main(once=False):
         muted, muted_pins = [0] * len(PORTS), []
         mask_eff = effective()
 
+    def state(thread):
+        # at the end both are stopped on purpose; during the session a stopped one is a fault
+        return "running" if thread.is_alive() else "stopped" if stopping.is_set() else "GONE"
+
     def alive(t, what):
         nonlocal t_alive, cpu_alive, reads, gap_max
         span = t - t_alive
@@ -673,7 +685,7 @@ def main(once=False):
                " thread %s, poller %s"
                % (what, reads, span, span / reads * 1000 if reads else 0.0, gap_max * 1000, cpu,
                   cpu / span * 100 if span else 0.0, rss_mb(), counts["codec"], counts["other"],
-                  "running" if snapper.is_alive() else "GONE", "running" if poll.is_alive() else "GONE"))
+                  state(snapper), state(poll)))
         t_alive, cpu_alive, reads, gap_max = t, time.process_time(), 0, 0.0
 
     def queue_snapshot(t, v, why, planned=False):

@@ -194,7 +194,7 @@ grep -qF "irq.82" "$TMP/out" && bad "the touch interrupt logged on change" || ok
 n=$(grep -c "PB3 d" "$TMP/out")
 [ "$n" -eq 10 ] && grep -Eq "skipped [0-9]+ PB3 lines in the minute" "$TMP/out" && has "pins PB13 f0>1$" \
   && ok "a pin's own budget: 10 lines for PB3, the rest counted" || bad "budget: $n PB3 lines, $(grep skipped "$TMP/out")"
-has "alive at the end: " && has "snapshot at the end: sensors" && grep -Eq "last \([0-9]+ changes\) PH0=1 PH1=1 PH2=1" "$TMP/out" \
+has "alive at the end: .*snapshot thread stopped, poller stopped$" && has "snapshot at the end: sensors" && grep -Eq "last \([0-9]+ changes\) PH0=1 PH1=1 PH2=1" "$TMP/out" \
   && ok "the end lines at SIGTERM" || bad "end: $(tail -5 "$TMP/out")"
 grep -Eq "load cpu0 50% max 50%, cpu1 0% max 0%, cpu2 0% max 0%, MemAvailable 512 MB, RSS MB dspserver=30 node:server.js=80$" "$TMP/out" \
   && ! grep -q "cpu3" "$TMP/out" && ok "the mixer's load: cores 0-2, memory, Mackie's processes (#8)" \
