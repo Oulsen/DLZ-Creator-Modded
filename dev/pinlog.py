@@ -5,21 +5,27 @@
 # - the codec pins PH0-PH2 and PH12 (data, function, pull): the first state and every change, in the
 #   line format of #261/#287, so old and new logs compare line by line ("last (N changes)" still
 #   counts only these);
-# - every other GPIO pin of ports A-I: every change of its function, pull or drive, and of its data
-#   bit while it is a plain input or output (a pin running a hardware function, such as the backlight's
-#   PWM or a UART, toggles all the time; its data bit says nothing there); for the codec pins their
-#   drive, which the codec line does not carry;
+# - every other GPIO pin of ports A-I: every change of its function, pull or drive, and of its level
+#   while it is an input, an output or an interrupt input (functions 0, 1, 6); a pin running another
+#   hardware function (the backlight's PWM, a UART, I2S at MHz rates) toggles all the time, its data
+#   bit is masked; for the codec pins their drive, which the codec line does not carry. Budgets per
+#   pin, so a busy one (dspserver's bit-banged I2C on port I) cannot hide another (PI14);
 # - every 100 ms the screen (backlight, the display connectors) and the power chip's interrupt lines
 #   (AXP221, NMI, power key), every 500 ms each regulator's state, users and voltage: each change.
 #   Drivers that come up after this unit (it starts early) are picked up by a rescan, every 5 s in
 #   the first 2 minutes, then every minute;
 # - a full snapshot (all pin registers, all of the above read anew, every interrupt line's count, the
-#   temperatures, the clocks dspserver sets: CPU, DDR, GPU and audio PLLs, the I2S gates, resets and
-#   module clocks, and the registers of each I2S that is clocked and out of reset, with its sample
+#   SoC's temperatures, the clocks dspserver sets: CPU, DDR, GPU and audio PLLs, the I2S gates, resets
+#   and module clocks, and the registers of each I2S that is clocked and out of reset, with its sample
 #   counters read twice 10 ms apart: whether the processor still streams audio to the codecs) at the
 #   first read, when the codec setup ends (PH1 goes high), when PH2 goes low and high again, a minute
 #   into the start, every hour and at the end, so a silent start compares field by field with a start
-#   with sound. Snapshots run in their own thread, so the pin reads keep their pace at an edge.
+#   with sound.
+#
+# Three threads: the pin loop reads only the pin registers; a poller does the /sys and /proc reads
+# (a regulator read can wait for the PMIC's I2C) and the rescans; a worker does the snapshots. While
+# either of the two is busy the interpreter lock changes hands every 0.5 ms (Python's default is 5 ms),
+# so the pin loop waits at most that long for it.
 #
 # dspserver makes PH0/PH1 outputs and PH2 an input with pull-up, pulses PH0 and raises PH1 around the
 # codec setup at its start, and gates a later AKM re-setup on PH2 (notes/components/dspserver.md,
@@ -28,19 +34,17 @@
 # How often it reads: it sleeps 1 ms between reads, but this kernel wakes sleepers only on its 4 ms
 # tick (CONFIG_HZ=250 without high-resolution timers), so a pin read comes about every 4 ms; a pulse
 # shorter than that can fall between two reads. Every hour (and at the end) an "alive" line says how
-# many reads it made, their mean and longest gap, and the CPU time it used.
+# many reads it made, their mean and longest gap, the CPU time it used, and whether its threads run.
 #
-# Read-only: two pages of /dev/mem mapped PROT_READ (the CCU and PIO page, and the I2S page; the
-# registers read have no side effects, the I2S FIFO registers are never read), and reads of /sys and
-# /proc. The PMIC is never written and never addressed directly: no PMIC register, no IIO ADC
-# (axp20x_adc reads the AXP221 over I2C at every read), temperatures only from the thermal zones. The
-# regulator files are read through the kernel's driver, which keeps the AXP221's regulator registers
-# in its register cache after their first read [guess, regmap], so polling them reads the chip at most
-# once per register.
-#
-# Cost on the mixer: the data bits of pins running a hardware function are masked before comparing
-# (the I2S pins toggle at MHz rates), and the snapshot thread gives the interpreter lock back every
-# 0.5 ms, so neither holds up the 4 ms pin reads; the alive line shows the CPU used.
+# Read-only: two pages of /dev/mem mapped PROT_READ (the CCU and PIO page, and the I2S page, which is
+# optional), and reads of /sys and /proc. The I2S FIFO registers are never read (a read takes a
+# sample out). An I2S is read only when its bus gate and reset show it running, checked before and
+# after; dspserver changes them only at its own start and stop, so a read can at worst meet a block
+# that was just stopped (on this SoC such a read returns zeros [guess]) and is then dropped. The
+# PMIC is never written and never addressed directly: no PMIC register, no IIO ADC (axp20x_adc reads
+# the AXP221 over I2C at every read), temperatures only from the SoC's thermal zones. The regulator
+# files are read through the kernel's driver, which keeps the AXP221's regulator registers in its
+# register cache after their first read [guess, regmap].
 # DLZ_PINLOG_MEM and DLZ_PINLOG_ROOT point it at a stand-in file and tree (tests/pinlog.sh).
 # Usage: dlzdev-pinlog            (the unit: until it is stopped)
 #        dlzdev-pinlog --once     (one reading and one snapshot, for dev/pinlog.sh on)
@@ -62,6 +66,7 @@ PW = 9               # words per port (0x24 bytes): CFG0-3, DAT, DRV0-1, PULL0-1
 H = PORTS.index("H") * PW
 CODEC_PINS = (0, 1, 2, 12)                         # PH0-PH2 and PH12: the codec line's
 CODEC = (0x00000FFF, 0, 0x00000007, 0x0000003F)    # the bits of PH0-PH2 in each codec field
+LEVEL = (0, 1, 6)    # functions whose data bit is the pin's level: input, output, interrupt input
 STEP = 0.001         # asks for 1 ms; the 4 ms tick sets the real pace
 FAST = 0.1           # screen and interrupt lines
 SLOW = 0.5           # regulators
@@ -74,8 +79,8 @@ MINUTE_IN = 60.0     # one more snapshot at this uptime, when a start has settle
 WINDOW = float(os.environ.get("DLZ_PINLOG_WINDOW", 60.0))
 # change lines per window at most, more are counted in one summary line; separate budgets, so a busy
 # pin or rail can neither crowd out a PH0-PH2 change nor flood the card's syslog
-BUDGET = dict({"codec": 60, "PH12": 10, "sys": 60, "snapshot": 10},
-              **{"P" + p: 20 for p in PORTS})
+BUDGET = {"codec": 60, "PH12": 10, "sys": 60, "snapshot": 10}
+PIN_BUDGET = 10      # per other pin, e.g. "PI14"
 IRQ_WATCH = ("axp", "nmi", "pek")  # interrupt lines logged on change; all of them in a snapshot
 # the clock unit (CCU) shares the PIO's page: the PLLs dspserver sets at its start (CPU, DDR, GPU, and
 # the audio PLL it writes without waiting for the lock bit, bit 28), the I2S bus gates and resets
@@ -90,7 +95,7 @@ I2S_PAGE = 0x01C22000  # I2S0 at +0x000, I2S1 at +0x400, I2S2 at +0x800
 I2S = (("ctl", 0x00), ("fmt0", 0x04), ("fmt1", 0x08), ("ista", 0x0C), ("fctl", 0x14), ("fsta", 0x18),
        ("int", 0x1C), ("clkd", 0x24), ("txcnt", 0x28), ("rxcnt", 0x2C))
 
-PRINT = threading.Lock()  # the pin loop and the snapshot thread both write lines
+PRINT = threading.Lock()  # the three threads all write lines
 
 
 def uptime():
@@ -102,10 +107,6 @@ def say(t, text):
         print("pinlog %.3f %s" % (t, text), flush=True)
 
 
-def stop(signum, frame):
-    raise SystemExit(0)
-
-
 def rss_mb():
     try:
         with open("/proc/self/status") as f:
@@ -115,6 +116,48 @@ def rss_mb():
     except (OSError, ValueError):
         pass
     return -1.0
+
+
+class Busy:
+    # while a background thread works, the interpreter lock changes hands every 0.5 ms; idle, the
+    # default 5 ms (switching costs nothing then)
+    lock = threading.Lock()
+    n = 0
+
+    def __enter__(self):
+        with Busy.lock:
+            Busy.n += 1
+            sys.setswitchinterval(0.0005)
+
+    def __exit__(self, *exc):
+        with Busy.lock:
+            Busy.n -= 1
+            if not Busy.n:
+                sys.setswitchinterval(0.005)
+
+
+class Budget:
+    # lines per window per kind; more are counted and summed up in one line per kind at the window's end
+    def __init__(self, limits, default=None):
+        self.limits, self.default = limits, default
+        self.win = int(uptime() // WINDOW)
+        self.lines, self.skipped = {}, {}
+
+    def roll(self, t, flush):
+        if int(t // WINDOW) != self.win:
+            flush(t)
+            self.win = int(t // WINDOW)
+            self.lines, self.skipped = {}, {}
+
+    def take(self, kind):
+        if self.lines.get(kind, 0) < self.limits.get(kind, self.default):
+            self.lines[kind] = self.lines.get(kind, 0) + 1
+            return True
+        self.skipped[kind] = self.skipped.get(kind, 0) + 1
+        return False
+
+    def limit(self, kind):
+        return self.limits.get(kind, self.default)
 
 
 def codec(v):
@@ -129,13 +172,12 @@ def pin(v, b, n):
 
 
 def pin_changes(old, new):
-    # [(port letter, "PB3 d1>0 ...")] for every pin change the codec line does not show
+    # [("PB3", "d1>0 ...")] for every pin change the codec line does not show
     out = []
     for i, p in enumerate(PORTS):
         b = i * PW
         if old[b:b + PW] == new[b:b + PW]:
             continue
-        parts = []
         for n in range(32):
             o, w = pin(old, b, n), pin(new, b, n)
             if o == w:
@@ -145,15 +187,37 @@ def pin_changes(old, new):
             for k, name in enumerate("fdrp"):  # function, data, drive, pull
                 if o[k] == w[k] or (in_codec and k != 2):
                     continue  # a codec pin's function, data and pull are in the codec line
-                if k == 1 and (o[0] > 1 or w[0] > 1):
-                    continue  # a data bit counts only while the pin is a plain input (0) or output
-                    # (1) on both sides: across a function change the masked bit would invent an edge
+                if k == 1 and (o[0] not in LEVEL or w[0] not in LEVEL):
+                    continue  # a data bit counts only while it is the pin's level on both sides:
+                    # across a change to or from another function the masked bit would invent an edge
                 got.append("%s%d>%d" % (name, o[k], w[k]))
             if got:
-                parts.append("P%s%d %s" % (p, n, " ".join(got)))
-        if parts:
-            out.append((p, ", ".join(parts)))
+                out.append(("P%s%d" % (p, n), " ".join(got)))
     return out
+
+
+def level_mask(v):
+    # per port, the data bits that are a pin's level, and always the codec pins (their line shows the
+    # data whatever the function, as in #261/#287)
+    mask = []
+    for i, p in enumerate(PORTS):
+        b, bits = i * PW, 0
+        for n in range(32):
+            if pin(v, b, n)[0] in LEVEL or (p == "H" and n in CODEC_PINS):
+                bits |= 1 << n
+        mask.append(bits)
+    return mask
+
+
+def masked(v, mask):
+    out = list(v)
+    for i in range(len(PORTS)):
+        out[i * PW + 4] &= mask[i]
+    return out
+
+
+def cfgs(v):
+    return [v[i * PW + k] for i in range(len(PORTS)) for k in range(4)]
 
 
 def clean(name):
@@ -164,24 +228,18 @@ class Files:
     # sysfs attributes kept open and re-read with pread at offset 0 (sysfs makes the value anew)
     def __init__(self):
         self.fds = {}
-        self.paths = set()
 
-    def add(self, name, path, alt):
-        if path in self.paths:
-            return
+    def add(self, name, path):
         if name in self.fds:
-            name = "%s@%s" % (name, alt)  # two with one name (regulators): keep both apart
-            if name in self.fds:
-                return
+            return
         try:
             self.fds[name] = os.open(path, os.O_RDONLY)
-            self.paths.add(path)
         except OSError:
             pass
 
     def read(self):
         out = {}
-        for name, fd in list(self.fds.items()):  # a copy: the pin loop's rescan may add to it
+        for name, fd in list(self.fds.items()):  # a copy: the poller's rescan may add to it
             try:
                 out[name] = clean(os.pread(fd, 256, 0).decode(errors="replace"))
             except OSError as e:
@@ -233,16 +291,17 @@ class Interrupts:
 class Sources:
     def __init__(self):
         self.fast, self.slow, self.temps = Files(), Files(), Files()
+        self.irqs = Interrupts()
         self.known = {}  # regulator directory: its name
         self.scan()
 
     def scan(self):
         for d in sorted(glob.glob(ROOT + "/sys/class/backlight/*")):
             for a in ("brightness", "actual_brightness", "bl_power"):
-                self.fast.add("bl.%s.%s" % (os.path.basename(d), a), "%s/%s" % (d, a), "")
+                self.fast.add("bl.%s.%s" % (os.path.basename(d), a), "%s/%s" % (d, a))
         for d in sorted(glob.glob(ROOT + "/sys/class/drm/card*-*")):
             for a in ("status", "enabled", "dpms"):
-                self.fast.add("drm.%s.%s" % (os.path.basename(d), a), "%s/%s" % (d, a), "")
+                self.fast.add("drm.%s.%s" % (os.path.basename(d), a), "%s/%s" % (d, a))
         for d in sorted(glob.glob(ROOT + "/sys/class/regulator/regulator.*")):
             if d not in self.known:  # its name once; its files are looked for at every scan
                 try:
@@ -252,8 +311,9 @@ class Sources:
                     continue  # still being registered: the next scan
             for a in ("state", "num_users", "microvolts"):
                 if os.path.exists("%s/%s" % (d, a)):
-                    self.slow.add("reg.%s.%s" % (self.known[d], a), "%s/%s" % (d, a),
-                                  os.path.basename(d))
+                    # name and number: the same key in every start, two rails of one name apart
+                    self.slow.add("reg.%s@%s.%s" % (self.known[d], os.path.basename(d), a),
+                                  "%s/%s" % (d, a))
         for d in sorted(glob.glob(ROOT + "/sys/class/thermal/thermal_zone*")):
             # only the SoC's own sensors: a zone on an ADC (the PMIC's) would read it over I2C
             try:
@@ -262,21 +322,32 @@ class Sources:
             except OSError:
                 continue
             if not any(w in kind for w in ("axp", "adc", "iio", "pmic", "battery")):
-                self.temps.add("temp.%s.%s" % (os.path.basename(d), clean(kind)), d + "/temp", "")
+                self.temps.add("temp.%s.%s" % (os.path.basename(d), clean(kind)), d + "/temp")
+
+    def fast_now(self):
+        return dict(self.fast.read(), **self.irqs.watched())
+
+    def now(self):
+        return dict(self.fast_now(), **self.slow.read())
 
 
 def main(once=False):
+    stopping = threading.Event()
+    if not once:  # from the very start: a stop during the first snapshot still ends with the end lines
+        signal.signal(signal.SIGTERM, lambda signum, frame: stopping.set())
     fd = os.open(MEM, os.O_RDONLY | os.O_SYNC)
     m = mmap.mmap(fd, 4096, mmap.MAP_SHARED, mmap.PROT_READ, offset=PAGE)
     try:  # optional: without it the snapshots say so, and the pins are still logged
         i2s_page = memoryview(mmap.mmap(fd, 4096, mmap.MAP_SHARED, mmap.PROT_READ,
                                         offset=I2S_PAGE)).cast("I")
+        i2s_error = 0
     except (OSError, ValueError) as e:  # refused, or (a stand-in file) past its end
         i2s_page, i2s_error = None, getattr(e, "errno", None) or 0
     os.close(fd)
     # one 4-byte load per register (as dspserver reads them), all ports in one C loop
     page = memoryview(m).cast("I")
     block = page[PIO:PIO + len(PORTS) * PW]
+    gate, rst = dict(CCU)["bus_gate2"] // 4, dict(CCU)["bus_rst3"] // 4
 
     def read():
         return block.tolist()
@@ -285,11 +356,9 @@ def main(once=False):
         return {name: page[off // 4] for name, off in CCU}
 
     def i2s():
-        # only an I2S whose bus clock is on and whose reset is released, before and after the read
-        # (dspserver writes the CCU itself): a block in reset or without its clock is not read on
-        # purpose, and a read that raced such a change is dropped
+        # only an I2S whose bus clock is on and whose reset is released, before and after the read; a
+        # read that met a change in between is dropped
         regs = {}
-        gate, rst = dict(CCU)["bus_gate2"] // 4, dict(CCU)["bus_rst3"] // 4
         for n in range(3):
             bit = 1 << (12 + n)
             ccu = (page[gate], page[rst])
@@ -300,28 +369,6 @@ def main(once=False):
                 regs[n] = got
         return regs
 
-    def plain_mask(v):
-        # per port, the data bits of pins that are a plain input (0) or output (1), and always the
-        # codec pins (their line shows the data whatever the function, as in #261/#287): a pin running
-        # a hardware function (I2S at MHz rates) changes its data bit on nearly every read
-        mask = []
-        for i, p in enumerate(PORTS):
-            b, bits = i * PW, 0
-            for n in range(32):
-                if (v[b + n // 8] >> (4 * (n % 8))) & 7 <= 1 or (p == "H" and n in CODEC_PINS):
-                    bits |= 1 << n
-            mask.append(bits)
-        return mask
-
-    def cfgs(v):
-        return [v[i * PW + k] for i in range(len(PORTS)) for k in range(4)]
-
-    def masked(v, mask):
-        out = list(v)
-        for i in range(len(PORTS)):
-            out[i * PW + 4] &= mask[i]
-        return out
-
     def line(t, c, what):
         cfg0, cfg1, dat, pull = c
         cfg = cfg0 | cfg1 << 32  # one 4-bit field per pin, PH0 upwards
@@ -331,16 +378,14 @@ def main(once=False):
         say(t, "%s %s | %s | %s" % (what, pins, fn, pl))
 
     src = Sources()
-    irqs = Interrupts()
 
     def snapshot(t, v, why):
         # t and v: the moment and the pin read that caused it; everything else is read now
         say(t, "snapshot %s: pio %s" % (why, " ".join(
             "%s=%s" % (p, ",".join("%x" % w for w in v[i * PW:(i + 1) * PW])) for i, p in enumerate(PORTS))))
-        now = dict(src.fast.read(), **src.slow.read(), **irqs.watched())
         say(t, "snapshot %s: sys %s (read at %.3f)" % (
-            why, " ".join("%s=%s" % kv for kv in sorted(now.items())), uptime()))
-        say(t, "snapshot %s: irq %s" % (why, " ".join("%s=%d" % kv for kv in irqs.all().items())))
+            why, " ".join("%s=%s" % kv for kv in sorted(src.now().items())), uptime()))
+        say(t, "snapshot %s: irq %s" % (why, " ".join("%s=%d" % kv for kv in src.irqs.all().items())))
         say(t, "snapshot %s: sensors %s" % (why, " ".join("%s=%s" % kv for kv in src.temps.read().items())))
         ccu = clocks()
         say(t, "snapshot %s: clk %s audio_pll_locked=%d" % (why, " ".join(
@@ -363,125 +408,131 @@ def main(once=False):
         say(t, "snapshot %s: i2s %s" % (why, ", ".join(parts)))
 
     last = read()
-    sys_last = dict(src.fast.read(), **src.slow.read(), **irqs.watched())
     t = uptime()
     line(t, codec(last), "first")
     snapshot(t, last, "first")
     if once:
         return
 
-    # snapshots in their own thread: the pin loop only queues them, so it keeps reading at an edge
-    jobs = queue.Queue()
+    counts = {"codec": 0, "other": 0}  # codec-line changes (as in #261/#287), and every other change
 
-    scan_pending = threading.Event()  # at most one scan waiting: a hung sysfs read cannot pile them up
+    def flush(budget, t):
+        for kind, n in budget.skipped.items():
+            if kind in ("codec", "PH12"):
+                line(t, codec(last), "skipped %d %s changes in the minute from %d s (more than %d), now"
+                     % (n, kind, budget.win * WINDOW, budget.limit(kind)))
+            else:
+                say(t, "skipped %d %s lines in the minute from %d s (more than %d)"
+                    % (n, kind, budget.win * WINDOW, budget.limit(kind)))
+
+    # the snapshot worker: the pin loop only queues them, so it keeps reading at an edge
+    jobs = queue.Queue()
 
     def worker():
         while True:
             job = jobs.get()
             if job is None:
                 return
-            # while the worker runs, the interpreter lock changes hands every 0.5 ms (Python's default
-            # is 5 ms), so the pin loop waits at most that long; idle, the default costs nothing
-            sys.setswitchinterval(0.0005)
             try:
-                if job == "scan":
-                    src.scan()  # a driver that came up after this unit: its files from now on
-                else:
+                with Busy():
                     snapshot(*job)
-            except Exception as e:  # a failed job must not end the thread
-                say(uptime(), "pinlog job failed: %s" % e)
-            finally:
-                if job == "scan":
-                    scan_pending.clear()
-                sys.setswitchinterval(0.005)
+            except Exception as e:  # a failed snapshot must not end the thread
+                try:
+                    say(uptime(), "pinlog snapshot %s failed: %s" % (job[2], e))
+                except Exception:
+                    pass
+
+    # the poller: /sys and /proc every 100 ms (regulators every 500 ms) and the rescans, off the pin
+    # loop, since a regulator read can wait for the PMIC's I2C
+    def poller():
+        budget = Budget({"sys": BUDGET["sys"]})
+        cached = src.slow.read()
+        sys_last = dict(src.fast_now(), **cached)
+        t_slow = t_scan = t_start = uptime()
+        while not stopping.wait(FAST):
+            try:
+                t = uptime()
+                with Busy():
+                    if t - t_scan >= (RESCAN_EARLY if t - t_start < EARLY else RESCAN_LATE):
+                        src.scan()  # a driver that came up after this unit: its files from now on
+                        t_scan = t
+                    if t - t_slow >= SLOW:
+                        cached = src.slow.read()
+                        t_slow = t
+                    now = dict(src.fast_now(), **cached)
+                budget.roll(t, lambda t: flush(budget, t))
+                diff = [k for k in sorted(set(now) | set(sys_last)) if now.get(k) != sys_last.get(k)]
+                if diff:
+                    counts["other"] += 1
+                    if budget.take("sys"):
+                        say(t, "sys %s" % ", ".join(
+                            "%s %s>%s" % (k, sys_last.get(k, "-"), now.get(k, "-")) for k in diff))
+                sys_last = now
+            except Exception as e:  # keep polling; one line about it
+                try:
+                    say(uptime(), "pinlog poll failed: %s" % e)
+                except Exception:
+                    pass
+        flush(budget, uptime())
 
     snapper = threading.Thread(target=worker, daemon=True)
+    poll = threading.Thread(target=poller, daemon=True)
     snapper.start()
-    raw_last = last
-    mask = plain_mask(last)
-    last = masked(last, mask)
+    poll.start()
 
-    signal.signal(signal.SIGTERM, stop)  # systemd's stop at shutdown: still write the end lines
-    changes = other = 0  # codec-line changes (as in #261/#287), and every other change
-    win = int(uptime() // WINDOW)
-    lines = dict.fromkeys(BUDGET, 0)
-    skipped = dict.fromkeys(BUDGET, 0)
-    t_prev = t_alive = t_fast = t_slow = t_scan = t_start = uptime()
+    budget = Budget(BUDGET, PIN_BUDGET)
+    t_prev = t_alive = uptime()
     cpu_alive = time.process_time()
     reads, gap_max = 0, 0.0
     minute_done = uptime() >= MINUTE_IN  # started later by hand: no "a minute in" snapshot
+    raw_last = last
+    mask = level_mask(last)
+    last = masked(last, mask)
 
     def alive(t, what):
         nonlocal t_alive, cpu_alive, reads, gap_max
         span = t - t_alive
         cpu = time.process_time() - cpu_alive
         say(t, "%s: %d reads in %.0f s, mean gap %.1f ms, longest %.1f ms, CPU %.1f s"
-               " (%.2f %% of one core), %.1f MB in memory, %d changes so far, %d other"
+               " (%.2f %% of one core), %.1f MB in memory, %d changes so far, %d other, snapshot"
+               " thread %s, poller %s"
                % (what, reads, span, span / reads * 1000 if reads else 0.0, gap_max * 1000, cpu,
-                  cpu / span * 100 if span else 0.0, rss_mb(), changes, other))
+                  cpu / span * 100 if span else 0.0, rss_mb(), counts["codec"], counts["other"],
+                  "running" if snapper.is_alive() else "GONE", "running" if poll.is_alive() else "GONE"))
         t_alive, cpu_alive, reads, gap_max = t, time.process_time(), 0, 0.0
-
-    def budget(kind):
-        if lines[kind] < BUDGET[kind]:
-            lines[kind] += 1
-            return True
-        skipped[kind] += 1
-        return False
-
-    def flush_skipped(t):
-        # the codec line says the state the skipped changes ended in: the next reading compares to it
-        for kind, n in skipped.items():
-            if not n:
-                continue
-            if kind in ("codec", "PH12"):
-                line(t, codec(last), "skipped %d %s changes in the minute from %d s (more than %d), now"
-                     % (n, kind, win * WINDOW, BUDGET[kind]))
-            else:
-                say(t, "skipped %d %s lines in the minute from %d s (more than %d)"
-                    % (n, kind, win * WINDOW, BUDGET[kind]))
-
-    def sys_changes(t, now):
-        nonlocal sys_last
-        diff = [k for k in sorted(set(now) | set(sys_last)) if now.get(k) != sys_last.get(k)]
-        if diff and budget("sys"):
-            say(t, "sys %s" % ", ".join("%s %s>%s" % (k, sys_last.get(k, "-"), now.get(k, "-"))
-                                        for k in diff))
-        sys_last = now
-        return bool(diff)
 
     def queue_snapshot(t, v, why, planned=False):
         # the planned ones (a minute in, hourly) outside the edges' budget: a flapping pin cannot
         # take them away
-        if planned or budget("snapshot"):
+        if planned or budget.take("snapshot"):
             jobs.put((t, v, why))
 
     try:
-        while True:
+        while not stopping.is_set():
             t = uptime()
             raw = read()
             v = masked(raw, mask)
             if v != last and cfgs(raw) != cfgs(raw_last):
-                mask = plain_mask(raw)  # a pin's function changed: which data bits count, anew
+                mask = level_mask(raw)  # a pin's function changed: which data bits count, anew
                 v = masked(raw, mask)
             reads += 1
             gap_max = max(gap_max, t - t_prev)
             t_prev = t
-            if int(t // WINDOW) != win:
-                flush_skipped(t)
-                win = int(t // WINDOW)
-                lines = dict.fromkeys(BUDGET, 0)
-                skipped = dict.fromkeys(BUDGET, 0)
+            budget.roll(t, lambda t: flush(budget, t))
             if v != last:
                 c, c_last = codec(v), codec(last)
                 if c != c_last:
-                    changes += 1
+                    counts["codec"] += 1
                     kind = "codec" if any((a ^ b) & k for a, b, k in zip(c, c_last, CODEC)) else "PH12"
-                    if budget(kind):
+                    if budget.take(kind):
                         line(t, c, "change")
-                for p, text in pin_changes(last, v):
-                    other += 1
-                    if budget("P" + p):
-                        say(t, "pins %s" % text)
+                by_port = {}
+                for name, text in pin_changes(last, v):
+                    counts["other"] += 1
+                    if budget.take(name):
+                        by_port.setdefault(name[1], []).append("%s %s" % (name, text))
+                for p in sorted(by_port):
+                    say(t, "pins %s" % ", ".join(by_port[p]))
                 # edges only while the pin is set up as dspserver sets it: PH2 an input, PH1 an output
                 dat, dat_last = c[2], c_last[2]
                 f1, f1_last = c[0] >> 4 & 7, c_last[0] >> 4 & 7
@@ -491,22 +542,6 @@ def main(once=False):
                     queue_snapshot(t, raw, "PH2 low" if not dat & 4 else "PH2 high again")
                 if dat & 2 and not dat_last & 2 and f1 == 1 and f1_last == 1:
                     queue_snapshot(t, raw, "PH1 high (codec setup done)")
-            if t - t_scan >= (RESCAN_EARLY if t - t_start < EARLY else RESCAN_LATE):
-                if not scan_pending.is_set():  # in the worker: globs and opens would hold up the pins
-                    scan_pending.set()
-                    jobs.put("scan")
-                t_scan = t
-            if t - t_fast >= FAST:
-                now = dict(sys_last)
-                now.update(src.fast.read())
-                now = {k: x for k, x in now.items() if not k.startswith("irq.")}
-                now.update(irqs.watched())
-                if t - t_slow >= SLOW:
-                    now.update(src.slow.read())
-                    t_slow = t
-                if sys_changes(t, now):
-                    other += 1
-                t_fast = t
             if t - t_alive >= ALIVE:
                 alive(t, "alive")
                 queue_snapshot(t, raw, "hourly", planned=True)  # this read, not the last changed one
@@ -516,26 +551,28 @@ def main(once=False):
             time.sleep(STEP)
     finally:
         # at a shutdown the journal's stream may already be gone: then the end lines are lost, quietly.
-        # Jobs still waiting are dropped (and counted), the one running may finish, then the end lines
-        # come alone, never mixed with a snapshot's
+        # Snapshots still waiting are dropped (and counted), the one running may finish, the poller
+        # ends, then the end lines come alone, never mixed with a snapshot's
         try:
+            stopping.set()
             dropped = 0
             while True:
                 try:
-                    if jobs.get_nowait() != "scan":
-                        dropped += 1
+                    jobs.get_nowait()
+                    dropped += 1
                 except queue.Empty:
                     break
             jobs.put(None)
             snapper.join(5.0)
+            poll.join(5.0)
             t = uptime()
             if dropped:
                 say(t, "%d snapshots dropped at the end" % dropped)
-            flush_skipped(t)
+            flush(budget, t)
             alive(t, "alive at the end")
             if not snapper.is_alive():
                 snapshot(t, read(), "at the end")
-            line(t, codec(last), "last (%d changes)" % changes)
+            line(t, codec(last), "last (%d changes)" % counts["codec"])
         except OSError:
             pass
 
