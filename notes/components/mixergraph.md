@@ -88,7 +88,11 @@ headphone 1 and 2 mixes.
   the strip number and its `p.N.src` / `v.N.src` key, pick buffers (`usbIn[]`, NDI, line, media, Bluetooth). The mix-minus expressions test the same
   `src` values (`btMixMinus` on `p.1.src == 1`, `usbMixMinus`/`ndiMixMinus` on `v.N.src`), so more
   source choices mean updating those too. Only one NDI receiver, one media player and one Bluetooth
-  stream exist; two strips on the same source would get a copy. The media player's and NDI's
+  stream exist; two strips on the same source would get a copy. The NDI receiver is a graph node,
+  not fixed in dspserver: one `NDIInputStereo` per graph file, its source name bound to
+  `settings.ndi.source` (enabled while a strip has NDI as its source) [static], so more receivers
+  with their own source keys would be graph work; whether dspserver runs several side by side, and
+  at what processor cost and delay, is not known [guess] (#279). The media player's and NDI's
   buffers are cleared at the start of each cycle and filled by their blocks later in it (XS: after
   the pads, NDI also after the players; full-size: after the pads), so a strip earlier in the graph
   would read silence; the mod reads a copy of the cycle before there (#24). Both models have the same 7 stereo
