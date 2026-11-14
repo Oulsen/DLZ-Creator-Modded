@@ -3,16 +3,23 @@
 # it on the card, and writes to the journal (so the network log carries it), for the whole session:
 #
 # - the codec pins PH0-PH2 and PH12 (data, function, pull): the first state and every change, in the
-#   line format of #261/#287, so old and new logs compare line by line;
+#   line format of #261/#287, so old and new logs compare line by line ("last (N changes)" still
+#   counts only these);
 # - every other GPIO pin of ports A-I: every change of its function, pull or drive, and of its data
 #   bit while it is a plain input or output (a pin running a hardware function, such as the backlight's
-#   PWM or a UART, toggles all the time; its data bit says nothing there);
+#   PWM or a UART, toggles all the time; its data bit says nothing there); for the codec pins their
+#   drive, which the codec line does not carry;
 # - every 100 ms the screen (backlight, the display connectors) and the power chip's interrupt lines
-#   (AXP221, NMI, power key), every 500 ms each regulator's state, users and voltage: each change;
-# - a full snapshot (all pin registers, all of the above, every interrupt line's count, temperatures
-#   and the PMIC's ADC readings) at the first read, when the codec setup ends (PH1 goes high), when
-#   PH2 goes low and high again, every hour and at the end, so a silent start compares field by field
-#   with a start with sound.
+#   (AXP221, NMI, power key), every 500 ms each regulator's state, users and voltage: each change.
+#   Drivers that come up after this unit (it starts early) are picked up by a rescan, every 5 s in
+#   the first 2 minutes, then every minute;
+# - a full snapshot (all pin registers, all of the above read anew, every interrupt line's count, the
+#   temperatures, the clocks dspserver sets: CPU, DDR, GPU and audio PLLs, the I2S gates, resets and
+#   module clocks, and the registers of each I2S that is clocked and out of reset, with its sample
+#   counters read twice 10 ms apart: whether the processor still streams audio to the codecs) at the
+#   first read, when the codec setup ends (PH1 goes high), when PH2 goes low and high again, a minute
+#   into the start, every hour and at the end, so a silent start compares field by field with a start
+#   with sound. Snapshots run in their own thread, so the pin reads keep their pace at an edge.
 #
 # dspserver makes PH0/PH1 outputs and PH2 an input with pull-up, pulses PH0 and raises PH1 around the
 # codec setup at its start, and gates a later AKM re-setup on PH2 (notes/components/dspserver.md,
@@ -23,22 +30,20 @@
 # shorter than that can fall between two reads. Every hour (and at the end) an "alive" line says how
 # many reads it made, their mean and longest gap, and the CPU time it used.
 #
-# - in each snapshot also the clocks dspserver sets (CPU, DDR, GPU and audio PLLs, the I2S gates,
-#   resets and module clocks) and the registers of each I2S that is clocked and out of reset, with
-#   its sample counters read twice 10 ms apart: whether the processor still streams audio to the
-#   codecs in a silent start. One more snapshot a minute into the start.
-#
 # Read-only: two pages of /dev/mem mapped PROT_READ (the CCU and PIO page, and the I2S page; the
 # registers read have no side effects, the I2S FIFO registers are never read), and reads of /sys and
-# /proc. The PMIC is never addressed over I2C (its interrupt status clears on a
-# write). DLZ_PINLOG_MEM and DLZ_PINLOG_ROOT point it at a stand-in file and tree (tests/pinlog.sh).
+# /proc. Nothing that talks to the PMIC over I2C: no PMIC register, no IIO ADC reading (axp20x_adc
+# reads the AXP221 over I2C), temperatures only from the thermal zones.
+# DLZ_PINLOG_MEM and DLZ_PINLOG_ROOT point it at a stand-in file and tree (tests/pinlog.sh).
 # Usage: dlzdev-pinlog            (the unit: until it is stopped)
 #        dlzdev-pinlog --once     (one reading and one snapshot, for dev/pinlog.sh on)
 import glob
 import mmap
 import os
+import queue
 import signal
 import sys
+import threading
 import time
 
 MEM = os.environ.get("DLZ_PINLOG_MEM", "/dev/mem")
@@ -53,7 +58,10 @@ CODEC = (0x00000FFF, 0, 0x00000007, 0x0000003F)    # the bits of PH0-PH2 in each
 STEP = 0.001         # asks for 1 ms; the 4 ms tick sets the real pace
 FAST = 0.1           # screen and interrupt lines
 SLOW = 0.5           # regulators
+RESCAN_EARLY, RESCAN_LATE, EARLY = 5.0, 60.0, 120.0  # new screen/rail/sensor files: every 5 s for
+# the first 2 minutes of the unit (from ~11 s uptime), then every minute
 ALIVE = 3600.0       # seconds between "alive" lines (each with a snapshot)
+MINUTE_IN = 60.0     # one more snapshot at this uptime, when a start has settled
 WINDOW = float(os.environ.get("DLZ_PINLOG_WINDOW", 60.0))  # the line budgets count per minute of
 # uptime (fixed minutes, not a sliding one); the test makes it longer so it never crosses one
 # change lines per minute at most, more are counted in one summary line a minute; separate budgets,
@@ -73,11 +81,17 @@ I2S_PAGE = 0x01C22000  # I2S0 at +0x000, I2S1 at +0x400, I2S2 at +0x800
 # two reads 10 ms apart say whether that I2S is streaming
 I2S = (("ctl", 0x00), ("fmt0", 0x04), ("fmt1", 0x08), ("ista", 0x0C), ("fctl", 0x14), ("fsta", 0x18),
        ("int", 0x1C), ("clkd", 0x24), ("txcnt", 0x28), ("rxcnt", 0x2C))
-MINUTE_IN = 60.0       # one more snapshot at this uptime, when a start has settled
+
+PRINT = threading.Lock()  # the pin loop and the snapshot thread both write lines
 
 
 def uptime():
     return time.clock_gettime(time.CLOCK_BOOTTIME)
+
+
+def say(t, text):
+    with PRINT:
+        print("pinlog %.3f %s" % (t, text), flush=True)
 
 
 def stop(signum, frame):
@@ -107,7 +121,7 @@ def pin(v, b, n):
 
 
 def pin_changes(old, new):
-    # [(port letter, "PB3 d1>0 ...")] for every pin outside the codec line that changed
+    # [(port letter, "PB3 d1>0 ...")] for every pin change the codec line does not show
     out = []
     for i, p in enumerate(PORTS):
         b = i * PW
@@ -115,14 +129,15 @@ def pin_changes(old, new):
             continue
         parts = []
         for n in range(32):
-            if p == "H" and n in CODEC_PINS:
-                continue
             o, w = pin(old, b, n), pin(new, b, n)
             if o == w:
                 continue
+            in_codec = p == "H" and n in CODEC_PINS
             got = []
             for k, name in enumerate("fdrp"):  # function, data, drive, pull
-                if o[k] == w[k] or (k == 1 and o[0] == w[0] and o[0] > 1):
+                if o[k] == w[k] or (in_codec and k != 2):
+                    continue  # a codec pin's function, data and pull are in the codec line
+                if k == 1 and o[0] == w[0] and o[0] > 1:
                     continue  # a data bit counts only while the pin is a plain input (0) or output (1)
                 got.append("%s%d>%d" % (name, o[k], w[k]))
             if got:
@@ -132,73 +147,101 @@ def pin_changes(old, new):
     return out
 
 
+def clean(name):
+    return name.strip().replace(" ", "_").replace("=", "_") or "-"
+
+
 class Files:
     # sysfs attributes kept open and re-read with pread at offset 0 (sysfs makes the value anew)
     def __init__(self):
         self.fds = {}
+        self.paths = set()
 
-    def add(self, name, path):
+    def add(self, name, path, alt):
+        if path in self.paths:
+            return
+        if name in self.fds:
+            name = "%s@%s" % (name, alt)  # two with one name (regulators): keep both apart
+            if name in self.fds:
+                return
         try:
             self.fds[name] = os.open(path, os.O_RDONLY)
+            self.paths.add(path)
         except OSError:
             pass
 
     def read(self):
         out = {}
-        for name, fd in self.fds.items():
+        for name, fd in list(self.fds.items()):  # a copy: the pin loop's rescan may add to it
             try:
-                out[name] = os.pread(fd, 256, 0).decode(errors="replace").strip().replace(" ", "_") or "-"
+                out[name] = clean(os.pread(fd, 256, 0).decode(errors="replace"))
             except OSError as e:
                 out[name] = "err%d" % (e.errno or 0)
         return out
 
 
-def interrupts():
-    # {"92:axp22x_irq_chip": total count over all CPUs} for every line of /proc/interrupts
-    out = {}
-    try:
-        with open(ROOT + "/proc/interrupts") as f:
-            rows = f.read().splitlines()
-    except OSError:
-        return out
-    ncpu = len(rows[0].split()) if rows else 0
-    for row in rows[1:]:
-        f = row.split()
-        if not f or not f[0].endswith(":"):
-            continue
-        counts = [int(x) for x in f[1:1 + ncpu] if x.isdigit()]
-        name = f[0][:-1] + ":" + "_".join(f[1 + len(counts):])
-        out[name] = sum(counts)
-    return out
-
-
-def watched(irqs):
-    return {"irq." + k: str(n) for k, n in irqs.items() if any(w in k.lower() for w in IRQ_WATCH)}
-
-
-def sources():
-    fast, slow, sensors = Files(), Files(), Files()
-    for d in sorted(glob.glob(ROOT + "/sys/class/backlight/*")):
-        for a in ("brightness", "actual_brightness", "bl_power"):
-            fast.add("bl.%s" % a, "%s/%s" % (d, a))
-    for d in sorted(glob.glob(ROOT + "/sys/class/drm/card*-*")):
-        for a in ("status", "enabled", "dpms"):
-            fast.add("drm.%s.%s" % (os.path.basename(d).split("-", 1)[1], a), "%s/%s" % (d, a))
-    for d in sorted(glob.glob(ROOT + "/sys/class/regulator/regulator.*")):
+class Interrupts:
+    # /proc/interrupts kept open; the watched lines are picked out before any parsing
+    def __init__(self):
         try:
-            with open(d + "/name") as f:
-                name = f.read().strip()
+            self.fd = os.open(ROOT + "/proc/interrupts", os.O_RDONLY)
         except OSError:
-            name = os.path.basename(d)
-        for a in ("state", "num_users", "microvolts"):
-            if os.path.exists("%s/%s" % (d, a)):
-                slow.add("reg.%s.%s" % (name, a), "%s/%s" % (d, a))
-    for d in sorted(glob.glob(ROOT + "/sys/class/thermal/thermal_zone*")):
-        sensors.add("temp.%s" % os.path.basename(d), d + "/temp")
-    for d in sorted(glob.glob(ROOT + "/sys/bus/iio/devices/iio:device*")):
-        for a in sorted(glob.glob(d + "/in_*_raw")):
-            sensors.add("adc.%s.%s" % (os.path.basename(d), os.path.basename(a)), a)
-    return fast, slow, sensors
+            self.fd = None
+
+    def rows(self):
+        if self.fd is None:
+            return []
+        try:
+            return os.pread(self.fd, 65536, 0).decode(errors="replace").splitlines()
+        except OSError:
+            return []
+
+    @staticmethod
+    def parse(rows, ncpu):
+        out = {}
+        for row in rows:
+            f = row.split()
+            if not f or not f[0].endswith(":"):
+                continue
+            counts = [int(x) for x in f[1:1 + ncpu] if x.isdigit()]
+            out[f[0][:-1] + ":" + "_".join(f[1 + len(counts):])] = sum(counts)
+        return out
+
+    def all(self):
+        rows = self.rows()
+        return self.parse(rows[1:], len(rows[0].split()) if rows else 0)
+
+    def watched(self):
+        rows = self.rows()
+        if not rows:
+            return {}
+        picked = [r for r in rows[1:] if any(w in r.lower() for w in IRQ_WATCH)]
+        return {"irq." + k: str(n) for k, n in self.parse(picked, len(rows[0].split())).items()}
+
+
+class Sources:
+    def __init__(self):
+        self.fast, self.slow, self.temps = Files(), Files(), Files()
+        self.scan()
+
+    def scan(self):
+        for d in sorted(glob.glob(ROOT + "/sys/class/backlight/*")):
+            for a in ("brightness", "actual_brightness", "bl_power"):
+                self.fast.add("bl.%s.%s" % (os.path.basename(d), a), "%s/%s" % (d, a), "")
+        for d in sorted(glob.glob(ROOT + "/sys/class/drm/card*-*")):
+            for a in ("status", "enabled", "dpms"):
+                self.fast.add("drm.%s.%s" % (os.path.basename(d), a), "%s/%s" % (d, a), "")
+        for d in sorted(glob.glob(ROOT + "/sys/class/regulator/regulator.*")):
+            try:
+                with open(d + "/name") as f:
+                    name = clean(f.read())
+            except OSError:
+                name = os.path.basename(d)
+            for a in ("state", "num_users", "microvolts"):
+                if os.path.exists("%s/%s" % (d, a)):
+                    self.slow.add("reg.%s.%s" % (name, a), "%s/%s" % (d, a), os.path.basename(d))
+        for d in sorted(glob.glob(ROOT + "/sys/class/thermal/thermal_zone*")):
+            self.temps.add("temp.%s" % os.path.basename(d), d + "/temp", "")
 
 
 def main(once=False):
@@ -211,24 +254,26 @@ def main(once=False):
     block = page[PIO:PIO + len(PORTS) * PW]
     i2s_page = memoryview(mi).cast("I")
 
-    def clocks():
-        return {name: page[off // 4] for name, off in CCU}
-
-    def i2s(ccu):
-        # only an I2S whose bus clock is on and whose reset is released: a block held in reset or
-        # without its clock is never touched
-        regs = {}
-        for n in range(3):
-            bit = 1 << (12 + n)
-            if ccu["bus_gate2"] & bit and ccu["bus_rst3"] & bit:
-                regs[n] = {name: i2s_page[(0x400 * n + off) // 4] for name, off in I2S}
-        return regs
-
     def read():
         return block.tolist()
 
-    def say(t, text):
-        print("pinlog %.3f %s" % (t, text), flush=True)
+    def clocks():
+        return {name: page[off // 4] for name, off in CCU}
+
+    def i2s():
+        # only an I2S whose bus clock is on and whose reset is released, before and after the read
+        # (dspserver writes the CCU itself): a block in reset or without its clock is not read on
+        # purpose, and a read that raced such a change is dropped
+        regs = {}
+        for n in range(3):
+            bit = 1 << (12 + n)
+            ccu = (page[0x68 // 4], page[0x2D0 // 4])
+            if not ccu[0] & bit or not ccu[1] & bit:
+                continue
+            got = {name: i2s_page[(0x400 * n + off) // 4] for name, off in I2S}
+            if (page[0x68 // 4], page[0x2D0 // 4]) == ccu:
+                regs[n] = got
+        return regs
 
     def line(t, c, what):
         cfg0, cfg1, dat, pull = c
@@ -238,20 +283,24 @@ def main(once=False):
         pl = " ".join("p%d=%d" % (p, (pull >> (2 * p)) & 3) for p in CODEC_PINS)
         say(t, "%s %s | %s | %s" % (what, pins, fn, pl))
 
-    fast, slow, sensors = sources()
+    src = Sources()
+    irqs = Interrupts()
 
-    def snapshot(t, v, sys_now, why):
+    def snapshot(t, v, why):
+        # t and v: the moment and the pin read that caused it; everything else is read now
         say(t, "snapshot %s: pio %s" % (why, " ".join(
             "%s=%s" % (p, ",".join("%x" % w for w in v[i * PW:(i + 1) * PW])) for i, p in enumerate(PORTS))))
-        say(t, "snapshot %s: sys %s" % (why, " ".join("%s=%s" % kv for kv in sorted(sys_now.items()))))
-        say(t, "snapshot %s: irq %s" % (why, " ".join("%s=%d" % kv for kv in interrupts().items())))
-        say(t, "snapshot %s: sensors %s" % (why, " ".join("%s=%s" % kv for kv in sensors.read().items())))
+        now = dict(src.fast.read(), **src.slow.read(), **irqs.watched())
+        say(t, "snapshot %s: sys %s (read at %.3f)" % (
+            why, " ".join("%s=%s" % kv for kv in sorted(now.items())), uptime()))
+        say(t, "snapshot %s: irq %s" % (why, " ".join("%s=%d" % kv for kv in irqs.all().items())))
+        say(t, "snapshot %s: sensors %s" % (why, " ".join("%s=%s" % kv for kv in src.temps.read().items())))
         ccu = clocks()
         say(t, "snapshot %s: clk %s audio_pll_locked=%d" % (why, " ".join(
             "%s=%x" % kv for kv in ccu.items()), ccu["pll_audio"] >> 28 & 1))
-        first = i2s(ccu)
+        first = i2s()
         time.sleep(0.01)
-        again = i2s(clocks())
+        again = i2s()
         parts = []
         for n in range(3):
             if n not in first or n not in again:
@@ -264,19 +313,35 @@ def main(once=False):
         say(t, "snapshot %s: i2s %s" % (why, ", ".join(parts)))
 
     last = read()
-    sys_last = dict(fast.read(), **slow.read(), **watched(interrupts()))
+    sys_last = dict(src.fast.read(), **src.slow.read(), **irqs.watched())
     t = uptime()
     line(t, codec(last), "first")
-    snapshot(t, last, sys_last, "first")
+    snapshot(t, last, "first")
     if once:
         return
 
+    # snapshots in their own thread: the pin loop only queues them, so it keeps reading at an edge
+    jobs = queue.Queue()
+
+    def worker():
+        while True:
+            job = jobs.get()
+            if job is None:
+                return
+            try:
+                snapshot(*job)
+            except Exception as e:  # a failed snapshot must not end the thread
+                say(job[0], "snapshot %s failed: %s" % (job[2], e))
+
+    snapper = threading.Thread(target=worker, daemon=True)
+    snapper.start()
+
     signal.signal(signal.SIGTERM, stop)  # systemd's stop at shutdown: still write the end lines
-    changes = 0
+    changes = other = 0  # codec-line changes (as in #261/#287), and every other change
     win = int(uptime() // WINDOW)
     lines = dict.fromkeys(BUDGET, 0)
     skipped = dict.fromkeys(BUDGET, 0)
-    t_prev = t_alive = t_fast = t_slow = uptime()
+    t_prev = t_alive = t_fast = t_slow = t_scan = t_start = uptime()
     cpu_alive = time.process_time()
     reads, gap_max = 0, 0.0
     minute_done = uptime() >= MINUTE_IN  # started later by hand: no "a minute in" snapshot
@@ -286,9 +351,9 @@ def main(once=False):
         span = t - t_alive
         cpu = time.process_time() - cpu_alive
         say(t, "%s: %d reads in %.0f s, mean gap %.1f ms, longest %.1f ms, CPU %.1f s"
-               " (%.2f %% of one core), %.1f MB in memory, %d changes so far"
+               " (%.2f %% of one core), %.1f MB in memory, %d changes so far, %d other"
                % (what, reads, span, span / reads * 1000 if reads else 0.0, gap_max * 1000, cpu,
-                  cpu / span * 100 if span else 0.0, rss_mb(), changes))
+                  cpu / span * 100 if span else 0.0, rss_mb(), changes, other))
         t_alive, cpu_alive, reads, gap_max = t, time.process_time(), 0, 0.0
 
     def budget(kind):
@@ -319,6 +384,10 @@ def main(once=False):
         sys_last = now
         return bool(diff)
 
+    def queue_snapshot(t, v, why):
+        if budget("snapshot"):
+            jobs.put((t, v, why))
+
     try:
         while True:
             t = uptime()
@@ -339,43 +408,48 @@ def main(once=False):
                     if budget(kind):
                         line(t, c, "change")
                 for p, text in pin_changes(last, v):
-                    changes += 1
+                    other += 1
                     if budget("P" + p):
                         say(t, "pins %s" % text)
+                # edges only while the pin is set up as dspserver sets it: PH2 an input, PH1 an output
                 dat, dat_last = c[2], c_last[2]
-                why = None
-                if (dat ^ dat_last) & 4:
-                    why = "PH2 low" if not dat & 4 else "PH2 high again"
-                elif dat & 2 and not dat_last & 2:
-                    why = "PH1 high (codec setup done)"
+                f1, f1_last = c[0] >> 4 & 7, c_last[0] >> 4 & 7
+                f2, f2_last = c[0] >> 8 & 7, c_last[0] >> 8 & 7
                 last = v
-                if why and budget("snapshot"):
-                    snapshot(t, v, sys_last, why)
+                if (dat ^ dat_last) & 4 and f2 == 0 and f2_last == 0:
+                    queue_snapshot(t, v, "PH2 low" if not dat & 4 else "PH2 high again")
+                if dat & 2 and not dat_last & 2 and f1 == 1 and f1_last == 1:
+                    queue_snapshot(t, v, "PH1 high (codec setup done)")
+            if t - t_scan >= (RESCAN_EARLY if t - t_start < EARLY else RESCAN_LATE):
+                src.scan()  # a driver that came up after this unit: its files from now on
+                t_scan = t
             if t - t_fast >= FAST:
                 now = dict(sys_last)
-                now.update(fast.read())
+                now.update(src.fast.read())
                 now = {k: x for k, x in now.items() if not k.startswith("irq.")}
-                now.update(watched(interrupts()))
+                now.update(irqs.watched())
                 if t - t_slow >= SLOW:
-                    now.update(slow.read())
+                    now.update(src.slow.read())
                     t_slow = t
                 if sys_changes(t, now):
-                    changes += 1
+                    other += 1
                 t_fast = t
             if t - t_alive >= ALIVE:
                 alive(t, "alive")
-                snapshot(t, last, sys_last, "hourly")
+                queue_snapshot(t, last, "hourly")
             if not minute_done and t >= MINUTE_IN:
                 minute_done = True
-                snapshot(t, last, sys_last, "a minute in")
+                queue_snapshot(t, last, "a minute in")
             time.sleep(STEP)
     finally:
         # at a shutdown the journal's stream may already be gone: then the end lines are lost, quietly
         try:
+            jobs.put(None)
+            snapper.join(2.0)
             t = uptime()
             flush_skipped(t)
             alive(t, "alive at the end")
-            snapshot(t, last, sys_last, "at the end")
+            snapshot(t, last, "at the end")
             line(t, codec(last), "last (%d changes)" % changes)
         except OSError:
             pass

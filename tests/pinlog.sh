@@ -49,7 +49,12 @@ put $B/drm/card0-LVDS-1/dpms On
 put $B/regulator/regulator.7/name dc5ldo
 put $B/regulator/regulator.7/state enabled
 put $B/regulator/regulator.7/num_users 0
+put $B/regulator/regulator.8/name dc5ldo        # a second rail with the same name
+put $B/regulator/regulator.8/state enabled
+put $B/regulator/regulator.9/name "vcc 3v3"     # a name with a space
+put $B/regulator/regulator.9/state enabled
 put $B/thermal/thermal_zone0/temp 45000
+put sys/bus/iio/devices/iio:device0/in_temp_raw 1234   # the PMIC's ADC: an I2C read, never taken
 irqs 3
 
 # the start: PH0/PH1 outputs, PH2 input, PH0 and PH2 high; PB2 the backlight's PWM (function 2) with
@@ -70,18 +75,31 @@ run --once > "$TMP/out" 2>&1; rc=$?
 [ $rc -eq 0 ] && grep -Eq '^pinlog [0-9.]+ first PH0=1 PH1=0 PH2=1 PH12=0 \| f0=1 f1=1 f2=0 f12=0 \| p0=0 p1=0 p2=0 p12=0$' "$TMP/out" \
   && ok "--once: the codec line as before" || bad "--once: $(cat "$TMP/out")"
 [ "$(grep -c 'snapshot first: ' "$TMP/out")" = 6 ] && has "pio .*B=1200,0,0,0,c," \
-  && has "sys .*bl.brightness=541" && has "reg.dc5ldo.state=enabled" && has "drm.LVDS-1.dpms=On" \
+  && has "sys .*bl.backlight.brightness=541" && has "reg.dc5ldo.state=enabled" \
+  && has "drm.card0-LVDS-1.dpms=On" \
   && has "irq 82:sunxi_pio_edge_22_Edge_gt911=99 92:sunxi-nmi_0_Level_axp22x_irq_chip=3" \
-  && has "sensors temp.thermal_zone0=45000" \
+  && has "sensors temp.thermal_zone0=45000$" \
   && ok "--once: snapshot of pins, screen, rails, interrupts, sensors" || bad "snapshot: $(cat "$TMP/out")"
+has "reg.dc5ldo.state@regulator.8=enabled" && has "reg.vcc_3v3.state=enabled" \
+  && ok "--once: two rails of one name kept apart, a space in a name" || bad "names: $(grep 'snapshot first: sys' "$TMP/out")"
+grep -q "adc\.\|in_temp_raw" "$TMP/out" && bad "the PMIC's ADC was read" || ok "--once: no PMIC ADC (I2C) reading"
 has "clk pll_cpu=0 pll_audio=90047f18 .*bus_gate2=3000 bus_rst3=1000 .*audio_pll_locked=1$" \
   && has "i2s i2s0 ctl=17 .*txcnt=1234 rxcnt=0 tx+0 rx+0 in 10ms, i2s1=off, i2s2=off$" \
   && ok "--once: clocks, and only the I2S that is clocked and out of reset" || bad "clk/i2s: $(grep -E 'clk|i2s' "$TMP/out")"
 
-# 2. the unit: run in the background, change things, stop it as systemd does
+# 2. the unit: run in the background, change things, stop it as systemd does. It starts as at
+# sysinit, before dspserver: PH2 not set up yet (function 7, data low)
+poke H 0 0x711; poke H 4 0x1
 python3 "$SCRIPT" > "$TMP/out" 2>&1 &  # python itself, so the TERM reaches it
 pid=$!
 sleep 0.5
+poke H 4 0x5            # dspserver sets PH2 up: input with pull-up, so its data goes high...
+sleep 0.05
+poke H 0 0x011          # ...which is no "PH2 high again" edge
+sleep 0.1
+put $B/drm/card1-HDMI-A-1/status connected   # a display driver that comes up later
+poke H 5 0x1            # PH0's drive changes: not in the codec line, so a pins line
+sleep 0.2
 poke B 4 0x8            # PB2's data bit falls while it is the PWM: not a change
 sleep 0.2
 poke B 4 0x0            # PB3, an output, goes low
@@ -99,19 +117,28 @@ put $B/backlight/backlight/bl_power 4
 irqs 4
 sleep 0.8
 poke B 4 $(for i in $(seq 1 15); do echo 0x8 0x0; done)   # PB3 toggles 30 times
-sleep 0.3
+sleep 4                 # past the first rescan (5 s)
 kill -TERM $pid; wait $pid 2> /dev/null; pid=
 
 grep -q "pins PB2" "$TMP/out" && bad "PB2's PWM data bit was logged" || ok "a hardware-function pin's data bit is ignored"
 has "pins PB3 d1>0$" && ok "PB3 output going low" || bad "PB3: $(grep pins "$TMP/out" | head -3)"
 has "pins PB13 f0>1$" && ok "PB13 becoming an output" || bad "PB13: $(grep pins "$TMP/out" | head -3)"
-grep -q "pins PH" "$TMP/out" && bad "a codec pin also came as a pins line" || ok "codec pins only in the codec line"
+[ "$(grep -c "pins PH" "$TMP/out")" = 1 ] && has "pins PH0 r0>1$" \
+  && ok "codec pins: only their drive as a pins line" || bad "codec pins: $(grep 'pins PH' "$TMP/out")"
+[ "$(grep -c 'snapshot PH2 high again: pio' "$TMP/out")" = 1 ] \
+  && ok "PH2 being set up is no edge" || bad "set-up edge: $(grep 'snapshot PH2' "$TMP/out" | cut -c1-60)"
 has "change PH0=1 PH1=1 PH2=1 PH12=0" && has "snapshot PH1 high (codec setup done): pio" \
   && ok "PH1 high: codec line and snapshot" || bad "PH1: $(grep -E 'change|snapshot PH1' "$TMP/out")"
 has "change PH0=1 PH1=1 PH2=0 PH12=0" && has "snapshot PH2 low: sys" && has "snapshot PH2 high again: irq" \
   && ok "a 20 ms PH2 low: caught, snapshots at both edges" || bad "PH2: $(grep -E 'PH2' "$TMP/out" | head)"
+lo=$(grep "change PH0=1 PH1=1 PH2=0" "$TMP/out" | head -1 | cut -d' ' -f2)
+hi=$(grep "change PH0=1 PH1=1 PH2=1" "$TMP/out" | sed -n 2p | cut -d' ' -f2)
+awk -v a="$lo" -v b="$hi" 'BEGIN { exit !(b - a > 0.01 && b - a < 0.06) }' \
+  && ok "the PH2 low's width kept while its snapshot runs ($lo to $hi)" || bad "PH2 width: $lo to $hi"
 has "reg.dc5ldo.state enabled>disabled" && ok "a rail switched off" || bad "rail: $(grep ' sys ' "$TMP/out")"
-has "bl.bl_power 0>4" && ok "the backlight switched off" || bad "backlight: $(grep ' sys ' "$TMP/out")"
+has "bl.backlight.bl_power 0>4" && ok "the backlight switched off" || bad "backlight: $(grep ' sys ' "$TMP/out")"
+has "drm.card1-HDMI-A-1.status ->connected" && ok "a display driver that came later, found by the rescan" \
+  || bad "rescan: $(grep ' sys ' "$TMP/out")"
 has "irq.92:sunxi-nmi_0_Level_axp22x_irq_chip 3>4" && ok "a PMIC interrupt" || bad "irq: $(grep ' sys ' "$TMP/out")"
 grep -qF "irq.82" "$TMP/out" && bad "the touch interrupt logged on change" || ok "busy interrupt lines only in snapshots"
 n=$(grep -c "pins PB" "$TMP/out")
