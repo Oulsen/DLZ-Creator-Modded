@@ -48,10 +48,17 @@ fi
 
 echo "the SSH password from the mixer's screen (Settings, DLZ Creator Modded, Network):"
 # the key on stdin, the password only at ssh's own prompt (asked once); the line is added only when it
-# is not there, after a newline when the file's last line has none
+# is not there, after a newline when the file's last line has none. Only on a system started from the
+# microSD card (pinlog.sh's test): a mixer started without its card runs stock from the eMMC at the
+# same address, with root's password login, and the key must never land in the eMMC's /root (exit 3)
+rc=0
 printf '%s\n' "$PUB" | ssh "${SSHOPTS[@]}" -o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive \
   -o NumberOfPasswordPrompts=1 "root@$HOST" \
-  'umask 077; mkdir -p ~/.ssh; read -r k; f=~/.ssh/authorized_keys; touch "$f"; grep -qxF "$k" "$f" || { [ ! -s "$f" ] || [ -z "$(tail -c 1 "$f")" ] || echo >> "$f"; printf "%s\n" "$k" >> "$f"; }' \
-  || die "could not add the key: see ssh's message above (a wrong password, or SSH off on the mixer's screen)"
+  'src=$(findmnt -no SOURCE /); d=${src#/dev/}; d=${d%p[0-9]*}
+  [ "$(cat /sys/block/$d/device/type 2> /dev/null)" = SD ] || { echo "cardkey: / is $src, not on the SD card; nothing written" >&2; exit 3; }
+  umask 077; mkdir -p ~/.ssh; read -r k; f=~/.ssh/authorized_keys; touch "$f"; grep -qxF "$k" "$f" || { [ ! -s "$f" ] || [ -z "$(tail -c 1 "$f")" ] || echo >> "$f"; printf "%s\n" "$k" >> "$f"; }' \
+  || rc=$?
+[ "$rc" != 3 ] || die "the mixer at $HOST did not start from its microSD card (stock, from the eMMC?): nothing written; put the card in and start it again"
+[ "$rc" = 0 ] || die "could not add the key: see ssh's message above (a wrong password, or SSH off on the mixer's screen)"
 keylogin || die "the key was added, but a login with $KEY still fails"
 echo "cardkey: done, $KEY logs in; push.sh, netlog.sh and the mixer-ssh skill (dlz-ssh.sh forget, then key) work again"

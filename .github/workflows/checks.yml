@@ -1,4 +1,5 @@
-# The checks that need no mixer, no dump and no Mackie files: the server mod's unit tests, the build
+# The checks that need no mixer, no dump and no Mackie files: the server mod's unit tests, the mod's
+# hooks that patch.py puts into Mackie's code (tests/hooks.js), the build
 # tools' key guards (tests/guards.sh), the report of each start (tests/bootreport.sh), a dev card's
 # network log (tests/netlog.sh) and pin log (tests/pinlog.sh), the release notes (tests/release-notes.sh), the Discord message of a
 # release (tests/announce.sh), the updater
@@ -36,6 +37,10 @@ jobs:
 
       - name: App mod unit tests
         run: node install/app-mod/test-dlzmod.js
+
+      # a hook renamed in the mod passes every syntax check and only throws on the mixer
+      - name: The mod's hooks in Mackie's code exist in the mod
+        run: node tests/hooks.js
 
       - name: Guards of the UI sandbox
         run: node tests/ui-sandbox.js
