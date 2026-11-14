@@ -72,8 +72,10 @@ intr 0"
 cpustat 1
 put proc/meminfo "MemTotal: 1000000 kB
 MemAvailable: 524288 kB"
-put proc/123/comm dspserver; put proc/123/status "VmRSS:	30720 kB"; printf 'dspserver\0' > "$R/proc/123/cmdline"
-put proc/124/comm node; put proc/124/status "VmRSS:	81920 kB"; printf 'node\0/srv/server.js\0' > "$R/proc/124/cmdline"
+# as on the mixer: dspserver calls its main thread dspMainLoop, node is started as "node server.js"
+put proc/123/comm dspMainLoop; put proc/123/status "VmRSS:	30720 kB"
+printf '/usr/local/bin/dspserver\0' > "$R/proc/123/cmdline"
+put proc/124/comm node; put proc/124/status "VmRSS:	81920 kB"; printf '/usr/bin/node\0server.js\0' > "$R/proc/124/cmdline"
 
 # the start: PH0/PH1 outputs, PH2 input, PH0 and PH2 high; PB2 the backlight's PWM (function 2) with
 # its data bit high, PB3 an output, high

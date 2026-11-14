@@ -385,20 +385,20 @@ class Load:
 
     @staticmethod
     def rss():
-        # each of Mackie's processes by name; node's (evolve-node, evolve-app) by their script
+        # each of Mackie's processes by its program (not its thread name: dspserver calls its main
+        # thread dspMainLoop [device]); node's (evolve-node, evolve-app) by their script
         out = []
         for d in glob.glob(ROOT + "/proc/[0-9]*"):
             try:
-                with open(d + "/comm") as f:
-                    comm = f.read().strip()
-                if comm not in Load.PROCS:
+                with open(d + "/cmdline", "rb") as f:
+                    args = [a.decode(errors="replace") for a in f.read().split(b"\0") if a]
+                prog = os.path.basename(args[0]) if args else ""
+                if prog not in Load.PROCS:
                     continue
-                name = comm
-                if comm == "node":
-                    with open(d + "/cmdline", "rb") as f:
-                        args = [a for a in f.read().split(b"\0") if a]
-                    script = [a for a in args[1:] if not a.startswith(b"-")]
-                    name = "node:" + (os.path.basename(script[0].decode(errors="replace")) if script else "?")
+                name = prog
+                if prog == "node":
+                    script = [a for a in args[1:] if not a.startswith("-")]
+                    name = "node:" + (os.path.basename(script[0]) if script else "?")
                 with open(d + "/status") as f:
                     kb = [int(r.split()[1]) for r in f if r.startswith("VmRSS:")]
                 if kb:
