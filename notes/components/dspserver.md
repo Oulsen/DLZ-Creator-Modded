@@ -210,10 +210,25 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   happen at the same time in starts with sound too; nothing else was logged. Restarting dspserver
   (a full codec setup) did not bring the sound back (above), so PH2 is likely a sign of something
   else on the board dropping out (power, a reset on the analog side, the GD32) that the A40i cannot
-  set right again [guess]. One silent start: whether every silent start has the pulse, and only
-  those, needs more of them. That start's pin log read every 5-8 ms and stopped at 120 s; since #287
+  set right again [guess]. That start's pin log read every 5-8 ms and stopped at 120 s; since #287
   it runs the whole session and reads every ~4 ms (the kernel's tick), so a pulse later in a
   session is caught too, one shorter than ~4 ms can still fall between two reads.
+- **Two silent starts, the same drop** (#257) [device, XS dev card, 2026-11-14]: the second silent
+  start with the pin log looked the same: outputs silent, meters moving, a USB tone back on the
+  main-mix return at -29 dBFS; normal start log (one codec setup at 29.3 s, no I2C errors, no
+  drop of the link); **PH2 low for ~12 ms at 30.46 s**, ~1.2 s after the setup, before dspserver's
+  `Done.`; no PH2 low in the 52 min after it. The card's syslog holds 8 starts with the pin log:
+  PH2 low after the setup in both silent ones and in none of the 6 with sound (sound confirmed by
+  the user). So the drop marks a silent start; whether it causes it is open. Nothing else was
+  logged around it (no kernel line, no power message); by glesgui's own clock its first frame
+  came ~360 ms after the drop. Leads [guess]: the screen (the display driver may switch panel and
+  backlight off and on when glesgui takes over, a current surge) and the power side (AXP221, whose
+  interrupt had fired 3 times by then). #293 widens the pin log to every pin, the screen and the
+  power chip. **Stock has the symptom too** [user report, 2026-11-14]: an owner on build 1731
+  without the mod had silent outputs with moving meters, standalone too, starting mid-session
+  together with a USB disconnect on Windows, and a reboot did not bring it back. The USB audio chip
+  runs its own firmware ([hardware.md](../hardware.md)), so a USB drop at the same moment points
+  at a board-level event (supply or reset), not at software [guess].
 
 ## Audio loop and headroom
 
