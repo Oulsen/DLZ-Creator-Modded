@@ -71,11 +71,26 @@ intr 0"
 }
 cpustat 1
 put proc/meminfo "MemTotal: 1000000 kB
-MemAvailable: 524288 kB"
+MemFree: 102400 kB
+MemAvailable: 524288 kB
+Cached: 307200 kB
+Shmem: 20480 kB
+SUnreclaim: 10240 kB
+CmaFree: 8192 kB"
+put proc/vmstat "nr_free_pages 25600
+oom_kill 0"
 # as on the mixer: dspserver calls its main thread dspMainLoop, node is started as "node server.js"
-put proc/123/comm dspMainLoop; put proc/123/status "VmRSS:	30720 kB"
+put proc/123/comm dspMainLoop
+put proc/123/status "VmRSS:	30720 kB
+RssAnon:	10240 kB
+RssFile:	4096 kB
+RssShmem:	16384 kB"
 printf '/usr/local/bin/dspserver\0' > "$R/proc/123/cmdline"
-put proc/124/comm node; put proc/124/status "VmRSS:	81920 kB"; printf '/usr/bin/node\0server.js\0' > "$R/proc/124/cmdline"
+put proc/124/comm node; put proc/124/status "VmRSS:	81920 kB
+RssAnon:	71680 kB
+RssFile:	10240 kB
+RssShmem:	0 kB"
+printf '/usr/bin/node\0server.js\0' > "$R/proc/124/cmdline"
 
 # the start: PH0/PH1 outputs, PH2 input, PH0 and PH2 high; PB2 the backlight's PWM (function 2) with
 # its data bit high, PB3 an output, high
@@ -184,6 +199,8 @@ has "alive at the end: " && has "snapshot at the end: sensors" && grep -Eq "last
 grep -Eq "load cpu0 50% max 50%, cpu1 0% max 0%, cpu2 0% max 0%, MemAvailable 512 MB, RSS MB dspserver=30 node:server.js=80$" "$TMP/out" \
   && ! grep -q "cpu3" "$TMP/out" && ok "the mixer's load: cores 0-2, memory, Mackie's processes (#8)" \
   || bad "load: $(grep ' load ' "$TMP/out" | head -3)"
+has "mem MB MemFree 100, Cached 300, Shmem 20, SUnreclaim 10, CmaFree 8, oom_kill 0, anon/file/shmem MB dspserver=10/4/16 node:server.js=70/10/0$" \
+  && ok "the memory line: by kind, OOM kills, per process anon/file/shmem (#8)" || bad "mem: $(grep ' mem ' "$TMP/out" | head -2)"
 grep -v "^pinlog " "$TMP/out" && bad "lines other than pinlog's (above)" || ok "nothing else written"
 grep "failed" "$TMP/out" && bad "a snapshot or rescan failed (above)" || ok "no job failed"
 

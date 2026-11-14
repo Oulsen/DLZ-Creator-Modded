@@ -17,7 +17,9 @@
 # - every minute a "load" line for #8 (memory and processor over long sessions): per core 0-2 the
 #   average busy share and the highest second (sampled every second; core 3 is dspserver's, which
 #   spins there, so it always reads ~99 %), MemAvailable and the memory (RSS, MB) of dspserver, the
-#   node processes, glesgui and faderlink; outside the line budgets;
+#   node processes, glesgui and faderlink; then a "mem" line: MemFree, Cached, Shmem, SUnreclaim,
+#   CmaFree, swap, the kernel's OOM kills (/proc/vmstat oom_kill) and per process RssAnon (what it
+#   allocated itself: what grows in a leak), RssFile and RssShmem; both outside the line budgets;
 # - a full snapshot (all pin registers, all of the above read anew, every interrupt line's count, the
 #   SoC's temperatures, the clocks dspserver sets: CPU, DDR, GPU and audio PLLs, the I2S gates, resets
 #   and module clocks, and the registers of each I2S that is clocked and out of reset, with its sample
@@ -383,10 +385,41 @@ class Load:
             pass
         return "-"
 
+    MEMINFO = ("MemFree", "Cached", "Shmem", "SUnreclaim", "CmaFree", "SwapTotal", "SwapFree")
+
     @staticmethod
-    def rss():
-        # each of Mackie's processes by its program (not its thread name: dspserver calls its main
-        # thread dspMainLoop [device]); node's (evolve-node, evolve-app) by their script
+    def mem():
+        # the line after "load", for a leak over a long session: the system's memory by kind, the
+        # kernel's OOM kills, and per process what it allocated itself (RssAnon, what grows when it
+        # leaks), files it maps (RssFile) and shared memory (RssShmem), in MB
+        info = {}
+        try:
+            with open(ROOT + "/proc/meminfo") as f:
+                for row in f:
+                    k = row.split(":")[0]
+                    if k in Load.MEMINFO:
+                        info[k] = int(row.split()[1]) // 1024
+        except (OSError, ValueError, IndexError):
+            pass
+        oom = "-"
+        try:
+            with open(ROOT + "/proc/vmstat") as f:
+                for row in f:
+                    if row.startswith("oom_kill "):
+                        oom = row.split()[1]
+        except OSError:
+            pass
+        sysmem = ", ".join("%s %s" % (k, info[k]) for k in Load.MEMINFO if k in info) or "-"
+        procs = " ".join("%s=%s" % (name, "/".join(str(st.get(k, "-")) for k in
+                                                   ("RssAnon", "RssFile", "RssShmem")))
+                         for name, st in Load.procs())
+        return "mem MB %s, oom_kill %s, anon/file/shmem MB %s" % (sysmem, oom, procs or "-")
+
+    @staticmethod
+    def procs():
+        # [(name, {VmRSS, RssAnon, RssFile, RssShmem in MB})] of Mackie's processes, by their program
+        # (not their thread name: dspserver calls its main thread dspMainLoop [device]); node's
+        # (evolve-node, evolve-app) by their script
         out = []
         for d in glob.glob(ROOT + "/proc/[0-9]*"):
             try:
@@ -399,13 +432,20 @@ class Load:
                 if prog == "node":
                     script = [a for a in args[1:] if not a.startswith("-")]
                     name = "node:" + (os.path.basename(script[0]) if script else "?")
+                st = {}
                 with open(d + "/status") as f:
-                    kb = [int(r.split()[1]) for r in f if r.startswith("VmRSS:")]
-                if kb:
-                    out.append("%s=%d" % (name, kb[0] // 1024))
+                    for r in f:
+                        k = r.split(":")[0]
+                        if k in ("VmRSS", "RssAnon", "RssFile", "RssShmem"):
+                            st[k] = int(r.split()[1]) // 1024
+                out.append((name, st))
             except (OSError, ValueError, IndexError):
                 continue  # gone in between, or a kernel thread
-        return " ".join(sorted(out)) or "-"
+        return sorted(out)
+
+    @staticmethod
+    def rss():
+        return " ".join("%s=%d" % (name, st["VmRSS"]) for name, st in Load.procs() if "VmRSS" in st) or "-"
 
     def line(self):
         parts = []
@@ -544,6 +584,7 @@ def main(once=False):
                         t_sample = t
                     if t - t_load >= LOAD_LINE:
                         say(t, load.line())
+                        say(t, load.mem())
                         t_load = t
                     if t - t_scan >= (RESCAN_EARLY if t - t_start < EARLY else RESCAN_LATE):
                         src.scan()  # a driver that came up after this unit: its files from now on
