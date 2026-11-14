@@ -66,7 +66,7 @@ poke B 0 0x1200; poke B 4 0xC
 poke @ $((0x01C20008)) 0x90047F18
 poke @ $((0x01C20068)) 0x3000; poke @ $((0x01C202D0)) 0x1000
 poke @ $((0x01C22000)) 0x17; poke @ $((0x01C22028)) 0x1234; poke @ $((0x01C22400)) 0x99
-export DLZ_PINLOG_MEM=$MEM DLZ_PINLOG_ROOT=$R DLZ_PINLOG_WINDOW=3600
+export DLZ_PINLOG_MEM=$MEM DLZ_PINLOG_ROOT=$R DLZ_PINLOG_WINDOW=1e9   # one budget window for the whole test
 run() { python3 "$SCRIPT" "$@"; }
 has() { grep -q -- "$1" "$TMP/out"; }
 
@@ -108,9 +108,7 @@ poke B 1 0x00100000     # PB13 becomes an output
 sleep 0.2
 poke H 4 0x7            # PH1 high: the codec setup is done
 sleep 0.2
-poke H 4 0x3            # PH2 low for ~20 ms
-sleep 0.02
-poke H 4 0x7
+poke H 4 0x3 0x7        # PH2 low for 10 ms (one python, so its start does not stretch it)
 sleep 0.2
 put $B/regulator/regulator.7/state disabled
 put $B/backlight/backlight/bl_power 4
@@ -133,7 +131,7 @@ has "change PH0=1 PH1=1 PH2=0 PH12=0" && has "snapshot PH2 low: sys" && has "sna
   && ok "a 20 ms PH2 low: caught, snapshots at both edges" || bad "PH2: $(grep -E 'PH2' "$TMP/out" | head)"
 lo=$(grep "change PH0=1 PH1=1 PH2=0" "$TMP/out" | head -1 | cut -d' ' -f2)
 hi=$(grep "change PH0=1 PH1=1 PH2=1" "$TMP/out" | sed -n 2p | cut -d' ' -f2)
-awk -v a="$lo" -v b="$hi" 'BEGIN { exit !(b - a > 0.01 && b - a < 0.06) }' \
+awk -v a="$lo" -v b="$hi" 'BEGIN { exit !(b - a > 0.005 && b - a < 0.04) }' \
   && ok "the PH2 low's width kept while its snapshot runs ($lo to $hi)" || bad "PH2 width: $lo to $hi"
 has "reg.dc5ldo.state enabled>disabled" && ok "a rail switched off" || bad "rail: $(grep ' sys ' "$TMP/out")"
 has "bl.backlight.bl_power 0>4" && ok "the backlight switched off" || bad "backlight: $(grep ' sys ' "$TMP/out")"
