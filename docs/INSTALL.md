@@ -106,8 +106,8 @@ is working.
 ![A quiet step](images/install/08-build-quiet.png)
 
 **If nothing changes for 10 minutes**, switch off and start again from
-[step 1](#1-write-the-installer-to-the-card). (After 45 minutes the installer switches the mixer off
-by itself.)
+[step 1](#1-write-the-installer-to-the-card). (While it writes the card, the installer never
+switches the mixer off by itself: switching off is up to you.)
 
 ### Done
 
@@ -150,11 +150,10 @@ mixer has no other way to switch off; this is normal.
   and shows a small red dot on the cogwheel when a new version is out (only a request for the latest
   release goes to GitHub; turn it off with **Automatic Update Check** on the Mod page). The update installs while the logo shows (about 15 seconds), then a message
   says whether it worked (from v0.5.0 on with **What's New**: what changed in that version; the Mod page has it too). **Later** keeps it on the card; the question comes back at the next start,
-  and Settings → DLZ Creator Modded → **Mod** has an **Install Update...** button meanwhile. (An
-  update from v0.1.0 installs at the first start without asking: the question comes with the update.
-  A card installed with v0.1.0 keeps "v0.1.0" on its start-up screens after an update; the version
-  in Settings is the right one. From v0.2.0 on the start-up screens show no version; a v0.1.0 card
-  only gets the new start-up screens with a full install.)
+  and Settings → DLZ Creator Modded → **Mod** has an **Install Update...** button meanwhile.
+  **A card installed with v0.1.0 or v0.2.0 cannot take update files**: it refuses them and says it
+  needs a full install. Such a card needs one full install with a newer installer (below); from
+  v0.3.0 on, updates work.
   A release with only the installer image needs a full install (its notes say so): writing the
   installer to the card again erases the whole card, **recordings included**: copy them to your
   computer first.
@@ -173,9 +172,12 @@ What to do depends on the text under the red lines:
 | "Nothing was written to the mixer or the card (only the log)" | Stopped during the checks, for example an unsupported firmware or a card that is too small | Fix the cause it names, or switch off and take the card out: the mixer starts normally |
 | "This card cannot start anything yet, so the mixer starts normally even with it inserted" | Stopped while writing the card | Write the installer to the card again ([step 1](#1-write-the-installer-to-the-card)) and retry. If it stops again at the same point, try another card |
 | "Remove this card before switching on again" | Stopped at the very last step | **Take the card out before switching on.** Then write the installer to it again and retry |
+| "The backup on this card is not complete" | Stopped while saving a [backup for analysis](#other-firmware-backup-for-analysis) | Switch off. The installer on the card still works: switch on with it to try again, or take the card out and the mixer starts normally |
 
 The log is named at the bottom of the screen: `DLZDATA/dlzmod-logs/install-1-vX.Y.Z.txt`, or
-`DLZLOG/dlzmod-logs/install-1-vX.Y.Z.txt` when it stopped before DLZDATA was made. Next to it the installer
+`DLZLOG/dlzmod-logs/install-1-vX.Y.Z.txt` when it stopped before DLZDATA was made. When it stopped
+during the checks, the name is only `dlzmod-logs/install-1-vX.Y.Z.txt`: it is on the installer
+card's own drive, `DLZINSTALL`. Next to it the installer
 saves a picture of its last screen, `screen-1.png`. Put the card in your computer to read them (and
 **never click Format**). Only when the bottom of the screen says "Log: not saved" is there no log and
 no picture: then take a photo of the screen.

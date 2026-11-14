@@ -13,7 +13,8 @@ Pick a template (bug, feature, help with an install) and fill it in. What helps 
 - What you did, what you expected and what happened instead; a photo of the screen if it shows
   something
 - The log files from the card's `dlzmod-logs/` folder (the card's part named `DLZDATA`, or `DLZLOG`
-  after a stopped install)
+  after a stopped install, or the installer card's own drive `DLZINSTALL` when it stopped during the
+  checks)
 
 **Never post** the backup (`dlzmod-backup/`), dumps, Mackie files, Wi-Fi passwords or keys. The backup
 holds your mixer's settings, including the lock PIN.
