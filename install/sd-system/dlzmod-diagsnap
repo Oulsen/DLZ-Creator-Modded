@@ -1,0 +1,81 @@
+#!/bin/sh
+# Diagnostic Logging (#302, Mod tab): one snapshot of the system as it is now, on stdout. Run by
+# dlzmod-bootlog while Diagnostic Logging is on, once this start's report is in the log (~2 min in),
+# and appended to the copy of the last starts' syslog that goes to DLZDATA/dlzmod-logs/: what the
+# syslog does not say by itself (the sound cards and their streams, the USB side, every unit's
+# state, clocks, regulators and pins as the kernel sees them, memory, load). The pin log
+# (dlzmod-pinlog) is in the syslog part.
+# Read-only: reads of /proc, /sys and debugfs, and commands that only report. Nothing that probes a
+# bus (no i2cdetect: a probe writes), no network settings or names (Wi-Fi), no secrets. Each
+# command limited to 10 s, so a hanging driver cannot hold up the copy.
+set -u
+DIAG=${DLZMOD_DIAG_ROOT:-}
+
+sec() { echo; echo "----- $* -----"; }
+# a command, at most 10 s; its errors in the output too
+cmd() { timeout 10 "$@" 2>&1 || echo "(exit $?)"; }
+# files, each with its name, at most 10 s each; missing ones left out
+files() {
+  for f in "$@"; do
+    [ -r "$f" ] || continue
+    echo "== $f"
+    timeout 10 cat "$f" 2>&1 || echo "(exit $?)"
+  done
+}
+
+echo "dlzmod-diagsnap: $(date -u '+%Y-%m-%d %H:%M:%S UTC'), up $(cut -d' ' -f1 "$DIAG/proc/uptime") s"
+
+sec "mixer and mod"
+[ -e "$DIAG/root/.dlzlite" ] && echo "model: XS (/root/.dlzlite)" || echo "model: full-size (no /root/.dlzlite)"
+files "$DIAG/var/lib/dlzmod-update/version" "$DIAG/proc/version" "$DIAG/proc/cmdline"
+cmd uname -a
+
+sec "units"
+cmd systemctl --failed --no-pager --no-legend
+cmd systemctl list-units --type=service --all --no-pager --no-legend
+for u in flash-gd32 flash-fpga faderlink dspserver evolve-node evolve-app; do
+  cmd systemctl show "$u" -p ActiveState -p SubState -p NRestarts -p ExecMainStartTimestampMonotonic -p ExecMainStatus
+done
+cmd systemd-analyze time
+cmd systemd-analyze blame --no-pager
+
+sec "sound cards"
+files "$DIAG/proc/asound/version" "$DIAG/proc/asound/cards" "$DIAG/proc/asound/devices" "$DIAG/proc/asound/pcm"
+for f in "$DIAG"/proc/asound/card*/pcm*/sub*/status "$DIAG"/proc/asound/card*/pcm*/sub*/hw_params \
+  "$DIAG"/proc/asound/card*/pcm*/sub*/sw_params "$DIAG"/proc/asound/card*/stream* "$DIAG"/proc/asound/card*/codec*; do
+  files "$f"
+done
+cmd ls -l "$DIAG/dev/snd"
+
+sec "USB"
+cmd lsusb
+cmd lsusb -t
+for d in "$DIAG"/sys/class/udc/*; do
+  [ -d "$d" ] || continue
+  echo "== $d"
+  for a in state current_speed maximum_speed function; do
+    [ -r "$d/$a" ] && echo "$a: $(cat "$d/$a" 2> /dev/null)"
+  done
+done
+
+sec "clocks, regulators, pins (debugfs)"
+files "$DIAG/sys/kernel/debug/clk/clk_summary" "$DIAG/sys/kernel/debug/regulator/regulator_summary"
+for f in "$DIAG"/sys/kernel/debug/pinctrl/*/pinmux-pins "$DIAG"/sys/kernel/debug/pinctrl/*/pinconf-pins \
+  "$DIAG"/sys/kernel/debug/gpio; do
+  files "$f"
+done
+
+sec "temperatures"
+for z in "$DIAG"/sys/class/thermal/thermal_zone*; do
+  [ -r "$z/temp" ] && echo "${z##*/} $(cat "$z/type" 2> /dev/null): $(cat "$z/temp" 2> /dev/null)"
+done
+
+sec "memory, load, processes"
+files "$DIAG/proc/loadavg" "$DIAG/proc/meminfo" "$DIAG/proc/pressure/cpu" "$DIAG/proc/pressure/memory" "$DIAG/proc/pressure/io"
+cmd df -h
+cmd top -b -n 1 -w 200
+files "$DIAG/proc/interrupts" "$DIAG/proc/softirqs" "$DIAG/proc/modules"
+
+sec "storage"
+cmd findmnt -n -o TARGET,SOURCE,FSTYPE,OPTIONS
+files "$DIAG/proc/diskstats"

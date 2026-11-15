@@ -176,6 +176,8 @@ BL=$PWD/install/sd-system/dlzmod-bootlog
   done
 } > "$TMP/syslog"
 mkdir -p "$TMP/run"
+# Diagnostic Logging off (#302): its marker never this machine's /var/lib
+export DLZMOD_DIAG_FILE=$TMP/no-diag-on
 DLZMOD_BOOTLOG_DIR=$TMP/run DLZMOD_BOOTLOG_SYSLOG=$TMP/syslog sh "$BL" > "$TMP/bootlog.out" 2>&1 || bad "bootlog: exit $?"
 o=$TMP/run/syslog-last-boots.txt
 [ "$(grep '^=====' "$o" | head -1)" = "===== boot 1 of 4 (oldest first) =====" ] && [ "$(grep -c '^=====' "$o")" = 4 ] \
@@ -193,5 +195,48 @@ DLZMOD_BOOTLOG_DIR=$TMP/run DLZMOD_BOOTLOG_SYSLOG=$TMP/syslog sh "$BL" > "$TMP/b
 cmp -s "$o" "$TMP/last.txt" && [ "$(ls "$TMP/run")" = syslog-last-boots.txt ] && ok "bootlog: no SD start, the last file kept" \
   || bad "bootlog none: $(ls "$TMP/run"), $(wc -c < "$o") bytes"
 grep -q "no start of the SD system" "$TMP/bootlog.out" && ok "bootlog: says so" || bad "bootlog none: $(cat "$TMP/bootlog.out")"
+grep -q diagnostics "$o" && bad "bootlog: a snapshot while Diagnostic Logging is off" || ok "bootlog: no snapshot while it is off"
+
+# 7. Diagnostic Logging on (#302): the same starts, then the snapshot (dlzmod-diagsnap) at the end
+{
+  for i in 1 2; do
+    echo "Oct 2 host kernel: Booting Linux on physical CPU 0x0"
+    echo "Oct 2 host dlzmod-grow-data[1]: dlzmod-grow-data: DLZDATA set up before"
+    echo "Oct 2 host dlzmod-pinlog[9]: pinlog 31.2 change PH2 0"
+  done
+} > "$TMP/syslog"
+: > "$TMP/diag-on"
+printf '#!/bin/sh\necho "the snapshot"\n' > "$TMP/snap"
+DLZMOD_DIAG_FILE=$TMP/diag-on DLZMOD_DIAGSNAP=$TMP/snap DLZMOD_BOOTLOG_DIR=$TMP/run DLZMOD_BOOTLOG_SYSLOG=$TMP/syslog \
+  sh "$BL" > "$TMP/bootlog.out" 2>&1 || bad "bootlog diag: exit $?"
+[ "$(grep '^=====' "$o" | tr '\n' '|')" = "===== boot 1 of 2 (oldest first) =====|===== boot 2 of 2 (oldest first) =====|===== diagnostics: Diagnostic Logging is on (dlzmod-diagsnap) =====|" ] \
+  && [ "$(tail -n 1 "$o")" = "the snapshot" ] && ok "bootlog diag: the starts, then the snapshot" || bad "bootlog diag: $(grep '^=====' "$o"; tail -n 2 "$o")"
+[ "$(grep -c 'pinlog 31.2' "$o")" = 2 ] && ok "bootlog diag: the pin log's lines in the starts" || bad "bootlog diag: pin log lines"
+grep -q "diagnostics snapshot added" "$TMP/bootlog.out" && ok "bootlog diag: says so" || bad "bootlog diag: $(cat "$TMP/bootlog.out")"
+grep -q 'SIZE=8000000' "$BL" && grep -q 'tail -c "$SIZE" "$SYSLOG"' "$BL" && ok "bootlog diag: twice the syslog while on" || bad "bootlog diag: size"
+
+# 8. the snapshot itself (dlzmod-diagsnap) on a stand-in tree: every section, exit 0, read only (no
+# bus probing, no writes but its own output), each command limited
+DS=$PWD/install/sd-system/dlzmod-diagsnap
+R=$TMP/root
+mkdir -p "$R/proc/asound/card0/pcm0p/sub0" "$R/root" "$R/var/lib/dlzmod-update" "$R/sys/class/thermal/thermal_zone0" "$R/dev/snd"
+echo "123.45 400.0" > "$R/proc/uptime"
+echo " 0 [sun8ii2s      ]: sun8i-i2s - sun8i-i2s" > "$R/proc/asound/cards"
+echo "state: RUNNING" > "$R/proc/asound/card0/pcm0p/sub0/status"
+echo v0.6.1 > "$R/var/lib/dlzmod-update/version"
+: > "$R/root/.dlzlite"
+echo 41000 > "$R/sys/class/thermal/thermal_zone0/temp"; echo cpu_thermal > "$R/sys/class/thermal/thermal_zone0/type"
+DLZMOD_DIAG_ROOT=$R timeout 120 sh "$DS" > "$TMP/snap.out" 2>&1; rc=$?
+[ $rc = 0 ] && ok "diagsnap: exit 0 on a stand-in" || bad "diagsnap: exit $rc"
+for s in "mixer and mod" units "sound cards" USB "clocks, regulators, pins (debugfs)" temperatures "memory, load, processes" storage; do
+  grep -qF -- "----- $s -----" "$TMP/snap.out" || bad "diagsnap: no section $s"
+done
+ok "diagsnap: every section"
+grep -q "model: XS" "$TMP/snap.out" && grep -q "state: RUNNING" "$TMP/snap.out" && grep -q "^v0.6.1" "$TMP/snap.out" \
+  && grep -q "thermal_zone0 cpu_thermal: 41000" "$TMP/snap.out" && ok "diagsnap: model, version, the stream, temperatures" \
+  || bad "diagsnap: $(head -c 600 "$TMP/snap.out")"
+grep -v '^ *#' "$DS" | grep -qE 'i2cdetect|i2cset|i2cget|devmem|> *"?\$|>> *"?\$|\btee\b|\brm\b|\bmv\b' \
+  && bad "diagsnap: probes a bus or writes a file" || ok "diagsnap: no bus probe, no file written"
+[ "$(grep -v '^ *#' "$DS" | grep -c 'timeout 10')" -ge 2 ] && ok "diagsnap: commands and reads limited to 10 s" || bad "diagsnap: no time limit"
 
 [ $fail = 0 ] && echo "ALL OK" || { echo "FAILED"; exit 1; }

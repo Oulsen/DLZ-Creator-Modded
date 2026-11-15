@@ -74,10 +74,11 @@ install_sd_system() {
     echo "Weston drop-in: this card's updater does not allow it yet, it comes with the next update"
   fi
   # dspserver waits for server.js before starting (dlzmod-wait-hub, its drop-in above)
-  for f in dlzmod-grow-data dlzmod-bootlog dlzmod-bootreport dlzmod-clock dlzmod-wait-hub dlzmod-netlog dlzmod-glesgui; do
+  for f in dlzmod-grow-data dlzmod-bootlog dlzmod-bootreport dlzmod-clock dlzmod-wait-hub dlzmod-netlog dlzmod-glesgui dlzmod-pinlog dlzmod-diagsnap; do
     put_file 755 "$s/$f" "$MNT/usr/local/sbin/$f"
   done
-  for f in dlzmod-grow-data dlzmod-bootreport dlzmod-netlog dlzmod-clock; do
+  # dlzmod-pinlog: Diagnostic Logging (#302), idle without its marker as dlzmod-netlog without its file
+  for f in dlzmod-grow-data dlzmod-bootreport dlzmod-netlog dlzmod-clock dlzmod-pinlog; do
     put_file 644 "$s/$f.service" "$MNT/etc/systemd/system/$f.service"
     put_link "/etc/systemd/system/$f.service" "$MNT/etc/systemd/system/multi-user.target.wants/$f.service"
   done

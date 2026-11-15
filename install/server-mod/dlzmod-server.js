@@ -1147,11 +1147,12 @@ function DLZMOD_remoteAdmit(socket, send) {
 }
 
 // what a paired browser may load: the UI (index.html, app.js and its libraries, fonts and pictures)
-// and the recordings (DLZMOD_recHttp, #26); and where it may send a mod update (DLZMOD_updateUpload,
+// and the recordings (DLZMOD_recHttp, #26) and the logs (DLZMOD_logsHttp, #302, read only, as one
+// tar); and where it may send a mod update (DLZMOD_updateUpload,
 // #114). Not srv_data.json (the System Lock PIN), presets, node_modules, package files, the demo pages
 function DLZMOD_remoteFileOk(p) {
   return !/(^|\/)\.\.?(\/|$)/.test(p) && !p.includes("\0") &&
-    /^\/(|index\.html|app\.js|style\.css|favicon\.ico|(libs|fonts|img1x)\/.+|dlzmod-rec(\/.+)?|dlzmod-update-upload)$/.test(p);
+    /^\/(|index\.html|app\.js|style\.css|favicon\.ico|(libs|fonts|img1x)\/.+|dlzmod-rec(\/.+)?|dlzmod-update-upload|dlzmod-logs\.tar)$/.test(p);
 }
 
 // what the PIN and switch-off pages load before any pairing: Mackie's logo and the two font weights
@@ -1272,6 +1273,7 @@ function DLZMOD_remotePage(res, status, text, form) {
 function DLZMOD_recHttp(roots) {
   return (req, res, next) => {
     const p = String(req.path || "");
+    if (p === "/dlzmod-logs.tar") return DLZMOD_logsHttp(roots()[0], req, res);
     if (p !== "/dlzmod-rec" && !p.startsWith("/dlzmod-rec/")) return next();
     const end = (status, headers) => {
       res.writeHead(status, Object.assign({ "Cache-Control": "no-store" }, headers));
@@ -1308,6 +1310,115 @@ function DLZMOD_recHttp(roots) {
       });
     }).catch(failed);
   };
+}
+
+// Download Logs (#302, Remote Control's Mod tab): the SD card's DLZDATA/dlzmod-logs/ (the boot log
+// copies, install logs, screenshots) as one tar, GET /dlzmod-logs.tar, through DLZMOD_recHttp's
+// route, so as for the recordings other devices only once paired (DLZMOD_remoteHttp runs first) and
+// nothing is read while the mixer records (503; a recording that starts during the download cuts it
+// off). Read only: the folder's plain files (no links, hidden or unfinished ones, as the recordings
+// list), each opened without following a link and read whole (a few MB at most) before it is sent.
+// HEAD answers whether there is anything (200) without reading the files. root: the SD card's mount
+// point ("-" when none)
+function DLZMOD_logsHttp(root, req, res) {
+  const end = (status, headers) => {
+    res.writeHead(status, Object.assign({ "Cache-Control": "no-store" }, headers));
+    res.end();
+  };
+  if (req.method !== "GET" && req.method !== "HEAD") return end(405, { Allow: "GET, HEAD" });
+  if (DLZMOD_recNoRead()) return end(503, { "Retry-After": "30" });
+  if (!root || root === "-") return end(404);
+  const dir = root + "/dlzmod-logs";
+  DLZMOD_logsList(dir).then(async (files) => {
+    if (!files.length) return end(404);
+    res.writeHead(200, { "Content-Type": "application/x-tar", "Cache-Control": "no-store",
+      "Content-Disposition": "attachment; filename=\"dlzmod-logs-" + DLZMOD_logsStamp(new Date()) + ".tar\"" });
+    if (req.method === "HEAD") return res.end();
+    for (const f of files) {
+      if (res.destroyed) return;
+      const data = await DLZMOD_logsRead(f.path);
+      if (!data) continue;   // gone or replaced by something else meanwhile
+      if (DLZMOD_recNoRead()) return res.destroy();
+      const pad = Buffer.alloc((512 - data.buf.length % 512) % 512);
+      if (!(await DLZMOD_logsWrite(res, Buffer.concat([DLZMOD_tarHeader("dlzmod-logs/" + f.name, data.buf.length,
+        data.mtime), data.buf, pad])))) return;
+    }
+    res.end(Buffer.alloc(1024));   // tar's end: two empty blocks
+  }).catch((e) => {
+    console.error("dlzmod: logs download:", e && e.message);
+    if (!res.headersSent) end(500);
+    else res.destroy();
+  });
+}
+
+// the folder's files for the tar, by name: [{name, path}]; none when the folder is missing or a link
+async function DLZMOD_logsList(dir) {
+  if (!(await DLZMOD_recReal(dir))) return [];
+  const fsp = require("fs").promises;
+  const out = [];
+  for (const e of await fsp.readdir(dir, { withFileTypes: true })) {
+    // a tar header holds 100 bytes of name, "dlzmod-logs/" included
+    if (e.isFile() && DLZMOD_recShown(e.name) && Buffer.byteLength(e.name) <= 88) out.push({ name: e.name, path: dir + "/" + e.name });
+  }
+  return out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
+// a file's content and time, never through a link (O_NOFOLLOW), only a regular file; null otherwise
+async function DLZMOD_logsRead(file) {
+  const fs = require("fs");
+  let h;
+  try {
+    h = await fs.promises.open(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    const st = await h.stat();
+    if (!st.isFile()) return null;
+    return { buf: await h.readFile(), mtime: st.mtimeMs / 1000 };
+  } catch (e) {
+    return null;
+  } finally {
+    if (h) await h.close().catch(() => {});
+  }
+}
+
+// written with the socket's backpressure: true once it took the data, false when it closed first
+function DLZMOD_logsWrite(res, buf) {
+  return new Promise((resolve) => {
+    if (res.destroyed) return resolve(false);
+    if (res.write(buf)) return resolve(true);
+    const done = (ok) => {
+      res.removeListener("drain", onDrain);
+      res.removeListener("close", onClose);
+      resolve(ok);
+    };
+    const onDrain = () => done(true);
+    const onClose = () => done(false);
+    res.once("drain", onDrain);
+    res.once("close", onClose);
+  });
+}
+
+// a ustar header for a plain file (mode 644, owner 0): name up to 100 bytes, size and time in octal
+function DLZMOD_tarHeader(name, size, mtime) {
+  const h = Buffer.alloc(512);
+  const oct = (n, len) => Math.max(0, Math.floor(n)).toString(8).padStart(len - 1, "0") + "\0";
+  h.write(name, 0, 100, "utf8");
+  h.write(oct(0o644, 8), 100);
+  h.write(oct(0, 8), 108);
+  h.write(oct(0, 8), 116);
+  h.write(oct(size, 12), 124);
+  h.write(oct(mtime, 12), 136);
+  h.fill(" ", 148, 156);   // the checksum counts its own field as spaces
+  h.write("0", 156);
+  h.write("ustar\0" + "00", 257);
+  let sum = 0;
+  for (const b of h) sum += b;
+  h.write(sum.toString(8).padStart(6, "0") + "\0 ", 148);
+  return h;
+}
+
+// 2026-11-15-0930, the mixer's local time, for the download's name
+function DLZMOD_logsStamp(d) {
+  const two = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + two(d.getMonth() + 1) + "-" + two(d.getDate()) + "-" + two(d.getHours()) + two(d.getMinutes());
 }
 
 // nothing is read from the media now: the mixer records (DLZMOD_recBusy) or finishes a recording
@@ -2447,9 +2558,9 @@ function DLZMOD_wifiSaved(dir = DLZMOD_nmDir()) {
 // status for the Network panel: stick present, Wi-Fi state, network name, address, SSH on, and an SSH
 // change still running ("on"/"off", DLZMOD_net), so the card still says so when the screen lost its own
 // mark (a reload, another network change)
-async function DLZMOD_netState(run = DLZMOD_run, paths = DLZMOD_sshPaths()) {
+async function DLZMOD_netState(run = DLZMOD_run, paths = DLZMOD_sshPaths(), diag = DLZMOD_diagFile()) {
   const st = { stick: false, wifi: "", ssid: "", signal: 0, ip: "", ssh: false, sshKeep: false,
-    sshBusy: DLZMOD_net.sshBusy || "" };
+    sshBusy: DLZMOD_net.sshBusy || "", diag: require("fs").existsSync(diag) };
   const dev = await run("/usr/bin/nmcli", ["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"]);
   let wdev = "";
   for (const line of dev.out.split("\n")) {
@@ -2479,14 +2590,15 @@ async function DLZMOD_net(args, send, opts = {}) {
   const run = opts.run || DLZMOD_run;
   const dir = opts.dir || DLZMOD_nmDir();
   const paths = DLZMOD_sshPaths(opts);
+  const diag = opts.diagFile || DLZMOD_diagFile();
   const reply = (cmd, data) => {
     try {
       send({ cmd: cmd, id: 0, data: data });
     } catch (e) {}
   };
-  const result = (ok, text) => reply("DLZMOD_NET_RESULT", { ok: ok, text: text });
+  const result = (ok, text, title) => reply("DLZMOD_NET_RESULT", { ok: ok, text: text, title: title });
   // the screen's status, with the Remote Control panel's (PIN included: only ever to the screen)
-  const state = async () => Object.assign(await DLZMOD_netState(run, paths), { pair: DLZMOD_pairStatus() });
+  const state = async () => Object.assign(await DLZMOD_netState(run, paths, diag), { pair: DLZMOD_pairStatus() });
   const a = args || {};
   try {
     // another device on the network: no network name, address or SSH state, and nothing run (its
@@ -2524,6 +2636,7 @@ async function DLZMOD_net(args, send, opts = {}) {
         DLZMOD_net.sshBusy = a.on ? "on" : "off";
         await DLZMOD_sshSet(a, run, result, opts.sshdDir, paths);
       } else if (a.op === "sshKeep") await DLZMOD_sshKeep(a, run, result, paths);
+      else if (a.op === "diag") await DLZMOD_diagSet(!!a.on, run, result, diag);
       else if (a.op === "pair" && a.on) {
         const r = DLZMOD_pairSet(true);
         result(!!r, r ? "Control from other devices is on" : "Could not save the setting");
@@ -2634,6 +2747,27 @@ async function DLZMOD_sshSet(a, run, result, sshdDir = "/etc/ssh/sshd_config.d",
 // every start; and `keep` on the card, when the owner chose "Keep on after a restart". Both are
 // written only here, i.e. only from the mixer's own screen; neither is a hub key, which any device
 // on the network could set.
+// Diagnostic Logging (#302, the Mod tab, the mixer's own screen only: a DLZMOD_NET change): the
+// marker on the card that dlzmod-pinlog.service and dlzmod-bootlog look for, so it stays on after a
+// restart until it is turned off. The pin log starts or stops at once too; the snapshot and the
+// copy to DLZDATA/dlzmod-logs come with the next start's boot log (~2 min in)
+function DLZMOD_diagFile() {
+  return "/var/lib/dlzmod/diag-on";
+}
+
+async function DLZMOD_diagSet(on, run, result, file = DLZMOD_diagFile()) {
+  const title = "Diagnostic Logging";
+  if (!on) {
+    if (DLZMOD_unlinkQuiet(file)) DLZMOD_syncDir(require("path").dirname(file));
+    await run("/bin/systemctl", ["stop", "--no-block", "dlzmod-pinlog.service"]);
+    return result(true, "Diagnostic logging is off.", title);
+  }
+  require("fs").mkdirSync(require("path").dirname(file), { recursive: true, mode: 0o755 });
+  DLZMOD_writeDurable(file, "", 0o644);
+  await run("/bin/systemctl", ["start", "--no-block", "dlzmod-pinlog.service"]);
+  result(true, "Diagnostic logging is on, also after a restart.\nRestart the mixer: about 2 minutes later\nthe logs are in DLZDATA/dlzmod-logs.", title);
+}
+
 function DLZMOD_sshPaths(o = {}) {
   return { on: o.sshOnFlag || "/run/dlzmod-ssh-on", keep: o.sshKeepFile || "/var/lib/dlzmod-ssh/keep-on" };
 }

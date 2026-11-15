@@ -21,6 +21,10 @@ bash .claude/skills/release-build/release.sh ready   # right before main is move
 bash .claude/skills/release-build/release.sh compare vX.Y.Z   # at the release, step 5
 ```
 
+A patch (`VERSION` vX.Y.Z with Z > 0, `docs/DEVELOPMENT.md` "Patches") is built from `main`'s tip
+after its patch PR merged: there `check` and `build` compare with `origin/main` instead of
+`origin/develop`, and `ready` only confirms that `main` is the build; next is the tag.
+
 `release.sh open` runs the same build in a new PowerShell window instead (`build-release.cmd`, also
 a double-click in Explorer), for the user who wants to watch it there.
 
