@@ -75,6 +75,19 @@ The board, Mackie's device tree, the boot chain, the eMMC layout and the SD slot
   (2-10, one interrupt endpoint each, 64-512 bytes out, 128-1024 in) with no format or channel
   count; Windows' class driver ignores them, their purpose is unknown [guess: Sydec's own transfer
   modes]. Nothing in it offers more than 4 channels from the PC.
+- The driver's INF (`loudusbaudio.inf`, 5.62.0) covers 14 Mackie products under `0x0A73`, among
+  them the full-size as "DLZ Creator" `0A73:0033` and the XS as `0A73:003A` [static].
+- USB chip firmware via the driver (#279): Thesycon's API library (`loudusbaudioapi_x64.dll`, API
+  5.12) has generic firmware calls (`TUSBAUDIO_StartDfuDownload`, `StartDfuUpload`,
+  `StartDfuRevertToFactoryImage`); Mackie's control panel offers no firmware update [static]. A
+  read-only query (`TUSBAUDIO_GetDeviceProperties`, nothing changed on the mixer) on the XS returned
+  `0A73:003A`, revision `0x130`, serial "no serial number", flags `0x1283` [device, XS]. Bits `0x1`
+  and `0x2` (high speed supported and in use) match the descriptor; the DFU bit `0x4` is clear, so
+  the chip most likely does not take a firmware update through the driver [guess: the bit meanings
+  are from memory, Thesycon's header is not public]. Reading the firmware out was not tried: it puts
+  the chip in its update mode, and only the mixer could be the first to try it. Even new USB
+  firmware would not add PC inputs on its own: the extra channels would also have to reach the
+  graph through the FPGA. The full-size's flags were not checked.
 
 ### Full-size DLZ Creator
 
