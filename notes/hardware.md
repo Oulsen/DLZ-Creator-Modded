@@ -124,8 +124,7 @@ What is known about the chip that does USB audio to the PC, and where to pick th
   protocol from Ghidra and USB captures in its `.claude/re/` notes. Those are Ploytec's older
   non-class protocol; the DLZ runs Ploytec's class 2.0 firmware under Thesycon's driver, so only
   some of it carries over. Useful: vendor request 'V' (`bmRequestType 0xC0`, `bRequest 0x56`,
-  `wLength 15`) reads the firmware version, byte 0 the chip ID. Nothing public dumps, reflashes or
-  replaces Ploytec firmware.
+  `wLength 15`) reads the firmware version, byte 0 the chip ID.
 - **Ploytec firmware updates in practice**: only the product's maker ships them, as a file for
   that one product. Example: Allen & Heath's `FWUpdater_XONE_DB4_v1.4.1.zip` (Windows, in the Xone:DB4
   driver package) changed the transfer mode (1.3.9 bulk, 1.4.1 interrupt), not the channel count
@@ -142,11 +141,10 @@ What is known about the chip that does USB audio to the PC, and where to pick th
   firmware and the FPGA routing. Makers do ship this kind of update (RØDECaster Pro II, #279; the
   Allen & Heath updater above), so an owner request to Mackie is the lever.
 - **Not tried, in order of risk**: a sharp photo of the XS's chip (none; confirms the same chip);
-  the 'V' request through
-  `TUSBAUDIO_ClassVendorRequestIn` (a read request the firmware may not know, through a call whose
-  parameters are not public; sent to the chip on the mixer); reading the firmware through the DFU
-  calls (puts the chip in its update mode; only the mixer could be the first). Writing firmware is
-  out (a licensed binary, and a bad write can cost the USB audio).
+  the 'V' request through `TUSBAUDIO_ClassVendorRequestIn` (a read request the firmware may not
+  know, through a call whose parameters are not public; sent to the chip on the mixer); reading the
+  firmware through the DFU calls (puts the chip in its update mode; only the mixer could be the
+  first). Writing firmware is out (a licensed binary, and a bad write can cost the USB audio).
 - **Even new USB firmware would not add PC inputs on its own**: the extra channels would also have
   to reach the graph through the FPGA (Mackie's bitstream), over the I2S/TDM lines above.
 
