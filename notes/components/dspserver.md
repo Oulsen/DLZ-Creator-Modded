@@ -112,7 +112,7 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   data to 0x22`, `Couldn't initialise AKM DAC (possibly dead): failed to send I2C data`, then the same
   for the AKM ADC at `0x26`, and dspserver carried on. Only `Couldn't initialise audio hardware,
   exiting` ends it [static]. So a chip that fails at start gives moving meters and a silent output
-  until the next start [guess on the effect]. AKM DAC = I2C `0x22`, AKM ADC = `0x26` [device]. Those
+  until the next start [device: an owner's XS, "A DAC that does not answer" below]. AKM DAC = I2C `0x22`, AKM ADC = `0x26` [device]. Those
   are 8-bit address bytes: the write helper (`0x370f8`) sends `addr & 0xFE`, then register and
   value, so the chips sit at 7-bit `0x11` and `0x13`, AKM's usual range [static].
 - **The AKM writes** [static]: no read-back or check (a failed write only logs), no soft mute and no
@@ -250,9 +250,39 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   interrupt had fired 3 times in that session, when is not known). #293 widens the pin log to every pin, the screen and the
   power chip. **Stock has the symptom too** [user report, 2026-11-14]: an owner on build 1731
   without the mod had silent outputs with moving meters, standalone too, starting mid-session
-  together with a USB disconnect on Windows, and a reboot did not bring it back. The USB audio chip
-  runs its own firmware ([hardware.md](../hardware.md)), so a USB drop at the same moment points
-  at a board-level event (supply or reset), not at software [guess].
+  together with a USB disconnect on Windows, and a reboot did not bring it back. Their logs on the
+  mod later showed a different cause: a DAC that does not answer (next point).
+- **A DAC that does not answer: a second cause, not #257** [device, an owner's XS, v0.6.0 and
+  v0.6.1 with Diagnostics on, 7 starts]:
+  - In 6 of 7 starts the first DAC write got no acknowledgement: `i2c: retrying address 22` ~100
+    times in ~55 ms, then `Couldn't initialise AKM DAC (possibly dead)`. The one start where it
+    answered at once was the only one with sound, for the whole start (owner, YouTube playing).
+  - Everything the processor drives is the same in good and failed starts: all pin snapshots (ports
+    A-I, before and after the setup), PLL_AUDIO locked, I2S0/I2S1 running, screen and power chip, and
+    the same as on our dev card. The ADC on the same bit-banged bus and PH0 pulse answers every time,
+    and so do the THAT preamps. So the bus and the shared reset work; the fault is in or around the
+    DAC (its supply, a joint, the chip) [guess], or a timing only this board misses [guess: the
+    setup writes PLL_AUDIO and waits 5 ms without checking its lock bit]. CPU temperature at the
+    setup was 73-78 °C in good and failed starts alike.
+  - Pin log, ms between the setup's steps:
+
+    | | PH2 → PH0 high | PH0 → PH1 high | DAC | PH2 low after the setup |
+    |---|---|---|---|---|
+    | Dev card, #257 silent start | 116 | 84 | answered | yes, +1.16 s |
+    | Dev card, 5 starts with sound | 120-155 | 60-88 | answered | no |
+    | Owner, start with sound | 124 | 84 | answered | no |
+    | Owner, 5 silent starts | 120-124 | 106-148 | no answer | no |
+
+    The lead-up is the same everywhere. The longer PH0 → PH1 gap is the failed DAC's retries (the
+    DAC setup sits between the two), a result, not a cause; a gap above ~100 ms marks a DAC that did
+    not answer in a log that only has the pin lines.
+  - So two faults give the same symptom: in #257 the DAC answers (103 DAC setups in the dev card's
+    logs, no I2C error) and the sound goes ~1.2 s later with the PH2 drop; here the DAC is never set
+    up and PH2 never drops. On a healthy XS it is rare: one factory boot in the dump's syslog
+    ("A chip that does not answer", above).
+  - Open: whether a `systemctl restart dspserver` (the setup again, PLL already locked) gets an
+    answer. Yes = timing, and the mod could retry at a failed setup; no = hardware, a case for
+    Mackie service. Such a retry would not help #257, where a restart is known not to.
 - **What the research ruled out, and what is left** (#257, 2026-11-14):
   - Not phantom power: it is the `i.N.phantom` key (server.js keeps it in `/srv/srv_data.json`; the
     dump has mic 1 on), which dspserver turns into bit `0x10000` of the THAT shadow word (`0x3471c`)
