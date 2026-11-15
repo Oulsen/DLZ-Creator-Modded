@@ -372,6 +372,13 @@ APP_PATCHES = [
         "haveGate(){return!0}",
     ),
     (
+        # the Setup page's Gate switch, hidden for the master by type: asks haveGate as the Pro
+        # page's Gate tab does, so a gate switched on there can be seen and switched off here too
+        "master gate: its switch on the master's Setup page",
+        "e.type===E_CH_TYPE.MASTER)this.gateCompDS.gate.hide();",
+        "!e.haveGate())this.gateCompDS.gate.hide();",
+    ),
+    (
         # the channel page's tabs (Pro): the De-Esser tab is the Limiter tab on the master
         "master gate, limiter: the Gate and De-Esser tabs on the master",
         "this.ds.enabled=e.haveDS(),this.gate.enabled=e.type!==E_CH_TYPE.MASTER",

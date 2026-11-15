@@ -461,8 +461,9 @@ on both graphs [static, `tests/graph-check.js`]; tried on the XS only, the full-
   removing the comment (patch.py), in Mackie's place: after the master's EQ, before its compressor,
   stereo. Its keys `m.gate.*` are in every state already (Mackie's defaults: off, so nothing changes
   until it is switched on), its VU group `m.gate` is in `configureVU`, so the page's meters work
-  without more code. App side: `Strip.haveGate` true for the master, the tab enabled by it [static,
-  sandbox]. The block's threshold goes from -40 to 0 dB, like the channels' `EconomyGateCompressor`
+  without more code. App side: `Strip.haveGate` true for the master, the tab enabled by it, and the Setup page's Gate
+  switch shown for it too (Mackie hid it by type), so a gate switched on can be seen and switched
+  off there, also in the simple layout [static, sandbox for the tab]. The block's threshold goes from -40 to 0 dB, like the channels' `EconomyGateCompressor`
   gate; the page offers down to -60, also like the channels [static].
 - **Limiter**: a `Compressor` (ratio 20, attack 1 ms, no knee, stereo linked through `right`) on the
   master out's own buffers (`masterOuts`: XS `aout[16]/[20]`, full-size `cout[0]/[1]`), right after Mackie copies the mix there

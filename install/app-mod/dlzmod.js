@@ -4348,9 +4348,16 @@ function DLZMOD_limConv() {
     return;
   }
   const clamp = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+  // Data.merge (every INIT) runs each input conversion over the hub's state, also for a key it does
+  // not have (a state from before #59): such a value, or one that is no number, counts as the
+  // default, never as NaN (which would also count as present to DLZMOD_initKeys)
+  const defaults = DLZMOD_keys();
   [["thresh", VtoCompThresh, VotCompThresh], ["release", VtoCompRelease, VotCompRelease],
-    ["attack", VtoCompAttack, VotCompAttack], ["ratio", VtoCompRatio, VotCompRatio]].forEach(([k, to, from]) =>
-    Data.setKeyConv("dlzmod.lim." + k, (v) => to(clamp(v)), (v) => clamp(from(v))));
+    ["attack", VtoCompAttack, VotCompAttack], ["ratio", VtoCompRatio, VotCompRatio]].forEach(([k, to, from]) => {
+    const key = "dlzmod.lim." + k;
+    const hub = (v) => (v === null || v === "" || !Number.isFinite(Number(v)) ? defaults[key] : Number(v));
+    Data.setKeyConv(key, (v) => to(clamp(v)), (v) => clamp(from(hub(v))));
+  });
 }
 DLZMOD_limConv();
 

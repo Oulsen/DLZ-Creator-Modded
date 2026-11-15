@@ -4024,6 +4024,13 @@ test("limiter: its keys in the hub's dB and ms, the screen's 0..1 through Mackie
     assert.strictEqual(conv.out["dlzmod.lim.thresh"](2), 0, "clamped like Mackie's");
     assert.strictEqual(conv.in["dlzmod.lim.thresh"](-90), 0, "from the hub, clamped");
     assert.strictEqual(conv.in["dlzmod.lim.release"](50), 0.05, "a saved 50 ms as the screen's 0..1 (Data.merge at INIT)");
+    // Data.merge runs every input conversion, also over a key the hub's state does not have
+    const init = {};
+    Object.keys(conv.in).forEach((k) => (init[k] = conv.in[k](init[k])));
+    assert.ok(Math.abs(init["dlzmod.lim.thresh"] - 59 / 60) < 1e-9, "a missing ceiling: the default -1 dB, not NaN");
+    assert.strictEqual(init["dlzmod.lim.release"], 0.05, "a missing release: the default 50 ms");
+    assert.strictEqual(conv.in["dlzmod.lim.thresh"]("x"), init["dlzmod.lim.thresh"], "no number: the default");
+    assert.strictEqual(conv.in["dlzmod.lim.thresh"](null), init["dlzmod.lim.thresh"], "null: the default, not 0 dB");
   } finally {
     delete ctx.Data.convIn;
     delete ctx.Data.setKeyConv;
