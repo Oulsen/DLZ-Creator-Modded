@@ -24,11 +24,12 @@ model=full-size; fw=evolve
 if [ -f "$root/root/.dlzlite" ]; then model=XS; fw=dlzlite; fi
 want=.gd32-loaded-firmware-$fw-$GD32_FIRMWARE_VERSION.bin
 node=$(awk '/^Package: evolve-node$/ {f=1} f && /^Version:/ {print $2; exit}' "$root/var/lib/dpkg/status" 2>/dev/null || true)
-# the build: from server.js's own default for its state (never rewritten while the mixer runs; the mod's
-# patches leave it), else from the state file, whose newest copy can still be in an unreplayed
-# journal when the mixer was switched off while saving it (#311); only shown, never checked
-build=$(grep -o 'version="[^"]*(build [0-9]*)' "$root/srv/server.js" 2>/dev/null | grep -o 'build [0-9]*' | head -1 || true)
-[ -n "$build" ] || build=$(grep -o 'build [0-9]*' "$root/srv/srv_data.json" 2>/dev/null | head -1 || true)
+# the build: from server.js's own default for its state (the mixer software does not write it while it
+# runs, only an update or Go Back replaces it; the mod's patches leave that text), else from the state
+# file, which it saves all the time, so its newest copy can still be in an unreplayed journal when the
+# mixer was switched off meanwhile (#311); only shown, never checked
+build=$(grep -o 'version="[^"]*(build [0-9][0-9]*)' "$root/srv/server.js" 2>/dev/null | grep -o 'build [0-9][0-9]*' | head -1 || true)
+[ -n "$build" ] || build=$(grep -o 'build [0-9][0-9]*' "$root/srv/srv_data.json" 2>/dev/null | head -1 || true)
 markers=$(cd "$root/root" 2>/dev/null && ls -d .gd32-loaded-* 2>/dev/null || true)
 gd32=$(echo "$markers" | head -1)
 nmarkers=$(echo "$markers" | grep -c . || true)

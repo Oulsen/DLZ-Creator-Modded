@@ -449,6 +449,10 @@ fresh; printf '%s\nx.version="17.01.2024 (build 1731)",x.y=1\n' "$SERVER_MARKERS
 case $(cr) in *"(build 1731)"*) ok "from server.js when the state file is empty (an unreplayed journal)" ;; *) bad "empty state file: $(cr)" ;; esac
 printf '%s\n' "$SERVER_MARKERS" > "$R/srv/server.js"; echo '{"version": "17.01.2024 (build 1794)"}' > "$R/srv/srv_data.json"
 case $(cr) in *"(build 1794)"*) ok "from the state file when server.js has none" ;; *) bad "state file only: $(cr)" ;; esac
+printf '%s\nx.version="17.01.2024 (build 1731)",x.y=1\n' "$SERVER_MARKERS" > "$R/srv/server.js"
+case $(cr) in *"(build 1731)"*) ok "server.js first when both have one" ;; *) bad "both: $(cr)" ;; esac
+printf '%s\n' "$SERVER_MARKERS" > "$R/srv/server.js"; echo '{"version": "half written (build ' > "$R/srv/srv_data.json"
+case $(cr) in *"(build ?)"*) ok "'build' without a number counts as none" ;; *) bad "no digits: $(cr)" ;; esac
 : > "$R/srv/srv_data.json"
 case $(cr) in *"(build ?)"*) ok "neither: build ?" ;; *) bad "neither: $(cr)" ;; esac
 

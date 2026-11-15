@@ -102,13 +102,16 @@ onto a card is checked by the `device-review` skill first.
      FPGA files too [static], the full-size's board is an `EVOLVE-A1_A40i` like the XS's [web]
    - The full-size on build 1731 gets the full install (#50); installed and running on an
      owner's full-size (hardware.md, "Full-size DLZ Creator") [device]
-   - **"(build ?)" on the first check screen**: the build number is read from the `version` field
-     of Mackie's state file `/srv/srv_data.json` (`check-rootfs.sh`), on the eMMC as it is, read-only,
-     before any journal replay. When the mixer was last switched off while the stock software was
-     writing that file, its newest version is still only in the eMMC's journal and the field is not
-     found; the install log then says `armbian_root: recovering journal` at the copy, and the check on
-     the copy finds `build 1731` again. Only shown, not a gate (evolve-node and the GD32 marker are);
-     once on the dev card after a stock start, the copied file complete [device, v0.6.1]
+   - **"(build ?)" on the first check screen** (up to v0.6.1): the build number was read from the
+     `version` field of Mackie's state file `/srv/srv_data.json` (`check-rootfs.sh`), on the eMMC as it
+     is, read-only, before any journal replay. When the mixer was last switched off while the stock
+     software was writing that file, its newest version is still only in the eMMC's journal and the
+     field is not found; the install log then says `armbian_root: recovering journal` at the copy, and
+     the check on the copy finds `build 1731` again. Only shown, not a gate (evolve-node and the GD32
+     marker are); once on the dev card after a stock start, the copied file complete [device, v0.6.1].
+     Since #311 the build comes from `server.js`'s own default for that field
+     (`version="17.01.2024 (build 1731)"`, which the software does not write while it runs), the
+     state file only when that has none [static]
 
 ## Copy and compare
 
