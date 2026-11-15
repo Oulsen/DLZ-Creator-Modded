@@ -3,6 +3,7 @@
 ## v0.7.0
 
 - (MOD BUG) After going back to an older version, the pads can stay muted
+- (MOD BUG) The installer's first screen can show 'build ?' when the mixer was switched off during a stock start
 
 ## v0.6.1
 

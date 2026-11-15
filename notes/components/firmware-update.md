@@ -38,7 +38,8 @@ All [static] unless tagged.
 installer that unpacked six debs into `/var/updtmp/updatefiles/`: avahi 1, dspserver 1338,
 evolvenode 3297, faderlink 521, glesgui 1338, kernelupdate 1304. The update file is
 `evolveupdate-DLZ-Creator-XS-v1.2.0-b1731.upd`, no longer publicly downloadable; the system reports
-it in `/srv/srv_data.json` as `"17.01.2024 (build 1731)"`. The older 1.0.2 `.upd` was a plain archive
+it in `/srv/srv_data.json` as `"17.01.2024 (build 1731)"` (the default of that field is in `server.js`,
+which `check-rootfs.sh` reads first, #311). The older 1.0.2 `.upd` was a plain archive
 of 4 `.deb` packages [static].
 
 ## What this means for modding

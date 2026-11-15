@@ -443,6 +443,19 @@ check "the guards on this card are not as installed" "a card with an extra drop-
 fresh; printf 'nothing\n' > "$R/srv/server.js"; put good; check "the guards on this card are not as installed" "a server.js without its refusals"
 fresh; rm "$R/root/.dlzlite"; put good; check "does not pass the package's check" "a full-size card with the XS marker"
 
+echo "-- check-rootfs.sh: the build number shown (#311)"
+cr() { sh install/check-rootfs.sh "$R" 2>/dev/null | head -n 1; }
+fresh; printf '%s\nx.version="17.01.2024 (build 1731)",x.y=1\n' "$SERVER_MARKERS" > "$R/srv/server.js"; : > "$R/srv/srv_data.json"
+case $(cr) in *"(build 1731)"*) ok "from server.js when the state file is empty (an unreplayed journal)" ;; *) bad "empty state file: $(cr)" ;; esac
+printf '%s\n' "$SERVER_MARKERS" > "$R/srv/server.js"; echo '{"version": "17.01.2024 (build 1794)"}' > "$R/srv/srv_data.json"
+case $(cr) in *"(build 1794)"*) ok "from the state file when server.js has none" ;; *) bad "state file only: $(cr)" ;; esac
+printf '%s\nx.version="17.01.2024 (build 1731)",x.y=1\n' "$SERVER_MARKERS" > "$R/srv/server.js"
+case $(cr) in *"(build 1731)"*) ok "server.js first when both have one" ;; *) bad "both: $(cr)" ;; esac
+printf '%s\n' "$SERVER_MARKERS" > "$R/srv/server.js"; echo '{"version": "half written (build ' > "$R/srv/srv_data.json"
+case $(cr) in *"(build ?)"*) ok "'build' without a number counts as none" ;; *) bad "no digits: $(cr)" ;; esac
+: > "$R/srv/srv_data.json"
+case $(cr) in *"(build ?)"*) ok "neither: build ?" ;; *) bad "neither: $(cr)" ;; esac
+
 # DLZDATA/dlzmod-update/README.txt: the installer writes it and the updater replaces any other text, so
 # a difference would rewrite it on DLZDATA at the first start of every new card
 ru=$(sed -n '/^readme() {/,/^}/p' "$NEW" | grep -o '"[^"]*"')
