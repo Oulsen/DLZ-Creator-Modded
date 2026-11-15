@@ -126,6 +126,21 @@ What is known about the chip that does USB audio to the PC, and where to pick th
   some of it carries over. Useful: vendor request 'V' (`bmRequestType 0xC0`, `bRequest 0x56`,
   `wLength 15`) reads the firmware version, byte 0 the chip ID. Nothing public dumps, reflashes or
   replaces Ploytec firmware.
+- **Ploytec firmware updates in practice**: only the product's maker ships them, as a file for
+  that one product. Example: Allen & Heath's `FWUpdater_XONE_DB4_v1.4.1.zip` (Windows, in the Xone:DB4
+  driver package) changed the transfer mode (1.3.9 bulk, 1.4.1 interrupt), not the channel count
+  (Allen & Heath forum, "New driver for Xone:DB4"). No community firmware, open firmware or
+  general Ploytec flasher exists for any device; Ozzy only reads the version. Thesycon's update
+  tools (`TUSBAudioDfu.exe`, `dfucons`, and TL-USBDFU, which replaces the DFU calls in the audio
+  driver) need the maker's firmware file. Mackie has never shipped one for the DLZ's USB chip.
+  Ploytec talks to the community (it helped Ozzy) and sells Revival, a box that turns old
+  Ploytec mixers into class-compliant devices.
+- **Another product's Ploytec firmware is no route**: each image is built for its board's wiring
+  (I2S/TDM lines, codecs), and the FPGA's bitstream expects the 4 channels it gets today. Best case,
+  nothing changes. Worst case, USB audio is lost, with no published DLZ image to put back.
+- **The only route to more PC inputs is Mackie with Ploytec**: they hold both halves, the chip's
+  firmware and the FPGA routing. Makers do ship this kind of update (RØDECaster Pro II, #279; the
+  Allen & Heath updater above), so an owner request to Mackie is the lever.
 - **Not tried, in order of risk**: a sharp photo of the XS's chip (none; confirms the same chip);
   the 'V' request through
   `TUSBAUDIO_ClassVendorRequestIn` (a read request the firmware may not know, through a call whose
@@ -319,4 +334,7 @@ Mackie publishes no maximum (spec sheet: microSDHC/microSDXC, FAT32). From the f
   designs at usb-audio.com (`/jct2`, `/jctu`); Microchip's "Ploytec USB 2.0 High-Speed Audio
   Junction" reference design (microchip.com blocks scripted fetches); Thesycon's API reference
   manual 1.22.0 as a public header copy (github.com/lilltroll77/DCF, `tusbaudioapi.h`); Ozzy and its
-  Ploytec notes (github.com/mischa85/Ozzy, `.claude/re/`, `common/devices/ploytec/ploytec_defs.h`)
+  Ploytec notes (github.com/mischa85/Ozzy, `.claude/re/`, `common/devices/ploytec/ploytec_defs.h`);
+  Allen & Heath forum threads "New driver for Xone:DB4" (firmware updater, bulk/interrupt) and
+  "Xone ... USB Ploytec driver update"; Thesycon's TL-USBDFU page and `TUSBAudio_history.txt`
+  (thesycon.de); XMOS's DFU loader guide (Thesycon's `dfucons`)
