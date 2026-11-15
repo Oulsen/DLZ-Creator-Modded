@@ -253,10 +253,13 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   together with a USB disconnect on Windows, and a reboot did not bring it back. Their logs on the
   mod later showed a different cause: a DAC that does not answer (next point).
 - **A DAC that does not answer: a second cause, not #257** [device, an owner's XS, v0.6.0 and
-  v0.6.1 with Diagnostics on, 7 starts]:
-  - In 6 of 7 starts the first DAC write got no acknowledgement: `i2c: retrying address 22` ~100
+  v0.6.1 with Diagnostics on, 9 starts]:
+  - In 8 of 9 starts the first DAC write got no acknowledgement: `i2c: retrying address 22` ~100
     times in ~55 ms, then `Couldn't initialise AKM DAC (possibly dead)`. The one start where it
     answered at once was the only one with sound, for the whole start (owner, YouTube playing).
+    Nothing set the DAC up again later in a start: no PH2 drop, no second setup, also not in a
+    36-minute start. Stock is the same: with the card out (Mackie's own software from the eMMC) one
+    start had sound and the next card start was silent again [user report].
   - Everything the processor drives is the same in good and failed starts: all pin snapshots (ports
     A-I, before and after the setup), PLL_AUDIO locked, I2S0/I2S1 running, screen and power chip, and
     the same as on our dev card. The ADC on the same bit-banged bus and PH0 pulse answers every time,
