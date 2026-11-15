@@ -539,17 +539,20 @@ check(gates.length === 1 && g.buf === "masterL" && g.p.right === "buffer:masterR
   && next && next.type === "EconomyCompressor" && next.p.vu === "vuMasterComp",
 "master gate: Mackie's block, m.gate.* keys, after the master's EQ, before its compressor, stereo");
 
-// #59 the limiter: in-meters, the compressor, out-meters on the master out (aout16/aout20), right
-// after Mackie copies the mix there; ratio 20 only once both keys have a value, attack 1 ms
+// #59 the limiter: in-meters, the compressor, out-meters on the master out (the XS's aout16/aout20,
+// the full-size's cout0/cout1: the buffers Mackie copies masterL and masterR into), right after that
+// copy; ratio 20 only once both keys have a value, attack 1 ms
 const lim = patched.blocks.filter(isLim), li = at(isLim);
 const comp = lim.find((b) => b.type === "Compressor");
-const before = patched.blocks[li - 1];
-check(lim.length === 5 && lim.every((b) => b.buf === "aout16" || b.buf === "aout20")
+const copyL = patched.blocks[li - 2] || {}, copyR = patched.blocks[li - 1] || {};
+const outL = copyL.buf, outR = copyR.buf;
+check(copyL.type === "CopyFrom" && copyL.p.src === "buffer:masterL"
+  && copyR.type === "CopyFrom" && copyR.p.src === "buffer:masterR" && outL && outR && outL !== outR
+  && lim.length === 5 && lim.every((b) => b.buf === outL || b.buf === outR)
   && lim.map((b) => b.p.vu).join() === "dlzmodLimIn,dlzmodLimIn,dlzmodLimGr,dlzmodLimOut,dlzmodLimOut"
-  && patched.blocks.slice(li, li + 5).every(isLim)
-  && before.type === "CopyFrom" && before.buf === "aout20" && before.p.src === "buffer:masterR",
-"limiter: meters and compressor on the master out only, right after the mix is copied there");
-check(comp && comp.buf === "aout16" && comp.p.right === "buffer:aout20" && comp.p.attack === 1 && comp.p.knee === 0
+  && patched.blocks.slice(li, li + 5).every(isLim),
+`limiter: meters and compressor on the master out only (${outL}/${outR}), right after the mix is copied there`);
+check(comp && comp.buf === outL && comp.p.right === `buffer:${outR}` && comp.p.attack === 1 && comp.p.knee === 0
   && comp.p.bypass === "@dlzmod.lim.bypass" && comp.p.thresh === "@dlzmod.lim.thresh"
   && comp.p.release === "@dlzmod.lim.release"
   && comp.p.ratio === "(@dlzmod.lim.bypass || @dlzmod.lim.thresh > 0) ? 1 : 20",
