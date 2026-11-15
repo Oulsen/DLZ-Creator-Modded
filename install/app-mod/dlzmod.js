@@ -4446,11 +4446,13 @@ function DLZMOD_limClass() {
       if (t) this.update();
     }
 
+    // faderlink's table has no dlzmod.* keys (Q29): both knobs go through the stand-ins of #238
     setKnobs() {
       const knob = (sub, key, text) => ({ title: DLZMOD_limName, subTitle: () => sub, valueText: text,
-        value: () => Data.get(key), keys: [key], color: () => Color.comp, control: { key, color: Color.comp } });
-      SET_KNOBS([knob("Ceiling", "dlzmod.lim.thresh", (v) => $F.toText(VtoCompThresh(v), 1, lang.DB)),
-        knob(lang.RELEASE, "dlzmod.lim.release", (v) => $F.toTime(VtoCompRelease(v), 0))]);
+        value: () => Data.get(key), keys: [key], color: () => Color.comp, control: { key, color: Color.comp },
+        stepKey: key });
+      SET_KNOBS(DLZMOD_knobs([knob("Ceiling", "dlzmod.lim.thresh", (v) => $F.toText(VtoCompThresh(v), 1, lang.DB)),
+        knob(lang.RELEASE, "dlzmod.lim.release", (v) => $F.toTime(VtoCompRelease(v), 0))]));
     }
 
     showPresets() {}

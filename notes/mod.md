@@ -454,8 +454,8 @@ on-screen strip button, Mackie's LR mute neither).
 
 On the master's channel page (Pro layout; the simple layout has only Setup for the master), the
 Gate tab and the De-Esser tab were greyed out. The Gate tab now opens Mackie's own gate page, and the
-De-Esser tab (the master has no de-esser) becomes a **Limiter** tab. XS only, like #131: the
-full-size's graph is not patched.
+De-Esser tab (the master has no de-esser) becomes a **Limiter** tab. Both models: the same patches
+on both graphs [static, `tests/graph-check.js`]; tried on the XS only, the full-size check is #316.
 
 - **Gate**: Mackie's `Gate` block for the master, commented out in the stock graph, switched on by
   removing the comment (patch.py), in Mackie's place: after the master's EQ, before its compressor,
@@ -465,7 +465,7 @@ full-size's graph is not patched.
   sandbox]. The block's threshold goes from -40 to 0 dB, like the channels' `EconomyGateCompressor`
   gate; the page offers down to -60, also like the channels [static].
 - **Limiter**: a `Compressor` (ratio 20, attack 1 ms, no knee, stereo linked through `right`) on the
-  master out's own buffers (`masterOuts`, `aout[16]/[20]`), right after Mackie copies the mix there
+  master out's own buffers (`masterOuts`: XS `aout[16]/[20]`, full-size `cout[0]/[1]`), right after Mackie copies the mix there
   (`DLZMOD_limiter`). Only the speakers' out: headphones, USB, NDI, Bluetooth and recordings take the
   mix earlier. Keys `dlzmod.lim.*` in dB and ms like Mackie's compressor keys; defaults in
   `DLZMOD_keys` (on, ceiling -1 dB, release 50 ms), written into the state by the install and every
@@ -476,7 +476,8 @@ full-size's graph is not patched.
   the attack can pass, so it is a safety net, not a brick wall.
 - **Page** (`DLZMOD_limPage`): Mackie's `PageComp` as a subclass on the `dlzmod.lim.*` keys (its
   curve widget's `midKey` "lim."), the ratio's handle neither drawn nor moved, no knee, gain or
-  presets; Ceiling and Release on the knobs, the attack shown fixed; its texts English only, like the
+  presets; Ceiling and Release on knobs 1 and 2 through #238's stand-ins (`DLZMOD_knobs`: faderlink's
+  table has no `dlzmod.*` keys), the attack shown fixed; its texts English only, like the
   Mod page's. The keys' 0..1 screen values go
   through Mackie's compressor conversions (`Data.setKeyConv`, `DLZMOD_limConv`). The tab text and
   colour per channel (`DLZMOD_limTab`); a channel picked on that tab gets its De-Esser, the Limiter,

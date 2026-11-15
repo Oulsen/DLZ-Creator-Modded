@@ -4091,10 +4091,16 @@ test("limiter: its page is Mackie's compressor page on the limiter's keys, its r
     assert.strictEqual(p.comp.noGain, true, "the curve without a make-up gain");
     p.sync(true);
     assert.deepStrictEqual(plain(rec.prefixes), { comp: "dlzmod.lim.", ahr: "dlzmod.lim.", onoff: "dlzmod.lim.bypass" });
-    assert.deepStrictEqual(plain(rec.knobs.map((k) => [k.subTitle(), k.control.key])),
-      [["Ceiling", "dlzmod.lim.thresh"], ["Release", "dlzmod.lim.release"]]);
+    assert.deepStrictEqual(plain(rec.knobs.map((k) => [k.subTitle(), k.control.key, k.keys[0]])),
+      [["Ceiling", "a.0.pan", "dlzmod.lim.thresh"], ["Release", "a.1.pan", "dlzmod.lim.release"]],
+      "both knobs on the stand-ins (faderlink has no dlzmod.* keys), shown from the limiter's keys");
     assert.strictEqual(rec.knobs[0].valueText(59 / 60), "-1.0 dB");
     assert.strictEqual(rec.knobs[0].title(), "Limiter");
+    Object.assign(ctx.Data.data, { "dlzmod.lim.thresh": 0.5, "dlzmod.lim.release": 0.5 });
+    ctx.DLZMOD_knobStep({ knob: 0, steps: 8 });
+    ctx.DLZMOD_knobStep({ knob: 1, steps: -4 });
+    assert.ok(Math.abs(ctx.Data.data["dlzmod.lim.thresh"] - 0.6) < 1e-9, "knob 1: the ceiling");
+    assert.ok(Math.abs(ctx.Data.data["dlzmod.lim.release"] - 0.45) < 1e-9, "knob 2: the release");
     p.comp.mode = 0;
     p.comp.onmove(5);
     p.comp.mode = 1;
