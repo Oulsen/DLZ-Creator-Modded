@@ -4,11 +4,9 @@ Description=dlzmod: diagnostic logging, the pin log (only while it is on in the 
 # Diagnostic Logging); the server also starts and stops it at once. Default dependencies: it starts
 # at basic.target (~10-14 s in, after the FPGA load), before dspserver's codec setup (~20-30 s in),
 # so it sees the setup and PH2 after it, not the first seconds (an update may not ship an earlier
-# unit: dlzmod-update's shape_ok; dev/pinlog.sh starts it at sysinit on a dev card). Nothing is
+# unit: dlzmod-update's shape_ok). Nothing is
 # ordered after it, so it delays no other unit. Read-only (/dev/mem PROT_READ, /sys, /proc).
 ConditionPathExists=/var/lib/dlzmod/diag-on
-# not next to the dev card's own copy (dev/pinlog.sh on): one pin log, one cost to measure
-ConditionPathExists=!/etc/systemd/system/dlzdev-pinlog.service
 
 [Service]
 Type=exec

@@ -58,13 +58,22 @@ build)
   repo_wsl=$(wsl -d Ubuntu -e wslpath -a "$(cygpath -w "$REPO")" 2>/dev/null | tr -d '\r\0')
   case $repo_wsl in /*) ;; *) echo "WSL distro Ubuntu not found (wsl -l)"; exit 1 ;; esac
   keys_wsl=$(wsl -d Ubuntu -e wslpath -a "$(cygpath -w "$keys")" | tr -d '\r\0')
+  # a worktree (#308): its .git file names the git folder by a Windows path, which WSL's git cannot
+  # follow; GIT_DIR and GIT_WORK_TREE as WSL paths, as dev/push.sh does (buildenv.sh mounts it in Docker)
+  gitenv=()
+  if [ -f "$REPO/.git" ]; then
+    gd=$(git rev-parse --absolute-git-dir) && [ -n "$gd" ] || { echo "git cannot name the worktree's git folder"; exit 1; }
+    gd_wsl=$(wsl -d Ubuntu -e wslpath -a "$(cygpath -w "$gd")" 2>/dev/null | tr -d '\r\0')
+    case $gd_wsl in /*) ;; *) echo "the worktree's git folder has no WSL path"; exit 1 ;; esac
+    gitenv=("GIT_DIR=$gd_wsl" "GIT_WORK_TREE=$repo_wsl")
+  fi
   mkdir -p build
   log=build/release-build.log
   echo "release build $VER from $HEAD, its output also in $log" | tee "$log"
   # said before the build, not only by check after it
   [ -d "$keys" ] || echo "warning: no dev keys folder $keys (DLZMOD_KEYS_WIN): the dev image will fail, the release files do not need it" | tee -a "$log"
   { at_branch "$HEAD" || echo "warning: not the release (check ends with this), fine for a test of this commit"; } 2>&1 | tee -a "$log"
-  MSYS_NO_PATHCONV=1 wsl -d Ubuntu -u root --cd "$repo_wsl" -e bash install/release/build-release.sh "$keys_wsl" 2>&1 | tee -a "$log"
+  MSYS_NO_PATHCONV=1 wsl -d Ubuntu -u root --cd "$repo_wsl" -e env "${gitenv[@]}" bash install/release/build-release.sh "$keys_wsl" 2>&1 | tee -a "$log"
   rc=${PIPESTATUS[0]}
   # 2: only the dev image failed, the release files are checked all the same
   case $rc in 0|2) ;; *) exit "$rc" ;; esac
@@ -74,6 +83,7 @@ build)
   ;;
 open)
   committed || exit 1
+  [ ! -f "$REPO/.git" ] || { echo "a git worktree: build-release.cmd cannot follow its .git file, use release.sh build here"; exit 1; }
   win=$(cygpath -w "$REPO/install/release/build-release.cmd")
   ps=pwsh; command -v pwsh > /dev/null || ps=powershell   # PowerShell 7 if installed, else Windows PowerShell
   cmd.exe //c start "DLZ release build" $ps -NoExit -Command "& '$win'" || exit 1

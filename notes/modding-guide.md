@@ -312,7 +312,11 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
 
 - `dev/ui-sandbox/shim.js` blocks every shell command (server.js would otherwise run
   mkfs/dd/parted/mount/systemctl), only allows the `mv`/`sync` of the state save, and binds 80/89 to
-  localhost. Never run server.js outside the shim, and never as root in WSL.
+  localhost. Never run server.js outside the shim, and never as root in WSL. It takes the mixer's
+  absolute paths (`/srv`, `/tmp`, `/root`, `/etc`, `/dev`, `/proc`, `/boot`, `/var`, `/run`) into the
+  sandbox folder, so nothing it writes there lands on the PC's drive, the server mod's
+  `/var/lib/dlzmod*` (remote pairing, Diagnostics' marker) and `/run/dlzmod*` (clock source, SSH
+  switch) included [static; `tests/ui-sandbox.js`].
 - **A phone on the network, on this PC** (#45): `DLZ_SANDBOX_REMOTE=1 bash dev/ui-sandbox.sh`. Then
   http://localhost/ plays another device (the shim gives that connection the address 192.0.2.10 and
   leaves `index.html` to Mackie's server, so it opens in remote mode), while http://127.0.0.1/ stays
