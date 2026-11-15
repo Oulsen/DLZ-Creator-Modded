@@ -140,14 +140,16 @@ What is known about the chip that does USB audio to the PC, and where to pick th
   ID 1012, 6152 bytes): an 8-character ASCII version header `10410001`, then scrambled data
   (entropy 7.8, no ARM vector table in it or anywhere in the package). It flashes only through
   Ploytec's own kernel driver (`\FW_UPDATE`, `PGIOCTL_PREPARE_FWUPDATE_FIRMWARE`; without it:
-  "The installed driver does not support firmware update mode"). That driver binds `0A4A:FFDB`, and
-  its `readUC3UserFlash`/`writeUC3UserFlash` strings show the Xone:DB4's chip is an Atmel AVR32 UC3,
-  not a SAM3U. So it has a different CPU family, a different update path and a different driver from
-  the DLZ (SAM3U, class 2.0, Thesycon); the updater would not even see a DLZ.
+  "The installed driver does not support firmware update mode"). That driver binds `0A4A:FFDB`; it
+  is Ploytec's shared driver (it also names Audio Junction 2.0, Xone:2D/4D/DX, Dotec), and its
+  `readUC3UserFlash`/`writeUC3UserFlash` strings point to an Atmel AVR32 UC3 as the Xone:DB4's chip,
+  not a SAM3U [guess, strong: the strings could belong to another product of that driver]. Either
+  way the update path and driver differ from the DLZ's (class 2.0, Thesycon): the updater would not
+  even see a DLZ.
 - **Another product's Ploytec firmware is no route**: each image is built for its board's wiring
   (I2S/TDM lines, codecs), and the FPGA's bitstream expects the 4 channels it gets today. Best case,
   nothing changes. Worst case, USB audio is lost, with no published DLZ image to put back. The
-  Xone:DB4's image is not even for the same CPU (above).
+  Xone:DB4's image is most likely not even for the same CPU family (above).
 - **The only route to more PC inputs is Mackie with Ploytec**: they hold both halves, the chip's
   firmware and the FPGA routing. Makers do ship this kind of update (RØDECaster Pro II, #279; the
   Allen & Heath updater above), so an owner request to Mackie is the lever.
