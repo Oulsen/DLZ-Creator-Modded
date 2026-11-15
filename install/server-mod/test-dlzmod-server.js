@@ -3686,6 +3686,14 @@ test("diag: turns itself off 7 days after it was turned on, at the server's star
     assert.deepStrictEqual(calls, ["stop --no-block dlzmod-pinlog.service"], "the pin log stopped");
     assert.strictEqual(await ctx.DLZMOD_diagWatch.check(), false, "off: nothing more to do");
     assert.strictEqual(calls.length, 1);
+    // the clock went back: the marker's time lies ahead, the 7 days start again from now
+    fs.writeFileSync(file, "");
+    const t2 = fs.statSync(file).mtimeMs;
+    const back = t2 - 30 * 864e5;
+    assert.strictEqual(await ctx.DLZMOD_diagWatch(file, run, () => back), false, "still on");
+    assert.ok(Math.abs(fs.statSync(file).mtimeMs - back) < 2000, "its time set to now");
+    assert.strictEqual(await ctx.DLZMOD_diagWatch(file, run, () => back + 7 * 864e5), true, "7 days after that: off");
+    assert.ok(!fs.existsSync(file));
   } finally {
     clearInterval(ctx.DLZMOD_diagWatch.timer);
   }

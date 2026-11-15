@@ -948,7 +948,8 @@ say. Off by default; both models, the same code (tested on an XS; the full-size:
   that fails is named in the answer (the marker still decides the next start). It stays on across
   restarts until turned off, or for 7 days: `DLZMOD_diagWatch` (from the server's start, then
   hourly) removes a marker older than that and stops the pin log, since its lines add MBs a day to
-  a syslog that is never rotated; a clock that jumps forward can end it early, never late
+  a syslog that is never rotated; a clock that jumps forward can end it early, one that went back
+  (the marker's time over an hour ahead) starts the 7 days again from then, so it always ends
   [static; unit tests].
 - **The pin log**: `dlzmod-pinlog` is `dev/pinlog.py` of #293 (the codec pins PH0-PH2/PH12, every
   GPIO change, the screen, the power side, the I2S state and sample counters, load and memory each
@@ -958,7 +959,11 @@ say. Off by default; both models, the same code (tested on an XS; the full-size:
   dspserver's own start but before its codec setup (~20-30 s) [static]: it misses the first
   seconds, which `dev/pinlog.sh` on a dev card (from sysinit) still sees; with that dev unit on the
   card the mod's does not start (one pin log at a time). Its lines go to the journal, so into the
-  syslog and the boot log copy. Its cost on the mixer: (to measure, #302).
+  syslog and the boot log copy. The display connectors' `status` every 5 s, not every 100 ms (a read
+  makes the driver detect the connector anew under DRM's connection lock, which glesgui's page
+  flips take too); a stop waits at most 15 s (`TimeoutStopSec`: its last snapshot reads the
+  regulators). Its cost on the mixer: 3.6 % of one core with the regulators every 0.5 s [device,
+  #293, dev card]; with this pacing: (to measure, #302).
 - **The snapshot**: `dlzmod-diagsnap`, run by `dlzmod-bootlog` while the marker exists, appended
   after the starts in `syslog-last-boots.txt` (~2.5 min after power-on, with the boot report): mixer
   model and mod version, every unit's state and restarts, `systemd-analyze`, `/proc/asound` (cards,

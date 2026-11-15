@@ -79,9 +79,10 @@ LEVEL = (0, 1, 6)    # functions whose data bit is the pin's level: input, outpu
 STEP = 0.001         # asks for 1 ms; the 4 ms tick sets the real pace
 # the poller's pace; its cost on the mixer was 3.6 % of one core with regulators every 0.5 s and the
 # interrupt table every 0.1 s [device], so the slower sources are read less often
-FAST = 0.1           # the screen (backlight, display connectors)
+FAST = 0.1           # the screen (backlight, display connectors' enabled and dpms)
 IRQ = 0.5            # the power chip's interrupt lines (/proc/interrupts)
-SLOW = 5.0           # regulators (rarely change; the kernel also logs the ones it switches off)
+SLOW = 5.0           # regulators (rarely change; the kernel also logs the ones it switches off),
+                     # display connectors' status
 RESCAN_EARLY, RESCAN_LATE, EARLY = 5.0, 60.0, 120.0  # new screen/rail/sensor files: every 5 s for
 # the first 2 minutes of the unit (from ~11 s uptime), then every minute
 ALIVE = 3600.0       # seconds between "alive" lines (each with a snapshot)
@@ -339,8 +340,11 @@ class Sources:
             for a in ("brightness", "actual_brightness", "bl_power"):
                 self.fast.add("bl.%s.%s" % (os.path.basename(d), a), "%s/%s" % (d, a))
         for d in sorted(glob.glob(ROOT + "/sys/class/drm/card*-*")):
-            for a in ("status", "enabled", "dpms"):
+            for a in ("enabled", "dpms"):
                 self.fast.add("drm.%s.%s" % (os.path.basename(d), a), "%s/%s" % (d, a))
+            # status makes the driver detect the connector anew (HDMI's hot-plug line) under DRM's
+            # connection lock, which glesgui's page flips also take: with the regulators, every 5 s
+            self.slow.add("drm.%s.status" % os.path.basename(d), "%s/status" % d)
         for d in sorted(glob.glob(ROOT + "/sys/class/regulator/regulator.*")):
             if d not in self.known:  # its name once; its files are looked for at every scan
                 try:

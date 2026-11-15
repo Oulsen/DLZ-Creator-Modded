@@ -2844,15 +2844,23 @@ async function DLZMOD_diagSet(on, run, result, file = DLZMOD_diagFile()) {
 // Diagnostic Logging turns itself off DLZMOD_DIAG_DAYS after it was turned on: the pin log adds MBs a
 // day to the syslog, which is never rotated (logrotate is off), and an owner may forget it. Checked
 // at the server's start (from DLZMOD_bootlogCopy) and every hour, by the marker's time: a clock that
-// jumps forward (chrony, once online) can end it early, never late
+// jumps forward (chrony, once online) can end it early; one that went back (the marker's time more
+// than an hour ahead) starts the 7 days again from now, so it never runs on without an end
 function DLZMOD_diagWatch(file = DLZMOD_diagFile(), run = DLZMOD_run, now = Date.now) {
   const s = DLZMOD_diagWatch;
   s.check = async () => {
+    const fs = require("fs");
     let m;
     try {
-      m = require("fs").statSync(file).mtimeMs;
+      m = fs.statSync(file).mtimeMs;
     } catch (e) {
       return false;   // off
+    }
+    if (m - now() > 36e5) {
+      try {
+        fs.utimesSync(file, now() / 1000, now() / 1000);
+      } catch (e) {}
+      return false;
     }
     if (now() - m < DLZMOD_DIAG_DAYS * 864e5) return false;
     if (DLZMOD_unlinkQuiet(file)) DLZMOD_syncDir(require("path").dirname(file));
