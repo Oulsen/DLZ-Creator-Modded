@@ -19,7 +19,7 @@
 # commit first, WIP commits on the feature branch are fine (squashed in the PR).
 # Before the next start the package is checked here as the card will: the signature against the card's
 # own dev.pub, CHANNEL=dev, REINSTALL=no (or REINSTALL_BELOW and the card from then on), not older
-# than the card's version.
+# than the card's version unless the card's updater takes an older dev build (v0.6.1 on: a patch).
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -96,6 +96,7 @@ STATE=$(mixer 'echo "data=$(findmnt -rno TARGET -S LABEL=DLZDATA | head -n 1)"
   echo "report=$(cat /var/lib/dlzmod-update/last-report 2>/dev/null) $(stat -c %i /var/lib/dlzmod-update/last-report 2>/dev/null)"
   echo "failed=$(cat /var/lib/dlzmod-update/failed 2>/dev/null)"
   echo "below=$(grep -c REINSTALL_BELOW /usr/local/sbin/dlzmod-update 2>/dev/null)"
+  echo "olddev=$(grep -c "a dev package on a developer card" /usr/local/sbin/dlzmod-update 2>/dev/null)"
   echo "boot=$(cat /proc/sys/kernel/random/boot_id)"' | tr -d '\r') \
   || die "no SSH login on $HOST (address, Wi-Fi, SSH kept on, your key in authorized_keys, a key with a passphrase in ssh-agent? A new install has new host keys: delete $KNOWN)"
 st() { sed -n "s/^$1=//p" <<< "$STATE"; }
@@ -109,7 +110,10 @@ printf '%s' "$DATA" | grep -Eq '^/[A-Za-z0-9/_.-]+$' || die "DLZDATA is not moun
 U=$DATA/dlzmod-update
 echo "   card version ${CVER:-unknown}, DLZDATA at $DATA"
 if [ -n "$CVER" ] && [ "$(printf '%s\n%s\n' "$CVER" "$PVER" | sort -V | head -n 1)" != "$CVER" ]; then
-  die "$PVER is older than the card's $CVER: the card refuses it"
+  # updaters from v0.6.1 on take an older dev package (a patch to try); the older ones refuse it
+  [ "$(st olddev)" -gt 0 ] 2>/dev/null \
+    || die "$PVER is older than the card's $CVER: this card's updater refuses it (from v0.6.1 on it takes an older dev build; install this one with a $PVER dev installer image)"
+  echo "   $PVER is older than the card's $CVER: a downgrade (push the newer build again afterwards)"
 fi
 if [ -n "$BELOW" ]; then
   [ "$(st below)" -gt 0 ] 2>/dev/null \

@@ -194,7 +194,7 @@ The repo is public, so what goes into it is limited by what the project may publ
 | `push.sh` | Git Bash + WSL | Build HEAD, push it over Wi-Fi to a dev card as a drop-in update, wait for the mixer to be switched off and on (`--restart`: from software, #81) and show the update's report ("Dev card" below); settings in `dev/push.env` (git-ignored, from `push.env.example`) |
 | `cardkey.sh` | Git Bash | After a new install of the dev card: forget its old host key, add your SSH key with the card's SSH password, check a key login ("Dev card" below) |
 | `netlog.sh` / `netlog.ps1` | Git Bash / PowerShell | A dev card's network log ("Dev card" below): `netlog.sh on` (`off`, `status`) makes the card send each start's log to this PC, `netlog.ps1` receives it into `build/device-logs/netlog-*.txt` |
-| `pinlog.sh` / `pinlog.py` | Git Bash | The codec pin log of a dev card (#261, for #257): `pinlog.sh on` (`off`, `status`) puts `pinlog.py` on the card as a unit that logs GPIO PH0-PH2 and PH12 (data, function, pull; read-only through `/dev/mem`) during each start's first 120 s to the journal, so the network log and the boot log carry it. Refuses when the mixer was not started from an SD card |
+| `pinlog.sh` | Git Bash | The pin log of a dev card (#261, #287, #293, for #257): `pinlog.sh on` (`off`, `status`) puts `install/sd-system/dlzmod-pinlog` on the card as a unit that logs, read-only (`/dev/mem`, `/sys`, `/proc`; the PMIC is never written or addressed directly and its IIO ADC never read; its regulator files go through the kernel's driver and its register cache), from each start until the shutdown to the journal, so the network log and the card's syslog carry all of it (the boot log copy on DLZDATA only the start): the codec pins PH0-PH2 and PH12 (data, function, pull) in their old line format; every other GPIO pin of ports A-I (function, pull, drive, and the level while it is an input, output or interrupt input) and the codec pins' drive; every 100 ms the backlight and the display connectors, every 500 ms the power chip's interrupt lines, every 5 s each regulator's state, users and voltage (drivers that come up later are found by a rescan); a full snapshot (all of it read anew plus every interrupt count, the thermal zones, the PLLs and I2S clocks dspserver sets, and the registers of each I2S that is clocked and out of reset with its sample counters read twice, so it shows whether the processor still streams to the codecs; never the I2S FIFO registers) at the first read, when PH1 goes high (codec setup done), when PH2 goes low and high again, a minute into the start, every hour and at the end. One line per change, with budgets a minute (60 for PH0-PH2, 10 for PH12, 10 per other pin, 60 for the screen and power lines, 10 edge snapshots; more are counted in one line a minute), pins read every ~4 ms (the kernel's tick) in a loop that does nothing else (a poller thread reads `/sys` and `/proc`, a worker the snapshots), and every hour an `alive` line with the reads, their longest gap, the CPU time and memory used, and whether both threads still run. For #8 (memory and processor over long sessions) also a `load` line every minute, outside the budgets: per core 0-2 the average busy share and the highest second (sampled every second; core 3 is dspserver's spin, always ~99 %, its headroom is `dsp-headroom.sh`'s), MemAvailable and the RSS of dspserver, the node processes, glesgui and faderlink; and a `mem` line after it: MemFree, Cached, Shmem, SUnreclaim, CmaFree, swap, the kernel's OOM kills (`oom_kill`) and per process RssAnon (what it allocated itself, what grows in a leak), RssFile and RssShmem. A new version takes effect at the next start. Refuses when the mixer was not started from an SD card. Tested by `tests/pinlog.sh`. The mod runs the same script while Diagnostic Logging is on (#302), from `basic.target`; this unit starts it at sysinit |
 | `usbloop.py` | Windows (Python, stdlib only) | USB audio loop test with the mixer on this PC (#257): `play` a 440 Hz tone into USB 1-2 (the mixer's computer channel), `record` the levels of a return (1-2, the main mix, or another pair), `check` does both and says whether the tone comes back (mix-minus on the computer channel off). Finds the devices by "DLZ Creator", so XS and full-size. Needs Mackie's USB driver; Claude Code runs it with the `audio-check` skill |
 | `dsp-headroom.sh` | Git Bash | The audio thread's headroom on a dev card (#5): `on` runs a measuring copy of dspserver (`dsp-headroom.py` patches the stock one with the stub `dsp-headroom.S`; on a tmpfs bind-mounted over the stock file, nothing written to the card), `read [SECONDS]` shows the share of each audio block spent waiting, `off` brings the stock one back. `on`, and `off` after it, restart dspserver, which once left every output silent until the mixer was switched off and on (the meters still moved; another restart kept the sound, #257), so end with a reboot, not while recording. Settings from `dev/push.env` |
 | `re/setup.sh`, `re/analyze.sh`, `re/register.sh` | WSL (root) / Git Bash | Read Mackie's own programs (faderlink, dspserver, glesgui) with Ghidra through REA, from Claude Code ([dev/re/README.md](../dev/re/README.md): setup on each PC, the routine per question, what never to send the GD32 or Bluetooth module). `setup.sh` installs JDK 21, Node 24, Ghidra 12.1.4 and REA in WSL; `analyze.sh` copies the programs from the read-only dump into `build/re/` (all REA needs) and builds a Ghidra project in `build/re/ghidra/` (private); `register.sh` registers REA for this repo only |
@@ -333,7 +333,7 @@ switch it off and on with the switch on the back. `--restart` restarts it from s
 package the way the card will: the signature against the card's own `dev.pub` (a release card, or
 one built with another dev key, stops here), `CHANNEL=dev`, no full install needed (`REINSTALL=no`,
 or `REINSTALL_BELOW` and a card at that version with an updater that knows it), not older than the
-card's version, and not a file the card refused before. The mixer software keeps DLZDATA mounted
+card's version (unless its updater takes an older dev build, below), and not a file the card refused before. The mixer software keeps DLZDATA mounted
 read-only and writable only while it records: `push.sh` stops when it finds it writable, else makes
 it writable for the copy and read-only again after it. Earlier packages in `dlzmod-update/` are
 removed (more than one is never installed). It logs in to the new start only once it has settled
@@ -366,6 +366,12 @@ checkout's log: `DLZ_NETLOG_DIR=<repo>/build/device-logs`.
 the older commit and push again, or push its package from before: `bash dev/push.sh
 build/push/dlzmod-v0.2.0-dev-<commit>.tar`. A refused file is not tried again; a new build is a new
 file.
+
+**An older version** (a patch to try, "Patches" below, on a card that runs `develop`): from v0.6.1 on
+the updater takes an older package when it is signed with the dev key (only a dev card trusts it;
+a release package is never taken older, on any card). `push.sh` says it is a downgrade; push the
+newer build again afterwards. A card whose updater is from before v0.6.1 refuses it: install the
+patch once with its dev installer image.
 
 Not covered: changes that need a full install (guards, the updater's gates and allowlist, boot
 visuals, the card layout: `install/release/reinstall-below`, [notes/updates.md](../notes/updates.md),
@@ -548,9 +554,11 @@ issue's technical notes point to the note section instead of copying it.
   A patch that changes what runs on the mixer is a new version `vX.Y.Z+1`: its branch sets
   `VERSION` and adds a `## vX.Y.Z+1` section to `CHANGELOG.md`; the merge into `develop` keeps
   `develop`'s `VERSION` and puts that section below `develop`'s own. The tag goes on `main`'s patch
-  commit (the tag's workflow already checks "on `main`" and `VERSION`). Not done yet: `release.sh`
-  (`check`, `ready`) assumes the build is `develop`'s tip; a code patch first needs it to build
-  from `main`'s tip.
+  commit (the tag's workflow already checks "on `main`" and `VERSION`). Its release build is made
+  from `main`'s tip after the patch PR's merge: `release.sh` takes a `VERSION` whose last number is
+  not 0 for a patch, so `build` and `check` compare the build with `origin/main` instead of
+  `origin/develop`, and `ready` only confirms that `main` is the build (nothing to fast-forward;
+  next is the tag) (v0.6.1, #302).
 - **`CHANGELOG.md`**: the bump PR opens a `## vX.Y.Z` section (with the milestone's issues already
   in `develop`, if any); every PR that finishes a milestone issue adds its title as a bullet there,
   and the release PR checks the section against the milestone. Bullets ordered `DLZ FEATURE`,

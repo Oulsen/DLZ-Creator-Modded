@@ -110,7 +110,7 @@ The card applies those in place at startup, without a rebuild from the eMMC.
    that verified; then the keys the package withdraws (`WITHDRAWN`) onto the card's list; only plain files and folders in the
    tar and in the initramfs inside it (no links, no `..`; the initramfs may hold `dev/console`); both manifests, and the manifest = the file
    list; the card's model in `MODELS`, `EVOLVE_NODE`; not older than the card's version
-   (`/var/lib/dlzmod-update/version`); no full install needed (`REINSTALL_BELOW` not above the card's
+   (`/var/lib/dlzmod-update/version`; from v0.6.1 a dev-signed package may be, to try a patch on a dev card); no full install needed (`REINSTALL_BELOW` not above the card's
    version; without it `REINSTALL=no`); and the package's **guards** byte for byte
    as the installed updater knows them (sha256 list `GUARDS` in `dlzmod-update`, checked against the
    files by `mkpackage.sh`). A package that changes a guard needs a full install. Then the one

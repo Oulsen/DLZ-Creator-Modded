@@ -106,6 +106,7 @@ preflight() {
       sd-system/dlzmod-emmc-ro sd-system/dlzmod-grow-data sd-system/dlzmod-bootlog \
       sd-system/dlzmod-bootreport sd-system/dlzmod-bootreport.service \
       sd-system/dlzmod-netlog sd-system/dlzmod-netlog.service sd-system/dlzmod-glesgui \
+      sd-system/dlzmod-pinlog sd-system/dlzmod-pinlog.service sd-system/dlzmod-diagsnap \
       sd-system/dlzmod-wait-hub sd-system/dlzmod-update sd-system/dlzmod-update.service \
       sd-system/dlzmod-emmc-ro.service sd-system/dlzmod-grow-data.service \
       sd-system/dlzmod-bootlog.service sd-system/dlzmod-clock sd-system/dlzmod-clock.service \

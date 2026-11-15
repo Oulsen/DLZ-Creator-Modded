@@ -6,7 +6,8 @@ Description=dlzmod: the last starts' syslog, for server.js to copy to DLZDATA
 
 [Service]
 Type=oneshot
-TimeoutStartSec=60
+# 180: with Diagnostic Logging on (#302) it also takes a snapshot, each command at most 10 s
+TimeoutStartSec=180
 Nice=19
 IOSchedulingClass=idle
 ExecStart=/usr/local/sbin/dlzmod-bootlog

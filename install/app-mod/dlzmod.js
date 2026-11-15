@@ -1725,6 +1725,7 @@ function DLZMOD_settingsPage(parent, y) {
       if (i === 3 || i === 4) $NET.cmd("DLZMOD_NET", { op: "status" });
       if (i === 5) {
         $NET.cmd("DLZMOD_RELEASE", { op: "status" });
+        $NET.cmd("DLZMOD_NET", { op: "status" });   // Diagnostic Logging's state (#302)
         DLZMOD_releaseSeen();
       }
       this.update();
@@ -2543,6 +2544,16 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
         anchors: [0, 252], size: [300, 56], text: "Upload Update...",
         visible: DLZMOD_external(), onPress: () => DLZMOD_uploadPick(),
       });
+      // #302: Diagnostic Logging on or off (the mixer's own screen; the server takes it from there
+      // only), its state on the button; in a browser the logs to download instead
+      this.diag = new E1Button(this, {
+        anchors: [0, 252], size: [300, 56], text: DLZMOD_diagLabel(),
+        visible: !DLZMOD_external(), onPress: () => DLZMOD_askDiag(),
+      });
+      this.logs = new E1Button(this, {
+        anchors: [0, 252], size: [300, 56], text: "Download Logs...",
+        visible: DLZMOD_external(), onPress: () => DLZMOD_downloadLogs(),
+      });
       this.auto = DLZMOD_switch(this, w, 112, "dlzmod.updateAuto", () => this.update());
       // #224: the installed version's notes again, as after its update (none stamped in: no button)
       this.notes = new E1Button(this, {
@@ -2575,14 +2586,21 @@ function DLZMOD_aboutPanel(parent, x, y, w) {
         this.check.text = text;
         this.check.update();
       }
-      // the buttons shown, side by side in the middle
-      const shown = [this.check, this.install, this.usb, this.upload].filter((b) => b.visible);
-      const gap = 16;
-      let x = (w - shown.length * 300 - (shown.length - 1) * gap) / 2 | 0;   // (w: this.w may not be set yet)
+      const diagText = DLZMOD_diagLabel();
+      if (this.diag.text !== diagText) {
+        this.diag.text = diagText;
+        this.diag.update();
+      }
+      // the buttons shown, side by side in the middle: three of them (Diagnostics or Download Logs
+      // since #302) 280 wide, so they fit the panel (914)
+      const shown = [this.check, this.install, this.usb, this.upload, this.diag, this.logs].filter((b) => b.visible);
+      const gap = 16, bw = shown.length > 2 ? 280 : 300;
+      let x = (w - shown.length * bw - (shown.length - 1) * gap) / 2 | 0;   // (w: this.w may not be set yet)
       // (anchors: Mackie's layout places a widget by them again later)
       for (const b of shown) {
+        b.setSize(bw, 56);
         b.setAnchors(x, 252);
-        x += 300 + gap;
+        x += bw + gap;
       }
     },
     paint: function (t) {
@@ -3023,7 +3041,53 @@ function DLZMOD_setNetState(s) {
   if (page) {
     page.network.update();
     page.pair.update();
+    page.about.syncInstall();   // Diagnostic Logging's button (#302)
+    page.about.update();
   }
+}
+
+// #302: Diagnostic Logging, from the server's network status (DLZMOD_diagFile in dlzmod-server.js);
+// "…" until the first status
+function DLZMOD_diagLabel() {
+  const s = DLZMOD_netState();
+  return s.unknown || s.remote ? "Diagnostics…" : s.diag ? "Diagnostics: On" : "Diagnostics: Off";
+}
+
+// what it logs, where the logs go, and its cost, then on or off; Cancel changes nothing
+function DLZMOD_askDiag() {
+  const s = DLZMOD_netState();
+  if (s.unknown || s.remote) return $NET.cmd("DLZMOD_NET", { op: "status" });
+  const on = !!s.diag;
+  new PopupConfirm(app, {
+    title: "Diagnostic Logging",
+    text: on
+      ? "Diagnostic logging is on.\nAbout 2 minutes after each start the logs are in\nDLZDATA/dlzmod-logs on the card (or Download Logs\nin Remote Control). Turn it off when you are done."
+      : "Logs everything at each start, for finding a fault\n(no sound, dropouts): the system log, the audio\nchips' pins and clocks, power, memory and load.\nUses a little processing power; off after 7 days.",
+    buttons: [{ text: on ? "Turn off" : "Turn on" }, { text: lang.CANCEL }],
+    icon: $FA.exclamation,
+    func: () => {
+      DLZMOD_netBusy(on ? "Turning diagnostic logging off…" : "Turning diagnostic logging on…", 30, $FA.exclamation);
+      $NET.cmd("DLZMOD_NET", { op: "diag", on: !on });
+    },
+  });
+}
+
+// Download Logs (#302, a browser): DLZDATA/dlzmod-logs as one .tar (dlzmod-server.js,
+// DLZMOD_logsHttp); a HEAD first, so a busy mixer or no logs get a message instead of a broken file
+function DLZMOD_downloadLogs() {
+  const title = "Download Logs";
+  fetch("/dlzmod-logs.tar", { method: "HEAD", cache: "no-store" }).then((r) => {
+    if (r.status === 503) return showMessage("The mixer is busy with a recording.\nDownload when it has finished.", { title: title });
+    if (r.status === 404) return showMessage("No logs on the mixer's SD card yet.\nThey appear about 2 minutes after a start.", { title: title });
+    if (!r.ok) return Promise.reject(new Error("HTTP " + r.status));
+    const a = document.createElement("a");
+    a.href = "/dlzmod-logs.tar";
+    a.download = "";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    showToast("Downloading the logs");
+  }).catch(() => showMessage("The mixer did not answer. Try again.", { title: title }));
 }
 
 // Wi-Fi status on the Wi-Fi card: two short lines and their colour
@@ -3242,7 +3306,7 @@ function DLZMOD_netResult(r) {
   DLZMOD_netIdle();
   const pg = DLZMOD_page();
   if (r.ok && r.quiet && pg && pg.pair.globalVisible()) return pg.pair.revealPin(!0);   // else the popup
-  showMessage(r.text, { title: "Network", textColor: r.ok ? Color.green : Color.red2,
+  showMessage(r.text, { title: r.title || "Network", textColor: r.ok ? Color.green : Color.red2,
     font: Font.font(500, "17pt"), textDY: 32 });
   const page = DLZMOD_page();
   if (page) {

@@ -1,7 +1,9 @@
 #!/bin/bash
-# Put the codec pin log (dev/pinlog.py, #261) on the dev card or take it off (Git Bash). Once on, it
-# runs at every start for its first 120 s and writes to the journal, which the network log
-# (dev/netlog.sh) carries to the PC. Dev card only: it never goes into the mod or an installer.
+# Put the pin log (install/sd-system/dlzmod-pinlog, #261, #287, #293: the pins, the screen and the power side) on the dev card or take it off (Git Bash). Once
+# on, it runs from every start until the shutdown and writes to the journal, which the network log
+# (dev/netlog.sh) carries to the PC. Dev card only. The mod runs the same script as dlzmod-pinlog
+# while Diagnostic Logging is on (Mod tab, #302), but from basic.target (~10-14 s in: an update may
+# not ship an earlier unit); this unit starts it at sysinit, for the first seconds of a start.
 # Writes /usr/local/sbin/dlzdev-pinlog and /etc/systemd/system/dlzdev-pinlog.service over SSH, each
 # whole (temp, sync, rename); off removes both. Settings in dev/push.env, as for push.sh.
 #
@@ -35,7 +37,7 @@ UNIT=/etc/systemd/system/dlzdev-pinlog.service
 unit() {
   cat <<'EOF'
 [Unit]
-Description=dlzdev: log the audio chips' pins during a start (dev card only, #261)
+Description=dlzdev: log the pins, the screen and the power side for the whole session (dev card only, #261, #287, #293)
 # early and on its own: nothing is ordered after it, so it delays no other unit
 DefaultDependencies=no
 After=systemd-journald.socket local-fs.target
@@ -61,7 +63,7 @@ CARD_ONLY='src=$(findmnt -no SOURCE /); d=${src#/dev/}; d=${d%p[0-9]*}
 
 case ${1:-} in
   on)
-    b64bin=$(base64 -w0 "$REPO/dev/pinlog.py")
+    b64bin=$(base64 -w0 "$REPO/install/sd-system/dlzmod-pinlog")
     b64unit=$(unit | base64 -w0)
     mixer "set -e
       $CARD_ONLY
