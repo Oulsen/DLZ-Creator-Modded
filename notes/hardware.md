@@ -134,9 +134,22 @@ What is known about the chip that does USB audio to the PC, and where to pick th
   driver) need the maker's firmware file. Mackie has never shipped one for the DLZ's USB chip.
   Ploytec talks to the community (it helped Ozzy) and sells Revival, a box that turns old
   Ploytec mixers into class-compliant devices.
+- **Inside the Xone:DB4 updater** [static: `FWUpdater_XONE_DB4_v1.4.1.exe` and driver package
+  `XONE_DB4_2.9.91.0.exe`, read without running]: the updater is Ploytec's generic "AudioJunction
+  Firmware Updater" (2015) with Allen & Heath's texts. The firmware is a PE resource (`BINARY`,
+  ID 1012, 6152 bytes): an 8-character ASCII version header `10410001`, then scrambled data
+  (entropy 7.8, no ARM vector table in it or anywhere in the package). It flashes only through
+  Ploytec's own kernel driver (`\FW_UPDATE`, `PGIOCTL_PREPARE_FWUPDATE_FIRMWARE`; without it:
+  "The installed driver does not support firmware update mode"). That driver binds `0A4A:FFDB`; it
+  is Ploytec's shared driver (it also names Audio Junction 2.0, Xone:2D/4D/DX, Dotec), and its
+  `readUC3UserFlash`/`writeUC3UserFlash` strings point to an Atmel AVR32 UC3 as the Xone:DB4's chip,
+  not a SAM3U [guess, strong: the strings could belong to another product of that driver]. Either
+  way the update path and driver differ from the DLZ's (class 2.0, Thesycon): the updater would not
+  even see a DLZ.
 - **Another product's Ploytec firmware is no route**: each image is built for its board's wiring
   (I2S/TDM lines, codecs), and the FPGA's bitstream expects the 4 channels it gets today. Best case,
-  nothing changes. Worst case, USB audio is lost, with no published DLZ image to put back.
+  nothing changes. Worst case, USB audio is lost, with no published DLZ image to put back. The
+  Xone:DB4's image is most likely not even for the same CPU family (above).
 - **The only route to more PC inputs is Mackie with Ploytec**: they hold both halves, the chip's
   firmware and the FPGA routing. Makers do ship this kind of update (RØDECaster Pro II, #279; the
   Allen & Heath updater above), so an owner request to Mackie is the lever.
