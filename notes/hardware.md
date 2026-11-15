@@ -66,29 +66,87 @@ The board, Mackie's device tree, the boot chain, the eMMC layout and the SD slot
   count comes from the USB chip's descriptor, so a driver cannot add playback channels (#279). The
   full-size's endpoints were not checked.
 - USB descriptor of `0A73:003A` (UsbTreeView, XS, 2026-11-12) [device]: vendor ID `0x0A73` is
-  registered to SYDEC N.V. (a Sydec USB audio design; "LOUD Audio, LLC" is only the manufacturer
-  string), `bcdDevice` 1.30, one configuration, three interfaces (audio control, playback,
-  recording), no DFU interface. Playback: the only standard streaming setting carries 4 channels,
+  Mackie's (registered as SYDEC N.V., a company Mackie bought; `usb.ids` lists it as "Mackie
+  Designs"; "LOUD Audio, LLC" is only the manufacturer string), `bcdDevice` 1.30, one
+  configuration, three interfaces (audio control, playback, recording), no DFU interface.
+  Playback: the only standard streaming setting carries 4 channels,
   24-bit in 4-byte slots (512-byte isochronous packets, room for far more; the count is the
   firmware's choice); a host-programmable clock and a volume control (no mute) on that path.
   Recording: 14 channels. Both streaming interfaces also have vendor-specific alternate settings
   (2-10, one interrupt endpoint each, 64-512 bytes out, 128-1024 in) with no format or channel
-  count; Windows' class driver ignores them, their purpose is unknown [guess: Sydec's own transfer
-  modes]. Nothing in it offers more than 4 channels from the PC.
+  count; Windows' class driver ignores them, their purpose is unknown [guess: the chip maker's own
+  transfer modes]. Nothing in it offers more than 4 channels from the PC.
 - The driver's INF (`loudusbaudio.inf`, DriverVer 5.62.0 in the installed copy) covers 14 Mackie
   products under `0x0A73`, among them the full-size as "DLZ Creator" `0A73:0033` and the XS as
   `0A73:003A` [static].
-- USB chip firmware via the driver (#279): Thesycon's API library (`loudusbaudioapi_x64.dll`, API
-  5.12) has generic firmware calls (`TUSBAUDIO_StartDfuDownload`, `StartDfuUpload`,
-  `StartDfuRevertToFactoryImage`); Mackie's control panel offers no firmware update [static]. A
-  read-only query (`TUSBAUDIO_GetDeviceProperties`, nothing changed on the mixer) on the XS returned
-  `0A73:003A`, revision `0x130`, serial "no serial number", flags `0x1283` [device, XS]. Bits `0x1`
-  and `0x2` (high speed supported and in use) match the descriptor; the DFU bit `0x4` is clear, so
-  the chip most likely does not take a firmware update through the driver [guess: the bit meanings
-  are from memory, Thesycon's header is not public]. Reading the firmware out was not tried: it puts
-  the chip in its update mode, and only the mixer could be the first to try it. Even new USB
-  firmware would not add PC inputs on its own: the extra channels would also have to reach the
-  graph through the FPGA. The full-size's flags were not checked.
+
+### The USB audio chip (#279)
+
+What is known about the chip that does USB audio to the PC, and where to pick the research up.
+
+- **The chip: an Atmel/Microchip ATSAM3U1C** (Cortex-M3, USB 2.0 high speed, LQFP100) on the
+  analog (green) board, with a 12 MHz crystal beside it [static: full-size FCC internal photos,
+  FCC ID `2AD4XEVOLVE`, close-up marked "ATSAM3U1C AU", 2024 date code]. Silkscreen around it:
+  `ERASE` and `TP1` pads, `URXD`/`UTXD` (the chip's debug UART), and the audio lines `MCLK`, `BCLK`,
+  `LRCK`, `SD1`, `SD2`, `DACSD` (I2S/TDM, the chip's SSC, towards the CPU board's FPGA). No labelled
+  JTAG/SWD header in the photo. An Everest ES8388 codec sits next to it. The XS's FCC photos (FCC ID
+  `2AD4XDLZXS`) show one chip of the same size at the same spot, marking unreadable at their
+  resolution [guess: the same chip]. The PC's USB-C port is not on the CPU board, so it is on the
+  analog board too.
+- **Ploytec firmware** [guess, strong]: the ATSAM3U1C is the chip of Ploytec's "USB Audio Junction
+  2.0" design; the second identity's vendor `0x0A4A` is Ploytec GmbH (`usb.ids`, which also lists
+  `0A4A:A400` "AUDIO JUNCTION 2.0"); and the XS reports the serial string "no serial number"
+  [device], the literal string Ploytec firmware uses instead of a per-unit serial (Ozzy's notes,
+  below). Ploytec (Germany) licenses USB audio designs to manufacturers: Audio Junction 2.0 has
+  4 in / 4 out as its base, with options up to 8 x 8 at 96 kHz or 16 x 16 at 48 kHz, and advertises
+  "firmware updating via USB" (usb-audio.com, Ploytec's USB site). So the channel count is a
+  per-product firmware choice, and Mackie (with Ploytec) most likely can update it in the field;
+  how is not public. `0A4A:AC1E` would then be Ploytec's own ID showing through (a fallback or
+  update mode) [guess].
+- **Reading the firmware off the chip** (hardware work, outside the mod): the ATSAM3U's ROM
+  bootloader (SAM-BA) is only reached through the `ERASE` pin, which wipes the flash first, so it
+  cannot read the firmware out; reading needs JTAG/SWD on an opened mixer, and only if the
+  security bit is not set.
+- **Mackie's driver** (Thesycon, `loudusbaudioapi_x64.dll`, API 5.12) has Thesycon's generic
+  firmware calls (`TUSBAUDIO_StartDfuDownload`, `StartDfuUpload`, `StartDfuRevertToFactoryImage`,
+  `GetDfuStatus`) and raw request calls (`TUSBAUDIO_ClassVendorRequestIn`/`Out`); Mackie's control
+  panel offers no firmware update [static]. Thesycon's firmware updates follow the USB DFU class.
+- **Device properties** (`TUSBAUDIO_GetDeviceProperties`, read-only, nothing changed on the mixer),
+  XS: `0A73:003A`, revision `0x130`, serial "no serial number", flags `0x1283` [device, XS]. The
+  struct layout (VID, PID, revision, three 128-character strings, flags at offset `0x30C`) matches
+  Thesycon's public reference manual 1.22.0. That manual names the flags (high speed supported, high
+  speed, DFU supported, DSP plugin, audio class 1.0, audio class 2.0) but not their values; in order
+  they would be `0x1`-`0x20`, yet `0x20` (audio class 2.0) is clear on a class 2.0 device, so the
+  values differ and **whether the chip says it supports DFU is not known** [static]. The full-size's
+  flags were not checked.
+- **Prior work**: Ozzy (github.com/mischa85/Ozzy, open source, active) drives some 30 Ploytec-based
+  interfaces (Allen & Heath Xone, Reloop, ESI, Akai, M-Audio, Tascam ...) and documents Ploytec's
+  protocol from Ghidra and USB captures in its `.claude/re/` notes. Those are Ploytec's older
+  non-class protocol; the DLZ runs Ploytec's class 2.0 firmware under Thesycon's driver, so only
+  some of it carries over. Useful: vendor request 'V' (`bmRequestType 0xC0`, `bRequest 0x56`,
+  `wLength 15`) reads the firmware version, byte 0 the chip ID.
+- **Ploytec firmware updates in practice**: only the product's maker ships them, as a file for
+  that one product. Example: Allen & Heath's `FWUpdater_XONE_DB4_v1.4.1.zip` (Windows, in the Xone:DB4
+  driver package) changed the transfer mode (1.3.9 bulk, 1.4.1 interrupt), not the channel count
+  (Allen & Heath forum, "New driver for Xone:DB4"). No community firmware, open firmware or
+  general Ploytec flasher exists for any device; Ozzy only reads the version. Thesycon's update
+  tools (`TUSBAudioDfu.exe`, `dfucons`, and TL-USBDFU, which replaces the DFU calls in the audio
+  driver) need the maker's firmware file. Mackie has never shipped one for the DLZ's USB chip.
+  Ploytec talks to the community (it helped Ozzy) and sells Revival, a box that turns old
+  Ploytec mixers into class-compliant devices.
+- **Another product's Ploytec firmware is no route**: each image is built for its board's wiring
+  (I2S/TDM lines, codecs), and the FPGA's bitstream expects the 4 channels it gets today. Best case,
+  nothing changes. Worst case, USB audio is lost, with no published DLZ image to put back.
+- **The only route to more PC inputs is Mackie with Ploytec**: they hold both halves, the chip's
+  firmware and the FPGA routing. Makers do ship this kind of update (RØDECaster Pro II, #279; the
+  Allen & Heath updater above), so an owner request to Mackie is the lever.
+- **Not tried, in order of risk**: a sharp photo of the XS's chip (none; confirms the same chip);
+  the 'V' request through `TUSBAUDIO_ClassVendorRequestIn` (a read request the firmware may not
+  know, through a call whose parameters are not public; sent to the chip on the mixer); reading the
+  firmware through the DFU calls (puts the chip in its update mode; only the mixer could be the
+  first). Writing firmware is out (a licensed binary, and a bad write can cost the USB audio).
+- **Even new USB firmware would not add PC inputs on its own**: the extra channels would also have
+  to reach the graph through the FPGA (Mackie's bitstream), over the I2S/TDM lines above.
 
 ### Full-size DLZ Creator
 
@@ -250,6 +308,17 @@ Mackie publishes no maximum (spec sheet: microSDHC/microSDXC, FAT32). From the f
   scripted fetches, save the PDF from a browser (21 JPEG pages, low resolution). XS CPU board
   silkscreen `PMD_DLZ Lite_V2.0_20230527`; control surface MCU `GD32F305VCT6`; Bluetooth module with
   an Actions ATS2853 and a `BT USB` header beside it; Samsung eMMC; two antennas on cables [static]
+- FCC internal photos of the full-size, FCC ID `2AD4XEVOLVE` (LOUD Audio; same route, 19 JPEGs at
+  1050 x 787, sharper than the XS's): USB audio chip ATSAM3U1C with an ES8388 beside it (analog
+  board), FPGA `GW1N-LV9LQ144C6/I5` (GOWIN LittleBee GW1N-9, LQFP144), PMIC AXP221S, eMMC Samsung
+  `KLM8G1GETF`, CPU board silkscreen `EVOLVE-A1_A40i` [static]. The other exhibits of both filings
+  (test reports, RF exposure, antenna spec, label, user manual; no block diagram or schematics,
+  those are confidential) cover only the Bluetooth radio: Bluetooth 5.0 BR/EDR, tested with the
+  chip maker's `BT FCC Tool v2.24`, an FPCB antenna of 2.51 dBi (a 2.4/5 GHz part made for PMD(HK)
+  Technology, the maker behind the `PMD_DLZ Lite` CPU board); the same two 18 V / 1.5 A (27 W)
+  adapters for both models (GME36E-180150FDR, GPE048G-180150-D). Full-size samples tested
+  2022-10 to 2023-03, the XS 2023-09 to 2023-11 [static]. All files are kept privately in
+  `build/fcc/xs/` and `build/fcc/full-size/`
 - Bootsplash format: `include/uapi/linux/bootsplash_file.h` and `tools/bootsplash/bootsplash-packer.c`
   in Armbian-patched kernels, e.g. https://github.com/orangepi-xunlong/linux-orangepi
 - The installer's U-Boot: Debian `u-boot-sunxi` 2025.01-3+deb13u1, `Bananapi_M2_Ultra`, made safe by
@@ -258,3 +327,12 @@ Mackie publishes no maximum (spec sheet: microSDHC/microSDXC, FAT32). From the f
   `:auto`); its default `boot_targets=fel mmc_auto ...` would fall through to the eMMC's own
   `boot.scr` when the card has no script, so the cards ship a `uboot.env` with `boot_targets=mmc0`
   (`mkenv.py`) [static]
+- USB audio chip (#279): `usb.ids` (linux-usb.org; the systemd copy is scriptable:
+  github.com/systemd/systemd, `hwdb.d/usb.ids`) for vendors `0A4A` and `0A73`; Ploytec's USB
+  designs at usb-audio.com (`/jct2`, `/jctu`); Microchip's "Ploytec USB 2.0 High-Speed Audio
+  Junction" reference design (microchip.com blocks scripted fetches); Thesycon's API reference
+  manual 1.22.0 as a public header copy (github.com/lilltroll77/DCF, `tusbaudioapi.h`); Ozzy and its
+  Ploytec notes (github.com/mischa85/Ozzy, `.claude/re/`, `common/devices/ploytec/ploytec_defs.h`);
+  Allen & Heath forum threads "New driver for Xone:DB4" (firmware updater, bulk/interrupt) and
+  "Xone ... USB Ploytec driver update"; Thesycon's TL-USBDFU page and `TUSBAudio_history.txt`
+  (thesycon.de); XMOS's DFU loader guide (Thesycon's `dfucons`)
