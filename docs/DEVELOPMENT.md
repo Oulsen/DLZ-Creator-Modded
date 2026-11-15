@@ -333,7 +333,7 @@ switch it off and on with the switch on the back. `--restart` restarts it from s
 package the way the card will: the signature against the card's own `dev.pub` (a release card, or
 one built with another dev key, stops here), `CHANNEL=dev`, no full install needed (`REINSTALL=no`,
 or `REINSTALL_BELOW` and a card at that version with an updater that knows it), not older than the
-card's version, and not a file the card refused before. The mixer software keeps DLZDATA mounted
+card's version (unless its updater takes an older dev build, below), and not a file the card refused before. The mixer software keeps DLZDATA mounted
 read-only and writable only while it records: `push.sh` stops when it finds it writable, else makes
 it writable for the copy and read-only again after it. Earlier packages in `dlzmod-update/` are
 removed (more than one is never installed). It logs in to the new start only once it has settled
@@ -366,6 +366,12 @@ checkout's log: `DLZ_NETLOG_DIR=<repo>/build/device-logs`.
 the older commit and push again, or push its package from before: `bash dev/push.sh
 build/push/dlzmod-v0.2.0-dev-<commit>.tar`. A refused file is not tried again; a new build is a new
 file.
+
+**An older version** (a patch to try, "Patches" below, on a card that runs `develop`): from v0.6.1 on
+the updater takes an older package when it is signed with the dev key (only a dev card trusts it;
+a release package is never taken older, on any card). `push.sh` says it is a downgrade; push the
+newer build again afterwards. A card whose updater is from before v0.6.1 refuses it: install the
+patch once with its dev installer image.
 
 Not covered: changes that need a full install (guards, the updater's gates and allowlist, boot
 visuals, the card layout: `install/release/reinstall-below`, [notes/updates.md](../notes/updates.md),

@@ -335,7 +335,11 @@ fresh; put model; check "made for the full-size, this is the XS" "9: made for th
 fresh; mv "$R/root/.gd32-loaded-firmware-dlzlite-154.bin" "$R/root/.gd32-loaded-firmware-evolve-154.bin"; put good
 check "does not pass the package's check" "9b: the card's GD32 marker is the other model's"
 mkpkg old "echo v0.0.9 > VERSION && sed -i 's/^DLZMOD_VERSION=.*/DLZMOD_VERSION=v0.0.9/' package.env" "sed -i 's/^DLZMOD_VERSION=.*/DLZMOD_VERSION=v0.0.9/' package.env"
-fresh; put old; check "older (v0.0.9)" "10: older version"
+fresh; put old; check "taken, a dev package on a developer card" "10: an older dev package on a developer card: taken (a patch to try)"
+SIGNKEY=release mkpkg relold "setchan release && echo v0.0.9 > VERSION && sed -i 's/^DLZMOD_VERSION=.*/DLZMOD_VERSION=v0.0.9/' package.env" \
+  "setchan release && sed -i 's/^DLZMOD_VERSION=.*/DLZMOD_VERSION=v0.0.9/' package.env"
+fresh; put relold; check "older (v0.0.9)" "10b: an older release package, also on a developer card: refused"
+fresh; rm "$R/usr/local/share/dlzmod-keys/dev.pub"; put relold; check "older (v0.0.9)" "10c: an older release package on a release card: refused"
 mkpkg guard "echo 'ExecStart=/usr/local/bin/flash-gd32.sh' >> mod/sd-system/flash-gd32.service.d/dlzmod.conf"
 fresh; put guard; check "changes a safety guard" "11: a guard that starts the GD32 flash again"
 mkpkg bomb "head -c 70000000 /dev/zero > mod/big"; fresh; put bomb; check "unpacks too big" "18: an initramfs that unpacks past the limit"
@@ -425,7 +429,8 @@ grep -q "signed with the release key, which was withdrawn on this card" "$OUT" &
 rmdir "$R/var/lib/dlzmod-update/withdrawn"
 
 echo "-- checks only: the card's side"
-fresh; echo "v9.9.9" > "$R/var/lib/dlzmod-update/version"; put good; check "older ($VER) than this card's v9.9.9" "a card on a newer version"
+fresh; echo "v9.9.9" > "$R/var/lib/dlzmod-update/version"; put rel; check "older ($VER) than this card's v9.9.9" "a card on a newer version: a release package refused"
+fresh; echo "v9.9.9" > "$R/var/lib/dlzmod-update/version"; put good; check "CHECKS PASSED" "a card on a newer version: a dev package taken"
 # 38: a cut-off try had written its newer version; the snapshot from before it holds the real one
 fresh; echo "v9.9.9" > "$R/var/lib/dlzmod-update/version"; echo other > "$R/var/lib/dlzmod-update/inprogress"
 mkdir -p "$TMP/snap/var/lib/dlzmod-update"; echo "$VER" > "$TMP/snap/var/lib/dlzmod-update/version"
