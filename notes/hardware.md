@@ -298,8 +298,14 @@ Mackie publishes no maximum (spec sheet: microSDHC/microSDXC, FAT32). From the f
 - FCC internal photos of the full-size, FCC ID `2AD4XEVOLVE` (LOUD Audio; same route, 19 JPEGs at
   1050 x 787, sharper than the XS's): USB audio chip ATSAM3U1C with an ES8388 beside it (analog
   board), FPGA `GW1N-LV9LQ144C6/I5` (GOWIN LittleBee GW1N-9, LQFP144), PMIC AXP221S, eMMC Samsung
-  `KLM8G1GETF`, CPU board silkscreen `EVOLVE-A1_A40i` [static]. Both PDFs are kept privately in
-  `build/fcc/`
+  `KLM8G1GETF`, CPU board silkscreen `EVOLVE-A1_A40i` [static]. The other exhibits of both filings
+  (test reports, RF exposure, antenna spec, label, user manual; no block diagram or schematics,
+  those are confidential) cover only the Bluetooth radio: Bluetooth 5.0 BR/EDR, tested with the
+  chip maker's `BT FCC Tool v2.24`, an FPCB antenna of 2.51 dBi (a 2.4/5 GHz part made for PMD(HK)
+  Technology, the maker behind the `PMD_DLZ Lite` CPU board); the same two 18 V / 1.5 A (27 W)
+  adapters for both models (GME36E-180150FDR, GPE048G-180150-D). Full-size samples tested
+  2022-10 to 2023-03, the XS 2023-09 to 2023-11 [static]. All files are kept privately in
+  `build/fcc/xs/` and `build/fcc/full-size/`
 - Bootsplash format: `include/uapi/linux/bootsplash_file.h` and `tools/bootsplash/bootsplash-packer.c`
   in Armbian-patched kernels, e.g. https://github.com/orangepi-xunlong/linux-orangepi
 - The installer's U-Boot: Debian `u-boot-sunxi` 2025.01-3+deb13u1, `Bananapi_M2_Ultra`, made safe by
