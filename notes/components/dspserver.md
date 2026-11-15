@@ -112,8 +112,8 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   data to 0x22`, `Couldn't initialise AKM DAC (possibly dead): failed to send I2C data`, then the same
   for the AKM ADC at `0x26`, and dspserver carried on. Only `Couldn't initialise audio hardware,
   exiting` ends it [static]. So a chip that fails at start gives moving meters and a silent output
-  until the next start [device: an owner's XS, "A DAC that does not answer" below]. AKM DAC = I2C `0x22`, AKM ADC = `0x26` [device]. Those
-  are 8-bit address bytes: the write helper (`0x370f8`) sends `addr & 0xFE`, then register and
+  until the next start [device: an owner's XS, "A DAC that does not answer" below]. AKM DAC = I2C
+  `0x22`, AKM ADC = `0x26` [device]. Those are 8-bit address bytes: the write helper (`0x370f8`) sends `addr & 0xFE`, then register and
   value, so the chips sit at 7-bit `0x11` and `0x13`, AKM's usual range [static].
 - **The AKM writes** [static]: no read-back or check (a failed write only logs), no soft mute and no
   power-down register written. DAC (`0x38090`): reg `0x0A` = `0x8D`, `0x00` = `0x0D`, `0x02` = `0x04`.
@@ -256,7 +256,8 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   v0.6.1 with Diagnostics on, 9 starts]:
   - In 8 of 9 starts the first DAC write got no acknowledgement: `i2c: retrying address 22` ~100
     times in ~55 ms, then `Couldn't initialise AKM DAC (possibly dead)`. The one start where it
-    answered at once was the only one with sound, for the whole start (owner, YouTube playing).
+    answered at once was the only one the owner heard sound in, for the whole start (YouTube
+    playing).
     Nothing set the DAC up again later in a start: no PH2 drop, no second setup, also not in a
     36-minute start. Stock is the same: with the card out (Mackie's own software from the eMMC) one
     start had sound and the next card start was silent again [user report].
@@ -274,7 +275,7 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
     | Dev card, #257 silent start | 116 | 84 | answered | yes, +1.16 s |
     | Dev card, 5 starts with sound | 120-155 | 60-88 | answered | no |
     | Owner, start with sound | 124 | 84 | answered | no |
-    | Owner, 5 silent starts | 120-124 | 106-148 | no answer | no |
+    | Owner, 6 silent starts | 120-124 | 106-148 | no answer | no |
 
     The lead-up is the same everywhere. The longer PH0 → PH1 gap is the failed DAC's retries (the
     DAC setup sits between the two), a result, not a cause; a gap above ~100 ms marks a DAC that did
