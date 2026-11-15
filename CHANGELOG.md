@@ -4,6 +4,10 @@
 
 - (MOD BUG) After going back to an older version, the pads can stay muted
 
+## v0.6.1
+
+- (MOD FEATURE) A switch in the Mod tab that logs everything at start, to find the cause of a fault
+
 ## v0.6.0
 
 - (DLZ FEATURE) Choose which fader controls which channel

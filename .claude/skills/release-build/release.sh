@@ -7,6 +7,9 @@
 #                      still origin/develop's tip? and build/devcard's dev image of the same commit?
 #   release.sh ready   right before main is moved (Releases, step 3): the build is origin/develop's
 #                      tip, main can fast-forward to it, and GitHub will not delete develop for it
+# A patch (VERSION vX.Y.Z with Z > 0, docs/DEVELOPMENT.md "Patches") is built from main's tip, its
+# merged patch PR: check and build then compare with origin/main instead of origin/develop, and ready
+# only confirms that main is the build (main moved with the PR's merge, nothing to fast-forward).
 #   release.sh compare <tag>
 #                      after the tag's workflow attached its build to the draft (#158): the draft's
 #                      files are this PC's build byte for byte, their SHA256SUMS fit, and the
@@ -18,6 +21,8 @@ VER=$(tr -d '\r\n' < VERSION)
 REL=${DLZ_RELEASE_DIR:-build/release}
 HEAD=$(git rev-parse --short HEAD)
 SELF=$REPO/.claude/skills/release-build/release.sh
+# the branch a release is built from: main for a patch (v0.6.1), develop otherwise (v0.7.0)
+case ${VER##*.} in 0) BR=develop ;; *) BR=main ;; esac
 
 committed() {
   [ -z "$(git status --porcelain -- install VERSION)" ] && return 0
@@ -26,19 +31,19 @@ committed() {
   return 1
 }
 
-# the build's commit ($1) must still be origin/develop's tip: a merge into develop during the release
-# would otherwise reach main untested (v0.3.0: #175 landed during the build)
-at_develop() {
-  git fetch -q origin || { echo "git fetch origin failed: cannot tell whether develop moved"; return 1; }
-  local full dev
+# the build's commit ($1) must still be origin/$BR's tip: a merge into develop during the release
+# would otherwise reach main untested (v0.3.0: #175 landed during the build); a patch is main's tip
+at_branch() {
+  git fetch -q origin || { echo "git fetch origin failed: cannot tell whether $BR moved"; return 1; }
+  local full tip
   full=$(git rev-parse --verify -q "$1^{commit}") || { echo "unknown commit $1"; return 1; }
-  dev=$(git rev-parse origin/develop)
-  [ "$full" = "$dev" ] && { echo "origin/develop is the build's commit"; return 0; }
-  if git merge-base --is-ancestor "$full" "$dev"; then
-    echo "DEVELOP MOVED: origin/develop (${dev:0:7}) is past the build ($1), merged since:"
-    git log --oneline "$full..$dev" | sed 's/^/  /'
+  tip=$(git rev-parse "origin/$BR")
+  [ "$full" = "$tip" ] && { echo "origin/$BR is the build's commit"; return 0; }
+  if git merge-base --is-ancestor "$full" "$tip"; then
+    echo "${BR^^} MOVED: origin/$BR (${tip:0:7}) is past the build ($1), merged since:"
+    git log --oneline "$full..$tip" | sed 's/^/  /'
   else
-    echo "NOT DEVELOP: origin/develop (${dev:0:7}) does not hold the build's commit $1"
+    echo "NOT ${BR^^}: origin/$BR (${tip:0:7}) does not hold the build's commit $1"
   fi
   return 1
 }
@@ -58,7 +63,7 @@ build)
   echo "release build $VER from $HEAD, its output also in $log" | tee "$log"
   # said before the build, not only by check after it
   [ -d "$keys" ] || echo "warning: no dev keys folder $keys (DLZMOD_KEYS_WIN): the dev image will fail, the release files do not need it" | tee -a "$log"
-  { at_develop "$HEAD" || echo "warning: not the release (check ends with this), fine for a test of this commit"; } 2>&1 | tee -a "$log"
+  { at_branch "$HEAD" || echo "warning: not the release (check ends with this), fine for a test of this commit"; } 2>&1 | tee -a "$log"
   MSYS_NO_PATHCONV=1 wsl -d Ubuntu -u root --cd "$repo_wsl" -e bash install/release/build-release.sh "$keys_wsl" 2>&1 | tee -a "$log"
   rc=${PIPESTATUS[0]}
   # 2: only the dev image failed, the release files are checked all the same
@@ -96,12 +101,14 @@ check)
   dev=build/devcard/dlz-installer-$VER-dev-$commit.img
   if [ -f "$dev" ] && [ "$(stat -c %Y "$dev")" -ge "$ct" ]; then echo "  dev image: $dev"
   else echo "  note: no dev image of $commit in build/devcard (the build's last step failed?); the release files are not affected"; fi
-  case $commit in *+dirty) ;; *) at_develop "$commit" || ok=0 ;; esac
+  case $commit in *+dirty) ;; *) at_branch "$commit" || ok=0 ;; esac
   [ $ok = 1 ] && echo "OK: release build of $HEAD (next: device-review on this build, then flashing)" || exit 1
   ;;
 ready)
-  # the whole check (files there, clean, HEAD, fresh, develop's tip), then main
-  bash "$SELF" check || { echo "NOT READY: main stays where it is (back to step 1 with develop's tip)"; exit 1; }
+  # the whole check (files there, clean, HEAD, fresh, $BR's tip), then main
+  bash "$SELF" check || { echo "NOT READY: main stays where it is (back to step 1 with $BR's tip)"; exit 1; }
+  # a patch: its PR's merge already made main the build, check proved it; next is the tag
+  [ "$BR" = main ] && { echo "READY: patch $VER, origin/main is the build's commit: tag it (nothing to fast-forward)"; exit 0; }
   # moving main marks the release PR merged, and with this setting on GitHub then deletes its head
   # branch, develop, and moves the open PRs on it to main (v0.5.0)
   del=$(gh api 'repos/{owner}/{repo}' --jq .delete_branch_on_merge)     || { echo "NOT READY: could not read the repository's settings (gh)"; exit 1; }

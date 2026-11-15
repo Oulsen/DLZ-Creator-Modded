@@ -42,6 +42,10 @@ Object.assign(Widget.prototype, {
     if (w !== null) this.w = w;
     if (h !== null) this.h = h;
   },
+  // Mackie's: setGeometry with its own x and y
+  setSize(w, h) {
+    this.setGeometry(this.x, this.y, w, h);
+  },
   // Mackie's: left and top place it (right, bottom and centring not used here)
   setAnchors(left, top) {
     this.anchors = [left, top];
@@ -713,7 +717,7 @@ test("Mod page: a tab shows its own panels; Time, Network, Remote and Mod ask fo
   const net = [["DLZMOD_NET", { op: "status" }]], time = [["DLZMOD_TIME", { op: "status" }]];
   const rel = [["DLZMOD_RELEASE", { op: "status" }]];
   for (const [i, panels, asks] of [[1, ["colours"], []], [2, ["time"], time], [3, ["network"], net], [4, ["pair"], net],
-    [5, ["about"], rel], [0, ["screen", "meters"], []]]) {
+    [5, ["about"], rel.concat(net)], [0, ["screen", "meters"], []]]) {
     ui.cmds.length = 0;
     pg.tabs[i].onToggleON();
     assert.deepStrictEqual(shown(), panels, "tab " + i);
@@ -1064,12 +1068,13 @@ test("release: the Updates row and the left button follow what the check found",
     ctx.DLZMOD_setUpdateStatus({ pending: { sum: "abc", version: "v0.5.1" }, local: true });
     assert.deepStrictEqual(plain(ctx.DLZMOD_updateRow()), ["Update v0.5.1 is on the card", "#FFD600"]);
     assert.strictEqual(pg.about.check.text, "Check for Updates...");
-    // the buttons shown side by side in the middle: Check and Install here
-    assert.deepStrictEqual([pg.about.check.x, pg.about.install.x], [(914 - 616) / 2 | 0, ((914 - 616) / 2 | 0) + 316]);
+    // the buttons shown side by side in the middle: Check, Install and Diagnostics (#302) here, 280 wide
+    assert.deepStrictEqual([pg.about.check.x, pg.about.install.x, pg.about.diag.x], [21, 21 + 296, 21 + 592]);
+    assert.deepStrictEqual([pg.about.check.w, pg.about.install.w, pg.about.diag.w], [280, 280, 280]);
     ctx.DLZMOD_setUpdateStatus({});
     // no update waiting: Check and From USB Stick (#220)
-    assert.deepStrictEqual([pg.about.check.x, pg.about.usb.x, pg.about.install.visible],
-      [(914 - 616) / 2 | 0, ((914 - 616) / 2 | 0) + 316, false]);
+    assert.deepStrictEqual([pg.about.check.x, pg.about.usb.x, pg.about.diag.x, pg.about.install.visible],
+      [21, 21 + 296, 21 + 592, false]);
     assert.ok(pg.about.auto, "the switch for the check by itself");
     assert.strictEqual(pg.about.auto.key, "dlzmod.updateAuto");
   } finally {
@@ -2160,6 +2165,68 @@ test("Network: Keep on after a restart, on and off, behind the spinner", () => {
     }
   } finally {
     ctx.DLZMOD_netIdle();
+  }
+});
+// #302: Diagnostic Logging on the mixer's own screen, Download Logs in a browser
+test("Diagnostics: the button shows the server's state; the popup explains, then turns it on or off behind the spinner", () => {
+  reset();
+  settings();
+  const pg = settingsPage();
+  ctx.app = { pageSettings: { dlzmod: pg } };
+  try {
+    assert.strictEqual(pg.about.diag.visible, true, "on the mixer's own screen");
+    assert.strictEqual(pg.about.logs.visible, false, "Download Logs: only in a browser");
+    assert.strictEqual(pg.about.diag.text, "Diagnostics…", "no status yet");
+    pg.about.diag.onPress();
+    assert.deepStrictEqual(ui.cmds.at(-1), ["DLZMOD_NET", { op: "status" }], "no status: asks for it, no popup");
+    assert.ok(!ui.popups.some((p) => p.kind === "popupConfirm"));
+    for (const [diag, label, button, on] of [[false, "Diagnostics: Off", "Turn on", true], [true, "Diagnostics: On", "Turn off", false]]) {
+      ctx.DLZMOD_setNetState({ stick: false, ssh: false, sshKeep: false, diag });
+      assert.strictEqual(pg.about.diag.text, label);
+      ui.popups.length = 0;
+      pg.about.diag.onPress();
+      const p = ui.popups.at(-1);
+      assert.strictEqual(p.kind, "popupConfirm");
+      assert.strictEqual(p.opts.title, "Diagnostic Logging");
+      assert.strictEqual(p.opts.buttons[0].text, button);
+      assert.match(p.text, on ? /off after 7 days/ : /DLZDATA\/dlzmod-logs/);
+      p.opts.func();
+      assert.match(ui.progress.at(-1).text, on ? /on…$/ : /off…$/);
+      assert.deepStrictEqual(ui.cmds.at(-1), ["DLZMOD_NET", { op: "diag", on }]);
+      ctx.DLZMOD_netResult({ ok: true, text: "done", title: "Diagnostic Logging" });
+      assert.strictEqual(ui.popups.at(-1).opts.title, "Diagnostic Logging", "the result under its own title");
+    }
+  } finally {
+    ctx.DLZMOD_netIdle();
+    ctx.app = undefined;
+  }
+});
+test("Download Logs: a browser's button; busy, no logs and no answer each get a message, else the .tar downloads", async () => {
+  reset();
+  ctx.EXTERNAL = true;
+  try {
+    settings();
+    const pg = settingsPage();
+    assert.strictEqual(pg.about.logs.visible, true);
+    assert.strictEqual(pg.about.diag.visible, false, "the switch: only on the mixer's own screen");
+    for (const [status, text] of [[503, /busy with a recording/], [404, /No logs/], [0, /did not answer/]]) {
+      ui.popups.length = 0;
+      ui.links.length = 0;
+      ctx.fetch = (url, opts) => (ui.fetches.push({ url, opts: plain(opts) }),
+        status ? Promise.resolve({ ok: false, status }) : Promise.reject(new Error("offline")));
+      pg.about.logs.onPress();
+      await tick(20);
+      assert.deepStrictEqual(ui.fetches.at(-1), { url: "/dlzmod-logs.tar", opts: { method: "HEAD", cache: "no-store" } });
+      assert.match(ui.popups.at(-1).text, text, String(status));
+      assert.deepStrictEqual(hrefs(), [], "nothing downloaded");
+    }
+    ctx.fetch = () => Promise.resolve({ ok: true, status: 200 });
+    pg.about.logs.onPress();
+    await tick(20);
+    assert.deepStrictEqual(hrefs(), ["/dlzmod-logs.tar"]);
+    assert.strictEqual(ui.toasts.at(-1), "Downloading the logs");
+  } finally {
+    ctx.EXTERNAL = false;
   }
 });
 test("meters: a horizontal strip meter gets the same zones and ticks, along its width", () => {

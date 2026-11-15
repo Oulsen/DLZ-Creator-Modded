@@ -1,10 +1,10 @@
 #!/bin/bash
-# The dev card's pin log (dev/pinlog.py, #261, #287, #293) against a stand-in: a sparse file in place of
+# The pin log (install/sd-system/dlzmod-pinlog, #261, #287, #293) against a stand-in: a sparse file in place of
 # /dev/mem and a small /sys and /proc tree. No mixer, no root, no dump.
 #   bash tests/pinlog.sh
 set -u
 cd "$(dirname "$0")/.." || exit 2
-SCRIPT=$PWD/dev/pinlog.py
+SCRIPT=$PWD/install/sd-system/dlzmod-pinlog
 TMP=$(mktemp -d)
 pid=
 busy=

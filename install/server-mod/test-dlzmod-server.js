@@ -450,7 +450,8 @@ function fakeNet(o = {}) {
     if (o.fail && file.endsWith(o.fail)) return { ok: false, out: "", err: "failed" };
     return { ok: true, out: "", err: "" };
   };
-  return { run, calls };
+  // Diagnostic Logging's marker (#302) in a folder of its own, never this PC's /var/lib
+  return { run, calls, diagFile: o.diagFile || path.join(tmpDir("diag"), "lib", "diag-on") };
 }
 const tmpDir = (name) => fs.mkdtempSync(path.join(os.tmpdir(), "dlznet-" + name + "-"));
 // the device's own screen (server.js stamps its connection's send, see patch.py); remote: a browser on the LAN
@@ -506,7 +507,7 @@ test("net status: stick, network, address, SSH", async () => {
   delete sent[0].data.pair;
   assert.deepStrictEqual(sent, [{ cmd: "DLZMOD_NET_STATE", id: 0, data:
     { stick: true, wifi: "connected", ssid: "Home:Net", signal: 74, ip: "192.168.1.42", ssh: true, sshKeep: false,
-      sshBusy: "" } }]);
+      sshBusy: "", diag: false } }]);
   assert.deepStrictEqual(Object.keys(pair).sort(), ["devices", "ips", "on", "own", "pin", "wait"], "the Remote Control panel's status");
   const s2 = plain(await netState(fakeNet({ nostick: true }).run));
   assert.strictEqual(s2.stick, false);
@@ -731,11 +732,14 @@ test("net ssh on: short password refused, a failing step stops before SSH starts
 test("net: from another device on the network only the status, nothing changed or run", async () => {
   const dir = tmpDir("remote");
   for (const a of [{ op: "ssh", on: true, password: "takeover1" }, { op: "ssh", on: false }, { op: "sshKeep", on: true },
-    { op: "connect", ssid: "Cafe", security: "open" }, { op: "forget", ssid: "Cafe" }]) {
+    { op: "connect", ssid: "Cafe", security: "open" }, { op: "forget", ssid: "Cafe" }, { op: "diag", on: true },
+    { op: "diag", on: false }]) {
     const f = Object.assign(fakeNet(), { dir });
     const sent = [];
     await net(a, remoteTo(sent), f);
-    assert.deepStrictEqual(result(sent), [{ ok: false, text: "Network settings can only be changed\non the mixer's own screen." }], a.op);
+    assert.deepStrictEqual(result(sent).map((r) => ({ ok: r.ok, text: r.text })),
+      [{ ok: false, text: "Network settings can only be changed\non the mixer's own screen." }], a.op);
+    assert.strictEqual(result(sent)[0].title, a.op === "diag" ? "Diagnostic Logging" : undefined, a.op + ": its own title");
     assert.deepStrictEqual(f.calls, [], a.op + ": something ran");
   }
   const f = fakeNet();
@@ -1178,10 +1182,13 @@ test("pairing: HTTP: the mixer itself as stock; other devices: off page, PIN pag
   const token = pairOne();
   const asPaired = (p) => gate(httpReq("192.168.1.50", p, { headers: { cookie: cookie(token) } }));
   for (const p of ["/", "/index.html", "/app.js", "/style.css", "/favicon.ico", "/libs/socket.io.js",
-    "/fonts/fa/fa-solid-900.woff", "/img1x/fx.png"]) {
+    "/fonts/fa/fa-solid-900.woff", "/img1x/fx.png", "/dlzmod-logs.tar"]) {
     assert.strictEqual(asPaired(p), "next", p);
   }
+  // Download Logs (#302): paired only
+  assert.strictEqual(gate(httpReq("192.168.1.51", "/dlzmod-logs.tar")).status, 403, "not paired: no logs");
   for (const p of ["/srv_data.json", "/presets/eq/a.json", "/presets_factory/eq/a.json", "/package.json", "/server.js",
+    "/dlzmod-logs.tar/x", "/dlzmod-logs", "/dlzmod-logs/syslog-last-boots.txt",
     "/node_modules/express/package.json", "/emu.html", "/libs/../srv_data.json", "/libs/%2e%2e/srv_data.json",
     "/libs/..%2fsrv_data.json", "/img1x/", "/libs/a%00.js", "/%E0%A4%A"]) {
     const r = asPaired(p);
@@ -3652,6 +3659,190 @@ test("controls: a channel knob on a phones mix; a side knob's own key is never t
   } finally {
     ctx.DLZMOD_ctlFader = null;
   }
+});
+
+// #302: Diagnostic Logging's switch (the mixer's own screen) and Download Logs (a browser)
+test("diag: on writes the marker and starts the pin log, off removes it and stops it; the status says which", async () => {
+  const f = fakeNet();
+  const sent = [];
+  await net({ op: "diag", on: true }, sendTo(sent), f);
+  assert.ok(fs.existsSync(f.diagFile), "the marker, for the next starts");
+  assert.deepStrictEqual(result(sent).map((r) => [r.ok, r.title]), [[true, "Diagnostic Logging"]]);
+  assert.match(result(sent)[0].text, /for 7 days[^]*DLZDATA\/dlzmod-logs/);
+  assert.ok(f.calls.some((c) => c.args.join(" ") === "start --no-block dlzmod-pinlog.service"), "the pin log now too");
+  assert.strictEqual(sent.find((m) => m.cmd === "DLZMOD_NET_STATE").data.diag, true);
+  const s2 = [];
+  await net({ op: "diag", on: false }, sendTo(s2), f);
+  assert.ok(!fs.existsSync(f.diagFile));
+  assert.deepStrictEqual(result(s2).map((r) => [r.ok, r.text]), [[true, "Diagnostic logging is off."]]);
+  assert.ok(f.calls.some((c) => c.args.join(" ") === "stop --no-block dlzmod-pinlog.service"));
+  assert.strictEqual(s2.find((m) => m.cmd === "DLZMOD_NET_STATE").data.diag, false);
+  // systemctl failing: the marker still follows the switch, and the answer says the pin log did not
+  const s3 = [];
+  await net({ op: "diag", on: true }, sendTo(s3), Object.assign(fakeNet({ fail: "systemctl" }), { diagFile: f.diagFile }));
+  assert.ok(fs.existsSync(f.diagFile), "on from the next start");
+  assert.deepStrictEqual(result(s3).map((r) => [r.ok, r.title]), [[false, "Diagnostic Logging"]]);
+  assert.match(result(s3)[0].text, /from the next start[^]*could not be started now/);
+  const s4 = [];
+  await net({ op: "diag", on: false }, sendTo(s4), Object.assign(fakeNet({ fail: "systemctl" }), { diagFile: f.diagFile }));
+  assert.ok(!fs.existsSync(f.diagFile), "off from the next start");
+  assert.deepStrictEqual(result(s4).map((r) => r.ok), [false]);
+  assert.match(result(s4)[0].text, /could not be stopped now/);
+  // the card cannot save it (its folder is a file here): the answer under its own title, plainly
+  const blocked = path.join(tmpDir("diagro"), "file");
+  fs.writeFileSync(blocked, "");
+  const s5 = [];
+  await net({ op: "diag", on: true }, sendTo(s5), Object.assign(fakeNet(), { diagFile: path.join(blocked, "diag-on") }));
+  assert.deepStrictEqual(result(s5).map((r) => [r.ok, r.title]), [[false, "Diagnostic Logging"]]);
+  assert.match(result(s5)[0].text, /could not be changed/);
+});
+test("diag: turns itself off 7 days after it was turned on, at the server's start and hourly", async () => {
+  const file = path.join(tmpDir("diagwatch"), "diag-on");
+  const calls = [];
+  const run = async (f, args) => (calls.push(args.join(" ")), { ok: true, out: "", err: "" });
+  try {
+    fs.writeFileSync(file, "");
+    const t = fs.statSync(file).mtimeMs;
+    assert.strictEqual(await ctx.DLZMOD_diagWatch(file, run, () => t + 6.9 * 864e5), false, "6.9 days: still on");
+    assert.ok(fs.existsSync(file));
+    assert.ok(ctx.DLZMOD_diagWatch.timer, "the hourly check");
+    assert.strictEqual(await ctx.DLZMOD_diagWatch.check(), false, "now: still on");
+    assert.strictEqual(await ctx.DLZMOD_diagWatch(file, run, () => t + 7 * 864e5), true, "7 days: off");
+    assert.ok(!fs.existsSync(file), "the marker removed");
+    assert.deepStrictEqual(calls, ["stop --no-block dlzmod-pinlog.service"], "the pin log stopped");
+    assert.strictEqual(await ctx.DLZMOD_diagWatch.check(), false, "off: nothing more to do");
+    assert.strictEqual(calls.length, 1);
+    // the clock went back: the marker's time lies ahead, the 7 days start again from now
+    fs.writeFileSync(file, "");
+    const t2 = fs.statSync(file).mtimeMs;
+    const back = t2 - 30 * 864e5;
+    assert.strictEqual(await ctx.DLZMOD_diagWatch(file, run, () => back), false, "still on");
+    assert.ok(Math.abs(fs.statSync(file).mtimeMs - back) < 2000, "its time set to now");
+    assert.strictEqual(await ctx.DLZMOD_diagWatch(file, run, () => back + 7 * 864e5), true, "7 days after that: off");
+    assert.ok(!fs.existsSync(file));
+  } finally {
+    clearInterval(ctx.DLZMOD_diagWatch.timer);
+  }
+});
+const logsCard = () => {
+  const sd = fs.mkdtempSync(path.join(os.tmpdir(), "dlzlogs-sd-"));
+  const dir = path.join(sd, "dlzmod-logs");
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, "syslog-last-boots.txt"), "boot 1\n".repeat(200));
+  fs.writeFileSync(path.join(dir, "install-1-v0.6.0.txt"), "installed\n");
+  fs.writeFileSync(path.join(dir, "screen-1.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 255]));
+  fs.writeFileSync(path.join(dir, ".syslog-last-boots.txt.part"), "half");
+  fs.mkdirSync(path.join(dir, "sub"));
+  return { sd, dir };
+};
+// a response that collects what is written, for the tar
+const logsRes = () => {
+  const res = recRes();
+  res.chunks = [];
+  res.write = (b) => (res.chunks.push(Buffer.from(b)), true);
+  const end0 = res.end;
+  res.end = (b) => {
+    if (b) res.chunks.push(Buffer.from(b));
+    return end0();
+  };
+  return res;
+};
+const logsCall = (keys, roots, method = "GET") => {
+  ctx.getDataKey = (k) => keys[k];
+  const res = logsRes();
+  recHttp(() => roots)({ path: "/dlzmod-logs.tar", method }, res, () => assert.fail("not passed on"));
+  return res.done;
+};
+// a ustar archive's files: [name, content]; checks each header's checksum
+const untar = (buf) => {
+  const out = [];
+  for (let o = 0; o + 512 <= buf.length;) {
+    const h = buf.subarray(o, o + 512);
+    if (h.every((b) => b === 0)) break;
+    const sum = parseInt(h.subarray(148, 156).toString().replace(/\0.*$/s, "").trim(), 8);
+    let calc = 0;
+    for (let i = 0; i < 512; i++) calc += i >= 148 && i < 156 ? 32 : h[i];
+    assert.strictEqual(sum, calc, "header checksum");
+    assert.strictEqual(h.subarray(257, 263).toString(), "ustar\0");
+    const name = h.subarray(0, 100).toString().replace(/\0.*$/s, "");
+    const size = parseInt(h.subarray(124, 136).toString(), 8);
+    out.push([name, buf.subarray(o + 512, o + 512 + size)]);
+    o += 512 + Math.ceil(size / 512) * 512;
+  }
+  return out;
+};
+test("logs download: DLZDATA/dlzmod-logs as one tar, the plain files only, in name order", async () => {
+  const { sd, dir } = logsCard();
+  const r = await logsCall({}, [sd, "-"]);
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.headers["Content-Type"], "application/x-tar");
+  assert.match(r.headers["Content-Disposition"], /^attachment; filename="dlzmod-logs-\d{4}-\d\d-\d\d-\d{4}\.tar"$/);
+  const tar = Buffer.concat(r.chunks);
+  assert.strictEqual(tar.length % 512, 0);
+  const files = untar(tar);
+  assert.deepStrictEqual(files.map((f) => f[0]), ["dlzmod-logs/install-1-v0.6.0.txt", "dlzmod-logs/screen-1.png",
+    "dlzmod-logs/syslog-last-boots.txt"], "no hidden part file, no folder");
+  for (const [name, data] of files) assert.ok(data.equals(fs.readFileSync(path.join(dir, path.basename(name)))), name);
+  // a real tar reads it too, where there is one
+  const t = require("child_process").spawnSync("tar", ["-tvf", "-"], { input: tar });
+  if (!t.error) assert.strictEqual(t.status, 0, String(t.stderr));
+  const head = await logsCall({}, [sd, "-"], "HEAD");
+  assert.deepStrictEqual([head.status, head.chunks.length], [200, 0], "HEAD: there is something, nothing read");
+});
+test("logs download: nothing while the mixer records, without a card or logs, and read only", async () => {
+  const { sd, dir } = logsCard();
+  const busy = await logsCall({ recState: 1 }, [sd, "-"]);
+  assert.deepStrictEqual([busy.status, busy.headers["Retry-After"], busy.chunks.length], [503, "30", 0]);
+  assert.strictEqual((await logsCall({}, ["-", "-"])).status, 404, "no card");
+  assert.strictEqual((await logsCall({}, [fs.mkdtempSync(path.join(os.tmpdir(), "dlzlogs-empty-")), "-"])).status, 404, "no folder");
+  for (const m of ["POST", "DELETE", "PUT"]) assert.strictEqual((await logsCall({}, [sd, "-"], m)).status, 405, m);
+  fs.rmSync(dir, { recursive: true });
+  fs.mkdirSync(dir);
+  assert.strictEqual((await logsCall({}, [sd, "-"])).status, 404, "an empty folder");
+});
+test("logs download: a linked folder or file is not followed", async () => {
+  const { sd, dir } = logsCard();
+  const secret = fs.mkdtempSync(path.join(os.tmpdir(), "dlzlogs-secret-"));
+  fs.writeFileSync(path.join(secret, "shadow"), "secret");
+  try {
+    fs.symlinkSync(path.join(secret, "shadow"), path.join(dir, "linked.txt"));
+  } catch (e) {
+    return;   // no links on this file system (Windows without the right): nothing to check
+  }
+  const names = untar(Buffer.concat((await logsCall({}, [sd, "-"])).chunks)).map((f) => f[0]);
+  assert.ok(!names.includes("dlzmod-logs/linked.txt"), names.join());
+  const sd2 = fs.mkdtempSync(path.join(os.tmpdir(), "dlzlogs-sd2-"));
+  fs.symlinkSync(secret, path.join(sd2, "dlzmod-logs"));
+  assert.strictEqual((await logsCall({}, [sd2, "-"])).status, 404, "a linked folder");
+});
+test("logs download: a large file goes in 64 KB pieces, whole; a recording that starts halfway ends it", async () => {
+  const { sd, dir } = logsCard();
+  const big = Buffer.alloc(200 * 1024 + 77);
+  for (let i = 0; i < big.length; i++) big[i] = (i * 7 + 3) & 255;
+  fs.writeFileSync(path.join(dir, "syslog-last-boots.txt"), big);
+  const r = await logsCall({}, [sd, "-"]);
+  assert.ok(Math.max(...r.chunks.map((c) => c.length)) <= 65536, "never a whole file in one piece");
+  const tar = Buffer.concat(r.chunks);
+  assert.strictEqual(tar.length % 512, 0);
+  const got = untar(tar).find((f) => f[0] === "dlzmod-logs/syslog-last-boots.txt");
+  assert.ok(got && got[1].equals(big), "the large file intact");
+  // the mixer starts recording after the first pieces went out: no more reading, the connection ends
+  const keys = {};
+  ctx.getDataKey = (k) => keys[k];
+  const res = logsRes();
+  const write0 = res.write;
+  res.write = (b) => {
+    if (res.chunks.length === 3) keys.recState = 1;
+    return write0(b);
+  };
+  recHttp(() => [sd, "-"])({ path: "/dlzmod-logs.tar", method: "GET" }, res, () => assert.fail("not passed on"));
+  await new Promise((resolve) => (res.once("close", resolve), setTimeout(resolve, 2000)));
+  assert.ok(res.destroyed, "cut off");
+  assert.ok(Buffer.concat(res.chunks).length < big.length, "not the whole file once recording");
+});
+test("logs download: other paths go on as before", async () => {
+  assert.strictEqual(recCall({}, ["-", "-"], "/dlzmod-logs.tarx"), "next");
+  assert.strictEqual(recCall({}, ["-", "-"], "/dlzmod-logs"), "next");
 });
 
 (async () => {

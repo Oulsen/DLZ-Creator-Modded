@@ -1,0 +1,25 @@
+[Unit]
+Description=dlzmod: diagnostic logging, the pin log (only while it is on in the Mod tab)
+# #302: on while the server mod's marker exists (DLZMOD_diagFile in dlzmod-server.js, the Mod tab's
+# Diagnostic Logging); the server also starts and stops it at once. Default dependencies: it starts
+# at basic.target (~10-14 s in, after the FPGA load), before dspserver's codec setup (~20-30 s in),
+# so it sees the setup and PH2 after it, not the first seconds (an update may not ship an earlier
+# unit: dlzmod-update's shape_ok; dev/pinlog.sh starts it at sysinit on a dev card). Nothing is
+# ordered after it, so it delays no other unit. Read-only (/dev/mem PROT_READ, /sys, /proc).
+ConditionPathExists=/var/lib/dlzmod/diag-on
+# not next to the dev card's own copy (dev/pinlog.sh on): one pin log, one cost to measure
+ConditionPathExists=!/etc/systemd/system/dlzdev-pinlog.service
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/python3 /usr/local/sbin/dlzmod-pinlog
+SyslogIdentifier=dlzmod-pinlog
+# its last snapshot at a stop reads the regulators, which can wait for the PMIC's I2C: never more
+# than 15 s of a shutdown (stock's default would wait 90 s)
+TimeoutStopSec=15
+Nice=5
+# never on dspserver's core 3
+CPUAffinity=0 1 2
+
+[Install]
+WantedBy=multi-user.target

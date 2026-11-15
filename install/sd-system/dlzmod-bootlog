@@ -18,6 +18,12 @@ t0=$(date +%s%3N)
 BOOTS=4   # this start, finished, and the 3 before it (starts that hung among them)
 OUT=${DLZMOD_BOOTLOG_DIR:-/run/dlzmod-bootlog}
 SYSLOG=${DLZMOD_BOOTLOG_SYSLOG:-/var/log/syslog}
+# Diagnostic Logging (#302, Mod tab): while on, twice the syslog (the pin log's lines take room) and
+# a snapshot of the system (dlzmod-diagsnap) after the starts
+DIAG_ON=${DLZMOD_DIAG_FILE:-/var/lib/dlzmod/diag-on}
+DIAGSNAP=${DLZMOD_DIAGSNAP:-/usr/local/sbin/dlzmod-diagsnap}
+SIZE=4000000
+[ -e "$DIAG_ON" ] && SIZE=8000000
 
 mkdir -p "$OUT" || exit 1
 tmp=$OUT/syslog-last-boots.txt.part
@@ -25,8 +31,8 @@ raw=$(mktemp)
 # syslog is not rotated on this system (logrotate.timer is off); syslog.1 only if that changes.
 # tail -c on a file seeks, so a large syslog costs nothing.
 {
-  [ -f "$SYSLOG.1" ] && tail -c 4000000 "$SYSLOG.1"
-  tail -c 4000000 "$SYSLOG"
+  [ -f "$SYSLOG.1" ] && tail -c "$SIZE" "$SYSLOG.1"
+  tail -c "$SIZE" "$SYSLOG"
 } > "$raw"
 # One pass for the line ranges of the last SD boots, then sed copies them: linear. (Collecting the
 # sections in awk strings was quadratic and took 7 s on the device.)
@@ -53,6 +59,10 @@ if [ "$total" = 0 ]; then
   rm -f "$tmp"
   log "no start of the SD system in $SYSLOG, nothing new for DLZDATA/dlzmod-logs"
   exit 0
+fi
+if [ -e "$DIAG_ON" ]; then
+  { echo "===== diagnostics: Diagnostic Logging is on (dlzmod-diagsnap) ====="; sh "$DIAGSNAP"; } >> "$tmp" 2>&1
+  log "diagnostics snapshot added (ms: $(ms))"
 fi
 # complete or not there: server.js copies whatever file it finds
 if ! mv -f "$tmp" "$OUT/syslog-last-boots.txt"; then

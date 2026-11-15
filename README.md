@@ -100,7 +100,10 @@ below. They all start as stock: turn on what you want.
   anything signed with it
 - The mixer's internal storage is never changed, and no firmware updates run from the card
 - Logs of the install and the last starts on the card, for bug reports *(the `dlzmod-logs`
-  folder, readable in any card reader)*
+  folder, readable in any card reader, or Download Logs on a paired computer's Mod tab)*
+- Diagnostic Logging for finding a fault such as no sound after a start: while it is on, every
+  start also logs the audio chips' pins and clocks, power, memory and load; it turns itself off
+  after 7 days *(Mod, Diagnostics)*
 
 ### Fixes for stock bugs
 

@@ -816,7 +816,7 @@ for w in $(penv WITHDRAWN | tr ',' ' '); do
   log "WITHDRAWN: the $w key; this card takes no update signed with it any more"
 done
 
-# 2. made for this mixer and this firmware, not older than what is here, applicable here, complete,
+# 2. made for this mixer and this firmware, not older than what is here (but a dev package), applicable here, complete,
 # and the safety guards exactly as they are
 model=full-size; [ -f "$ROOT/root/.dlzlite" ] && model=XS
 node=$(awk '/^Package: evolve-node$/ {f=1} f && /^Version:/ {print $2; exit}' "$ROOT/var/lib/dpkg/status" 2>/dev/null)
@@ -831,8 +831,11 @@ OLDV=""
 [ -z "$(cat "$STATE/inprogress" 2>/dev/null)" ] || [ ! -f "$STATE/previous.tar" ] \
   || OLDV=$(tar -xOf "$STATE/previous.tar" var/lib/dlzmod-update/version 2>/dev/null)
 [ -n "$OLDV" ] || OLDV=$(cat "$STATE/version" 2>/dev/null)
+# older: only a dev package, on a dev card (only a developer card trusts the dev key, and CHANNEL
+# matches the key above), to try a patch to the released version on a card that runs the next one
 if [ -n "$OLDV" ] && [ "$(printf '%s\n%s\n' "$OLDV" "$NEWV" | sort -V | head -n 1)" != "$OLDV" ]; then
-  fail "older ($NEWV) than this card's $OLDV"
+  [ "$KEY" = dev ] || fail "older ($NEWV) than this card's $OLDV"
+  log "older ($NEWV) than this card's $OLDV: taken, a dev package on a developer card"
 fi
 # a full install: REINSTALL=yes for the updaters from before #63 (they refuse it); this one reads
 # REINSTALL_BELOW when it is there, so a card installed at that version or later takes it as a drop-in
@@ -848,6 +851,7 @@ for f in apply-mod.sh check-rootfs.sh patch.py modversion.py app-mod/dlzmod.js s
     sd-system/dlzmod-grow-data sd-system/dlzmod-grow-data.service sd-system/dlzmod-bootlog \
     sd-system/dlzmod-bootlog.service sd-system/dlzmod-bootreport sd-system/dlzmod-bootreport.service \
     sd-system/dlzmod-clock sd-system/dlzmod-clock.service \
+    sd-system/dlzmod-pinlog sd-system/dlzmod-pinlog.service sd-system/dlzmod-diagsnap \
     sd-system/dlzmod-netlog sd-system/dlzmod-netlog.service sd-system/dlzmod-glesgui \
     sd-system/dlzmod-wait-hub sd-system/dlzmod-update \
     sd-system/dlzmod-update.service sd-system/90-dlzmod-usb-wifi.rules sd-system/dspserver.service.d/dlzmod.conf \
