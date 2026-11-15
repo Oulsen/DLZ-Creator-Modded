@@ -3,7 +3,7 @@
 //   node tests/ui-sandbox.js
 // No dump, no root, no ports 80/89: the shim runs in front of a stand-in server.js (an HTTP server and a
 // plain socket like port 89, on free ports), in a folder under build/ (not under /tmp: the shim takes
-// /tmp, /srv, /root, /var ... into the sandbox folder, its own folder too). The stand-in also tries the
+// /tmp, /srv, /root, /var, /run ... into the sandbox folder, its own folder too). The stand-in also tries the
 // shell and paths out of the folder from inside, and reports what happened. The requests set their
 // Host header themselves, as a browser at http://127.0.0.1/ would.
 'use strict';
@@ -30,6 +30,7 @@ const tryIt = (name, f) => { try { report[name] = 'done: ' + f(); } catch (e) { 
 tryIt('escape', () => fs.readFileSync('/srv/../../escape.txt', 'utf8'));
 tryIt('write', () => { fs.mkdirSync('/tmp', { recursive: true }); fs.writeFileSync('/tmp/probe', 'x'); return 'ok'; });
 tryIt('varlib', () => { fs.mkdirSync('/var/lib/dlzmod-remote', { recursive: true }); fs.writeFileSync('/var/lib/dlzmod-remote/state.json', '{}'); return 'ok'; });
+tryIt('run', () => { fs.mkdirSync('/run', { recursive: true }); fs.writeFileSync('/run/dlzmod-clock-how', 'x'); return 'ok'; });
 tryIt('spawn', () => cp.spawn('rm', ['-rf', '/']));
 tryIt('execSync', () => cp.execSync('rm -rf /'));
 cp.exec('rm -rf /', (err) => {
@@ -157,6 +158,10 @@ async function main() {
     await check('/var/lib (the remote pairing state, #307) lands in the sandbox folder', () => {
       assert.strictEqual(r.varlib, 'done: ok');
       assert.ok(fs.existsSync(path.join(ROOT, 'var', 'lib', 'dlzmod-remote', 'state.json')));
+    });
+    await check('/run (the clock source, the SSH switch) lands in the sandbox folder', () => {
+      assert.strictEqual(r.run, 'done: ok');
+      assert.ok(fs.existsSync(path.join(ROOT, 'run', 'dlzmod-clock-how')));
     });
     await check('shell commands are blocked (exec, execSync, spawn)', () => {
       assert.match(r.exec, /^refused: blocked by sandbox/);

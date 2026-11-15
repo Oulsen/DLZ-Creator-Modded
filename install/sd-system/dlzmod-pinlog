@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # Pin log (#261, #287, #293, for #257). Runs at every start while Diagnostic Logging is on (Mod tab,
 # #302: dlzmod-pinlog.service, from basic.target; a dev card too) and writes to the journal, so the
-# syslog, the boot log on DLZDATA
-# and the network log carry it, for the whole session:
+# syslog, the boot log on DLZDATA and the network log carry it, for the whole session:
 #
 # - the codec pins PH0-PH2 and PH12 (data, function, pull): the first state and every change, in the
 #   line format of #261/#287, so old and new logs compare line by line ("last (N changes)" still

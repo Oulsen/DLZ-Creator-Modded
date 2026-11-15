@@ -62,7 +62,8 @@ build)
   # follow; GIT_DIR and GIT_WORK_TREE as WSL paths, as dev/push.sh does (buildenv.sh mounts it in Docker)
   gitenv=()
   if [ -f "$REPO/.git" ]; then
-    gd_wsl=$(wsl -d Ubuntu -e wslpath -a "$(cygpath -w "$(git rev-parse --absolute-git-dir)")" 2>/dev/null | tr -d '\r\0')
+    gd=$(git rev-parse --absolute-git-dir) && [ -n "$gd" ] || { echo "git cannot name the worktree's git folder"; exit 1; }
+    gd_wsl=$(wsl -d Ubuntu -e wslpath -a "$(cygpath -w "$gd")" 2>/dev/null | tr -d '\r\0')
     case $gd_wsl in /*) ;; *) echo "the worktree's git folder has no WSL path"; exit 1 ;; esac
     gitenv=("GIT_DIR=$gd_wsl" "GIT_WORK_TREE=$repo_wsl")
   fi

@@ -1,5 +1,5 @@
 // Preloaded into Mackie's server.js by ui-sandbox.sh (node -r shim.js server.js).
-// - the mixer's paths in the sandbox folder (DLZ_SANDBOX_ROOT): /srv, /tmp, /root, /var ... without a drive
+// - the mixer's paths in the sandbox folder (DLZ_SANDBOX_ROOT): /srv, /tmp, /root, /var, /run ... without a drive
 // - no shell commands: server.js runs mkfs/dd/parted/mount/systemctl, all blocked and logged,
 //   except the mv + sync it uses to save srv_data.json (done natively here)
 // - ports 80/89 bound to 127.0.0.1 only, so the unauthenticated mixer API stays off the LAN, and
@@ -15,7 +15,8 @@ const path = require('path');
 const util = require('util');
 
 // server.js uses the mixer's absolute paths (/srv, /root/.dlzlite, /tmp/mnt, /dev/disk/by-id, /etc;
-// the server mod also /var/lib/dlzmod*: the remote pairing state, the update state, Diagnostics' marker).
+// the server mod also /var/lib/dlzmod*: the remote pairing state, the update state, Diagnostics' marker;
+// and /run/dlzmod*: the clock's source, the SSH switch).
 // On Windows those would land at the root of the current drive, so the file calls take them to the
 // sandbox folder: a path under one of these top folders, written as /srv/... or as path.resolve
 // gives it on Windows (<the sandbox's drive>:\srv\...). Everything else as it is. Without
@@ -25,7 +26,7 @@ if (!ROOT || !fs.existsSync(path.join(ROOT, 'srv', 'server.js'))) {
   console.error('[sandbox] DLZ_SANDBOX_ROOT must be the sandbox folder (with srv/server.js): start it with dev/ui-sandbox.sh');
   process.exit(1);
 }
-const TOPS = new Set(['srv', 'tmp', 'etc', 'root', 'dev', 'proc', 'boot', 'var']);
+const TOPS = new Set(['srv', 'tmp', 'etc', 'root', 'dev', 'proc', 'boot', 'var', 'run']);
 const ROOT_DRIVE = path.win32.parse(ROOT).root.slice(0, 1).toLowerCase();
 const ROOT_LOW = path.resolve(ROOT).toLowerCase();
 const inRoot = (p) => {
