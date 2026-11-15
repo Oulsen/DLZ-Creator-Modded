@@ -75,8 +75,9 @@ The board, Mackie's device tree, the boot chain, the eMMC layout and the SD slot
   (2-10, one interrupt endpoint each, 64-512 bytes out, 128-1024 in) with no format or channel
   count; Windows' class driver ignores them, their purpose is unknown [guess: Sydec's own transfer
   modes]. Nothing in it offers more than 4 channels from the PC.
-- The driver's INF (`loudusbaudio.inf`, 5.62.0) covers 14 Mackie products under `0x0A73`, among
-  them the full-size as "DLZ Creator" `0A73:0033` and the XS as `0A73:003A` [static].
+- The driver's INF (`loudusbaudio.inf`, DriverVer 5.62.0 in the installed copy) covers 14 Mackie
+  products under `0x0A73`, among them the full-size as "DLZ Creator" `0A73:0033` and the XS as
+  `0A73:003A` [static].
 - USB chip firmware via the driver (#279): Thesycon's API library (`loudusbaudioapi_x64.dll`, API
   5.12) has generic firmware calls (`TUSBAUDIO_StartDfuDownload`, `StartDfuUpload`,
   `StartDfuRevertToFactoryImage`); Mackie's control panel offers no firmware update [static]. A
