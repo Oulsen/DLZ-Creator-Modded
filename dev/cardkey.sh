@@ -36,7 +36,7 @@ for k in "$HOME/.ssh/known_hosts" "$KNOWN"; do
 done
 mkdir -p "$(dirname "$KNOWN")"
 SSHOPTS=(-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$KNOWN")
-# Only on a system started from the microSD card (pinlog.sh's test), exit 3 otherwise: a mixer started
+# Only on a system started from the microSD card, exit 3 otherwise: a mixer started
 # without its card runs stock from the eMMC at the same address, with root's password login, and the
 # key must never land in the eMMC's /root. Run first in every remote command, the key login's too
 CARD_ONLY='src=$(findmnt -no SOURCE /); d=${src#/dev/}; d=${d%p[0-9]*}

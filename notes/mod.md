@@ -957,8 +957,8 @@ say. Off by default; both models, the same code (tested on an XS; the full-size:
   unit has the default dependencies: an update may not bring one without them (`shape_ok` in every
   released updater, `tests/update-checks.sh`), so it starts at `basic.target` (~10-14 s), after
   dspserver's own start but before its codec setup (~20-30 s) [static]: it misses the first
-  seconds, which `dev/pinlog.sh` on a dev card (from sysinit) still sees; with that dev unit on the
-  card the mod's does not start (one pin log at a time). Its lines go to the journal, so into the
+  seconds (the GD32 flash and the FPGA load; a dev card's own sysinit copy, which saw them, went with
+  #305). Its lines go to the journal, so into the
   syslog and the boot log copy. The display connectors' `status` every 5 s, not every 100 ms (a read
   makes the driver detect the connector anew under DRM's connection lock, which glesgui's page
   flips take too); a stop waits at most 15 s (`TimeoutStopSec`: its last snapshot reads the

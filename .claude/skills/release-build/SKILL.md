@@ -26,7 +26,13 @@ after its patch PR merged: there `check` and `build` compare with `origin/main` 
 `origin/develop`, and `ready` only confirms that `main` is the build; next is the tag.
 
 `release.sh open` runs the same build in a new PowerShell window instead (`build-release.cmd`, also
-a double-click in Explorer), for the user who wants to watch it there.
+a double-click in Explorer), for the user who wants to watch it there; not from a worktree.
+
+**From a worktree** (#308) `build`, `check`, `ready` and `compare` work: a worktree's `.git` file
+names the main repo's git folder by a Windows path that WSL and Docker cannot follow, so `build`
+passes `GIT_DIR`/`GIT_WORK_TREE` as WSL paths and `buildenv.sh` mounts the main repo's git folder
+read-only at `/git` (`check`, `ready` and `compare` use Windows git anyway). The output lands in the
+worktree's own `build\release` and `build\devcard`: hand over those paths.
 
 ## Before `build`
 

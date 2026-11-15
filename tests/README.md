@@ -69,9 +69,8 @@ checks, the sandbox and the device review. Say why before starting a rehearsal.
 | The card's gate (`dlzmod-cardcheck`) | `cardcheck.sh`, `cardbind.sh` |
 | dspserver's wait (`dlzmod-wait-hub`) | `wait-hub.sh` (seconds); the start order itself only on the mixer |
 | The report of each start (`dlzmod-bootreport`) and the boot log (`dlzmod-bootlog`) | `bootreport.sh` (seconds); the mixer shows the real report ~2 min after a start |
-| The pin log (`install/sd-system/dlzmod-pinlog`, `dev/pinlog.sh`) | `pinlog.sh` (seconds); its cost on the dev card from its `alive` lines |
+| The pin log (`install/sd-system/dlzmod-pinlog`) | `pinlog.sh` (seconds); its cost on the dev card from its `alive` lines |
 | A dev card's network log (`dlzmod-netlog`, `dev/netlog.*`) | `netlog.sh` (seconds); then on the dev card with `dev/netlog.ps1` |
-| A dev card's pin log (`dev/pinlog.*`) | `pinlog.sh` (seconds); its cost on the dev card from its `alive` lines |
 | The release notes, the tag's workflow (`release-notes.sh`, `.github/workflows/release.yml`) | `release-notes.sh` (seconds); then a test tag `vX.Y.Z-testN` on GitHub (its draft and tag deleted afterwards) |
 | The server mod's writes to DLZDATA (the update upload, the boot log copy) | the server mod's unit tests, then `upload.sh` / `bootlog-copy.sh` |
 | The UI sandbox (`dev/ui-sandbox/shim.js`, `dev.html`, `dev/ui-sandbox.sh`) | `node tests/ui-sandbox.js` (seconds); then the sandbox itself for what it shows |
