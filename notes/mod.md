@@ -963,7 +963,9 @@ say. Off by default; both models, the same code (tested on an XS; the full-size:
   makes the driver detect the connector anew under DRM's connection lock, which glesgui's page
   flips take too); a stop waits at most 15 s (`TimeoutStopSec`: its last snapshot reads the
   regulators). Its cost on the mixer: 3.6 % of one core with the regulators every 0.5 s [device,
-  #293, dev card]; with this pacing: (to measure, #302).
+  #293, dev card]; with this pacing, from 3 to 5 min after power-on: ~10 % of one core (10.0 s
+  CPU in 100 s), the syslog +~60 bytes/s (~5 MB a day), MemAvailable 140 MB with the screen up
+  [device, #302, dev card, XS].
 - **The snapshot**: `dlzmod-diagsnap`, run by `dlzmod-bootlog` while the marker exists, appended
   after the starts in `syslog-last-boots.txt` (~2.5 min after power-on, with the boot report): mixer
   model and mod version, every unit's state and restarts, `systemd-analyze`, `/proc/asound` (cards,
