@@ -943,30 +943,41 @@ say. Off by default; both models, the same code (tested on an XS; the full-size:
   it logs, where the logs go and that it costs some processing power, then Turn on / Turn off.
   It goes through `DLZMOD_NET` (op `diag`: changes only from the mixer's own screen, one at a time;
   the network status carries `diag`). On writes the marker `/var/lib/dlzmod/diag-on` durably
-  (`DLZMOD_writeDurable`) and starts the pin log at once (`systemctl start --no-block`); off removes
-  it and stops the pin log. It stays on across restarts until turned off [static; unit tests].
+  (`DLZMOD_writeDurable`, and `/var/lib` flushed when it makes `/var/lib/dlzmod`) and starts the pin
+  log at once (`systemctl start --no-block`); off removes it and stops the pin log; a `systemctl`
+  that fails is named in the answer (the marker still decides the next start). It stays on across
+  restarts until turned off, or for 7 days: `DLZMOD_diagWatch` (from the server's start, then
+  hourly) removes a marker older than that and stops the pin log, since its lines add MBs a day to
+  a syslog that is never rotated; a clock that jumps forward can end it early, never late
+  [static; unit tests].
 - **The pin log**: `dlzmod-pinlog` is `dev/pinlog.py` of #293 (the codec pins PH0-PH2/PH12, every
   GPIO change, the screen, the power side, the I2S state and sample counters, load and memory each
   minute, snapshots at the codec setup and at PH2 changes; read-only, `/dev/mem` `PROT_READ`). Its
   unit has the default dependencies: an update may not bring one without them (`shape_ok` in every
   released updater, `tests/update-checks.sh`), so it starts at `basic.target` (~10-14 s), after
   dspserver's own start but before its codec setup (~20-30 s) [static]: it misses the first
-  seconds, which `dev/pinlog.sh` on a dev card (from sysinit) still sees. Its lines go to the
-  journal, so into the syslog and the boot log copy. Its cost on the mixer: (to measure, #302).
+  seconds, which `dev/pinlog.sh` on a dev card (from sysinit) still sees; with that dev unit on the
+  card the mod's does not start (one pin log at a time). Its lines go to the journal, so into the
+  syslog and the boot log copy. Its cost on the mixer: (to measure, #302).
 - **The snapshot**: `dlzmod-diagsnap`, run by `dlzmod-bootlog` while the marker exists, appended
   after the starts in `syslog-last-boots.txt` (~2.5 min after power-on, with the boot report): mixer
   model and mod version, every unit's state and restarts, `systemd-analyze`, `/proc/asound` (cards,
   each stream's status and parameters), USB (`lsusb`, the gadget's state), debugfs (clocks,
-  regulators, pin muxing, GPIOs), temperatures, memory and pressure, `top`, interrupts, modules,
-  mounts. Read-only, no bus probe (no `i2cdetect`: a probe writes), no network names or secrets, each
-  command at most 10 s; `dlzmod-bootlog` takes 8 MB of the syslog instead of 4 while it is on (the
-  pin log's lines), its unit 180 s instead of 60 [static; `tests/bootreport.sh`].
+  regulators, the SoC's pin muxing and pin settings), temperatures, memory and pressure, `top`,
+  interrupts, modules, mounts. Read-only, no bus probe (no `i2cdetect`: a probe writes), nothing of
+  the PMIC's GPIOs (debugfs' `gpio` list and the AXP221's pin controller read it over I2C; the pin
+  log does not address the PMIC either), no network names or secrets, each command at most 10 s;
+  only when a start was found (else the last copy stays, as before). `dlzmod-bootlog` takes 8 MB of
+  the syslog instead of 4 while it is on (the pin log's lines), its unit 180 s instead of 60
+  [static; `tests/bootreport.sh`].
 - **Download Logs** (a browser, Remote Control's Mod tab): `GET /dlzmod-logs.tar`, the SD card's
   `DLZDATA/dlzmod-logs/` as one tar (`dlzmod-logs-<date>-<time>.tar`), served through
   `DLZMOD_recHttp`'s route, so as for the recordings: only paired devices, nothing read while the
   mixer records (503), only the folder's plain files (no links: `O_NOFOLLOW`, no hidden or
-  unfinished ones). The button asks with HEAD first, so a busy mixer or no logs get a message
-  [static; unit tests; Windows' and GNU tar read the archive].
+  unfinished ones), each sent in 64 KB pieces (the boot log copy is up to ~8 MB; never a whole file
+  in memory), and a recording that starts halfway ends the download. The button asks with HEAD
+  first, so a busy mixer or no logs get a message [static; unit tests; Windows' and GNU tar read
+  the archive].
 
 ## The card gate (`dlzmod-cardcheck`)
 

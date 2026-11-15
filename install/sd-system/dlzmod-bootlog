@@ -52,10 +52,6 @@ while read -r from to; do
   echo "===== boot $k of $total (oldest first) ====="
   sed -n "${from},${to}p" "$raw"
 done < "$raw.ranges" > "$tmp"
-if [ -e "$DIAG_ON" ]; then
-  { echo "===== diagnostics: Diagnostic Logging is on (dlzmod-diagsnap) ====="; sh "$DIAGSNAP"; } >> "$tmp" 2>&1
-  log "diagnostics snapshot added (ms: $(ms))"
-fi
 rm -f "$raw" "$raw.ranges"
 # no SD start found (a syslog cut short): keep the last file, an empty one would push the good copy
 # on DLZDATA out to .prev
@@ -63,6 +59,10 @@ if [ "$total" = 0 ]; then
   rm -f "$tmp"
   log "no start of the SD system in $SYSLOG, nothing new for DLZDATA/dlzmod-logs"
   exit 0
+fi
+if [ -e "$DIAG_ON" ]; then
+  { echo "===== diagnostics: Diagnostic Logging is on (dlzmod-diagsnap) ====="; sh "$DIAGSNAP"; } >> "$tmp" 2>&1
+  log "diagnostics snapshot added (ms: $(ms))"
 fi
 # complete or not there: server.js copies whatever file it finds
 if ! mv -f "$tmp" "$OUT/syslog-last-boots.txt"; then

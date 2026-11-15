@@ -7,6 +7,8 @@ Description=dlzmod: diagnostic logging, the pin log (only while it is on in the 
 # unit: dlzmod-update's shape_ok; dev/pinlog.sh starts it at sysinit on a dev card). Nothing is
 # ordered after it, so it delays no other unit. Read-only (/dev/mem PROT_READ, /sys, /proc).
 ConditionPathExists=/var/lib/dlzmod/diag-on
+# not next to the dev card's own copy (dev/pinlog.sh on): one pin log, one cost to measure
+ConditionPathExists=!/etc/systemd/system/dlzdev-pinlog.service
 
 [Service]
 Type=exec

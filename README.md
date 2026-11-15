@@ -102,7 +102,8 @@ below. They all start as stock: turn on what you want.
 - Logs of the install and the last starts on the card, for bug reports *(the `dlzmod-logs`
   folder, readable in any card reader, or Download Logs on a paired computer's Mod tab)*
 - Diagnostic Logging for finding a fault such as no sound after a start: while it is on, every
-  start also logs the audio chips' pins and clocks, power, memory and load *(Mod, Diagnostics)*
+  start also logs the audio chips' pins and clocks, power, memory and load; it turns itself off
+  after 7 days *(Mod, Diagnostics)*
 
 ### Fixes for stock bugs
 

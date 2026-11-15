@@ -3062,7 +3062,7 @@ function DLZMOD_askDiag() {
     title: "Diagnostic Logging",
     text: on
       ? "Diagnostic logging is on.\nAbout 2 minutes after each start the logs are in\nDLZDATA/dlzmod-logs on the card (or Download Logs\nin Remote Control). Turn it off when you are done."
-      : "Logs everything at each start, for finding a fault\n(no sound, dropouts): the system log, the audio\nchips' pins and clocks, power, memory and load.\nUses a little processing power: turn it off when done.",
+      : "Logs everything at each start, for finding a fault\n(no sound, dropouts): the system log, the audio\nchips' pins and clocks, power, memory and load.\nUses a little processing power; off after 7 days.",
     buttons: [{ text: on ? "Turn off" : "Turn on" }, { text: lang.CANCEL }],
     icon: $FA.exclamation,
     func: () => {

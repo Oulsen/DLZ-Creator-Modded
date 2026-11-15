@@ -737,7 +737,9 @@ test("net: from another device on the network only the status, nothing changed o
     const f = Object.assign(fakeNet(), { dir });
     const sent = [];
     await net(a, remoteTo(sent), f);
-    assert.deepStrictEqual(result(sent), [{ ok: false, text: "Network settings can only be changed\non the mixer's own screen." }], a.op);
+    assert.deepStrictEqual(result(sent).map((r) => ({ ok: r.ok, text: r.text })),
+      [{ ok: false, text: "Network settings can only be changed\non the mixer's own screen." }], a.op);
+    assert.strictEqual(result(sent)[0].title, a.op === "diag" ? "Diagnostic Logging" : undefined, a.op + ": its own title");
     assert.deepStrictEqual(f.calls, [], a.op + ": something ran");
   }
   const f = fakeNet();
@@ -3640,7 +3642,7 @@ test("diag: on writes the marker and starts the pin log, off removes it and stop
   await net({ op: "diag", on: true }, sendTo(sent), f);
   assert.ok(fs.existsSync(f.diagFile), "the marker, for the next starts");
   assert.deepStrictEqual(result(sent).map((r) => [r.ok, r.title]), [[true, "Diagnostic Logging"]]);
-  assert.match(result(sent)[0].text, /DLZDATA\/dlzmod-logs/);
+  assert.match(result(sent)[0].text, /for 7 days[^]*DLZDATA\/dlzmod-logs/);
   assert.ok(f.calls.some((c) => c.args.join(" ") === "start --no-block dlzmod-pinlog.service"), "the pin log now too");
   assert.strictEqual(sent.find((m) => m.cmd === "DLZMOD_NET_STATE").data.diag, true);
   const s2 = [];
@@ -3649,10 +3651,44 @@ test("diag: on writes the marker and starts the pin log, off removes it and stop
   assert.deepStrictEqual(result(s2).map((r) => [r.ok, r.text]), [[true, "Diagnostic logging is off."]]);
   assert.ok(f.calls.some((c) => c.args.join(" ") === "stop --no-block dlzmod-pinlog.service"));
   assert.strictEqual(s2.find((m) => m.cmd === "DLZMOD_NET_STATE").data.diag, false);
-  // off again (no marker, a failing systemctl): still off, no error
+  // systemctl failing: the marker still follows the switch, and the answer says the pin log did not
   const s3 = [];
-  await net({ op: "diag", on: false }, sendTo(s3), Object.assign(fakeNet({ fail: "systemctl" }), { diagFile: f.diagFile }));
-  assert.deepStrictEqual(result(s3).map((r) => r.ok), [true]);
+  await net({ op: "diag", on: true }, sendTo(s3), Object.assign(fakeNet({ fail: "systemctl" }), { diagFile: f.diagFile }));
+  assert.ok(fs.existsSync(f.diagFile), "on from the next start");
+  assert.deepStrictEqual(result(s3).map((r) => [r.ok, r.title]), [[false, "Diagnostic Logging"]]);
+  assert.match(result(s3)[0].text, /from the next start[^]*could not be started now/);
+  const s4 = [];
+  await net({ op: "diag", on: false }, sendTo(s4), Object.assign(fakeNet({ fail: "systemctl" }), { diagFile: f.diagFile }));
+  assert.ok(!fs.existsSync(f.diagFile), "off from the next start");
+  assert.deepStrictEqual(result(s4).map((r) => r.ok), [false]);
+  assert.match(result(s4)[0].text, /could not be stopped now/);
+  // the card cannot save it (its folder is a file here): the answer under its own title, plainly
+  const blocked = path.join(tmpDir("diagro"), "file");
+  fs.writeFileSync(blocked, "");
+  const s5 = [];
+  await net({ op: "diag", on: true }, sendTo(s5), Object.assign(fakeNet(), { diagFile: path.join(blocked, "diag-on") }));
+  assert.deepStrictEqual(result(s5).map((r) => [r.ok, r.title]), [[false, "Diagnostic Logging"]]);
+  assert.match(result(s5)[0].text, /could not be changed/);
+});
+test("diag: turns itself off 7 days after it was turned on, at the server's start and hourly", async () => {
+  const file = path.join(tmpDir("diagwatch"), "diag-on");
+  const calls = [];
+  const run = async (f, args) => (calls.push(args.join(" ")), { ok: true, out: "", err: "" });
+  try {
+    fs.writeFileSync(file, "");
+    const t = fs.statSync(file).mtimeMs;
+    assert.strictEqual(await ctx.DLZMOD_diagWatch(file, run, () => t + 6.9 * 864e5), false, "6.9 days: still on");
+    assert.ok(fs.existsSync(file));
+    assert.ok(ctx.DLZMOD_diagWatch.timer, "the hourly check");
+    assert.strictEqual(await ctx.DLZMOD_diagWatch.check(), false, "now: still on");
+    assert.strictEqual(await ctx.DLZMOD_diagWatch(file, run, () => t + 7 * 864e5), true, "7 days: off");
+    assert.ok(!fs.existsSync(file), "the marker removed");
+    assert.deepStrictEqual(calls, ["stop --no-block dlzmod-pinlog.service"], "the pin log stopped");
+    assert.strictEqual(await ctx.DLZMOD_diagWatch.check(), false, "off: nothing more to do");
+    assert.strictEqual(calls.length, 1);
+  } finally {
+    clearInterval(ctx.DLZMOD_diagWatch.timer);
+  }
 });
 const logsCard = () => {
   const sd = fs.mkdtempSync(path.join(os.tmpdir(), "dlzlogs-sd-"));
@@ -3744,6 +3780,31 @@ test("logs download: a linked folder or file is not followed", async () => {
   const sd2 = fs.mkdtempSync(path.join(os.tmpdir(), "dlzlogs-sd2-"));
   fs.symlinkSync(secret, path.join(sd2, "dlzmod-logs"));
   assert.strictEqual((await logsCall({}, [sd2, "-"])).status, 404, "a linked folder");
+});
+test("logs download: a large file goes in 64 KB pieces, whole; a recording that starts halfway ends it", async () => {
+  const { sd, dir } = logsCard();
+  const big = Buffer.alloc(200 * 1024 + 77);
+  for (let i = 0; i < big.length; i++) big[i] = (i * 7 + 3) & 255;
+  fs.writeFileSync(path.join(dir, "syslog-last-boots.txt"), big);
+  const r = await logsCall({}, [sd, "-"]);
+  assert.ok(Math.max(...r.chunks.map((c) => c.length)) <= 65536, "never a whole file in one piece");
+  const tar = Buffer.concat(r.chunks);
+  assert.strictEqual(tar.length % 512, 0);
+  const got = untar(tar).find((f) => f[0] === "dlzmod-logs/syslog-last-boots.txt");
+  assert.ok(got && got[1].equals(big), "the large file intact");
+  // the mixer starts recording after the first pieces went out: no more reading, the connection ends
+  const keys = {};
+  ctx.getDataKey = (k) => keys[k];
+  const res = logsRes();
+  const write0 = res.write;
+  res.write = (b) => {
+    if (res.chunks.length === 3) keys.recState = 1;
+    return write0(b);
+  };
+  recHttp(() => [sd, "-"])({ path: "/dlzmod-logs.tar", method: "GET" }, res, () => assert.fail("not passed on"));
+  await new Promise((resolve) => (res.once("close", resolve), setTimeout(resolve, 2000)));
+  assert.ok(res.destroyed, "cut off");
+  assert.ok(Buffer.concat(res.chunks).length < big.length, "not the whole file once recording");
 });
 test("logs download: other paths go on as before", async () => {
   assert.strictEqual(recCall({}, ["-", "-"], "/dlzmod-logs.tarx"), "next");

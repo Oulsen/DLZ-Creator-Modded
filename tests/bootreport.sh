@@ -214,6 +214,14 @@ DLZMOD_DIAG_FILE=$TMP/diag-on DLZMOD_DIAGSNAP=$TMP/snap DLZMOD_BOOTLOG_DIR=$TMP/
 [ "$(grep -c 'pinlog 31.2' "$o")" = 2 ] && ok "bootlog diag: the pin log's lines in the starts" || bad "bootlog diag: pin log lines"
 grep -q "diagnostics snapshot added" "$TMP/bootlog.out" && ok "bootlog diag: says so" || bad "bootlog diag: $(cat "$TMP/bootlog.out")"
 grep -q 'SIZE=8000000' "$BL" && grep -q 'tail -c "$SIZE" "$SYSLOG"' "$BL" && ok "bootlog diag: twice the syslog while on" || bad "bootlog diag: size"
+# no SD start found: no snapshot taken for nothing, the last file kept
+cp "$o" "$TMP/last.txt"
+echo "Oct 3 host kernel: Booting Linux on physical CPU 0x0" > "$TMP/syslog"
+printf '#!/bin/sh\ntouch "%s/snap-ran"\n' "$TMP" > "$TMP/snap"
+DLZMOD_DIAG_FILE=$TMP/diag-on DLZMOD_DIAGSNAP=$TMP/snap DLZMOD_BOOTLOG_DIR=$TMP/run DLZMOD_BOOTLOG_SYSLOG=$TMP/syslog \
+  sh "$BL" > "$TMP/bootlog.out" 2>&1 || bad "bootlog diag none: exit $?"
+[ ! -e "$TMP/snap-ran" ] && cmp -s "$o" "$TMP/last.txt" && ok "bootlog diag: no SD start, no snapshot, the last file kept" \
+  || bad "bootlog diag none: snapshot ran or file changed"
 
 # 8. the snapshot itself (dlzmod-diagsnap) on a stand-in tree: every section, exit 0, read only (no
 # bus probing, no writes but its own output), each command limited
@@ -237,6 +245,8 @@ grep -q "model: XS" "$TMP/snap.out" && grep -q "state: RUNNING" "$TMP/snap.out" 
   || bad "diagsnap: $(head -c 600 "$TMP/snap.out")"
 grep -v '^ *#' "$DS" | grep -qE 'i2cdetect|i2cset|i2cget|devmem|> *"?\$|>> *"?\$|\btee\b|\brm\b|\bmv\b' \
   && bad "diagsnap: probes a bus or writes a file" || ok "diagsnap: no bus probe, no file written"
+grep -v '^ *#' "$DS" | grep -qE 'debug/gpio|pinctrl/\*/' && bad "diagsnap: reads a GPIO list that reaches the PMIC" \
+  || ok "diagsnap: only the SoC's pin controllers, nothing of the PMIC's"
 [ "$(grep -v '^ *#' "$DS" | grep -c 'timeout 10')" -ge 2 ] && ok "diagsnap: commands and reads limited to 10 s" || bad "diagsnap: no time limit"
 
 [ $fail = 0 ] && echo "ALL OK" || { echo "FAILED"; exit 1; }

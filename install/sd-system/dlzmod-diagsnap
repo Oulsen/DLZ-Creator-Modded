@@ -60,8 +60,9 @@ done
 
 sec "clocks, regulators, pins (debugfs)"
 files "$DIAG/sys/kernel/debug/clk/clk_summary" "$DIAG/sys/kernel/debug/regulator/regulator_summary"
-for f in "$DIAG"/sys/kernel/debug/pinctrl/*/pinmux-pins "$DIAG"/sys/kernel/debug/pinctrl/*/pinconf-pins \
-  "$DIAG"/sys/kernel/debug/gpio; do
+# the SoC's own pin controllers only (1c20800.pinctrl, 1f02c00.pinctrl): not debugfs' gpio list or the
+# AXP221's GPIO controller, whose reads go over I2C to the PMIC, which nothing here addresses
+for f in "$DIAG"/sys/kernel/debug/pinctrl/*.pinctrl/pinmux-pins "$DIAG"/sys/kernel/debug/pinctrl/*.pinctrl/pinconf-pins; do
   files "$f"
 done
 

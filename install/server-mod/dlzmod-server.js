@@ -1317,8 +1317,8 @@ function DLZMOD_recHttp(roots) {
 // route, so as for the recordings other devices only once paired (DLZMOD_remoteHttp runs first) and
 // nothing is read while the mixer records (503; a recording that starts during the download cuts it
 // off). Read only: the folder's plain files (no links, hidden or unfinished ones, as the recordings
-// list), each opened without following a link and read whole (a few MB at most) before it is sent.
-// HEAD answers whether there is anything (200) without reading the files. root: the SD card's mount
+// list), each opened without following a link and sent in 64 KB pieces (the boot log copy alone is
+// up to ~8 MB while Diagnostic Logging is on; the mixer has ~120 MB free). HEAD answers whether there is anything (200) without reading the files. root: the SD card's mount
 // point ("-" when none)
 function DLZMOD_logsHttp(root, req, res) {
   const end = (status, headers) => {
@@ -1336,12 +1336,7 @@ function DLZMOD_logsHttp(root, req, res) {
     if (req.method === "HEAD") return res.end();
     for (const f of files) {
       if (res.destroyed) return;
-      const data = await DLZMOD_logsRead(f.path);
-      if (!data) continue;   // gone or replaced by something else meanwhile
-      if (DLZMOD_recNoRead()) return res.destroy();
-      const pad = Buffer.alloc((512 - data.buf.length % 512) % 512);
-      if (!(await DLZMOD_logsWrite(res, Buffer.concat([DLZMOD_tarHeader("dlzmod-logs/" + f.name, data.buf.length,
-        data.mtime), data.buf, pad])))) return;
+      if ((await DLZMOD_logsSend(res, f.path, "dlzmod-logs/" + f.name)) === false) return;
     }
     res.end(Buffer.alloc(1024));   // tar's end: two empty blocks
   }).catch((e) => {
@@ -1363,19 +1358,45 @@ async function DLZMOD_logsList(dir) {
   return out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
-// a file's content and time, never through a link (O_NOFOLLOW), only a regular file; null otherwise
-async function DLZMOD_logsRead(file) {
+// one file into the tar: its header, its content in 64 KB pieces, the padding. Never through a link
+// (O_NOFOLLOW), only a regular file; one that is gone or something else: null, left out. Its size
+// from fstat: the files here are replaced by renames, never written in place, so the open one keeps
+// it; a shorter read is padded with zeros, so the archive stays readable. false: the connection is
+// gone (closed, or ended here: a recording started, a read error once the header was out)
+async function DLZMOD_logsSend(res, file, name) {
   const fs = require("fs");
   let h;
   try {
     h = await fs.promises.open(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-    const st = await h.stat();
-    if (!st.isFile()) return null;
-    return { buf: await h.readFile(), mtime: st.mtimeMs / 1000 };
   } catch (e) {
     return null;
+  }
+  try {
+    const st = await h.stat();
+    if (!st.isFile()) return null;
+    const size = st.size;
+    if (!(await DLZMOD_logsWrite(res, DLZMOD_tarHeader(name, size, st.mtimeMs / 1000)))) return false;
+    const buf = Buffer.alloc(65536);
+    let sent = 0;
+    while (sent < size) {
+      if (DLZMOD_recNoRead()) {
+        res.destroy();
+        return false;
+      }
+      const { bytesRead } = await h.read(buf, 0, Math.min(buf.length, size - sent), sent);
+      if (!bytesRead) break;
+      // a copy: the socket may still hold it when buf is read into again
+      if (!(await DLZMOD_logsWrite(res, Buffer.from(buf.subarray(0, bytesRead))))) return false;
+      sent += bytesRead;
+    }
+    const pad = size - sent + (512 - size % 512) % 512;
+    return pad ? DLZMOD_logsWrite(res, Buffer.alloc(pad)) : true;
+  } catch (e) {
+    console.error("dlzmod: logs download:", file, e.message);
+    res.destroy();
+    return false;
   } finally {
-    if (h) await h.close().catch(() => {});
+    await h.close().catch(() => {});
   }
 }
 
@@ -2302,6 +2323,9 @@ async function DLZMOD_uploadRun(req, dir, name, len, mounts) {
 function DLZMOD_bootlogCopy(root, src = "/run/dlzmod-bootlog/syslog-last-boots.txt", mounts = "/proc/mounts", every = 15000,
   uptime = "/proc/uptime") {
   const s = DLZMOD_bootlogCopy;
+  // started with the server like this copy (no hook of its own in server.js): Diagnostic Logging's
+  // 7 days (#302)
+  if (src === "/run/dlzmod-bootlog/syslog-last-boots.txt") DLZMOD_diagWatch();
   clearInterval(s.timer);
   s.timer = setInterval(() => s.tick(), every);
   s.tick = async () => {
@@ -2596,7 +2620,9 @@ async function DLZMOD_net(args, send, opts = {}) {
       send({ cmd: cmd, id: 0, data: data });
     } catch (e) {}
   };
-  const result = (ok, text, title) => reply("DLZMOD_NET_RESULT", { ok: ok, text: text, title: title });
+  // Diagnostic Logging's answers under its own title (#302), its failures included
+  const title = (args || {}).op === "diag" ? "Diagnostic Logging" : undefined;
+  const result = (ok, text) => reply("DLZMOD_NET_RESULT", { ok: ok, text: text, title: title });
   // the screen's status, with the Remote Control panel's (PIN included: only ever to the screen)
   const state = async () => Object.assign(await DLZMOD_netState(run, paths, diag), { pair: DLZMOD_pairStatus() });
   const a = args || {};
@@ -2664,7 +2690,7 @@ async function DLZMOD_net(args, send, opts = {}) {
     reply("DLZMOD_NET_STATE", await state());
   } catch (e) {
     console.error("dlzmod: network " + a.op + ":", e.message);
-    result(false, "That did not work (" + a.op + ")");
+    result(false, a.op === "diag" ? "Diagnostic logging could not be changed\n(the card could not save it)." : "That did not work (" + a.op + ")");
   }
 }
 
@@ -2747,27 +2773,6 @@ async function DLZMOD_sshSet(a, run, result, sshdDir = "/etc/ssh/sshd_config.d",
 // every start; and `keep` on the card, when the owner chose "Keep on after a restart". Both are
 // written only here, i.e. only from the mixer's own screen; neither is a hub key, which any device
 // on the network could set.
-// Diagnostic Logging (#302, the Mod tab, the mixer's own screen only: a DLZMOD_NET change): the
-// marker on the card that dlzmod-pinlog.service and dlzmod-bootlog look for, so it stays on after a
-// restart until it is turned off. The pin log starts or stops at once too; the snapshot and the
-// copy to DLZDATA/dlzmod-logs come with the next start's boot log (~2 min in)
-function DLZMOD_diagFile() {
-  return "/var/lib/dlzmod/diag-on";
-}
-
-async function DLZMOD_diagSet(on, run, result, file = DLZMOD_diagFile()) {
-  const title = "Diagnostic Logging";
-  if (!on) {
-    if (DLZMOD_unlinkQuiet(file)) DLZMOD_syncDir(require("path").dirname(file));
-    await run("/bin/systemctl", ["stop", "--no-block", "dlzmod-pinlog.service"]);
-    return result(true, "Diagnostic logging is off.", title);
-  }
-  require("fs").mkdirSync(require("path").dirname(file), { recursive: true, mode: 0o755 });
-  DLZMOD_writeDurable(file, "", 0o644);
-  await run("/bin/systemctl", ["start", "--no-block", "dlzmod-pinlog.service"]);
-  result(true, "Diagnostic logging is on, also after a restart.\nRestart the mixer: about 2 minutes later\nthe logs are in DLZDATA/dlzmod-logs.", title);
-}
-
 function DLZMOD_sshPaths(o = {}) {
   return { on: o.sshOnFlag || "/run/dlzmod-ssh-on", keep: o.sshKeepFile || "/var/lib/dlzmod-ssh/keep-on" };
 }
@@ -2803,6 +2808,64 @@ async function DLZMOD_sshKeep(a, run, result, paths = DLZMOD_sshPaths()) {
   fs.mkdirSync(require("path").dirname(paths.keep), { recursive: true, mode: 0o700 });
   DLZMOD_writeDurable(paths.keep, "", 0o600);
   result(true, "SSH stays on after a restart");
+}
+
+// Diagnostic Logging (#302, the Mod tab, the mixer's own screen only: a DLZMOD_NET change): the
+// marker on the card that dlzmod-pinlog.service and dlzmod-bootlog look for, so it stays on after a
+// restart, until it is turned off or 7 days have passed (DLZMOD_diagWatch). The pin log starts or
+// stops at once too; the snapshot and the copy to DLZDATA/dlzmod-logs come with the next start's
+// boot log (~2 min in)
+function DLZMOD_diagFile() {
+  return "/var/lib/dlzmod/diag-on";
+}
+
+const DLZMOD_DIAG_DAYS = 7;
+
+async function DLZMOD_diagSet(on, run, result, file = DLZMOD_diagFile()) {
+  const path = require("path");
+  if (!on) {
+    // the marker first: off at the next start even when the pin log cannot be stopped now
+    if (DLZMOD_unlinkQuiet(file)) DLZMOD_syncDir(path.dirname(file));
+    const stop = await run("/bin/systemctl", ["stop", "--no-block", "dlzmod-pinlog.service"]);
+    return result(stop.ok, stop.ok ? "Diagnostic logging is off."
+      : "Diagnostic logging is off from the next start;\nthe pin log could not be stopped now.");
+  }
+  const dir = path.dirname(file);
+  const made = !require("fs").existsSync(dir);
+  require("fs").mkdirSync(dir, { recursive: true, mode: 0o755 });
+  if (made) DLZMOD_syncDir(path.dirname(dir));   // a new folder: its entry flushed too
+  DLZMOD_writeDurable(file, "", 0o644);
+  const start = await run("/bin/systemctl", ["start", "--no-block", "dlzmod-pinlog.service"]);
+  if (!start.ok) return result(false, "Diagnostic logging is on from the next start;\nthe pin log could not be started now.");
+  result(true, "Diagnostic logging is on for " + DLZMOD_DIAG_DAYS + " days, also after a restart.\n" +
+    "Restart the mixer: about 2 minutes later\nthe logs are in DLZDATA/dlzmod-logs.");
+}
+
+// Diagnostic Logging turns itself off DLZMOD_DIAG_DAYS after it was turned on: the pin log adds MBs a
+// day to the syslog, which is never rotated (logrotate is off), and an owner may forget it. Checked
+// at the server's start (from DLZMOD_bootlogCopy) and every hour, by the marker's time: a clock that
+// jumps forward (chrony, once online) can end it early, never late
+function DLZMOD_diagWatch(file = DLZMOD_diagFile(), run = DLZMOD_run, now = Date.now) {
+  const s = DLZMOD_diagWatch;
+  s.check = async () => {
+    let m;
+    try {
+      m = require("fs").statSync(file).mtimeMs;
+    } catch (e) {
+      return false;   // off
+    }
+    if (now() - m < DLZMOD_DIAG_DAYS * 864e5) return false;
+    if (DLZMOD_unlinkQuiet(file)) DLZMOD_syncDir(require("path").dirname(file));
+    console.log("dlzmod: diagnostic logging turned itself off after " + DLZMOD_DIAG_DAYS + " days");
+    try {
+      await run("/bin/systemctl", ["stop", "--no-block", "dlzmod-pinlog.service"]);
+    } catch (e) {}
+    return true;
+  };
+  clearInterval(s.timer);
+  s.timer = setInterval(() => s.check().catch(() => {}), 3600000);
+  if (s.timer.unref) s.timer.unref();   // never what keeps the process (or a test) running
+  return s.check().catch(() => false);
 }
 
 // Time zone (#9), the Mod page's Time tab: FAT keeps local times and the kernel converts file times
