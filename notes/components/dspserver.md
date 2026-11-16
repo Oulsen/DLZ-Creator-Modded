@@ -63,7 +63,8 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   differed the first time is not known; it may have been a start that was silent already. **In a
   silent start a restart does not bring the sound back** [device, XS dev card, 2026-11-13, #257]: the
   full codec setup ran again without errors (PH0 pulse, AKM DAC/ADC, THAT), the outputs stayed
-  silent; a reboot of the mixer brought the sound back.
+  silent; a reboot of the mixer brought the sound back. Tried in one silent start only, so not
+  settled: the next silent starts try a restart again ("Cold starts", below).
 - Harmless at every boot: kernel stack dumps `set_cpus_allowed_ptr: core 4 is set in the mask`
   (from the kernel's own workqueue code, `worker_attach_to_pool`, once dspserver has set the
   workqueue cpumask; not from an affinity call of dspserver [static]), and
@@ -252,6 +253,29 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   without the mod had silent outputs with moving meters, standalone too, starting mid-session
   together with a USB disconnect on Windows, and a reboot did not bring it back. Their logs on the
   mod later showed a different cause: a DAC that does not answer (next point).
+- **Cold starts: the third silent start, the only cold one** (#257) [device, XS dev card,
+  2026-11-16]: the mixer had been off ~13 h (the clock jumped 13.4 h at the NTP sync). The DAC
+  answered (one setup at 30.8 s, no retries); **PH2 low for 18 ms at 31.77 s**, ~1 s after the
+  setup and ~2-3 s before `Done.`; the pin log (every pin since #293) saw no other pin change in
+  that second, and its "PH2 low" snapshot (screen, power chip, regulators, clocks, I2S) matches the
+  one at the setup. `sched: RT throttling activated` at 33.3 s is in starts with sound too. The
+  mixer stayed silent for the 7.5 h it ran. **The CPU was at 29 °C** at the setup; in every other
+  start the card's syslog holds with temperatures it was 63-74 °C, all with sound and no drop. A
+  power cycle right after (warm, 66 °C at the setup): no drop, sound. The owner's silent starts
+  are the first start of the day, after 12-16 h off [user report]. So a cold board is the lead
+  for #257 [guess: 1 cold start against 5 warm ones; the 2026-11-14 silent starts have no
+  temperature]. Mechanism unknown; a cold crystal, PLL or regulator settles more slowly, and the
+  setup waits a fixed 5 ms after PLL_AUDIO without its lock bit (above) [guess]. Mackie's repair
+  loop (PH2 low → set the AKM chips up again) only runs after `Done.`, so it does not see the drop;
+  it redoes less than the restart that did not help once ("A restart while the mixer runs").
+  - The USB tone did not come back on the return in this start nor in the warm one after it: mix-minus
+    was on for the computer channel (the default on a fresh install), not a symptom.
+  - Next silent start, before switching off, each step tried only if the one before left it
+    silent: one login (drop, temperature); `systemctl restart dspserver` (sound back = Mackie's
+    own setup can repair it, the mod could do it after a drop); `reboot` (sound back = the
+    processor's side, the mod could restart by itself); power off and on (only this = something on
+    the board must lose power; the mod can at least say so on the screen). Steps 1 and 2 are writes:
+    the user confirms each one.
 - **A DAC that does not answer: a second cause, not #257** [device, an owner's XS, v0.6.0 and
   v0.6.1 with Diagnostics on, 9 starts]:
   - In 8 of 9 starts the first DAC write got no acknowledgement: `i2c: retrying address 22` ~100
@@ -286,7 +310,7 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
     ("A chip that does not answer", above).
   - Open: whether a `systemctl restart dspserver` (the setup again, PLL already locked) gets an
     answer. Yes = timing, and the mod could retry at a failed setup; no = hardware, a case for
-    Mackie service. Such a retry would not help #257, where a restart is known not to.
+    Mackie service. In #257 one restart did not help, which is not settled yet ("Cold starts", below).
 - **What the research ruled out, and what is left** (#257, 2026-11-14):
   - Not phantom power: it is the `i.N.phantom` key (server.js keeps it in `/srv/srv_data.json`; the
     dump has mic 1 on), which dspserver turns into bit `0x10000` of the THAT shadow word (`0x3471c`)
