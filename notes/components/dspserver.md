@@ -259,23 +259,24 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   setup and ~2-3 s before `Done.`; the pin log (every pin since #293) saw no other pin change in
   that second, and its "PH2 low" snapshot (screen, power chip, regulators, clocks, I2S) matches the
   one at the setup. `sched: RT throttling activated` at 33.3 s is in starts with sound too. The
-  mixer stayed silent for the 7.5 h it ran. **The CPU was at 29 °C** at the setup; in every other
-  start the card's syslog holds with temperatures it was 63-74 °C, all with sound and no drop. A
-  power cycle right after (warm, 66 °C at the setup): no drop, sound. The owner's silent starts
-  are the first start of the day, after 12-16 h off [user report]. So a cold board is the lead
-  for #257 [guess: 1 cold start against 5 warm ones; the 2026-11-14 silent starts have no
-  temperature]. Mechanism unknown; a cold crystal, PLL or regulator settles more slowly, and the
+  mixer stayed silent for the 7.5 h it ran. **The CPU was at 29 °C** at the setup; the 3 other
+  starts in the card's syslog with temperatures were at 63-72 °C, with sound and no PH2 low after
+  the setup, and so was a power cycle right after this one (warm, 66 °C: no drop, sound). Two
+  dspserver restarts in a session were at 74 °C; in one of them PH2 went low ~140 ms after its
+  setup, whether the sound stayed is not known. The owner's silent starts are the first start of
+  the day, after 12-16 h off [user report]. So a cold board is the lead for #257 [guess: 1 cold
+  start against 4 warm ones; the saved logs hold no temperature for the 2026-11-14 silent starts]. Mechanism unknown; a cold crystal, PLL or regulator settles more slowly, and the
   setup waits a fixed 5 ms after PLL_AUDIO without its lock bit (above) [guess]. Mackie's repair
   loop (PH2 low → set the AKM chips up again) only runs after `Done.`, so it does not see the drop;
   it redoes less than the restart that did not help once ("A restart while the mixer runs").
   - The USB tone did not come back on the return in this start nor in the warm one after it: mix-minus
-    was on for the computer channel (the default on a fresh install), not a symptom.
+    was on for the computer channel (the user's setting), not a symptom.
   - Next silent start, before switching off, each step tried only if the one before left it
     silent: one login (drop, temperature); `systemctl restart dspserver` (sound back = Mackie's
     own setup can repair it, the mod could do it after a drop); `reboot` (sound back = the
     processor's side, the mod could restart by itself); power off and on (only this = something on
-    the board must lose power; the mod can at least say so on the screen). Steps 1 and 2 are writes:
-    the user confirms each one.
+    the board must lose power; the mod can at least say so on the screen). The restart and the
+    reboot are writes: the user confirms each one.
 - **A DAC that does not answer: a second cause, not #257** [device, an owner's XS, v0.6.0 and
   v0.6.1 with Diagnostics on, 9 starts]:
   - In 8 of 9 starts the first DAC write got no acknowledgement: `i2c: retrying address 22` ~100
