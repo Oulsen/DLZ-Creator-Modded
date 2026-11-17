@@ -541,7 +541,7 @@ test("header: hidden or shown at once, but not on full-screen pages; saved setti
   assert.deepStrictEqual(ctx.Data.data, { "dlzmod.hideHeader": 1, "dlzmod.meterMode": 0, "dlzmod.preColor": 0,
     "dlzmod.preLevel": 0, "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0,
     "dlzmod.recDate": 0, "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "",
-    "dlzmod.controls": "", "dlzmod.lim.bypass": 0, "dlzmod.lim.thresh": -1, "dlzmod.lim.release": 50, "dlzmod.lim.attack": 1,
+    "dlzmod.controls": "", "dlzmod.lim.bypass": 1, "dlzmod.lim.thresh": -1, "dlzmod.lim.release": 50, "dlzmod.lim.attack": 1,
     "dlzmod.lim.ratio": 20, "dlzmod.lim.knee": 0, ...plain(ctx.DLZMOD_duckKeys()) });
   // install/apply-mod.sh reads DLZMOD_keys as JSON (set_mod_defaults): the same regex, the same parse
   const src = fs.readFileSync(path.join(__dirname, "dlzmod.js"), "utf8");
@@ -4019,7 +4019,7 @@ test("limiter: its keys in the hub's dB and ms, the screen's 0..1 through Mackie
     assert.ok(Math.abs(ctx.Data.data["dlzmod.lim.thresh"] - 59 / 60) < 1e-9, "-1 dB on the 60 dB scale");
     assert.strictEqual(ctx.Data.data["dlzmod.lim.ratio"], 1, "ratio 20: the top");
     assert.strictEqual(ctx.Data.data["dlzmod.lim.release"], 0.2, "a known value kept");
-    assert.strictEqual(ctx.Data.data["dlzmod.lim.bypass"], 0, "on at first (no conversion)");
+    assert.strictEqual(ctx.Data.data["dlzmod.lim.bypass"], 1, "off at first (no conversion)");
     assert.strictEqual(conv.out["dlzmod.lim.thresh"](0.5), -30, "to the hub in dB");
     assert.strictEqual(conv.out["dlzmod.lim.thresh"](2), 0, "clamped like Mackie's");
     assert.strictEqual(conv.in["dlzmod.lim.thresh"](-90), 0, "from the hub, clamped");
@@ -4115,8 +4115,10 @@ test("limiter: its page is Mackie's compressor page on the limiter's keys, its r
     assert.deepStrictEqual(plain(p.comp.moved), [[0, 5]], "the ceiling moves, the ratio does not");
     ["T", "R", "G"].forEach((l) => p.comp.paintKnob(null, 0, 0, false, "c", l));
     assert.deepStrictEqual(plain(p.comp.drawn), ["T", "G"], "the ratio's handle not drawn");
-    const drawn = [];
-    p.paint({ drawText: (s) => drawn.push(s) });
+    const drawn = [], marks = [];
+    p.onoff.geomCenterY = () => 40;
+    p.paint({ drawText: (s) => drawn.push(s), fRect: (...a) => marks.push(a) });
+    assert.deepStrictEqual(marks, [["#FFD600", 10, 31, 3, 18]], "the mod's mark left of its switch");
     assert.deepStrictEqual(plain(rec.painted), [["label", "Limiter", ""]], "Mackie's paint with its own label");
     assert.deepStrictEqual([ctx.lang.COMP, ctx.lang.PRESET], ["Comp", "Preset"], "Mackie's texts back");
     assert.ok(drawn.join(" ").includes("main out") && drawn.join(" ").includes("not limited"));
@@ -4124,6 +4126,22 @@ test("limiter: its page is Mackie's compressor page on the limiter's keys, its r
     limUnstage();
   }
   assert.strictEqual(ctx.DLZMOD_limPage({}, {}), null, "no compressor page of Mackie's: none of ours");
+});
+
+test("master gate: the mod's mark left of its switch while the master is selected, none on a channel's gate", () => {
+  const keep = ctx.SELECTED, marks = [];
+  const t = { fRect: (...a) => marks.push(a) }, sw = { geomCenterY: () => 50 };
+  try {
+    ctx.SELECTED = () => ({ type: ctx.E_CH_TYPE.MASTER });
+    ctx.DLZMOD_gateMark(t, sw);
+    ctx.SELECTED = () => ({ type: ctx.E_CH_TYPE.INPUT });
+    ctx.DLZMOD_gateMark(t, sw);
+    ctx.SELECTED = () => null;
+    ctx.DLZMOD_gateMark(t, sw);
+  } finally {
+    ctx.SELECTED = keep;
+  }
+  assert.deepStrictEqual(marks, [["#FFD600", 10, 41, 3, 18]]);
 });
 
 test("limiter: its meters from the VU group dlzmod.lim, only while its page shows; bad data never reaches Mackie", () => {

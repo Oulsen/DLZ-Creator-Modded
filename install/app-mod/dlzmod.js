@@ -83,15 +83,15 @@ function DLZMOD_infoTab(b) {
 // are added with their defaults before use; the hub's INIT then brings the saved values. Plain JSON
 // (apply-mod.sh's set_mod_defaults reads it). dlzmod.spectrum: the EQ pages' Spectrum switch (#131),
 // off at first; dlzmod.rta is no setting: the channel the spectrum measures (DLZMOD_rtaMeasure), none
-// at first. dlzmod.lim.*: the limiter on the main out (#59, DLZMOD_limPage), on at first with its
-// ceiling at -1 dB; in dB and ms in the hub like Mackie's compressor keys (the screen's own 0..1
+// at first. dlzmod.lim.*: the limiter on the main out (#59, DLZMOD_limPage), off at first (stock
+// sound until the owner switches it on) with its ceiling at -1 dB; in dB and ms in the hub like Mackie's compressor keys (the screen's own 0..1
 // values through DLZMOD_limConv). Attack and ratio are fixed (the graph mod's DLZMOD_limiter), here
 // for the page's picture.
 function DLZMOD_keys() {
   return { "dlzmod.hideHeader": 0, "dlzmod.meterMode": 0, "dlzmod.preColor": 0, "dlzmod.preLevel": 0,
     "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0, "dlzmod.recDate": 0,
     "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "",
-    "dlzmod.controls": "", "dlzmod.lim.bypass": 0, "dlzmod.lim.thresh": -1, "dlzmod.lim.release": 50, "dlzmod.lim.attack": 1,
+    "dlzmod.controls": "", "dlzmod.lim.bypass": 1, "dlzmod.lim.thresh": -1, "dlzmod.lim.release": 50, "dlzmod.lim.attack": 1,
     "dlzmod.lim.ratio": 20, "dlzmod.lim.knee": 0 };
 }
 
@@ -4361,6 +4361,13 @@ function DLZMOD_limConv() {
 }
 DLZMOD_limConv();
 
+// the mod's mark left of the gate switch w (Gate page, Advanced Controls; patch.py) while the master
+// is selected: its gate is the mod's (#59), a channel's is stock
+function DLZMOD_gateMark(t, w) {
+  const s = typeof SELECTED === "function" ? SELECTED() : null;
+  if (s && typeof E_CH_TYPE !== "undefined" && s.type === E_CH_TYPE.MASTER) DLZMOD_stockMark(t, w);
+}
+
 // a strip that shows the Limiter page on the De-Esser tab: the master, once the page is built
 function DLZMOD_limHas(strip) {
   return !!strip && typeof E_CH_TYPE !== "undefined" && strip.type === E_CH_TYPE.MASTER &&
@@ -4475,6 +4482,7 @@ function DLZMOD_limClass() {
       } finally {
         [lang.COMP, lang.PRESET] = keep;
       }
+      DLZMOD_stockMark(t, this.onoff);
       ["Keeps the main out", "below the ceiling.", "", "Headphones, USB", "and recordings", "are not limited."]
         .forEach((line, i) => t.drawText(line, 26, 185 + 22 * i,
           { font: Font.font(500, "11pt"), color: "#8C8C8C", align: "left", valign: "middle" }));

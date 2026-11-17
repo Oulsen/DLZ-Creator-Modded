@@ -380,6 +380,18 @@ APP_PATCHES = [
         "!e.haveGate())this.gateCompDS.gate.hide();",
     ),
     (
+        # the mod's mark (ground rule 9) left of the master's gate switch: on the Gate page (Pro)
+        # and on Advanced Controls (Easy, Enhanced); a channel's own gate is stock and has none
+        "master gate: the mod's mark on the Gate page",
+        "t.drawText(lang.GATE,26,this.onoff.geomCenterY(),",
+        "DLZMOD_gateMark(t,this.onoff),t.drawText(lang.GATE,26,this.onoff.geomCenterY(),",
+    ),
+    (
+        "master gate: the mod's mark on Advanced Controls",
+        "this.gate.visible&&t.drawText(lang.NOISE_GATE,26,this.gate.geomCenterY()),",
+        "this.gate.visible&&(DLZMOD_gateMark(t,this.gate),t.drawText(lang.NOISE_GATE,26,this.gate.geomCenterY())),",
+    ),
+    (
         # the channel page's tabs (Pro): the De-Esser tab is the Limiter tab on the master
         "master gate, limiter: the Gate and De-Esser tabs on the master",
         "this.ds.enabled=e.haveDS(),this.gate.enabled=e.type!==E_CH_TYPE.MASTER",

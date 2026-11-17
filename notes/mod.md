@@ -471,8 +471,11 @@ on both graphs [static, `tests/graph-check.js`]; tried on the XS only, the full-
   master out's own buffers (`masterOuts`: XS `aout[16]/[20]`, full-size `cout[0]/[1]`), right after Mackie copies the mix there
   (`DLZMOD_limiter`). Only the speakers' out: headphones, USB, NDI, Bluetooth and recordings take the
   mix earlier. Keys `dlzmod.lim.*` in dB and ms like Mackie's compressor keys; defaults in
-  `DLZMOD_keys` (on, ceiling -1 dB, release 50 ms), written into the state by the install and every
-  update (`set_mod_defaults`) [static]. A binding applies only once all its keys have a value, until
+  `DLZMOD_keys` (off, ceiling -1 dB, release 50 ms; off so the main out sounds as stock until the
+  owner switches it on), written into the state by the install and every update when missing
+  (`set_mod_defaults`; a state that has the key keeps its value) [static]. The mod's mark sits left
+  of the Limiter page's switch, and of the master's gate switch (Gate page, Advanced Controls;
+  `DLZMOD_gateMark`), not on a channel's own gate. A binding applies only once all its keys have a value, until
   then the block keeps its own defaults (threshold -20 dB, ratio 1): the ratio expression uses both
   keys, so a state without them leaves the block at ratio 1, doing nothing [static; tests/graph-check.js].
   Meters as the VU group `dlzmod.lim` (in, gain reduction, out). No lookahead: a peak shorter than

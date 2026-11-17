@@ -564,9 +564,9 @@ check(comp && ratioOf(0, -1) === 20 && ratioOf(1, -1) === 1 && ratioOf(0, 3) ===
   "limiter: ratio 20 when on with a ceiling at or below 0 dB, else 1");
 const keys = /function DLZMOD_keys\(\) \{\s*return (\{[^}]*\});/.exec(app);
 const defaults = keys && JSON.parse(keys[1]);
-check(!!defaults && defaults["dlzmod.lim.bypass"] === 0 && defaults["dlzmod.lim.thresh"] === -1
+check(!!defaults && defaults["dlzmod.lim.bypass"] === 1 && defaults["dlzmod.lim.thresh"] === -1
   && typeof defaults["dlzmod.lim.release"] === "number",
-"limiter: the app mod's defaults have every key it binds (on, ceiling -1 dB, a release)");
+"limiter: the app mod's defaults have every key it binds (off, ceiling -1 dB, a release)");
 check(JSON.stringify(patched.vus["dlzmod.lim"]) === JSON.stringify(["dlzmodLimIn", "dlzmodLimGr", "dlzmodLimOut"]),
   "VU group dlzmod.lim: in, gain reduction, out");
 
