@@ -63,8 +63,8 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   differed the first time is not known; it may have been a start that was silent already. **In a
   silent start a restart does not bring the sound back** [device, XS dev card, 2026-11-13, #257]: the
   full codec setup ran again without errors (PH0 pulse, AKM DAC/ADC, THAT), the outputs stayed
-  silent; a reboot of the mixer brought the sound back. Tried in one silent start only, so not
-  settled: the next silent starts try a restart again ("Cold starts", below).
+  silent; a reboot of the mixer brought the sound back. The same in the fourth silent start
+  (2026-11-17, "A fourth silent start", below): restart silent, reboot with sound.
 - Harmless at every boot: kernel stack dumps `set_cpus_allowed_ptr: core 4 is set in the mask`
   (from the kernel's own workqueue code, `worker_attach_to_pool`, once dspserver has set the
   workqueue cpumask; not from an affinity call of dspserver [static]), and
@@ -252,8 +252,8 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   power chip. **Stock has the symptom too** [user report, 2026-11-14]: an owner on build 1731
   without the mod had silent outputs with moving meters, standalone too, starting mid-session
   together with a USB disconnect on Windows, and a reboot did not bring it back. Their logs on the
-  mod later showed a different cause: a DAC that does not answer (next point).
-- **Cold starts: the third silent start, the only cold one** (#257) [device, XS dev card,
+  mod later showed a different cause: a DAC that does not answer (below).
+- **Cold starts: the third silent start, the first cold one** (#257) [device, XS dev card,
   2026-11-16]: the mixer had been off ~13 h (the clock jumped 13.4 h at the NTP sync). The DAC
   answered (one setup at 30.8 s, no retries); **PH2 low for 18 ms at 31.77 s**, ~1 s after the
   setup and ~2-3 s before `Done.`; the pin log (every pin since #293) saw no other pin change in
@@ -264,19 +264,62 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   the setup, and so was a power cycle right after this one (warm, 66 °C: no drop, sound). Two
   dspserver restarts in a session were at 74 °C; in one of them PH2 went low ~140 ms after its
   setup, whether the sound stayed is not known. The owner's silent starts are the first start of
-  the day, after 12-16 h off [user report]. So a cold board is the lead for #257 [guess: 1 cold
-  start against 4 warm ones; the saved logs hold no temperature for the 2026-11-14 silent starts]. Mechanism unknown; a cold crystal, PLL or regulator settles more slowly, and the
+  the day, after 12-16 h off [user report]. So a cold board is the lead for #257 [guess: 2 cold
+  silent starts, this one and the fourth (next point, 28 °C), against warm starts with sound; the
+  saved logs hold no temperature for the 2026-11-14 silent starts]. Mechanism unknown; a cold crystal, PLL or regulator settles more slowly, and the
   setup waits a fixed 5 ms after PLL_AUDIO without its lock bit (above) [guess]. Mackie's repair
   loop (PH2 low → set the AKM chips up again) only runs after `Done.`, so it does not see the drop;
-  it redoes less than the restart that did not help once ("A restart while the mixer runs").
+  it redoes less than the restart that did not help twice ("A restart while the mixer runs").
   - The USB tone did not come back on the return in this start nor in the warm one after it: mix-minus
     was on for the computer channel (the user's setting), not a symptom.
   - Next silent start, before switching off, each step tried only if the one before left it
-    silent: one login (drop, temperature); `systemctl restart dspserver` (sound back = Mackie's
-    own setup can repair it, the mod could do it after a drop); `reboot` (sound back = the
-    processor's side, the mod could restart by itself); power off and on (only this = something on
-    the board must lose power; the mod can at least say so on the screen). The restart and the
-    reboot are writes: the user confirms each one.
+    silent (after the fourth start, next point): one login (drop, temperature); A: restart
+    faderlink, evolve-node, glesgui and dspserver (everything but the FPGA and the processor);
+    B: stop dspserver and faderlink, `systemctl restart flash-fpga` (the boot's own FPGA load),
+    start them again (sound back = the FPGA; the mod could do this after a drop instead of a
+    reboot); C: `reboot` (known to help). B is a one-time exception to the "no `flash-fpga` over
+    SSH" rule, approved by the maintainer for this test. Each step is a write: the user confirms it.
+- **A fourth silent start, the second cold one: nothing the processor sees changes at the drop**
+  (#257) [device, XS dev card, v0.7.0-dev, 2026-11-17, a cold start]: one codec setup (PH0 → PH1
+  76 ms, DAC answered, no I2C retry), `Audio initialisation is done.` at 30.38 s, glesgui `Client
+  connected` at 30.62 s, **PH2 low for ~21 ms at 31.465 s**, before dspserver's `Done.`. Across the
+  drop, every pin of ports A-I, backlight, display state, the PLLs (audio locked) and the power chip's
+  interrupt count (3, unchanged since 18.6 s, as in starts with sound) stay the same; no kernel line.
+  **I2S0 was not streaming yet at the drop** (`txcnt=0` at the setup and at the drop, also after the
+  restart below; the stream starts later), so the DAC had MCLK but no audio frames when PH2 dropped.
+  **A minute in, the stream runs as in starts with sound** (I2S0 `ctl=107`, TX and RX ~2400-2800
+  words per 10 ms, as in the saved 60 s snapshots of 4 other starts, 3 of them without a PH2 drop):
+  the processor feeds the stream normally and what stays dead is behind it. The kernel's regulator clean-up (`dc5ldo`, `vdd1v2-sata`,
+  `vdd2v5-sata` off at ~34 s) comes in every start, those with sound too: not the cause. The
+  mid-session restart with a drop ~140 ms after its setup (previous point) was at 8660.60 s
+  (setup) and 8660.74 s (drop) of its start.
+  - **The plan's steps in this start** (#257): the USB tone came back at -29.0 dBFS (only the analog
+    outputs dead, as before). `systemctl restart dspserver` at ~417 s: a clean setup (DAC answered,
+    PH0 → PH1 89 ms), **PH2 low ~12 ms at 418.656 s, inside the setup** (after the AKM writes, before
+    PH1 high), still silent, tone still back on USB. `reboot` (power stays on): **sound back**, one
+    setup at 28.5 s, no PH2 drop, CPU 47 °C at the setup against 28 °C in the cold start. So a power
+    cycle is not needed; what a reboot does and a dspserver restart does not (the whole A40i reset:
+    every pin to its reset state, MCLK and the I2S clocks off for ~28 s instead of PH0 low for 1.8 s;
+    whatever else a reboot resets on the board) brings the outputs back [device]. Which of those it
+    is is open.
+  - **What a reboot does that a restart does not** (2026-11-17):
+    - **The FPGA is reloaded**: `flash-fpga.sh` only runs `gwprog <bitstream> -force` [static]. A
+      splitter must sit between the processor and the DAC: the XS graph (`mixergraph-dlzlite.js`) puts
+      HP1 (`aout[0]`,`[4]`), HP2 (`[8]`,`[12]`), Master (`[16]`,`[20]`) and the 14 USB returns
+      (`aout[2]`,`[3]`,`[6]`,`[7]` ... `[30]`) into one 32-slot TDM array, and the processor runs only
+      I2S0 (I2S1 idle in every snapshot) [static + device]. So one stream feeds the DAC and the USB chip, and the FPGA most
+      likely splits it [guess, now well supported]. In a silent start the USB part of that stream
+      works and the DAC part does not. `gwprog`'s "pin:DONE"/"pin:READY" are FPGA status bits read
+      over JTAG, not GPIOs: PH2 is not the loader's [static].
+    - **The clocks stop only for a reboot**: dspserver's exit (`0x348a8`) only drives PI14 and PH0 low; its I2S setup
+      (`0x3d2f4`) writes I2S0 `CTL=0x100` (clock generator on) and nothing in it turns MCLK or the I2S
+      module clocks off [static]; the restart's snapshot read `clkd=111` (MCLK out) [device]. So MCLK
+      and the bit clocks run straight through a restart and stop only for a reboot.
+    - **Two power-chip rails come back on**: DLDO4 (2.5 V, named `vdd2v5-sata` in Mackie's device tree)
+      and ELDO3 (1.2 V, `vdd1v2-sata`) are on again after a reboot and switched off by the kernel's
+      regulator clean-up at ~34-38 s; DC5LDO stays off [device]. They go off in starts with sound too,
+      so they do not feed the live audio path; what they feed on this board is not known.
+    - Not checked: whether a reboot resets the GD32 (no known reset line; faderlink drives only PH12).
 - **A DAC that does not answer: a second cause, not #257** [device, an owner's XS, v0.6.0 and
   v0.6.1 with Diagnostics on, 9 starts]:
   - In 8 of 9 starts the first DAC write got no acknowledgement: `i2c: retrying address 22` ~100
@@ -311,7 +354,7 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
     ("A chip that does not answer", above).
   - Open: whether a `systemctl restart dspserver` (the setup again, PLL already locked) gets an
     answer. Yes = timing, and the mod could retry at a failed setup; no = hardware, a case for
-    Mackie service. In #257 one restart did not help, which is not settled yet ("Cold starts", below).
+    Mackie service. In #257 a restart did not help in two silent starts (above).
 - **What the research ruled out, and what is left** (#257, 2026-11-14):
   - Not phantom power: it is the `i.N.phantom` key (server.js keeps it in `/srv/srv_data.json`; the
     dump has mic 1 on), which dspserver turns into bit `0x10000` of the THAT shadow word (`0x3471c`)
