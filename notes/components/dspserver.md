@@ -252,6 +252,48 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   without the mod had silent outputs with moving meters, standalone too, starting mid-session
   together with a USB disconnect on Windows, and a reboot did not bring it back. Their logs on the
   mod later showed a different cause: a DAC that does not answer (next point).
+- **A third silent start, now with #293's wide log: nothing the processor sees changes at the drop**
+  (#257) [device, XS dev card, v0.7.0-dev, 2026-11-17, a cold start]: one codec setup (PH0 → PH1
+  76 ms, DAC answered, no I2C retry), `Audio initialisation is done.` at 30.38 s, glesgui `Client
+  connected` at 30.62 s, **PH2 low for ~21 ms at 31.465 s**, before dspserver's `Done.`. Across the
+  drop, every pin of ports A-I, backlight, display state, the PLLs (audio locked) and the power chip's
+  interrupt count (3, unchanged since 18.6 s, as in starts with sound) stay the same; no kernel line.
+  **I2S0 was not streaming yet at the drop** (`txcnt=0` at the setup and at the drop, also after the
+  restart below; the stream starts later), so the DAC had MCLK but no audio frames when PH2 dropped.
+  **A minute in, the stream runs as in starts with sound** (I2S0 `ctl=107`, TX and RX ~2400-2800
+  words per 10 ms, as in the saved 60 s snapshots of 4 other starts, 3 of them without a PH2 drop):
+  the processor feeds the stream normally and what stays dead is behind it. The kernel's regulator clean-up (`dc5ldo`, `vdd1v2-sata`,
+  `vdd2v5-sata` off at ~34 s) comes in every start, those with sound too: not the cause. The saved
+  syslogs also hold a PH2 drop at 31.77 s of the 2026-11-15 22:01 start, and one 140 ms after a
+  `systemctl restart dspserver` mid-session (2026-11-15 20:41, setup at 8660.60 s, drop at 8660.74 s);
+  whether those had sound is not recorded.
+  - **The plan's steps in this start** (#257): the USB tone came back at -29.0 dBFS (only the analog
+    outputs dead, as before). `systemctl restart dspserver` at ~417 s: a clean setup (DAC answered,
+    PH0 → PH1 89 ms), **PH2 low ~12 ms at 418.656 s, inside the setup** (after the AKM writes, before
+    PH1 high), still silent, tone still back on USB. `reboot` (power stays on): **sound back**, one
+    setup at 28.5 s, no PH2 drop, CPU 47 °C at the setup against 28 °C in the cold start. So a power
+    cycle is not needed; what a reboot does and a dspserver restart does not (the whole A40i reset:
+    every pin to its reset state, MCLK and the I2S clocks off for ~28 s instead of PH0 low for 1.8 s;
+    whatever else a reboot resets on the board) brings the outputs back [device]. Which of those it
+    is is open.
+  - **What a reboot does that a restart does not** (2026-11-17):
+    - **The FPGA is reloaded**: `flash-fpga.sh` only runs `gwprog <bitstream> -force` [static]. A
+      splitter must sit between the processor and the DAC: the XS graph (`mixergraph-dlzlite.js`) puts
+      HP1 (`aout[0]`,`[4]`), HP2 (`[8]`,`[12]`), Master (`[16]`,`[20]`) and the 14 USB returns
+      (`aout[2]`,`[3]`,`[6]`,`[7]` ... `[30]`) into one 32-slot TDM array, and the processor runs only
+      I2S0 (I2S1 idle in every snapshot) [static + device]. So one stream feeds the DAC and the USB chip, and the FPGA most
+      likely splits it [guess, now well supported]. In a silent start the USB part of that stream
+      works and the DAC part does not. `gwprog`'s "pin:DONE"/"pin:READY" are FPGA status bits read
+      over JTAG, not GPIOs: PH2 is not the loader's [static].
+    - **The clocks stop only for a reboot**: dspserver's exit (`0x348a8`) only drives PI14 and PH0 low; its I2S setup
+      (`0x3d2f4`) writes I2S0 `CTL=0x100` (clock generator on) and nothing in it turns MCLK or the I2S
+      module clocks off [static]; the restart's snapshot read `clkd=111` (MCLK out) [device]. So MCLK
+      and the bit clocks run straight through a restart and stop only for a reboot.
+    - **Two power-chip rails come back on**: DLDO4 (2.5 V, named `vdd2v5-sata` in Mackie's device tree)
+      and ELDO3 (1.2 V, `vdd1v2-sata`) are on again after a reboot and switched off by the kernel's
+      regulator clean-up at ~34-38 s; DC5LDO stays off [device]. They go off in starts with sound too,
+      so they do not feed the live audio path; what they feed on this board is not known.
+    - Not checked: whether a reboot resets the GD32 (no known reset line; faderlink drives only PH12).
 - **A DAC that does not answer: a second cause, not #257** [device, an owner's XS, v0.6.0 and
   v0.6.1 with Diagnostics on, 9 starts]:
   - In 8 of 9 starts the first DAC write got no acknowledgement: `i2c: retrying address 22` ~100
