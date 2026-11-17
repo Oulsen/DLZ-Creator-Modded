@@ -22,6 +22,8 @@
 //   stock choice (run, over all key values), each strip on any of the 7 sources as the stock strip
 //   that has that source, and the global mix-minus flags and the NDI receiver by the source's kind;
 //   the checks above see those blocks put back as stock's
+// - #59: the master's gate is Mackie's commented-out block, in its place; the limiter sits on
+//   the master out only, right after the mix is copied there, and does nothing until its keys are set
 const fs = require("fs");
 const vm = require("vm");
 const assert = require("assert");
@@ -234,7 +236,13 @@ const PADRAW = { dlzmodPadRawL: "sampleL", dlzmodPadRawR: "sampleR" };
 const OWN = new Set(["dlzmodRta", "dlzmodRtaBand", "dlzmodDuckKey", "dlzmodPadSrcL", "dlzmodPadSrcR", ...Object.keys(HELD), ...Object.keys(PADRAW)]);
 // a block with a dest writes there (its own buffer is only where it sits), the others their buffer
 const writes = (b) => [b.p.dest ? String(b.p.dest).replace(/^buffer:/, "") : b.buf];
-const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").startsWith("dlzmodRta");
+// #59: the limiter (its meters and compressor, on the master out) and the master's gate (Mackie's
+// own block, commented out in the stock graph) change the master's sound on purpose: checked on
+// their own below, not as the mod's buffers
+const isLim = (b) => String(b.p.vu || "").startsWith("dlzmodLim");
+const isGate = (b) => b.type === "Gate" && b.p.vu === "vuMasterGate";
+const ours = (b) => writes(b).some((w) => OWN.has(w)) || String(b.p.vu || "").startsWith("dlzmodRta")
+  || isLim(b) || isGate(b);
 
 // #24 the pads' source: right after the pads are copied in, on each side the pads silenced when Keep
 // Pads is off (never during a bleep), the source through a DC filter on the mod's own buffer and mixed
@@ -514,8 +522,53 @@ for (let i = 0; same && i < theirs.length; i++) {
 }
 check(same, "graph: Mackie's blocks unchanged, in the same order, on the same buffers");
 check(stock.blocks.every((b) => !writes(b).some((w) => OWN.has(w))), "graph: nothing of Mackie's writes the mod's buffers");
-const mine = patched.blocks.filter(ours);
+const mine = patched.blocks.filter((b) => ours(b) && !isLim(b) && !isGate(b));
 check(mine.every((b) => writes(b).every((w) => OWN.has(w))), `graph: the mod's ${mine.length} blocks write only its own buffers`);
+
+// #59 the master's gate: one, Mackie's block as it is commented out, between the master's EQ meter
+// (vuMasterDynIn) and its compressor, on both sides
+const at = (pred) => patched.blocks.findIndex(pred);
+const gates = patched.blocks.filter(isGate), gi = at(isGate);
+const g = gates[0];
+// its neighbours among Mackie's blocks (the EQ spectrum's master tap sits right after that meter)
+const prev = patched.blocks.slice(0, gi).filter((b) => !ours(b)).pop();
+const next = patched.blocks.slice(gi + 1).find((b) => !ours(b));
+check(gates.length === 1 && g.buf === "masterL" && g.p.right === "buffer:masterR"
+  && ["bypass", "thresh", "depth", "attack", "hold", "release"].every((k) => g.p[k] === `@m.gate.${k}`)
+  && prev && prev.type === "MaxMeter" && prev.p.vu === "vuMasterDynIn"
+  && next && next.type === "EconomyCompressor" && next.p.vu === "vuMasterComp",
+"master gate: Mackie's block, m.gate.* keys, after the master's EQ, before its compressor, stereo");
+
+// #59 the limiter: in-meters, the compressor, out-meters on the master out (the XS's aout16/aout20,
+// the full-size's cout0/cout1: the buffers Mackie copies masterL and masterR into), right after that
+// copy; ratio 20 only once both keys have a value, attack 1 ms
+const lim = patched.blocks.filter(isLim), li = at(isLim);
+const comp = lim.find((b) => b.type === "Compressor");
+const copyL = patched.blocks[li - 2] || {}, copyR = patched.blocks[li - 1] || {};
+const outL = copyL.buf, outR = copyR.buf;
+check(copyL.type === "CopyFrom" && copyL.p.src === "buffer:masterL"
+  && copyR.type === "CopyFrom" && copyR.p.src === "buffer:masterR" && outL && outR && outL !== outR
+  && lim.length === 5 && lim.every((b) => b.buf === outL || b.buf === outR)
+  && lim.map((b) => b.p.vu).join() === "dlzmodLimIn,dlzmodLimIn,dlzmodLimGr,dlzmodLimOut,dlzmodLimOut"
+  && patched.blocks.slice(li, li + 5).every(isLim),
+`limiter: meters and compressor on the master out only (${outL}/${outR}), right after the mix is copied there`);
+check(comp && comp.buf === outL && comp.p.right === `buffer:${outR}` && comp.p.attack === 1 && comp.p.knee === 0
+  && comp.p.bypass === "@dlzmod.lim.bypass" && comp.p.thresh === "@dlzmod.lim.thresh"
+  && comp.p.release === "@dlzmod.lim.release"
+  && comp.p.ratio === "(@dlzmod.lim.bypass || @dlzmod.lim.thresh > 0) ? 1 : 20",
+"limiter: stereo linked, 1 ms attack, ratio 20 needs both keys (else the block's own ratio 1)");
+// the ratio expression itself, as dspserver evaluates it once both keys have a value
+const ratioOf = (bypass, thresh) => vm.runInNewContext(String(comp && comp.p.ratio)
+  .replace(/@dlzmod\.lim\.bypass/g, String(bypass)).replace(/@dlzmod\.lim\.thresh/g, String(thresh)));
+check(comp && ratioOf(0, -1) === 20 && ratioOf(1, -1) === 1 && ratioOf(0, 3) === 1 && ratioOf(0, 0) === 20,
+  "limiter: ratio 20 when on with a ceiling at or below 0 dB, else 1");
+const keys = /function DLZMOD_keys\(\) \{\s*return (\{[^}]*\});/.exec(app);
+const defaults = keys && JSON.parse(keys[1]);
+check(!!defaults && defaults["dlzmod.lim.bypass"] === 1 && defaults["dlzmod.lim.thresh"] === -1
+  && typeof defaults["dlzmod.lim.release"] === "number",
+"limiter: the app mod's defaults have every key it binds (off, ceiling -1 dB, a release)");
+check(JSON.stringify(patched.vus["dlzmod.lim"]) === JSON.stringify(["dlzmodLimIn", "dlzmodLimGr", "dlzmodLimOut"]),
+  "VU group dlzmod.lim: in, gain reduction, out");
 
 // the taps: after which meter, and the channel's code as the app's EQ page has it
 const codes = list("DLZMOD_rtaCode");   // the app's list, index + 1 = the code, for both models
@@ -578,6 +631,7 @@ check(JSON.stringify(patched.vus["smp.gain"]) === JSON.stringify(["vuSmpGainL", 
 const rest = Object.assign({}, patched.vus);
 delete rest["dlzmod.rta"];
 delete rest["smp.gain"];
+delete rest["dlzmod.lim"];
 check(JSON.stringify(rest) === JSON.stringify(stock.vus), `Mackie's ${Object.keys(stock.vus).length} VU groups as they were`);
 
 checkB4();

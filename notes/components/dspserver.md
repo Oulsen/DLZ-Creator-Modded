@@ -399,6 +399,7 @@ minute in the dev card's pin log).
 | Normal use, EQ page, mic open | XS | 58.9 % | 32.3 % | #226 |
 | 4th EQ band at +6 dB on 14 blocks (#25) | XS | 56.6 % | 31.6 % | 2026-11-05 |
 | Spectrum with 20 bands on, EQ page (#217) | XS | 59.8 % | 28.4 % | 2026-11-05 |
+| Master limiter (-1 dB) and master gate on, mixer page, mic muted (#59) | XS | 56.5-57.3 % | 27.3-30.5 % | 2026-11-17 |
 | Any | full-size | not measured | not measured | |
 
 The details of each measurement follow.
@@ -430,6 +431,11 @@ The details of each measurement follow.
   on average and ≥31 % in the worst block: no case for overclocking (#5), and extra graph blocks
   (limiter, a fuller compressor or de-esser) cost little next to that [guess, from the ~1 point of
   a processed channel].
+- **Master limiter and gate** (#59) [device, XS dev card, build `9543ec4`, 2026-11-17]: both on,
+  mixer page, mic muted, two 30 s readings: 57.3 / 56.5 % mean, 30.5 / 27.3 % worst block left,
+  against 60.4 / 31.1 % without them. So ~3-4 points of mean headroom; the worst block stays in the
+  run-to-run spread. 10 s readings right after `on` showed 21-23 %: their window still held
+  dspserver's start, so only readings ≥22 s after `on` count.
 
   The fourth EQ band (#25) [device, XS, 2026-11-05]: EQ page, Spectrum on, every channel unmuted, EQ
   on everywhere; mic 1 also had bands 1-3 on, all other channels only band 4.

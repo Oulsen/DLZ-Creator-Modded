@@ -359,10 +359,73 @@ APP_PATCHES = [
         "if(DLZMOD_vuSet(e.vu2,l,T+1,o,a,e),",
     ),
     (
-        # #131 the sound behind the EQ curve: the graph mod's band levels come with every VU message
-        "eq spectrum: the band levels",
+        # #131 the sound behind the EQ curve, #59 the limiter's meters: the graph mod's levels come
+        # with every VU message
+        "eq spectrum, limiter: their levels",
         "function parseVuData(t){function e(e,i){",
-        "function parseVuData(t){DLZMOD_rtaVu(t);function e(e,i){",
+        "function parseVuData(t){DLZMOD_rtaVu(t);DLZMOD_limVu(t);function e(e,i){",
+    ),
+    (
+        # #59 the master's gate (Mackie's own, hidden for the master): Strip.haveGate
+        "master gate: the master has a gate",
+        "haveGate(){return this.type!==E_CH_TYPE.MASTER}",
+        "haveGate(){return!0}",
+    ),
+    (
+        # the Gate switch on Advanced Controls (Easy and Enhanced layouts, PageEZControls), hidden
+        # for the master by type: asks haveGate as the Pro layout's Gate tab does, so a gate switched
+        # on there can be seen and switched off in the other layouts too
+        "master gate: its switch on Advanced Controls",
+        "e.type===E_CH_TYPE.MASTER)this.gateCompDS.gate.hide();",
+        "!e.haveGate())this.gateCompDS.gate.hide();",
+    ),
+    (
+        # the mod's mark (ground rule 9) left of the master's gate switch: on the Gate page (Pro)
+        # and on Advanced Controls (Easy, Enhanced); a channel's own gate is stock and has none
+        "master gate: the mod's mark on the Gate page",
+        "t.drawText(lang.GATE,26,this.onoff.geomCenterY(),",
+        "DLZMOD_gateMark(t,this.onoff),t.drawText(lang.GATE,26,this.onoff.geomCenterY(),",
+    ),
+    (
+        "master gate: the mod's mark on Advanced Controls",
+        "this.gate.visible&&t.drawText(lang.NOISE_GATE,26,this.gate.geomCenterY()),",
+        "this.gate.visible&&(DLZMOD_gateMark(t,this.gate),t.drawText(lang.NOISE_GATE,26,this.gate.geomCenterY())),",
+    ),
+    (
+        # the channel page's tabs (Pro): the De-Esser tab is the Limiter tab on the master
+        "master gate, limiter: the Gate and De-Esser tabs on the master",
+        "this.ds.enabled=e.haveDS(),this.gate.enabled=e.type!==E_CH_TYPE.MASTER",
+        "this.ds.enabled=DLZMOD_limTab(this.ds,e),this.gate.enabled=e.haveGate()",
+    ),
+    (
+        "limiter: its page, built next to the De-Esser page",
+        "t.pageDs=new PageDeesser(t,{anchors:[0,[t.topBar,t.navBar,t.navBarEdit],t.panel,t.selector]}),",
+        "t.pageDs=new PageDeesser(t,{anchors:[0,[t.topBar,t.navBar,t.navBarEdit],t.panel,t.selector]}),"
+        "t.dlzmodLim=DLZMOD_limPage(t,{anchors:[0,[t.topBar,t.navBar,t.navBarEdit],t.panel,t.selector]}),",
+    ),
+    (
+        # mainWidgets: what app.setPage hides before it shows a page
+        "limiter: its page hidden with the others",
+        "mainWidgets.push(t.pageDs),",
+        "mainWidgets.push(t.pageDs),t.dlzmodLim&&mainWidgets.push(t.dlzmodLim),",
+    ),
+    (
+        "limiter: the De-Esser tab shows it on the master",
+        "case E_PAGE.DS:t.pageDs.show();break;",
+        "case E_PAGE.DS:DLZMOD_limOrDs(t).show();break;",
+    ),
+    (
+        # another channel picked while the De-Esser tab is open: from the master's Limiter to a
+        # mic's De-Esser and back, or to Setup where neither exists (stock: Setup without a de-esser)
+        "limiter: another channel picked on the De-Esser tab",
+        "e.curPage!==E_PAGE.DS||t.haveDS()||e.setPage(E_PAGE.SETUP)",
+        "e.curPage!==E_PAGE.DS||DLZMOD_limReselect(e,t)",
+    ),
+    (
+        # the channel page opened again on the tab last used
+        "limiter: the De-Esser tab remembered on the master",
+        "i!==E_PAGE.DS||s.haveDS()||(i=e[0])",
+        "i!==E_PAGE.DS||DLZMOD_limHasTab(s)||(i=e[0])",
     ),
     (
         "eq spectrum: the EQ page shown or hidden",
@@ -1050,12 +1113,31 @@ SERVER_PATCHES = [
 
 # #131 the sound behind the EQ curve (graph-mod/dlzmod-graph.js): its meters, its buffer cleared at
 # the start of each cycle, and a tap right after each channel's EQ (after Mackie's "dynin" meter, on
-# the buffer(s) that meter reads). Both models; only the XS has virtual channels (below)
+# the buffer(s) that meter reads). #59 the master's gate (Mackie's own block) and the limiter on the
+# main out. Both models; only the XS has virtual channels (below)
 GRAPH_SPECTRUM_PATCHES = [
     (
-        "eq spectrum: its meters as the VU group dlzmod.rta",
+        "eq spectrum, limiter: their meters as the VU groups dlzmod.rta and dlzmod.lim",
         "configureVU({\n",
-        "configureVU({\n    'dlzmod.rta': DLZMOD_rtaMeters(),\n",
+        "configureVU({\n    'dlzmod.rta': DLZMOD_rtaMeters(),\n    'dlzmod.lim': DLZMOD_limMeters(),\n",
+    ),
+    (
+        # #59 the master's gate: Mackie's own block, commented out in the graph (its keys m.gate.*
+        # are in every state: Mackie's defaults have the gate off)
+        "master gate: Mackie's block switched on (its start)",
+        "\n/*\n    masterL,\n    {\n        type: 'Gate',\n",
+        "\n    masterL,\n    {\n        type: 'Gate',\n",
+    ),
+    (
+        "master gate: Mackie's block switched on (its end)",
+        "        vu: `vuMasterGate`,\n        right: masterR,\n    },\n*/\n",
+        "        vu: `vuMasterGate`,\n        right: masterR,\n    },\n",
+    ),
+    (
+        # #59 the limiter on the main out, right after the mix is copied into the master out
+        "limiter: on the master out",
+        "    masterOuts[1], {type: 'CopyFrom', src: masterR},\n",
+        "    masterOuts[1], {type: 'CopyFrom', src: masterR},\n    DLZMOD_limiter(masterOuts),\n",
     ),
     (
         "eq spectrum: its buffer cleared each cycle",

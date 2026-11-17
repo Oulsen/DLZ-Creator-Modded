@@ -541,7 +541,8 @@ test("header: hidden or shown at once, but not on full-screen pages; saved setti
   assert.deepStrictEqual(ctx.Data.data, { "dlzmod.hideHeader": 1, "dlzmod.meterMode": 0, "dlzmod.preColor": 0,
     "dlzmod.preLevel": 0, "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0,
     "dlzmod.recDate": 0, "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "",
-    "dlzmod.controls": "", ...plain(ctx.DLZMOD_duckKeys()) });
+    "dlzmod.controls": "", "dlzmod.lim.bypass": 1, "dlzmod.lim.thresh": -1, "dlzmod.lim.release": 50, "dlzmod.lim.attack": 1,
+    "dlzmod.lim.ratio": 20, "dlzmod.lim.knee": 0, ...plain(ctx.DLZMOD_duckKeys()) });
   // install/apply-mod.sh reads DLZMOD_keys as JSON (set_mod_defaults): the same regex, the same parse
   const src = fs.readFileSync(path.join(__dirname, "dlzmod.js"), "utf8");
   const m = /function DLZMOD_keys\(\) \{\s*return (\{[^}]*\});/.exec(src);
@@ -3933,6 +3934,236 @@ test("pads: the mute button on the screen, shown while the strip is selected on 
   } finally {
     Object.assign(ctx, { E1ToggleButton: keep.T, E_CH_TYPE: keep.type, E_PAGE: keep.page, app: keep.app, LITE_MODE: keep.lite,
       ICON_FONT: keep.icon, Font: keep.font });
+  }
+});
+
+// #59 the limiter on the main out: its page on the master's De-Esser tab
+const LIM_GLOBALS = ["PageComp", "SELECTED", "SET_KNOBS", "$F", "VtoCompThresh", "VotCompThresh", "VtoCompRelease",
+  "VotCompRelease", "VtoCompAttack", "VotCompAttack", "VtoCompRatio", "VotCompRatio", "deconvertVUgr"];
+// a stand-in for Mackie's compressor page: its widgets as initWidgets makes them, what sync and
+// paint touch recorded. Mackie's conversions (VtoCompThresh ...) are stand-ins too: the real ones
+// live in the bundle, which these tests do not load; DLZMOD_limConv only passes them through
+// (tests/patches.sh checks that the patched app.js parses with them)
+function limStage(selected) {
+  const rec = { knobs: null, painted: [], prefixes: {} };
+  const widget = (name) => ({ name, hidden: false, hide() {
+    this.hidden = true;
+  }, reset() {
+    this.resets = (this.resets || 0) + 1;
+  }, setValue(v) {
+    this.value = v;
+  }, setKey(k) {
+    rec.prefixes[name] = k;
+  }, setPrefix(p) {
+    rec.prefixes[name] = p;
+  } });
+  ctx.PageComp = class {
+    constructor(parent, params) {
+      Object.assign(this, params);
+      this.parent = parent;
+      this.initWidgets();
+    }
+    initWidgets() {
+      this.comp = Object.assign(widget("comp"), { midKey: "comp.", mode: 0, lbls: ["T", "R", "G"], moved: [], drawn: [],
+        onmove(x) {
+          this.moved.push([this.mode, x]);
+        },
+        paintKnob(t, x, y, sel, color, label) {
+          this.drawn.push(label);
+        } });
+      this.comp.setPrefix = function (p) {
+        rec.prefixes.comp = p + this.midKey;
+      };
+      ["ahr", "knee", "preset", "slGain", "vuin", "vugr", "vuout", "onoff"].forEach((n) => (this[n] = widget(n)));
+    }
+    paint(t) {
+      rec.painted.push(["label", ctx.lang.COMP, ctx.lang.PRESET]);
+    }
+    update() {}
+  };
+  ctx.SELECTED = () => selected.strip;
+  ctx.SET_KNOBS = (k) => (rec.knobs = k);
+  ctx.$F = { toText: (v, d, u) => v.toFixed(d) + " " + u, toTime: (v) => v + "ms" };
+  ctx.VtoCompThresh = (v) => v * 60 - 60;
+  ctx.VotCompThresh = (db) => (db + 60) / 60;
+  ctx.VtoCompRelease = (v) => v * 1000;
+  ctx.VotCompRelease = (ms) => ms / 1000;
+  ctx.VtoCompAttack = (v) => v * 500;
+  ctx.VotCompAttack = (ms) => ms / 500;
+  ctx.VtoCompRatio = (v) => 1 + v * 19;
+  ctx.VotCompRatio = (r) => (r - 1) / 19;
+  ctx.deconvertVUgr = (c) => (255 - c) / 254;
+  Object.assign(ctx.lang, { COMP: "Comp", PRESET: "Preset", DB: "dB", RELEASE: "Release" });
+  ctx.DLZMOD_limClass.cls = null;
+  return rec;
+}
+function limUnstage() {
+  LIM_GLOBALS.forEach((g) => delete ctx[g]);
+  ctx.DLZMOD_limClass.cls = null;
+}
+const strip = (type, ds) => ({ type, haveDS: () => ds });
+
+test("limiter: its keys in the hub's dB and ms, the screen's 0..1 through Mackie's compressor conversions", () => {
+  limStage({});
+  const conv = { in: {}, out: {} };
+  ctx.Data.convIn = conv.in;
+  ctx.Data.setKeyConv = (k, out, inn) => {
+    conv.out[k] = out;
+    conv.in[k] = inn;
+  };
+  try {
+    settings({ "dlzmod.lim.release": 0.2 });   // a value the screen already has
+    ctx.DLZMOD_initKeys();
+    assert.deepStrictEqual(Object.keys(conv.in).sort(),
+      ["dlzmod.lim.attack", "dlzmod.lim.ratio", "dlzmod.lim.release", "dlzmod.lim.thresh"]);
+    assert.ok(Math.abs(ctx.Data.data["dlzmod.lim.thresh"] - 59 / 60) < 1e-9, "-1 dB on the 60 dB scale");
+    assert.strictEqual(ctx.Data.data["dlzmod.lim.ratio"], 1, "ratio 20: the top");
+    assert.strictEqual(ctx.Data.data["dlzmod.lim.release"], 0.2, "a known value kept");
+    assert.strictEqual(ctx.Data.data["dlzmod.lim.bypass"], 1, "off at first (no conversion)");
+    assert.strictEqual(conv.out["dlzmod.lim.thresh"](0.5), -30, "to the hub in dB");
+    assert.strictEqual(conv.out["dlzmod.lim.thresh"](2), 0, "clamped like Mackie's");
+    assert.strictEqual(conv.in["dlzmod.lim.thresh"](-90), 0, "from the hub, clamped");
+    assert.strictEqual(conv.in["dlzmod.lim.release"](50), 0.05, "a saved 50 ms as the screen's 0..1 (Data.merge at INIT)");
+    // Data.merge runs every input conversion, also over a key the hub's state does not have
+    const init = {};
+    Object.keys(conv.in).forEach((k) => (init[k] = conv.in[k](init[k])));
+    assert.ok(Math.abs(init["dlzmod.lim.thresh"] - 59 / 60) < 1e-9, "a missing ceiling: the default -1 dB, not NaN");
+    assert.strictEqual(init["dlzmod.lim.release"], 0.05, "a missing release: the default 50 ms");
+    assert.strictEqual(conv.in["dlzmod.lim.thresh"]("x"), init["dlzmod.lim.thresh"], "no number: the default");
+    assert.strictEqual(conv.in["dlzmod.lim.thresh"](null), init["dlzmod.lim.thresh"], "null: the default, not 0 dB");
+  } finally {
+    delete ctx.Data.convIn;
+    delete ctx.Data.setKeyConv;
+    limUnstage();
+  }
+});
+
+test("limiter: the master's De-Esser tab is the Limiter tab, a mic's stays the De-Esser", () => {
+  const master = strip(4, false), mic = strip(0, true), player = strip(1, false);
+  const tab = { text: "De-Esser", colors: ["bg", "ds"], updates: 0, update() {
+    this.updates++;
+  } };
+  ctx.Color.comp = "comp";
+  ctx.app = undefined;
+  assert.strictEqual(ctx.DLZMOD_limTab(tab, master), false, "no page built: Mackie's greyed-out tab");
+  assert.strictEqual(tab.text, "De-Esser");
+  ctx.app = { dlzmodLim: {}, pageDs: {} };
+  try {
+    assert.strictEqual(ctx.DLZMOD_limTab(tab, master), true);
+    assert.deepStrictEqual([tab.text, tab.colors[1]], ["Limiter", "comp"]);
+    assert.strictEqual(ctx.DLZMOD_limTab(tab, mic), true);
+    assert.deepStrictEqual([tab.text, tab.colors[1]], ["De-Esser", "ds"]);
+    assert.strictEqual(ctx.DLZMOD_limTab(tab, player), false, "a player: no de-esser, no limiter");
+    assert.ok(tab.updates >= 3);
+    assert.strictEqual(ctx.DLZMOD_limHasTab(null), false);
+    const sel = { strip: master };
+    limStage(sel);
+    assert.strictEqual(ctx.DLZMOD_limOrDs(ctx.app), ctx.app.dlzmodLim);
+    sel.strip = mic;
+    assert.strictEqual(ctx.DLZMOD_limOrDs(ctx.app), ctx.app.pageDs);
+  } finally {
+    ctx.app = undefined;
+    limUnstage();
+  }
+});
+
+test("limiter: another channel on the De-Esser tab: its page only when it changes, Setup without one", () => {
+  const master = strip(4, false), mic = strip(0, true), player = strip(1, false);
+  const pages = [];
+  const a = { dlzmodLim: { visible: false }, pageDs: { visible: true }, setPage: (p) => pages.push(p) };
+  ctx.E_PAGE = { SETUP: "setup", DS: "ds" };
+  ctx.app = a;
+  try {
+    ctx.DLZMOD_limReselect(a, mic);
+    assert.deepStrictEqual(pages, [], "mic to mic: as stock, no page switch");
+    ctx.DLZMOD_limReselect(a, master);
+    assert.deepStrictEqual(pages, ["ds"], "mic to master: the Limiter");
+    [a.dlzmodLim.visible, a.pageDs.visible] = [true, false];
+    ctx.DLZMOD_limReselect(a, mic);
+    assert.deepStrictEqual(pages, ["ds", "ds"], "master to mic: the De-Esser");
+    ctx.DLZMOD_limReselect(a, player);
+    assert.deepStrictEqual(pages, ["ds", "ds", "setup"], "a player: Setup, as stock");
+  } finally {
+    ctx.app = undefined;
+    delete ctx.E_PAGE;
+  }
+});
+
+test("limiter: its page is Mackie's compressor page on the limiter's keys, its ratio fixed", () => {
+  const rec = limStage({ strip: strip(4, false) });
+  try {
+    const p = ctx.DLZMOD_limPage({}, { anchors: [0] });
+    assert.ok(p && p.widgetName === "DLZMOD_PageLimiter");
+    assert.deepStrictEqual([p.knee.hidden, p.preset.hidden, p.slGain.hidden], [true, true, true], "no knee, presets, gain");
+    assert.strictEqual(p.comp.noGain, true, "the curve without a make-up gain");
+    p.sync(true);
+    assert.deepStrictEqual(plain(rec.prefixes), { comp: "dlzmod.lim.", ahr: "dlzmod.lim.", onoff: "dlzmod.lim.bypass" });
+    assert.deepStrictEqual(plain(rec.knobs.map((k) => [k.subTitle(), k.control.key, k.keys[0]])),
+      [["Ceiling", "a.0.pan", "dlzmod.lim.thresh"], ["Release", "a.1.pan", "dlzmod.lim.release"]],
+      "both knobs on the stand-ins (faderlink has no dlzmod.* keys), shown from the limiter's keys");
+    assert.strictEqual(rec.knobs[0].valueText(59 / 60), "-1.0 dB");
+    assert.strictEqual(rec.knobs[0].title(), "Limiter");
+    Object.assign(ctx.Data.data, { "dlzmod.lim.thresh": 0.5, "dlzmod.lim.release": 0.5 });
+    ctx.DLZMOD_knobStep({ knob: 0, steps: 8 });
+    ctx.DLZMOD_knobStep({ knob: 1, steps: -4 });
+    assert.ok(Math.abs(ctx.Data.data["dlzmod.lim.thresh"] - 0.6) < 1e-9, "knob 1: the ceiling");
+    assert.ok(Math.abs(ctx.Data.data["dlzmod.lim.release"] - 0.45) < 1e-9, "knob 2: the release");
+    p.comp.mode = 0;
+    p.comp.onmove(5);
+    p.comp.mode = 1;
+    p.comp.onmove(6);
+    assert.deepStrictEqual(plain(p.comp.moved), [[0, 5]], "the ceiling moves, the ratio does not");
+    ["T", "R", "G"].forEach((l) => p.comp.paintKnob(null, 0, 0, false, "c", l));
+    assert.deepStrictEqual(plain(p.comp.drawn), ["T", "G"], "the ratio's handle not drawn");
+    const drawn = [], marks = [];
+    p.onoff.geomCenterY = () => 40;
+    p.paint({ drawText: (s) => drawn.push(s), fRect: (...a) => marks.push(a) });
+    assert.deepStrictEqual(marks, [["#FFD600", 10, 31, 3, 18]], "the mod's mark left of its switch");
+    assert.deepStrictEqual(plain(rec.painted), [["label", "Limiter", ""]], "Mackie's paint with its own label");
+    assert.deepStrictEqual([ctx.lang.COMP, ctx.lang.PRESET], ["Comp", "Preset"], "Mackie's texts back");
+    assert.ok(drawn.join(" ").includes("main out") && drawn.join(" ").includes("not limited"));
+  } finally {
+    limUnstage();
+  }
+  assert.strictEqual(ctx.DLZMOD_limPage({}, {}), null, "no compressor page of Mackie's: none of ours");
+});
+
+test("master gate: the mod's mark left of its switch while the master is selected, none on a channel's gate", () => {
+  const keep = ctx.SELECTED, marks = [];
+  const t = { fRect: (...a) => marks.push(a) }, sw = { geomCenterY: () => 50 };
+  try {
+    ctx.SELECTED = () => ({ type: ctx.E_CH_TYPE.MASTER });
+    ctx.DLZMOD_gateMark(t, sw);
+    ctx.SELECTED = () => ({ type: ctx.E_CH_TYPE.INPUT });
+    ctx.DLZMOD_gateMark(t, sw);
+    ctx.SELECTED = () => null;
+    ctx.DLZMOD_gateMark(t, sw);
+  } finally {
+    ctx.SELECTED = keep;
+  }
+  assert.deepStrictEqual(marks, [["#FFD600", 10, 41, 3, 18]]);
+});
+
+test("limiter: its meters from the VU group dlzmod.lim, only while its page shows; bad data never reaches Mackie", () => {
+  limStage({});
+  const page = { visible: true };
+  ["vuin", "vugr", "vuout"].forEach((n) => (page[n] = { setValue(v) {
+    this.value = v;
+  } }));
+  ctx.app = { dlzmodLim: page };
+  try {
+    ctx.DLZMOD_limVu({ "dlzmod.lim": btoa(String.fromCharCode(100, 155, 50)) });
+    assert.deepStrictEqual([page.vuin.value, page.vugr.value, page.vuout.value], [1, 100 / 254, 0.5]);
+    page.visible = false;
+    ctx.DLZMOD_limVu({ "dlzmod.lim": btoa(String.fromCharCode(0, 255, 0)) });
+    assert.strictEqual(page.vuin.value, 1, "hidden: left alone");
+    page.visible = true;
+    ctx.DLZMOD_limVu({ "dlzmod.lim": "%%%" });   // not base64: logged, no throw
+    ctx.DLZMOD_limVu({});
+    ctx.DLZMOD_limVu(null);
+  } finally {
+    ctx.app = undefined;
+    limUnstage();
   }
 });
 
