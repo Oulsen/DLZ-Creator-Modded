@@ -258,11 +258,11 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   connected` at 30.62 s, **PH2 low for ~21 ms at 31.465 s**, before dspserver's `Done.`. Across the
   drop, every pin of ports A-I, backlight, display state, the PLLs (audio locked) and the power chip's
   interrupt count (3, unchanged since 18.6 s, as in starts with sound) stay the same; no kernel line.
-  **I2S0 was not streaming yet at the drop** (`txcnt=0`; dspserver starts the stream after `Done.`,
-  in every start), so the DAC had MCLK but no audio frames when PH2 dropped. **A minute in, the
-  stream runs as in starts with sound** (I2S0 `ctl=107`, TX and RX ~2400-2800 words per 10 ms, the
-  same in the 4 saved 60 s snapshots with and without sound): the processor feeds the DAC normally
-  and what stays dead is behind it. The kernel's regulator clean-up (`dc5ldo`, `vdd1v2-sata`,
+  **I2S0 was not streaming yet at the drop** (`txcnt=0` at the setup and at the drop, also after the
+  restart below; the stream starts later), so the DAC had MCLK but no audio frames when PH2 dropped.
+  **A minute in, the stream runs as in starts with sound** (I2S0 `ctl=107`, TX and RX ~2400-2800
+  words per 10 ms, as in the saved 60 s snapshots of 4 other starts, 3 of them without a PH2 drop):
+  the processor feeds the stream normally and what stays dead is behind it. The kernel's regulator clean-up (`dc5ldo`, `vdd1v2-sata`,
   `vdd2v5-sata` off at ~34 s) comes in every start, those with sound too: not the cause. The saved
   syslogs also hold a PH2 drop at 31.77 s of the 2026-11-15 22:01 start, and one 140 ms after a
   `systemctl restart dspserver` mid-session (2026-11-15 20:41, setup at 8660.60 s, drop at 8660.74 s);
@@ -285,7 +285,7 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
       likely splits it [guess, now well supported]. In a silent start the USB part of that stream
       works and the DAC part does not. `gwprog`'s "pin:DONE"/"pin:READY" are FPGA status bits read
       over JTAG, not GPIOs: PH2 is not the loader's [static].
-    - **Not the clocks**: dspserver's exit (`0x348a8`) only drives PI14 and PH0 low; its I2S setup
+    - **The clocks stop only for a reboot**: dspserver's exit (`0x348a8`) only drives PI14 and PH0 low; its I2S setup
       (`0x3d2f4`) writes I2S0 `CTL=0x100` (clock generator on) and nothing in it turns MCLK or the I2S
       module clocks off [static]; the restart's snapshot read `clkd=111` (MCLK out) [device]. So MCLK
       and the bit clocks run straight through a restart and stop only for a reboot.
