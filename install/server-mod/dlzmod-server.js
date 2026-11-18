@@ -2848,7 +2848,7 @@ async function DLZMOD_diagSet(on, run, result, file = DLZMOD_diagFile()) {
   DLZMOD_writeDurable(file, DLZMOD_diagStamp(0), 0o644);   // the 7 days count from now
   const start = await run("/bin/systemctl", ["start", "--no-block", "dlzmod-pinlog.service"]);
   if (!start.ok) return result(false, "Diagnostic logging is on from the next start;\nthe pin log could not be started now.");
-  result(true, "Diagnostic logging is on for " + DLZMOD_DIAG_DAYS + " days, also after a restart.\n" +
+  result(true, "Diagnostic logging is on for " + DLZMOD_DIAG_DAYS + " days of use,\nalso after a restart.\n" +
     "Restart the mixer: about 2 minutes later\nthe logs are in DLZDATA/dlzmod-logs.");
 }
 
@@ -2860,14 +2860,15 @@ async function DLZMOD_diagSet(on, run, result, file = DLZMOD_diagFile()) {
 // uptime then and the use so far; each check adds the uptime since (all of it in a new boot) and
 // saves the marker again. Checked at the server's start (from DLZMOD_bootlogCopy) and every 10
 // minutes, so a power-off loses at most that much of a start; a marker without a count (turned on
-// before v0.7.0, or unreadable) counts from 0. It always ends: every start adds at least its uptime
-// up to the server's start
+// before v0.7.0, or unreadable) counts from 0. It always ends, on a card it can write (as removing
+// the marker needs): every start adds at least its uptime up to the server's start. A save that fails
+// is logged once, not every 10 minutes (the syslog is what this limits)
 function DLZMOD_diagSys() {
-  const fs = require("fs");
-  return {
-    boot: fs.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim(),
-    up: parseFloat(fs.readFileSync("/proc/uptime", "utf8")) * 1000,
-  };
+  let boot = "";   // no /proc (the PC sandbox): one boot, whose uptime going back adds nothing
+  try {
+    boot = require("fs").readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+  } catch (e) {}
+  return { boot, up: require("os").uptime() * 1000 };   // CLOCK_BOOTTIME on Linux, as /proc/uptime
 }
 
 function DLZMOD_diagStamp(used, sys = DLZMOD_diagSys()) {
@@ -2892,7 +2893,13 @@ function DLZMOD_diagWatch(file = DLZMOD_diagFile(), run = DLZMOD_run, sys = DLZM
     const used = (Number.isFinite(m.used) && m.used > 0 ? m.used : 0) +
       (m.boot === now.boot && Number.isFinite(m.up) ? Math.max(0, now.up - m.up) : now.up);
     if (used < DLZMOD_DIAG_DAYS * 864e5) {
-      DLZMOD_writeDurable(file, DLZMOD_diagStamp(used, now), 0o644);   // read just before, no await in between
+      try {
+        DLZMOD_writeDurable(file, DLZMOD_diagStamp(used, now), 0o644);   // read just before, no await in between
+        s.failed = false;
+      } catch (e) {
+        if (!s.failed) console.error("dlzmod: diagnostic logging: the count could not be saved:", e.message);
+        s.failed = true;
+      }
       return false;
     }
     if (DLZMOD_unlinkQuiet(file)) DLZMOD_syncDir(require("path").dirname(file));

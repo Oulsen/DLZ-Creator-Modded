@@ -996,8 +996,11 @@ say. Off by default; both models, the same code (tested on an XS; the full-size:
   ended it at the next check on v0.6.1): the marker holds `{boot, up, used}` (`boot_id`, the uptime
   then, the use so far); each check adds the uptime since (all of it in a new boot) and writes it
   back durably. Days switched off do not count; a power-off loses at most the 10 minutes since the
-  last check; a marker without a count (v0.6.x, unreadable) counts from 0. It always ends: each start
-  adds at least its uptime up to the server's start [static; unit tests].
+  last check; a marker without a count (v0.6.x, unreadable) counts from 0. It always ends on a card
+  it can write (as removing the marker needs): each start adds at least its uptime up to the
+  server's start; a save that fails is logged once per run of failures. Uptime is `os.uptime()`
+  (CLOCK_BOOTTIME), the boot `/proc/sys/kernel/random/boot_id` ("" without /proc, the PC sandbox)
+  [static; unit tests].
 - **The pin log**: `dlzmod-pinlog` is `dev/pinlog.py` of #293 (the codec pins PH0-PH2/PH12, every
   GPIO change, the screen, the power side, the I2S state and sample counters, load and memory each
   minute, snapshots at the codec setup and at PH2 changes; read-only, `/dev/mem` `PROT_READ`). Its
