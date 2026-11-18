@@ -3662,11 +3662,15 @@ test("controls: a channel knob on a phones mix; a side knob's own key is never t
 });
 
 // #302: Diagnostic Logging's switch (the mixer's own screen) and Download Logs (a browser)
+// the boot and its uptime for Diagnostic Logging's count, as /proc gives them on the mixer (not on Windows)
+const diagSys = { boot: "boot-a", up: 120000 };
+ctx.DLZMOD_diagSys = () => Object.assign({}, diagSys);
 test("diag: on writes the marker and starts the pin log, off removes it and stops it; the status says which", async () => {
   const f = fakeNet();
   const sent = [];
   await net({ op: "diag", on: true }, sendTo(sent), f);
-  assert.ok(fs.existsSync(f.diagFile), "the marker, for the next starts");
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(f.diagFile, "utf8")), { boot: "boot-a", up: 120000, used: 0 },
+    "the marker, for the next starts: counted from now");
   assert.deepStrictEqual(result(sent).map((r) => [r.ok, r.title]), [[true, "Diagnostic Logging"]]);
   assert.match(result(sent)[0].text, /for 7 days[^]*DLZDATA\/dlzmod-logs/);
   assert.ok(f.calls.some((c) => c.args.join(" ") === "start --no-block dlzmod-pinlog.service"), "the pin log now too");
@@ -3696,31 +3700,64 @@ test("diag: on writes the marker and starts the pin log, off removes it and stop
   assert.deepStrictEqual(result(s5).map((r) => [r.ok, r.title]), [[false, "Diagnostic Logging"]]);
   assert.match(result(s5)[0].text, /could not be changed/);
 });
-test("diag: turns itself off 7 days after it was turned on, at the server's start and hourly", async () => {
+test("diag: turns itself off after 7 days of use, by uptime, whatever the clock does (#317)", async () => {
   const file = path.join(tmpDir("diagwatch"), "diag-on");
   const calls = [];
   const run = async (f, args) => (calls.push(args.join(" ")), { ok: true, out: "", err: "" });
+  let sys = { boot: "b1", up: 60000 };
+  const at = () => sys;
+  const used = () => JSON.parse(fs.readFileSync(file, "utf8")).used;
+  const cDate = vm.runInContext("Date", ctx);   // the server mod's own Date
+  const realNow = cDate.now;
   try {
+    fs.writeFileSync(file, ctx.DLZMOD_diagStamp(0, sys));
+    // the clock steps three years ahead (offline since 2023, then online): only uptime counts
+    cDate.now = () => realNow() + 3 * 365 * 864e5;
+    sys = { boot: "b1", up: 60000 + 36e5 };
+    assert.strictEqual(await ctx.DLZMOD_diagWatch(file, run, at), false, "an hour on, three years by the clock: still on");
+    assert.strictEqual(used(), 36e5, "an hour counted");
+    assert.ok(ctx.DLZMOD_diagWatch.timer, "the check every 10 minutes");
+    // and back again: nothing taken off, nothing added
+    cDate.now = () => realNow() - 30 * 864e5;
+    sys = { boot: "b1", up: 60000 + 2 * 36e5 };
+    assert.strictEqual(await ctx.DLZMOD_diagWatch.check(), false);
+    assert.strictEqual(used(), 2 * 36e5, "the clock going back changes nothing");
+    // a power-off for days, then a new start: its uptime up to the first check counts, not the days off
+    sys = { boot: "b2", up: 120000 };
+    assert.strictEqual(await ctx.DLZMOD_diagWatch.check(), false);
+    assert.strictEqual(used(), 2 * 36e5 + 120000, "the new start's uptime");
+    // an uptime that seems to go back in the same boot adds nothing
+    sys = { boot: "b2", up: 1000 };
+    assert.strictEqual(await ctx.DLZMOD_diagWatch.check(), false);
+    assert.strictEqual(used(), 2 * 36e5 + 120000);
+    // a marker from v0.6.x (empty) or one that cannot be read counts from 0, plus this start
     fs.writeFileSync(file, "");
-    const t = fs.statSync(file).mtimeMs;
-    assert.strictEqual(await ctx.DLZMOD_diagWatch(file, run, () => t + 6.9 * 864e5), false, "6.9 days: still on");
-    assert.ok(fs.existsSync(file));
-    assert.ok(ctx.DLZMOD_diagWatch.timer, "the hourly check");
-    assert.strictEqual(await ctx.DLZMOD_diagWatch.check(), false, "now: still on");
-    assert.strictEqual(await ctx.DLZMOD_diagWatch(file, run, () => t + 7 * 864e5), true, "7 days: off");
+    sys = { boot: "b3", up: 300000 };
+    assert.strictEqual(await ctx.DLZMOD_diagWatch.check(), false);
+    assert.strictEqual(used(), 300000, "an old marker: this start only");
+    fs.writeFileSync(file, "{not json");
+    assert.strictEqual(await ctx.DLZMOD_diagWatch.check(), false);
+    assert.strictEqual(used(), 300000);
+    // 7 days of use, over many starts: off, the marker removed and the pin log stopped
+    fs.writeFileSync(file, ctx.DLZMOD_diagStamp(7 * 864e5 - 60000, { boot: "b3", up: 300000 }));
+    sys = { boot: "b3", up: 300000 + 59000 };
+    assert.strictEqual(await ctx.DLZMOD_diagWatch.check(), false, "a second short: still on");
+    assert.deepStrictEqual(calls, []);
+    sys = { boot: "b3", up: 300000 + 60000 };
+    assert.strictEqual(await ctx.DLZMOD_diagWatch.check(), true, "7 days of use: off");
     assert.ok(!fs.existsSync(file), "the marker removed");
     assert.deepStrictEqual(calls, ["stop --no-block dlzmod-pinlog.service"], "the pin log stopped");
     assert.strictEqual(await ctx.DLZMOD_diagWatch.check(), false, "off: nothing more to do");
+    assert.ok(!fs.existsSync(file), "not written back");
     assert.strictEqual(calls.length, 1);
-    // the clock went back: the marker's time lies ahead, the 7 days start again from now
-    fs.writeFileSync(file, "");
-    const t2 = fs.statSync(file).mtimeMs;
-    const back = t2 - 30 * 864e5;
-    assert.strictEqual(await ctx.DLZMOD_diagWatch(file, run, () => back), false, "still on");
-    assert.ok(Math.abs(fs.statSync(file).mtimeMs - back) < 2000, "its time set to now");
-    assert.strictEqual(await ctx.DLZMOD_diagWatch(file, run, () => back + 7 * 864e5), true, "7 days after that: off");
-    assert.ok(!fs.existsSync(file));
+    // short starts still end it: each adds its uptime up to the first check
+    fs.writeFileSync(file, ctx.DLZMOD_diagStamp(7 * 864e5 - 200000, { boot: "b3", up: 1 }));
+    sys = { boot: "b4", up: 120000 };
+    assert.strictEqual(await ctx.DLZMOD_diagWatch.check(), false);
+    sys = { boot: "b5", up: 120000 };
+    assert.strictEqual(await ctx.DLZMOD_diagWatch.check(), true, "two 2-minute starts later: off");
   } finally {
+    cDate.now = realNow;
     clearInterval(ctx.DLZMOD_diagWatch.timer);
   }
 });

@@ -111,7 +111,7 @@ below. Most start as stock: turn on what you want; the few that are on from the 
   folder, readable in any card reader, or Download Logs on a paired computer's Mod tab)*
 - Diagnostic Logging for finding a fault such as no sound after a start: while it is on, every
   start also logs the audio chips' pins and clocks, power, memory and load; it turns itself off
-  after 7 days *(Mod, Diagnostics)*
+  after 7 days of use *(Mod, Diagnostics)*
 
 ### Fixes for stock bugs
 
