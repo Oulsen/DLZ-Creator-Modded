@@ -4009,27 +4009,30 @@ function DLZMOD_bgNeeded(w) {
 
 // #274: a widget queued before its page in the same tick is painted twice: alone, then again by the
 // page's redraw, which repaints every child (the pad editor's mode panel, 48 % of the screen, on each
-// mode tap). Mackie's queue only stops a child queued after its page. True (and the child's flag
-// lowered) when a parent still waits in this tick's queue and nothing cached sits in between: a
-// cached widget repaints its children only when its hash changed.
-function DLZMOD_repaintedByParent(w) {
-  if (w._CACHING) return false;
+// mode tap). Mackie's queue only stops a child queued after its page. True when a parent waits later
+// in this tick's queue (q, between index i and the loop's end n; not one queued past n or in a group
+// update) and nothing cached sits in between. The child keeps its flag: the page's repaint lowers it,
+// so one still raised after the loop was not painted, and DLZMOD_paintLeftOut paints it (a page
+// hidden meanwhile, a cache, anything that stopped the page).
+var DLZMOD_leftOut = [];
+
+function DLZMOD_repaintedByParent(w, q, i, n) {
+  if (w._CACHING || w._overlay) return false;
   for (let p = w.parent; p; p = p.parent) {   // up to the UI, which is never queued or cached
     if (p._CACHING) return false;
-    if (p.UPDATE_QUEUED) {
-      if (!p.visible || p.hidden || (w._overlay && !p._overlay)) return false;
-      w.UPDATE_QUEUED = false;
+    const at = p.UPDATE_QUEUED ? q.indexOf(p, i + 1) : -1;
+    if (at > i && at < n && p.visible && !p.hidden) {
+      DLZMOD_leftOut.push(w);
       return true;
     }
   }
   return false;
 }
 
-// #274: the pad editor's mode panels (Sample, Control, FX) paint Color.bg over their page, which has
-// just painted Color.bg under them: in the page's redraw, and when a panel is redrawn alone (its
-// parent's paintRect). Opaque or cached, nothing is under it, so it paints its own.
-function DLZMOD_padPanelBg(w) {
-  return !!(w.opaque || w._CACHING || !w.parent || w.parent.widgetName !== "PagePadEdit");
+function DLZMOD_paintLeftOut(ui) {
+  const left = DLZMOD_leftOut;
+  DLZMOD_leftOut = [];
+  for (const w of left) if (w.UPDATE_QUEUED && w.visible) w.internalUpdate(ui.ctx);
 }
 
 // #274: the pad editor's card: Mackie's look paints it #222222 on black; the mod's themes give it the

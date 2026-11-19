@@ -163,26 +163,11 @@ APP_PATCHES = [
         "paint(t){let e=this.w/2|0;this.h,this.w,this.h;if(DLZMOD_bgNeeded(this)&&t.fRect(this.bgColor,0,0,this.w,this.h),this.bg&&t.drawImg(this.bg,0,0)",
     ),
     (
-        # #274: a child queued before its page in the same tick is left to the page's redraw
+        # #274: a child queued before its page in the same tick is left to the page's redraw (t: its
+        # place in the queue, s: the loop's end); after the loop, one the page did not paint after all
         "update queue: a child its page repaints anyway",
-        "const e=this.updateQueue[t];e.visible&&e.internalUpdate(e._overlay?this.fctx:this.ctx)",
-        "const e=this.updateQueue[t];e.visible&&!DLZMOD_repaintedByParent(e)&&e.internalUpdate(e._overlay?this.fctx:this.ctx)",
-    ),
-    (
-        # #274: the pad editor's mode panels paint the colour their page just painted under them
-        "pad editor: the Sample panel's background",
-        "paint:function(e){let i=this.w/2|0;this.h;e.fRect(Color.bg,0,0,this.w,this.h),e.drawText(lang.PLAY_STYLE",
-        "paint:function(e){let i=this.w/2|0;this.h;DLZMOD_padPanelBg(this)&&e.fRect(Color.bg,0,0,this.w,this.h),e.drawText(lang.PLAY_STYLE",
-    ),
-    (
-        "pad editor: the Control panel's background",
-        "paint:function(e){let i=this.w/2|0,s=this.h/2|0;e.fRect(Color.bg,0,0,this.w,this.h),e.drawText(lang.CONTROL_MODE",
-        "paint:function(e){let i=this.w/2|0,s=this.h/2|0;DLZMOD_padPanelBg(this)&&e.fRect(Color.bg,0,0,this.w,this.h),e.drawText(lang.CONTROL_MODE",
-    ),
-    (
-        "pad editor: the FX panel's background",
-        "paint:function(e){let i=this.w/2|0;this.h;e.fRect(Color.bg,0,0,this.w,this.h);let s=15;",
-        "paint:function(e){let i=this.w/2|0;this.h;DLZMOD_padPanelBg(this)&&e.fRect(Color.bg,0,0,this.w,this.h);let s=15;",
+        "const e=this.updateQueue[t];e.visible&&e.internalUpdate(e._overlay?this.fctx:this.ctx)}this.updateQueue.length=0}",
+        "const e=this.updateQueue[t];e.visible&&!DLZMOD_repaintedByParent(e,this.updateQueue,t,s)&&e.internalUpdate(e._overlay?this.fctx:this.ctx)}DLZMOD_paintLeftOut(this),this.updateQueue.length=0}",
     ),
     (
         # #274: the card's fill only where it shows; its path stays for the border
