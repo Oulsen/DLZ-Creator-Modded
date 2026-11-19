@@ -130,12 +130,34 @@ The project's hard rules (`CLAUDE.md`) apply over SSH too; point to them and ref
 - no write to the eMMC (`mmcblk1` on a card boot: user area, boot0/boot1, RPMB, ext_csd), no
   remount of it read-write, no `mmc` tool; the eMMC is read-only by design (`dlzmod-emmc-ro`)
 - nothing that touches the GD32 (firmware, `/root/.gd32-loaded-*` markers, openocd, `flash-gd32`),
-  `gwprog`/`flash-fpga`, or `/root/.dlzlite`
+  `gwprog`/`flash-fpga`, or `/root/.dlzlite`. One exception, "The #257 FPGA reload" below
 - no Mackie updater (`upgradedaemon`, `upgraderun`, `.upd` files)
 - no load tests (big `dd`/copies, `fio`, stress): the mixer has ~120 MB free RAM, a GB copy over
   SSH once hung its screen. Measure in the PC rehearsal or from logs instead
 - no secrets in output or notes: password hashes, SSH keys, Wi-Fi credentials, the `lock` value
   (state presence only)
+
+## The #257 FPGA reload
+
+Approved by the maintainer as a test at a silent start (#257: outputs silent, meters moving, the
+USB tone back) on the dev card, as a confirmed write like any other, exactly this command:
+
+```bash
+systemctl stop dspserver faderlink && systemctl restart flash-fpga && systemctl start faderlink dspserver
+```
+
+`&&`: a failed stop must not load the FPGA under a running dspserver. First, read-only, in one login:
+
+- `systemctl show flash-gd32 --property=ActiveState` is `active`: `flash-fpga` `Requires` it, so a
+  restart would start it if it were not; this way the GD32 stays untouched. Not active: do not run it.
+- `ls -a /root` shows no `.no-fpga-reflash`: with it, `flash-fpga.sh` skips the load once (and
+  deletes it), so the test would load nothing and be read as "the reload did not help".
+
+`flash-fpga` also runs `dlzmod-cardcheck` first; if that refuses, the restart fails and faderlink and
+dspserver stay down (no audio) until a reboot: then say so and offer the reboot. After the command,
+check `systemctl is-active flash-fpga faderlink dspserver` and the `flash-fpga` journal ("Flashing
+Completed"). Never `gwprog` by hand, never another bitstream, never outside a silent start on the dev
+card. It re-enumerates USB to the PC (dspserver's PI14, #88).
 
 ## Where things are (card boot)
 
