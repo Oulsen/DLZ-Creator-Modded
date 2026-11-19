@@ -133,7 +133,9 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
 - **Other lines dspserver drives** [static]: at start (`0x19fa0`) PI14 output high, PH0/PH1 outputs low,
   PH2 input with pull-up, PI12 input, PI15-PI18 outputs high (THAT), PI0 high at the I2C init. On exit
   (`0x348a8`, called from the main loop at `0x19454` once its stop flag is set) PI14 and PH0 go low.
-  So PI14 looks like an output enable or mute release [guess], and a restart already cycles PI14, PH0
+  PI14 is the USB audio chip's reset or enable: the chip leaves USB when it goes low and comes back
+  when it goes high [device, 2026-11-19, #88; [hardware.md](../hardware.md), "PI14 resets the USB
+  chip"], so a dspserver restart re-enumerates USB to the PC. A restart already cycles PI14, PH0
   and PH1. Nothing else in dspserver touches PH0-PH2; faderlink's PH12 is the Bluetooth bring-up (with
   PG5-PG7 as its UART).
 - **The codec pins** (#257) [static]: GPIO port H, read and written through the `/dev/mem` mapping
@@ -333,14 +335,17 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   - **A** (`systemctl restart faderlink evolve-node glesgui dspserver`, ~573 s): a clean setup at
     580.4-580.6 s (DAC answered, PH0 → PH1 84 ms, no PH2 drop), still silent. **Windows lost the USB
     audio device** (Status Error, no playback or recording devices) after this restart, and still
-    right after B; the owner's stock report (silent outputs together with a USB disconnect on
-    Windows, above) may be the same link.
+    right after B: the USB chip came back as `0A4A:AC1E` at 07:48:55 (Windows' device log), because
+    dspserver's PI14 resets it (#88, [hardware.md](../hardware.md), "PI14 resets the USB chip"), not
+    as a symptom of #257. The owner's stock report (silent outputs together with a USB disconnect on
+    Windows, above) may be the same: a dspserver restart.
   - **B** (`systemctl stop dspserver faderlink; systemctl restart flash-fpga; systemctl start
     faderlink dspserver`, ~728 s; flash-gd32 stays active with `RemainAfterExit`, so its `Requires`
     did not run it again): `flash-fpga.sh` erased the FPGA's SRAM and loaded the bitstream in ~3.3 s
     (user code `7E20` before and after), a clean setup at 734.6 s (no PH2 drop), **sound back** on
-    the analog outputs [user]. A few minutes later Windows had the USB audio back (whether the cable
-    was replugged in between is not recorded), tone on the return at -28.6 dBFS.
+    the analog outputs [user]. B's dspserver start cycled PI14 again (`AC1E` again at 07:51:34);
+    `AC1E` left at 07:52:34 without a replug [user] and `003A` came back, tone on the return at
+    -28.6 dBFS. Whether a PI14 cycle came in between is not known (no pin log read for that minute).
   - So **the FPGA holds what stays dead** in a #257 start [device: A, which redoes everything but
     the FPGA and the processor, did not help; B, which adds only the FPGA load, did]. No reboot, no power cycle and no
     GD32 reset are needed. A mod repair: after a PH2 drop in the start (or a silent DAC path), stop
