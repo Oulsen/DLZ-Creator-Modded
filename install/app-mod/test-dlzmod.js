@@ -3046,6 +3046,69 @@ test("the top sheet's clear: once, then again only after something used the shee
   }
 });
 
+test("the update queue: a child is left to a page that waits in the same tick", () => {
+  const ui = { widgets: [] };
+  const page = { parent: ui, visible: true, UPDATE_QUEUED: true };
+  const box = { parent: page, visible: true };
+  const panel = (more = {}) => ({ parent: box, visible: true, UPDATE_QUEUED: true, ...more });
+  let w = panel();
+  assert.strictEqual(ctx.DLZMOD_repaintedByParent(w), true, "the page repaints it: left out");
+  assert.strictEqual(w.UPDATE_QUEUED, false, "and its flag lowered, so it can be queued again");
+  page.UPDATE_QUEUED = false;
+  w = panel();
+  assert.strictEqual(ctx.DLZMOD_repaintedByParent(w), false, "no parent waiting: painted");
+  assert.strictEqual(w.UPDATE_QUEUED, true, "its flag is internalUpdate's to lower");
+  page.UPDATE_QUEUED = true;
+  box._CACHING = true;
+  assert.strictEqual(ctx.DLZMOD_repaintedByParent(panel()), false, "a cache in between repaints only on a new hash");
+  box._CACHING = false;
+  assert.strictEqual(ctx.DLZMOD_repaintedByParent(panel({ _CACHING: true })), false, "its own cache");
+  page.visible = false;
+  assert.strictEqual(ctx.DLZMOD_repaintedByParent(panel()), false, "the queue skips a page that is not visible");
+  page.visible = true;
+  page.hidden = true;
+  assert.strictEqual(ctx.DLZMOD_repaintedByParent(panel()), false, "a hidden page paints nothing");
+  page.hidden = false;
+  assert.strictEqual(ctx.DLZMOD_repaintedByParent(panel({ _overlay: true })), false,
+    "on the top sheet: the page's redraw would paint it on the screen's layer");
+  assert.strictEqual(ctx.DLZMOD_repaintedByParent({ parent: ui, visible: true, UPDATE_QUEUED: true }), false,
+    "a page itself: the UI is never queued");
+});
+
+test("the pad editor's mode panels: no background over their page's", () => {
+  const page = { widgetName: "PagePadEdit" };
+  assert.strictEqual(ctx.DLZMOD_padPanelBg({ parent: page }), false);
+  assert.strictEqual(ctx.DLZMOD_padPanelBg({ parent: page, opaque: true }), true, "opaque: no page under it");
+  assert.strictEqual(ctx.DLZMOD_padPanelBg({ parent: page, _CACHING: true }), true, "its own cache");
+  assert.strictEqual(ctx.DLZMOD_padPanelBg({ parent: { widgetName: "PageFX" } }), true, "another page");
+  assert.strictEqual(ctx.DLZMOD_padPanelBg({}), true, "no page");
+});
+
+test("the pad editor's card: filled only in another colour than the page, its path always made", () => {
+  const card = () => {
+    const calls = [];
+    const t = { fRect: (...a) => calls.push(["fRect", ...a]), beginPath: () => calls.push(["beginPath"]),
+      roundRect: (...a) => calls.push(["roundRect", ...a]) };
+    ctx.DLZMOD_padCard(t, 10, 10, 340, 480, 20);
+    return calls;
+  };
+  const color = ctx.Color;
+  try {
+    ctx.Color = { ...color, bg: "#000000", bgOld: "#222222" };
+    assert.deepStrictEqual(card(), [["fRect", "#222222", 10, 10, 340, 480, 20]], "Mackie's look: filled");
+    ctx.Color = { ...color, bg: "#031311", bgOld: "#031311" };
+    assert.deepStrictEqual(card(), [["beginPath"], ["roundRect", 10, 10, 340, 480, 20]],
+      "the page's colour: only the path, for the border");
+    const map = ctx.DLZMOD_drawColor.map;
+    ctx.DLZMOD_drawColor.map = { "#222222": "#000000" };
+    ctx.Color = { ...color, bg: "#000000", bgOld: "#222222" };
+    assert.strictEqual(card().length, 2, "a look that draws them the same");
+    ctx.DLZMOD_drawColor.map = map;
+  } finally {
+    ctx.Color = color;
+  }
+});
+
 test("a strip's name plate: left out over the strip's own colour, only in a full redraw", () => {
   const need = (strip, c, full) => {
     ctx.DLZMOD_fullRedraw = full;

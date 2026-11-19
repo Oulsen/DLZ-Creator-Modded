@@ -4007,6 +4007,42 @@ function DLZMOD_bgNeeded(w) {
   }
 }
 
+// #274: a widget queued before its page in the same tick is painted twice: alone, then again by the
+// page's redraw, which repaints every child (the pad editor's mode panel, 48 % of the screen, on each
+// mode tap). Mackie's queue only stops a child queued after its page. True (and the child's flag
+// lowered) when a parent still waits in this tick's queue and nothing cached sits in between: a
+// cached widget repaints its children only when its hash changed.
+function DLZMOD_repaintedByParent(w) {
+  if (w._CACHING) return false;
+  for (let p = w.parent; p; p = p.parent) {   // up to the UI, which is never queued or cached
+    if (p._CACHING) return false;
+    if (p.UPDATE_QUEUED) {
+      if (!p.visible || p.hidden || (w._overlay && !p._overlay)) return false;
+      w.UPDATE_QUEUED = false;
+      return true;
+    }
+  }
+  return false;
+}
+
+// #274: the pad editor's mode panels (Sample, Control, FX) paint Color.bg over their page, which has
+// just painted Color.bg under them: in the page's redraw, and when a panel is redrawn alone (its
+// parent's paintRect). Opaque or cached, nothing is under it, so it paints its own.
+function DLZMOD_padPanelBg(w) {
+  return !!(w.opaque || w._CACHING || !w.parent || w.parent.widgetName !== "PagePadEdit");
+}
+
+// #274: the pad editor's card: Mackie's look paints it #222222 on black; the mod's themes give it the
+// page's colour, over which the fill paints nothing new. The path stays for the border's stroke.
+function DLZMOD_padCard(t, x, y, w, h, r) {
+  if (DLZMOD_drawColor("fillStyle", Color.bgOld) !== DLZMOD_drawColor("fillStyle", Color.bg)) {
+    t.fRect(Color.bgOld, x, y, w, h, r);
+  } else {
+    t.beginPath();
+    t.roundRect(x, y, w, h, r);
+  }
+}
+
 // #245: a strip's name plate in the strip's own colour: in a full redraw that colour is already under
 // it, whether the strip painted it or its page did. Redrawn on its own the strip paints both anyway. Not
 // so the mix bars and the fader's panel in that same colour: they hide the marks and the colour band

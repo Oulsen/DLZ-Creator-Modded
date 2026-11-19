@@ -163,6 +163,34 @@ APP_PATCHES = [
         "paint(t){let e=this.w/2|0;this.h,this.w,this.h;if(DLZMOD_bgNeeded(this)&&t.fRect(this.bgColor,0,0,this.w,this.h),this.bg&&t.drawImg(this.bg,0,0)",
     ),
     (
+        # #274: a child queued before its page in the same tick is left to the page's redraw
+        "update queue: a child its page repaints anyway",
+        "const e=this.updateQueue[t];e.visible&&e.internalUpdate(e._overlay?this.fctx:this.ctx)",
+        "const e=this.updateQueue[t];e.visible&&!DLZMOD_repaintedByParent(e)&&e.internalUpdate(e._overlay?this.fctx:this.ctx)",
+    ),
+    (
+        # #274: the pad editor's mode panels paint the colour their page just painted under them
+        "pad editor: the Sample panel's background",
+        "paint:function(e){let i=this.w/2|0;this.h;e.fRect(Color.bg,0,0,this.w,this.h),e.drawText(lang.PLAY_STYLE",
+        "paint:function(e){let i=this.w/2|0;this.h;DLZMOD_padPanelBg(this)&&e.fRect(Color.bg,0,0,this.w,this.h),e.drawText(lang.PLAY_STYLE",
+    ),
+    (
+        "pad editor: the Control panel's background",
+        "paint:function(e){let i=this.w/2|0,s=this.h/2|0;e.fRect(Color.bg,0,0,this.w,this.h),e.drawText(lang.CONTROL_MODE",
+        "paint:function(e){let i=this.w/2|0,s=this.h/2|0;DLZMOD_padPanelBg(this)&&e.fRect(Color.bg,0,0,this.w,this.h),e.drawText(lang.CONTROL_MODE",
+    ),
+    (
+        "pad editor: the FX panel's background",
+        "paint:function(e){let i=this.w/2|0;this.h;e.fRect(Color.bg,0,0,this.w,this.h);let s=15;",
+        "paint:function(e){let i=this.w/2|0;this.h;DLZMOD_padPanelBg(this)&&e.fRect(Color.bg,0,0,this.w,this.h);let s=15;",
+    ),
+    (
+        # #274: the card's fill only where it shows; its path stays for the border
+        "pad editor: the card",
+        't.fRect(Color.bgOld,e,e,this.ww,this.h-2*e,2*e),t.lineWidth=2,t.strokeStyle="#444",t.stroke()',
+        'DLZMOD_padCard(t,e,e,this.ww,this.h-2*e,2*e),t.lineWidth=2,t.strokeStyle="#444",t.stroke()',
+    ),
+    (
         # #245: the page's own paint under the strips with a colour of their own
         "full redraw: the Overview's background",
         "this.arrange()}paint(t){super.paint(t)}},ChSelector",

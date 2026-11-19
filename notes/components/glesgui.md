@@ -177,6 +177,20 @@ has this fault, as has the conclusion that the largest stage is in app.js. Measu
   more grouped by gaps under 250 ms, one group about one redraw]: groups with two or more heavy jobs 30 of 41 → 3 of 50, and the 23-24 ms job of `196-trace2` is
   gone: nothing between 18 and 45 ms is left. The page's own job stays 45-69 ms (median 56). Touch to screen was not timed. The
   screen looks the same, popups, the keyboard and a scrolled list leave nothing behind [user].
+- **The pad editor's mode switch paints its panel twice** (#274) [sandbox, 2026-11-19, every paint call mirrored into a
+  canvas painted additively, with its caller]: a mode tap queues the mode panel, then `PagePadEdit` (the page), in the same
+  tick. Mackie's `regUpdate` only drops a child queued *after* its page, so the panel is painted alone (a `clearRect` and its
+  page's `paintRect` under it, then its own `Color.bg` fill, 48 % of the screen), and the page's redraw then paints it all
+  over: the page's `Color.bg` (77 %), the card in `Color.bgOld` (27 %, the page's colour in the mod's themes; `#222222` on
+  black in Mackie's look), the panel's `Color.bg` again (48 %). Mean layers per pixel 2.8-3.1, more than every tab but
+  Snapshots (Channel 2.1, FX 2.1, Media 2.4, Overview 2.4, Snapshots 3.8). The full-redraw flag of #196 does not apply: a
+  mode switch is a page redraw, not `UI._drawAll`.
+  - **Fixed** (#274): the update loop leaves a child to a parent still queued in the same tick, unless a cached widget sits
+    in between (`DLZMOD_repaintedByParent`); the Sample, Control and FX panels leave out their `Color.bg` over the page's
+    (`DLZMOD_padPanelBg`); the card builds only its path when `bgOld` draws as `bg` (`DLZMOD_padCard`). Mode switch 1.6-1.8
+    layers per pixel, paint calls 72-136 instead of 153-413, no `clearRect` [sandbox]. The picture: every mode and the
+    Sample and FX pages pixel-identical but for 4 anti-aliased pixels at the card's corners, 1 step in one channel; the
+    tabs identical [sandbox]. On the mixer: not timed yet.
 - **No cheap erase in glesgui** (#196) [static, every `bl` in `.text` to the imported stubs]: `glClear` has two calls, once at
   start and once in the calibration gesture (`0x1f318`), none per frame, and `glScissor` has none, so clips run in the
   shader. So a page can only be erased by painting it, through that same shader. `clearRect` and `fillRect` are not plain
