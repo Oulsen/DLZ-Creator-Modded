@@ -57,22 +57,24 @@ The board, Mackie's device tree, the boot chain, the eMMC layout and the SD slot
   watcher on the PC [device] (#88)
 - **PI14 resets the USB chip** (#88) [device, XS dev card, 2026-11-19; a USB watcher on the PC
   polling every 0.5 s, 2 cycles timed against the pin log, 6 more against the restart's time]: the
-  chip leaves USB ~0.4 s after PI14 goes low and is back ~0.6 s after it goes high, every time. dspserver drives PI14 (high at its
-  start, low at its exit, `components/dspserver.md`), so every dspserver stop re-enumerates USB to the
-  PC (~1.8 s gone), also through a faderlink restart (dspserver `Requires=faderlink`). Restarting
-  evolve-node or glesgui (which only pauses dspserver) leaves USB alone. Each start of the mixer raises
-  PI14 the same way, which fits the first sighting after a software restart.
+  chip leaves USB ~0.4 s after PI14 goes low and is back ~0.6 s after it goes high, every time.
+  dspserver drives PI14 (high at its start, low at its exit, `components/dspserver.md`), so every
+  dspserver stop re-enumerates USB to the PC (~1.8 s gone), also through a faderlink restart
+  (dspserver `Requires=faderlink`). Restarting evolve-node or glesgui (which only pauses dspserver)
+  leaves USB alone. Each start of the mixer raises PI14 the same way [static], which fits the first
+  sighting after a software restart.
   - **The identity it comes back with varies**: 3 `0A4A:AC1E` in 10 PI14 cycles that day. Two were
     the first cycle after a long run as `003A` (8 min after a cold start; ~100 min after a start),
     the third came 2.5 min after one of those, from the `AC1E` state. The 7 `003A` were cycles 1-10
     min apart, all from a `003A` state except one (from `AC1E`, 10 min). Whether the run time (or the
-    chip's temperature) decides it is a [guess] on few cases; which unit restarted does not. Windows' code 10 on `AC1E`:
-    its own `usbaudio2` driver fails on it, the composite parent starts.
+    chip's temperature) decides it is a [guess] on few cases; which unit restarted does not.
+    Windows' code 10 on `AC1E`: its own `usbaudio2` driver fails on it, the composite parent starts.
   - `AC1E` stayed 30+ min without change once; one dspserver restart brought `003A` back. Another
     time it went back to `003A` on its own ~1 min after a dspserver start, without a replug (whether
-    a PI14 cycle came in between is not known; `components/dspserver.md`, "A fifth silent start"). `AC1E` reports the same product string, revision 1.30, serial "no
-    serial number" and audio class 2.0 (protocol 0x20) as `003A` [device]: the same firmware under
-    Ploytec's own IDs, not a bootloader [guess].
+    a PI14 cycle came in between is not known; `components/dspserver.md`, "A fifth silent start").
+  - `AC1E` reports the same product string, revision 1.30, serial "no serial number" and audio class
+    2.0 (protocol 0x20) as `003A` [device]: the same firmware under Ploytec's own IDs, not a
+    bootloader [guess].
 - The Windows driver is Mackie's `Mackie_USB_Driver_v5.70.0_setup.exe`, signed by Thesycon Software
   Solutions (their generic USB audio driver under Mackie's name) [device, 2026-11-11]. Without it
   Windows leaves `0A73:003A` in error. With it, on the XS: playback endpoints 1-2 and 3-4, recording
