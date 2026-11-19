@@ -14,18 +14,31 @@ $dir = Join-Path (Split-Path -Parent $PSScriptRoot) "build\device-logs"
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 $file = Join-Path $dir ("usbwatch-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".txt")
 
+function Say([string]$text) {
+  $line = '{0:yyyy-MM-dd HH:mm:ss.f} {1}' -f (Get-Date), $text
+  $line
+  try { Add-Content -Path $file -Value $line -Encoding ascii } catch { }
+}
+
 $prev = $null
 while ($true) {
-  $now = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
-    Where-Object { $_.InstanceId -match '^USB\\VID_(0A4A|0A73)&PID_[0-9A-F]{4}\\' } |
-    ForEach-Object { '{0}={1}' -f (($_.InstanceId -split '\\')[1]), $_.Status } |
-    Sort-Object
-  $cur = if ($now) { $now -join ' ' } else { 'none' }
-  if ($cur -ne $prev) {
-    $line = '{0:yyyy-MM-dd HH:mm:ss.f} {1}' -f (Get-Date), $cur
-    $line
-    Add-Content -Path $file -Value $line -Encoding ascii
-    $prev = $cur
+  try {
+    # one line per identity, e.g. "0A73:003A OK" or "0A4A:AC1E Error"
+    $now = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
+      Where-Object { $_.InstanceId -match '^USB\\VID_(0A4A|0A73)&PID_([0-9A-F]{4})\\' } |
+      ForEach-Object {
+        $null = $_.InstanceId -match '^USB\\VID_([0-9A-F]{4})&PID_([0-9A-F]{4})\\'
+        '{0}:{1} {2}' -f $Matches[1], $Matches[2], $_.Status
+      } |
+      Sort-Object
+    $cur = if ($now) { $now -join ', ' } else { 'none' }
+    if ($cur -ne $prev) {
+      Say $cur
+      $prev = $cur
+    }
+  } catch {
+    # a passing CIM error must not end the watch
+    Say ("read failed: " + $_.Exception.Message)
   }
   Start-Sleep -Milliseconds $IntervalMs
 }

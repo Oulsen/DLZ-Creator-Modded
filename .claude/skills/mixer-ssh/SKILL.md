@@ -143,13 +143,21 @@ Approved by the maintainer as a test at a silent start (#257: outputs silent, me
 USB tone back) on the dev card, as a confirmed write like any other, exactly this command:
 
 ```bash
-systemctl stop dspserver faderlink; systemctl restart flash-fpga; systemctl start faderlink dspserver
+systemctl stop dspserver faderlink && systemctl restart flash-fpga && systemctl start faderlink dspserver
 ```
 
-First check, read-only, that `flash-gd32` is `active` (`systemctl show flash-gd32
---property=ActiveState`): `flash-fpga` `Requires` it, so a restart would start it if it were not, and
-the GD32 stays untouched. Not active: stop, do not run it. Never `gwprog` by hand, never another
-bitstream, never outside a silent start. It re-enumerates USB to the PC (dspserver's PI14, #88).
+`&&`: a failed stop must not load the FPGA under a running dspserver. First, read-only, in one login:
+
+- `systemctl show flash-gd32 --property=ActiveState` is `active`: `flash-fpga` `Requires` it, so a
+  restart would start it if it were not; this way the GD32 stays untouched. Not active: do not run it.
+- `ls -a /root` shows no `.no-fpga-reflash`: with it, `flash-fpga.sh` skips the load once (and
+  deletes it), so the test would load nothing and be read as "the reload did not help".
+
+`flash-fpga` also runs `dlzmod-cardcheck` first; if that refuses, the restart fails and faderlink and
+dspserver stay down (no audio) until a reboot: then say so and offer the reboot. After the command,
+check `systemctl is-active flash-fpga faderlink dspserver` and the `flash-fpga` journal ("Flashing
+Completed"). Never `gwprog` by hand, never another bitstream, never outside a silent start on the dev
+card. It re-enumerates USB to the PC (dspserver's PI14, #88).
 
 ## Where things are (card boot)
 

@@ -55,17 +55,23 @@ py -3 -I dev/usbloop.py play 5 -30        # only the tone (seconds, dBFS -60..-3
 Every dspserver stop (also through a faderlink restart) resets the USB chip through PI14, and it
 sometimes comes back as `0A4A:AC1E`, Ploytec's fallback, which Windows cannot start (#88,
 `notes/hardware.md`, "PI14 resets the USB chip"). Watch it with
-`powershell -NoProfile -ExecutionPolicy Bypass -File dev/usbwatch.ps1` (as a Monitor); one more
-dspserver restart (a write, with the user's yes) or a replug brings `0A73:003A` back.
+`powershell -NoProfile -ExecutionPolicy Bypass -File dev/usbwatch.ps1` (as a Monitor; its lines read
+`0A73:003A OK`, `0A4A:AC1E OK, ...` or `none`). A replug of the cable brings `0A73:003A` back; one
+more dspserver restart (a write, with the user's yes) may too, but each restart picks the identity
+anew (it can come back as `AC1E` again) and is itself a chip setup: replug first, at most one restart.
 
 ## At a silent start (#257)
 
 Outputs silent, meters moving. Do not let the user switch off or reboot first. In this order:
 
 1. `check` here: the tone back on the return = only the analog outputs are dead (the #257 pattern).
+   No tone: first `list` (no "DLZ Creator" lines = USB came up as `AC1E`, above) and the computer
+   channel's mix-minus (on = no tone on the return by design); fix those and `check` again. Still no
+   tone: not the #257 pattern; read the start (`mixer-ssh`) before anything else.
 2. One read-only login (`mixer-ssh`): CPU temperature, the codec setup, PH2 low after it (the pin log).
-3. The FPGA reload (`mixer-ssh`, "The #257 FPGA reload"), with the user's yes; then ask whether the
-   sound is back. It brought the sound back on 2026-11-19, where a restart of every service did not
+3. On the dev card only: the FPGA reload (`mixer-ssh`, "The #257 FPGA reload", with its read-only
+   checks), with the user's yes; then ask whether the sound is back. On another mixer: no reload,
+   ask the maintainer. It brought the sound back on 2026-11-19, where a restart of every service did not
    (`notes/components/dspserver.md`, "A fifth silent start"). More silent starts are needed before
    the mod does it by itself; write each result into that note.
 4. Still silent: `reboot` (known to help), with the user's yes.

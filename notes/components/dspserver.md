@@ -354,7 +354,7 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   - **Next silent start**: the USB tone check, one read-only login, then the FPGA reload alone (B,
     without A), with the user's yes; reboot only if it stays silent. The steps are in the
     `audio-check` skill ("At a silent start") and the exact command in `mixer-ssh` ("The #257 FPGA
-    reload"). Each result goes here, before the mod reloads the FPGA by itself (no issue yet).
+    reload"). Each result goes here.
 - **A DAC that does not answer: a second cause, not #257** [device, an owner's XS, v0.6.0 and
   v0.6.1 with Diagnostics on, 9 starts]:
   - In 8 of 9 starts the first DAC write got no acknowledgement: `i2c: retrying address 22` ~100
