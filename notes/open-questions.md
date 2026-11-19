@@ -36,8 +36,9 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
    one of them: `hardware.md`, SoC.) The full-size's analog board has an Everest ES8388 next to the
    USB chip [static: full-size FCC photos]; the rest is not read yet.
 8. Which chip does USB audio to the PC: the FPGA or a separate bridge? (`lsusb -v` on the PC.)
-   Known: it can show up under two identities, `0A73:003A` (normal, LOUD's driver) and once
-   `0A4A:AC1E` (a standard USB Audio 2.0 device) [device]; neither ID is in any file on the rootfs,
+   Known: it can show up under two identities, `0A73:003A` (normal, LOUD's driver) and sometimes
+   `0A4A:AC1E` (a standard USB Audio 2.0 device) [device]; dspserver's PI14 resets it, and the
+   identity it boots into varies (`hardware.md`, "PI14 resets the USB chip", #88); neither ID is in any file on the rootfs,
    the FPGA bitstreams or the GD32 firmware [static], so most likely a chip with its own firmware
    [guess] (hardware.md). **Answered for the full-size**: an ATSAM3U1C on the analog board with
    Ploytec's firmware (`0x0A4A` is Ploytec's vendor ID, the "no serial number" string, the chip of
