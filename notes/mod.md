@@ -988,10 +988,18 @@ say. Off by default; both models, the same code (tested on an XS; the full-size:
   (`DLZMOD_writeDurable`, and `/var/lib` flushed when it makes `/var/lib/dlzmod`) and starts the pin
   log at once (`systemctl start --no-block`); off removes it and stops the pin log; a `systemctl`
   that fails is named in the answer (the marker still decides the next start). It stays on across
-  restarts until turned off, or for 7 days: `DLZMOD_diagWatch` (from the server's start, then
-  hourly) removes a marker older than that and stops the pin log, since its lines add MBs a day to
-  a syslog that is never rotated; a clock that jumps forward can end it early, one that went back
-  (the marker's time over an hour ahead) starts the 7 days again from then, so it always ends
+  restarts until turned off, or for 7 days of use: `DLZMOD_diagWatch` (at the server's start, then
+  every 10 minutes) removes the marker and stops the pin log once the mixer has been switched on for
+  7 days in all, since the pin log's lines add MBs per day switched on to a syslog that is never
+  rotated. Counted by the kernel's uptime, never the wall clock (#317: offline the clock starts in
+  2023, and chrony online, a time set by hand or a browser's time step it years ahead at once, which
+  ended it at the next check on v0.6.1): the marker holds `{boot, up, used}` (`boot_id`, the uptime
+  then, the use so far); each check adds the uptime since (all of it in a new boot) and writes it
+  back durably. Days switched off do not count; a power-off loses at most the 10 minutes since the
+  last check; a marker without a count (v0.6.x, unreadable) counts from 0. It always ends on a card
+  it can write (as removing the marker needs): each start adds at least its uptime up to the
+  server's start; a save that fails is logged once per run of failures. Uptime is `os.uptime()`
+  (CLOCK_BOOTTIME), the boot `/proc/sys/kernel/random/boot_id` ("" without /proc, the PC sandbox)
   [static; unit tests].
 - **The pin log**: `dlzmod-pinlog` is `dev/pinlog.py` of #293 (the codec pins PH0-PH2/PH12, every
   GPIO change, the screen, the power side, the I2S state and sample counters, load and memory each

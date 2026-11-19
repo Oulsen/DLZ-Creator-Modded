@@ -5,6 +5,7 @@
 - (DLZ FEATURE) Limiter and noise gate on the main output
 - (MOD BUG) After going back to an older version, the pads can stay muted
 - (MOD BUG) The installer's first screen can show 'build ?' when the mixer was switched off during a stock start
+- (MOD BUG) Diagnostic Logging switches itself off when the mixer gets the correct time for the first time
 
 ## v0.6.1
 

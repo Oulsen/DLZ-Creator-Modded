@@ -2823,7 +2823,7 @@ async function DLZMOD_sshKeep(a, run, result, paths = DLZMOD_sshPaths()) {
 
 // Diagnostic Logging (#302, the Mod tab, the mixer's own screen only: a DLZMOD_NET change): the
 // marker on the card that dlzmod-pinlog.service and dlzmod-bootlog look for, so it stays on after a
-// restart, until it is turned off or 7 days have passed (DLZMOD_diagWatch). The pin log starts or
+// restart, until it is turned off or after 7 days of use (DLZMOD_diagWatch). The pin log starts or
 // stops at once too; the snapshot and the copy to DLZDATA/dlzmod-logs come with the next start's
 // boot log (~2 min in)
 function DLZMOD_diagFile() {
@@ -2845,46 +2845,74 @@ async function DLZMOD_diagSet(on, run, result, file = DLZMOD_diagFile()) {
   const made = !require("fs").existsSync(dir);
   require("fs").mkdirSync(dir, { recursive: true, mode: 0o755 });
   if (made) DLZMOD_syncDir(path.dirname(dir));   // a new folder: its entry flushed too
-  DLZMOD_writeDurable(file, "", 0o644);
+  DLZMOD_writeDurable(file, DLZMOD_diagStamp(0), 0o644);   // the 7 days count from now
   const start = await run("/bin/systemctl", ["start", "--no-block", "dlzmod-pinlog.service"]);
   if (!start.ok) return result(false, "Diagnostic logging is on from the next start;\nthe pin log could not be started now.");
-  result(true, "Diagnostic logging is on for " + DLZMOD_DIAG_DAYS + " days, also after a restart.\n" +
+  result(true, "Diagnostic logging is on for " + DLZMOD_DIAG_DAYS + " days of use,\nalso after a restart.\n" +
     "Restart the mixer: about 2 minutes later\nthe logs are in DLZDATA/dlzmod-logs.");
 }
 
-// Diagnostic Logging turns itself off DLZMOD_DIAG_DAYS after it was turned on: the pin log adds MBs a
-// day to the syslog, which is never rotated (logrotate is off), and an owner may forget it. Checked
-// at the server's start (from DLZMOD_bootlogCopy) and every hour, by the marker's time: a clock that
-// jumps forward (chrony, once online) can end it early; one that went back (the marker's time more
-// than an hour ahead) starts the 7 days again from now, so it never runs on without an end
-function DLZMOD_diagWatch(file = DLZMOD_diagFile(), run = DLZMOD_run, now = Date.now) {
+// Diagnostic Logging turns itself off after DLZMOD_DIAG_DAYS of use: the pin log adds MBs a day to
+// the syslog, which is never rotated (logrotate is off), and an owner may forget it. Counted in time
+// switched on, by the kernel's uptime (/proc/uptime, which no clock change moves), never by the wall
+// clock: offline the clock starts in 2023 and chrony (or a time set by hand or from a browser) can
+// step it years ahead at once (#317). The marker holds the boot it was last counted in, that boot's
+// uptime then and the use so far; each check adds the uptime since (all of it in a new boot) and
+// saves the marker again. Checked at the server's start (from DLZMOD_bootlogCopy) and every 10
+// minutes, so a power-off loses at most that much of a start; a marker without a count (turned on
+// before v0.7.0, or unreadable) counts from 0. It always ends, on a card it can write (as removing
+// the marker needs): every start adds at least its uptime up to the server's start. A save that fails
+// is logged once, not every 10 minutes (the syslog is what this limits)
+function DLZMOD_diagSys() {
+  let boot = "";   // no /proc (the PC sandbox): one boot, whose uptime going back adds nothing
+  try {
+    boot = require("fs").readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+  } catch (e) {}
+  return { boot, up: require("os").uptime() * 1000 };   // CLOCK_BOOTTIME on Linux, as /proc/uptime
+}
+
+function DLZMOD_diagStamp(used, sys = DLZMOD_diagSys()) {
+  return JSON.stringify({ boot: sys.boot, up: Math.round(sys.up), used: Math.round(used) }) + "\n";
+}
+
+function DLZMOD_diagWatch(file = DLZMOD_diagFile(), run = DLZMOD_run, sys = DLZMOD_diagSys) {
   const s = DLZMOD_diagWatch;
   s.check = async () => {
     const fs = require("fs");
-    let m;
+    let text;
     try {
-      m = fs.statSync(file).mtimeMs;
+      text = fs.readFileSync(file, "utf8");
     } catch (e) {
       return false;   // off
     }
-    if (m - now() > 36e5) {
+    let m = {};
+    try {
+      m = JSON.parse(text) || {};
+    } catch (e) {}
+    const now = sys();
+    const used = (Number.isFinite(m.used) && m.used > 0 ? m.used : 0) +
+      (m.boot === now.boot && Number.isFinite(m.up) ? Math.max(0, now.up - m.up) : now.up);
+    if (used < DLZMOD_DIAG_DAYS * 864e5) {
       try {
-        fs.utimesSync(file, now() / 1000, now() / 1000);
-      } catch (e) {}
+        DLZMOD_writeDurable(file, DLZMOD_diagStamp(used, now), 0o644);   // read just before, no await in between
+        s.failed = false;
+      } catch (e) {
+        if (!s.failed) console.error("dlzmod: diagnostic logging: the count could not be saved:", e.message);
+        s.failed = true;
+      }
       return false;
     }
-    if (now() - m < DLZMOD_DIAG_DAYS * 864e5) return false;
     if (DLZMOD_unlinkQuiet(file)) DLZMOD_syncDir(require("path").dirname(file));
-    console.log("dlzmod: diagnostic logging turned itself off after " + DLZMOD_DIAG_DAYS + " days");
+    console.log("dlzmod: diagnostic logging turned itself off after " + DLZMOD_DIAG_DAYS + " days of use");
     try {
       await run("/bin/systemctl", ["stop", "--no-block", "dlzmod-pinlog.service"]);
     } catch (e) {}
     return true;
   };
   clearInterval(s.timer);
-  s.timer = setInterval(() => s.check().catch(() => {}), 3600000);
+  s.timer = setInterval(() => s.check().catch((e) => console.error("dlzmod: diagnostic logging:", e.message)), 600000);
   if (s.timer.unref) s.timer.unref();   // never what keeps the process (or a test) running
-  return s.check().catch(() => false);
+  return s.check().catch((e) => (console.error("dlzmod: diagnostic logging:", e.message), false));
 }
 
 // Time zone (#9), the Mod page's Time tab: FAT keeps local times and the kernel converts file times

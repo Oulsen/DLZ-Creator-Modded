@@ -361,9 +361,9 @@ screen is up (at 25-33 s), or 300 s into a start whose screen does not come; `pu
 network log logs in 90 s after the mixer has gone away. From a worktree, point them at the main
 checkout's log: `DLZ_NETLOG_DIR=<repo>/build/device-logs`. The pin log (pins, screen, power side,
 load and memory, for #257 and #8) is the mod's Diagnostic Logging (Mod tab, #302), on a dev card as
-on any mixer: its lines arrive in the network log too. It turns itself off 7 days after it was turned
-on (`DLZMOD_DIAG_DAYS`): for a longer hunt turn it on again within the week. A card that still has the
-old dev unit (`dev/pinlog.sh on`, before #305) runs both pin logs while Diagnostics is on; remove it
+on any mixer: its lines arrive in the network log too. It turns itself off after 7 days of use (time
+switched on, `DLZMOD_DIAG_DAYS`): for a longer hunt turn it on again before then. A card that still
+has the old dev unit (`dev/pinlog.sh on`, before #305) runs both pin logs while Diagnostics is on; remove it
 once over SSH: `systemctl disable --now dlzdev-pinlog.service; rm -f
 /etc/systemd/system/dlzdev-pinlog.service /usr/local/sbin/dlzdev-pinlog; systemctl daemon-reload`.
 

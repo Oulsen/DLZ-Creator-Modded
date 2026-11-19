@@ -2190,7 +2190,7 @@ test("Diagnostics: the button shows the server's state; the popup explains, then
       assert.strictEqual(p.kind, "popupConfirm");
       assert.strictEqual(p.opts.title, "Diagnostic Logging");
       assert.strictEqual(p.opts.buttons[0].text, button);
-      assert.match(p.text, on ? /off after 7 days/ : /DLZDATA\/dlzmod-logs/);
+      assert.match(p.text, on ? /off after 7 days of use/ : /DLZDATA\/dlzmod-logs/);
       p.opts.func();
       assert.match(ui.progress.at(-1).text, on ? /on…$/ : /off…$/);
       assert.deepStrictEqual(ui.cmds.at(-1), ["DLZMOD_NET", { op: "diag", on }]);
