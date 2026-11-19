@@ -279,6 +279,7 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
     start them again (sound back = the FPGA; the mod could do this after a drop instead of a
     reboot); C: `reboot` (known to help). B is a one-time exception to the "no `flash-fpga` over
     SSH" rule, approved by the maintainer for this test. Each step is a write: the user confirms it.
+    Done in the fifth silent start (below): A left it silent, **B brought the sound back**.
 - **A fourth silent start, the second cold one: nothing the processor sees changes at the drop**
   (#257) [device, XS dev card, v0.7.0-dev, 2026-11-17, a cold start]: one codec setup (PH0 → PH1
   76 ms, DAC answered, no I2C retry), `Audio initialisation is done.` at 30.38 s, glesgui `Client
@@ -320,6 +321,31 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
       regulator clean-up at ~34-38 s; DC5LDO stays off [device]. They go off in starts with sound too,
       so they do not feed the live audio path; what they feed on this board is not known.
     - Not checked: whether a reboot resets the GD32 (no known reset line; faderlink drives only PH12).
+      Not needed for the sound: the FPGA reload alone brings it back (next point).
+- **A fifth silent start, the third cold one: an FPGA reload brings the sound back** (#257) [device,
+  XS dev card, 2026-11-19, a cold start]: CPU 27.7 °C when the pin log started, 31 °C at the setup.
+  One codec setup (PH0 → PH1 76 ms, DAC answered, no I2C retry), `Audio initialisation is done.` at
+  31.88 s, glesgui `Client connected` at 32.87 s, **PH2 low for ~29 ms at 32.958 s** (1.34 s after
+  the setup, 88 ms after `Client connected`, before `Done.` at 35.5 s); no other pin change in that
+  window, power chip interrupts (3), regulators, PLLs (audio locked) and backlight unchanged, I2S0 not
+  streaming yet at the drop (`txcnt=0`), streaming normally a minute in. The same pattern as the
+  fourth start. The USB tone came back at -28.6 dBFS (only the analog outputs dead). The plan's steps:
+  - **A** (`systemctl restart faderlink evolve-node glesgui dspserver`, ~573 s): a clean setup at
+    580.4-580.6 s (DAC answered, PH0 → PH1 84 ms, no PH2 drop), still silent. **Windows lost the USB
+    audio device** (Status Error, no playback or recording devices) after this restart, and still
+    right after B; the owner's stock report (silent outputs together with a USB disconnect on
+    Windows, above) may be the same link.
+  - **B** (`systemctl stop dspserver faderlink; systemctl restart flash-fpga; systemctl start
+    faderlink dspserver`, ~728 s; flash-gd32 stays active with `RemainAfterExit`, so its `Requires`
+    did not run it again): `flash-fpga.sh` erased the FPGA's SRAM and loaded the bitstream in ~3.3 s
+    (user code `7E20` before and after), a clean setup at 734.6 s (no PH2 drop), **sound back** on
+    the analog outputs [user]. A few minutes later Windows had the USB audio back (whether the cable
+    was replugged in between is not recorded), tone on the return at -28.6 dBFS.
+  - So **the FPGA holds what stays dead** in a #257 start [device: A, which redoes everything but
+    the FPGA and the processor, did not help; B, which adds only the FPGA load, did]. No reboot, no power cycle and no
+    GD32 reset are needed. A mod repair: after a PH2 drop in the start (or a silent DAC path), stop
+    dspserver and faderlink, reload the FPGA, start them again [guess: works the same way each time;
+    one start so far]. Why a cold FPGA (or the PH2 event) leaves its DAC side dead is still open.
 - **A DAC that does not answer: a second cause, not #257** [device, an owner's XS, v0.6.0 and
   v0.6.1 with Diagnostics on, 9 starts]:
   - In 8 of 9 starts the first DAC write got no acknowledgement: `i2c: retrying address 22` ~100
@@ -370,8 +396,9 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
     GD32 firmware's strings have no audio, codec, power or reset message [static, strings only].
     server.js, glesgui and the units have no GPIO or `/dev/mem` use; glesgui sets no backlight
     (faderlink writes it from `settings.brightness.screen`).
-  - Left [guess]: the output side behind the DAC (output stage, mute circuit or their supply) stays
-    off after a short event, and only a power-off resets it. The full-size has a separate analog board
+  - Left [guess, superseded 2026-11-19: an FPGA reload alone brings the sound back, so the FPGA is
+    what stays dead, "A fifth silent start" above]: the output side behind the DAC (output stage,
+    mute circuit or their supply) stays off after a short event, and only a power-off resets it. The full-size has a separate analog board
     ([hardware.md](../hardware.md), "Sources"); the XS is not opened yet. Closest event to the drop:
     glesgui's `Client connected` and the state push that follows (LED and button brightness to the
     GD32), a load step on the board's supply. Whether the processor still streams to the DAC in a
