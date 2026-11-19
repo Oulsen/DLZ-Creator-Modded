@@ -332,16 +332,17 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   fourth start. The USB tone came back at -28.6 dBFS (only the analog outputs dead). The plan's steps:
   - **A** (`systemctl restart faderlink evolve-node glesgui dspserver`, ~573 s): a clean setup at
     580.4-580.6 s (DAC answered, PH0 → PH1 84 ms, no PH2 drop), still silent. **Windows lost the USB
-    audio device** (Status Error, no playback or recording devices) after this restart and kept it
-    lost until after B; the owner's stock report (silent outputs together with a USB disconnect on
+    audio device** (Status Error, no playback or recording devices) after this restart, and still
+    right after B; the owner's stock report (silent outputs together with a USB disconnect on
     Windows, above) may be the same link.
   - **B** (`systemctl stop dspserver faderlink; systemctl restart flash-fpga; systemctl start
     faderlink dspserver`, ~728 s; flash-gd32 stays active with `RemainAfterExit`, so its `Requires`
     did not run it again): `flash-fpga.sh` erased the FPGA's SRAM and loaded the bitstream in ~3.3 s
     (user code `7E20` before and after), a clean setup at 734.6 s (no PH2 drop), **sound back** on
-    the analog outputs [user], USB audio back on Windows, tone on the return at -28.6 dBFS.
+    the analog outputs [user]. A few minutes later Windows had the USB audio back (whether the cable
+    was replugged in between is not recorded), tone on the return at -28.6 dBFS.
   - So **the FPGA holds what stays dead** in a #257 start [device: A, which redoes everything but
-    the FPGA, did not help; B, which adds only the FPGA load, did]. No reboot, no power cycle and no
+    the FPGA and the processor, did not help; B, which adds only the FPGA load, did]. No reboot, no power cycle and no
     GD32 reset are needed. A mod repair: after a PH2 drop in the start (or a silent DAC path), stop
     dspserver and faderlink, reload the FPGA, start them again [guess: works the same way each time;
     one start so far]. Why a cold FPGA (or the PH2 event) leaves its DAC side dead is still open.
