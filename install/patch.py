@@ -163,6 +163,19 @@ APP_PATCHES = [
         "paint(t){let e=this.w/2|0;this.h,this.w,this.h;if(DLZMOD_bgNeeded(this)&&t.fRect(this.bgColor,0,0,this.w,this.h),this.bg&&t.drawImg(this.bg,0,0)",
     ),
     (
+        # #274: a child queued before its page in the same tick is left to the page's redraw (t: its
+        # place in the queue, s: the loop's end); after the loop, one the page did not paint after all
+        "update queue: a child its page repaints anyway",
+        "const e=this.updateQueue[t];e.visible&&e.internalUpdate(e._overlay?this.fctx:this.ctx)}this.updateQueue.length=0}",
+        "const e=this.updateQueue[t];e.visible&&!DLZMOD_repaintedByParent(e,this.updateQueue,t,s)&&e.internalUpdate(e._overlay?this.fctx:this.ctx)}DLZMOD_paintLeftOut(this),this.updateQueue.length=0}",
+    ),
+    (
+        # #274: the card's fill only where it shows; its path stays for the border
+        "pad editor: the card",
+        't.fRect(Color.bgOld,e,e,this.ww,this.h-2*e,2*e),t.lineWidth=2,t.strokeStyle="#444",t.stroke()',
+        'DLZMOD_padCard(t,e,e,this.ww,this.h-2*e,2*e),t.lineWidth=2,t.strokeStyle="#444",t.stroke()',
+    ),
+    (
         # #245: the page's own paint under the strips with a colour of their own
         "full redraw: the Overview's background",
         "this.arrange()}paint(t){super.paint(t)}},ChSelector",

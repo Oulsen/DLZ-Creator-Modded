@@ -3046,6 +3046,71 @@ test("the top sheet's clear: once, then again only after something used the shee
   }
 });
 
+test("the update queue: a child is left to a page later in the same tick, painted if it was not", () => {
+  const ui = { widgets: [], ctx: "screen" };
+  const painted = [];
+  const widget = (more) => ({ visible: true, UPDATE_QUEUED: true,
+    internalUpdate(t) { this.UPDATE_QUEUED = false; painted.push([this.name, t]); }, ...more });
+  const page = widget({ name: "page", parent: ui });
+  const box = { parent: page, visible: true };
+  const panel = (more = {}) => widget({ name: "panel", parent: box, ...more });
+  const skip = (w, q, i = 0, n = q.length) => ctx.DLZMOD_repaintedByParent(w, q, i, n);
+  ctx.DLZMOD_leftOut = [];
+  let w = panel();
+  assert.strictEqual(skip(w, [w, page]), true, "the page comes later in this tick: left out");
+  assert.strictEqual(w.UPDATE_QUEUED, true, "its flag stays for the page's repaint to lower");
+  w.UPDATE_QUEUED = false;   // the page repainted it
+  ctx.DLZMOD_paintLeftOut(ui);
+  assert.deepStrictEqual(plain(painted), [], "repainted by the page: not again");
+  w = panel();
+  assert.strictEqual(skip(w, [w, page]), true);
+  ctx.DLZMOD_paintLeftOut(ui);
+  assert.deepStrictEqual(plain(painted), [["panel", "screen"]], "the page did not paint it: painted after the loop");
+  painted.length = 0;
+  ctx.DLZMOD_paintLeftOut(ui);
+  assert.deepStrictEqual(plain(painted), [], "only once");
+  assert.strictEqual(skip(panel(), [page, panel()], 1), false, "the page came earlier: not waiting");
+  assert.strictEqual(skip(panel(), [panel(), page], 0, 1), false, "the page past the loop's end is dropped, not painted");
+  assert.strictEqual(skip(panel(), [panel()]), false, "flagged but not in this queue (a group update)");
+  box._CACHING = true;
+  assert.strictEqual(skip(panel(), [panel(), page]), false, "a cache in between repaints only on a new hash");
+  box._CACHING = false;
+  assert.strictEqual(skip(panel({ _CACHING: true }), [panel(), page]), false, "its own cache");
+  page.visible = false;
+  assert.strictEqual(skip(panel(), [panel(), page]), false, "the queue skips a page that is not visible");
+  page.visible = true;
+  page.hidden = true;
+  assert.strictEqual(skip(panel(), [panel(), page]), false, "a hidden page paints nothing");
+  page.hidden = false;
+  assert.strictEqual(skip(panel({ _overlay: true }), [panel(), page]), false,
+    "on the top sheet: the page's redraw would paint it on the screen's layer");
+  ctx.DLZMOD_leftOut = [];
+});
+
+test("the pad editor's card: filled only in another colour than the page, its path always made", () => {
+  const card = () => {
+    const calls = [];
+    const t = { fRect: (...a) => calls.push(["fRect", ...a]), beginPath: () => calls.push(["beginPath"]),
+      roundRect: (...a) => calls.push(["roundRect", ...a]) };
+    ctx.DLZMOD_padCard(t, 10, 10, 340, 480, 20);
+    return calls;
+  };
+  const color = ctx.Color, map = ctx.DLZMOD_drawColor.map;
+  try {
+    ctx.Color = { ...color, bg: "#000000", bgOld: "#222222" };
+    assert.deepStrictEqual(card(), [["fRect", "#222222", 10, 10, 340, 480, 20]], "Mackie's look: filled");
+    ctx.Color = { ...color, bg: "#031311", bgOld: "#031311" };
+    assert.deepStrictEqual(card(), [["beginPath"], ["roundRect", 10, 10, 340, 480, 20]],
+      "the page's colour: only the path, for the border");
+    ctx.DLZMOD_drawColor.map = { "#222222": "#000000" };
+    ctx.Color = { ...color, bg: "#000000", bgOld: "#222222" };
+    assert.strictEqual(card().length, 2, "a look that draws them the same");
+  } finally {
+    ctx.Color = color;
+    ctx.DLZMOD_drawColor.map = map;
+  }
+});
+
 test("a strip's name plate: left out over the strip's own colour, only in a full redraw", () => {
   const need = (strip, c, full) => {
     ctx.DLZMOD_fullRedraw = full;
