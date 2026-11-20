@@ -346,15 +346,41 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
     the analog outputs [user]. B's dspserver start cycled PI14 again (`AC1E` again at 07:51:34);
     `AC1E` left at 07:52:34 without a replug [user] and `003A` came back, tone on the return at
     -28.6 dBFS. Whether a PI14 cycle came in between is not known (no pin log read for that minute).
-  - So **the FPGA holds what stays dead** in a #257 start [device: A, which redoes everything but
+  - So **the FPGA holds what stays dead** in a #257 start (put in doubt by the sixth start, next
+    point) [device: A, which redoes everything but
     the FPGA and the processor, did not help; B, which adds only the FPGA load, did]. No reboot, no power cycle and no
     GD32 reset are needed. A mod repair: after a PH2 drop in the start (or a silent DAC path), stop
     dspserver and faderlink, reload the FPGA, start them again [guess: works the same way each time;
     one start so far]. Why a cold FPGA (or the PH2 event) leaves its DAC side dead is still open.
-  - **Next silent start**: the USB tone check, one read-only login, then the FPGA reload alone (B,
+  - **Next silent start** (replaced after the sixth start, next point): the USB tone check, one read-only login, then the FPGA reload alone (B,
     without A), with the user's yes; reboot only if it stays silent. The steps are in the
     `audio-check` skill ("At a silent start") and the exact command in `mixer-ssh` ("The #257 FPGA
     reload"). Each result goes here.
+- **A sixth silent start, the fourth cold one: the service restart (A) did bring the sound back**
+  (#257) [device, XS dev card, 2026-11-20, a cold start]: CPU 29.0 °C when the pin log started,
+  30.6 °C at the setup. One codec setup (PH0 → PH1 66 ms, DAC answered, no I2C retry), `Audio
+  initialisation is done.` at 30.81 s, **PH2 low for 11 ms at 31.672 s** (1.14 s after the setup),
+  before `Done.` at 34.5 s; across the drop pins, regulators, power chip interrupts (3), PLLs (audio
+  locked) unchanged, I2S0 not streaming yet (`txcnt=0`). The same pattern as starts 3-5. No USB tone
+  check this time: the owner heard nothing from USB playback.
+  - **A** (`systemctl restart faderlink evolve-node glesgui dspserver`, ~383 s, by mistake: the plan
+    above says B alone): dspserver stopped at 383.3 s (PH0 low), evolve-node and glesgui restarted at
+    once, faderlink took ~5 s to stop (back at 388.7 s), so dspserver was down ~6 s (1.8 s in the
+    fourth start's lone dspserver restart). A clean setup at 389.5-389.7 s (DAC answered, PH0 → PH1
+    89 ms, CPU 44.6 °C), **no PH2 drop**. Windows then showed `DLZ Creator XS` with Code 10 (USB
+    Audio 2.0 driver could not start it; PI14 reset, #88); after a **USB replug, sound back** [user].
+  - This differs from the fifth start, where A was judged still silent and only B helped. There
+    Windows had also lost the USB device after A, and the owner judges the sound with USB or
+    Bluetooth sources [user]; which one after A there is not known. With USB, A was never really
+    tested there and the FPGA conclusion above is not settled; with Bluetooth (not over USB), A
+    failed there and worked here [guess either way]. Candidates now: the FPGA reload (fifth start), a dspserver down long
+    enough (~6 s with PH0 and PI14 low), or a setup without a PH2 drop (A and B here, B in the
+    fifth; the fourth start's restart that failed had a drop inside its setup).
+  - **Next silent start**: judge the sound only with USB working (replug after any step that resets
+    it, `audio-check` `list`) or with Bluetooth, which does not go over USB. Then
+    `systemctl stop dspserver`, wait ~6 s, `systemctl start dspserver` (no FPGA, no other service);
+    sound back = a long enough dspserver stop, which the mod could do itself; still silent = the FPGA
+    reload (B), then reboot.
 - **A DAC that does not answer: a second cause, not #257** [device, an owner's XS, v0.6.0 and
   v0.6.1 with Diagnostics on, 9 starts]:
   - In 8 of 9 starts the first DAC write got no acknowledgement: `i2c: retrying address 22` ~100

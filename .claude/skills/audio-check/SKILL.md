@@ -69,12 +69,17 @@ Outputs silent, meters moving. Do not let the user switch off or reboot first. I
    channel's mix-minus (on = no tone on the return by design); fix those and `check` again. Still no
    tone: not the #257 pattern; read the start (`mixer-ssh`) before anything else.
 2. One read-only login (`mixer-ssh`): CPU temperature, the codec setup, PH2 low after it (the pin log).
-3. On the dev card only: the FPGA reload (`mixer-ssh`, "The #257 FPGA reload", with its read-only
-   checks), with the user's yes; then ask whether the sound is back. On another mixer: no reload,
-   ask the maintainer. It brought the sound back on 2026-11-19, where a restart of every service did not
-   (`notes/components/dspserver.md`, "A fifth silent start"). More silent starts are needed before
-   the mod does it by itself; write each result into that note.
-4. Still silent: `reboot` (known to help), with the user's yes.
+3. On the dev card only, with the user's yes for each command: `systemctl stop dspserver`, wait
+   ~6 s, `systemctl start dspserver` (no other service, no FPGA). It resets the USB chip (PI14,
+   #88): the user replugs USB and `list` shows the pairs again before the sound is judged, or the
+   user listens to Bluetooth, which does not go over USB. Then ask whether the sound is back. A
+   restart of every service with dspserver down ~6 s, then a replug, brought it back on 2026-11-20
+   (`notes/components/dspserver.md`, "A sixth silent start").
+4. Still silent: the FPGA reload (`mixer-ssh`, "The #257 FPGA reload", with its read-only checks),
+   with the user's yes, judged the same way; it brought the sound back on 2026-11-19 ("A fifth
+   silent start"). On another mixer: no restart or reload, ask the maintainer. More silent starts
+   are needed before the mod does anything by itself; write each result into that note.
+5. Still silent: `reboot` (known to help), with the user's yes.
 
 ## Report
 
