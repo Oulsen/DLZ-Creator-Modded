@@ -374,8 +374,9 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
     Bluetooth sources [user]; which one after A there is not known. With USB, A was never really
     tested there and the FPGA conclusion above is not settled; with Bluetooth (not over USB), A
     failed there and worked here [guess either way]. Candidates now: the FPGA reload (fifth start), a dspserver down long
-    enough (~6 s with PH0 and PI14 low), or a setup without a PH2 drop (A and B here, B in the
-    fifth; the fourth start's restart that failed had a drop inside its setup).
+    enough (~6 s with PH0 and PI14 low), or a setup without a PH2 drop (A here; the fourth start's
+    restart that failed had a drop inside its setup; A and B in the fifth had none, so this one holds
+    only if A there was judged over USB).
   - **Next silent start**: judge the sound only with USB working (replug after any step that resets
     it, `audio-check` `list`) or with Bluetooth, which does not go over USB. Then
     `systemctl stop dspserver`, wait ~6 s, `systemctl start dspserver` (no FPGA, no other service);
