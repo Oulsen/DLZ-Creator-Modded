@@ -268,7 +268,8 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   setup, whether the sound stayed is not known. The owner's silent starts are the first start of
   the day, after 12-16 h off [user report]. So a cold board is the lead for #257 [guess: 2 cold
   silent starts, this one and the fourth (next point, 28 °C), against warm starts with sound; the
-  saved logs hold no temperature for the 2026-11-14 silent starts]. Mechanism unknown; a cold crystal, PLL or regulator settles more slowly, and the
+  saved logs hold no temperature for the 2026-11-14 silent starts; a cold start with sound and no PH2
+  drop on 2026-11-21 (below) shows cold is not enough on its own]. Mechanism unknown; a cold crystal, PLL or regulator settles more slowly, and the
   setup waits a fixed 5 ms after PLL_AUDIO without its lock bit (above) [guess]. Mackie's repair
   loop (PH2 low → set the AKM chips up again) only runs after `Done.`, so it does not see the drop;
   it redoes less than the restart that did not help twice ("A restart while the mixer runs").
@@ -382,6 +383,14 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
     `systemctl stop dspserver`, wait ~6 s, `systemctl start dspserver` (no FPGA, no other service);
     sound back = a long enough dspserver stop, which the mod could do itself; still silent = the FPGA
     reload (B), then reboot.
+- **A cold start with sound: cold alone does not make #257** [device, XS dev card, v0.7.0-dev,
+  2026-11-21]: off ~18.5 h (the previous start's last line at 23:00, the clock jumped to 17:30 the
+  next day at the NTP sync), CPU 27.0 °C when the pin log started and **28.1 °C at the setup**, as
+  cold as starts 3-6 (28-31 °C). One codec setup (PH0 → PH1 76 ms, DAC answered, no I2C retry),
+  `Audio initialisation is done.` at 30.47 s, glesgui `Client connected` at ~31 s, `Done.` at ~34 s,
+  **no PH2 drop** (no PH pin change after the setup), sound on the first start [user]. So a cold
+  board is not enough on its own; the PH2 drop still marks every silent start with the pin log (6 of
+  6) and none of the starts known to have sound. What makes PH2 drop in some cold starts and not in others is open.
 - **A DAC that does not answer: a second cause, not #257** [device, an owner's XS, v0.6.0 and
   v0.6.1 with Diagnostics on, 9 starts]:
   - In 8 of 9 starts the first DAC write got no acknowledgement: `i2c: retrying address 22` ~100
