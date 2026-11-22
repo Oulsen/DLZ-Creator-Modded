@@ -148,6 +148,89 @@ APP_PATCHES = [
         "canvasWebsocket.onopen=()=>{DLZMOD_fgEmpty=!1,canvasWebsocketOpen=!0,",
     ),
     (
+        # #20: asleep, a touch on the dark screen does nothing (DLZMOD_sleepTouch); awake, the
+        # server hears of touches for the idle timer
+        "sleep: touches dropped while asleep",
+        "canvasWebsocket.onmessage=t=>{let e=t.data;if(!e)return;",
+        "canvasWebsocket.onmessage=t=>{let e=t.data;if(!e)return;if(DLZMOD_sleepTouch(e))return;",
+    ),
+    (
+        # #20: a seventh Control mode in the pad editor, Sleep (ctrl.mode "sleep"; the server's
+        # DLZMOD_sleepCmd acts on it, stock's PADPRSD ignores a mode it does not know). Seven buttons
+        # narrower than stock's six, so they fit the page (DLZMOD_padModeX)
+        "sleep: the pad editor's Sleep mode, the buttons",
+        "let e=[lang.CENSOR,lang.MUTE_GROUP,lang.LOCALS_ONLY,lang.INTERCOM,lang.FADE,lang.DUCKING],"
+        "i=[E_PAD_CONTROL_MODE.CENSOR,E_PAD_CONTROL_MODE.MUTE,E_PAD_CONTROL_MODE.LOCALS,"
+        "E_PAD_CONTROL_MODE.INTERCOM,E_PAD_CONTROL_MODE.FADE,E_PAD_CONTROL_MODE.DUCKING],"
+        "s=[ICON_FONT.censor,$FA.volume_mute,ICON_FONT.locals,ICON_FONT.intercom,ICON_FONT.fade,ICON_FONT.ducking];"
+        "e.forEach(((e,a)=>{this.modes.push(new E1ToggleButton(this,{anchors:[98*(a-2.5)|0,60,null,null,!0],"
+        "round:6,size:[96,100],",
+        "let e=[lang.CENSOR,lang.MUTE_GROUP,lang.LOCALS_ONLY,lang.INTERCOM,lang.FADE,lang.DUCKING,DLZMOD_sleepLabel()],"
+        "i=[E_PAD_CONTROL_MODE.CENSOR,E_PAD_CONTROL_MODE.MUTE,E_PAD_CONTROL_MODE.LOCALS,"
+        "E_PAD_CONTROL_MODE.INTERCOM,E_PAD_CONTROL_MODE.FADE,E_PAD_CONTROL_MODE.DUCKING,\"sleep\"],"
+        "s=[ICON_FONT.censor,$FA.volume_mute,ICON_FONT.locals,ICON_FONT.intercom,ICON_FONT.fade,ICON_FONT.ducking,DLZMOD_sleepIcon()];"
+        "e.forEach(((e,a)=>{this.modes.push(new E1ToggleButton(this,{anchors:[DLZMOD_padModeX(a),60,null,null,!0],"
+        "round:6,size:[DLZMOD_padModeW(),100],",
+    ),
+    (
+        # the names a size smaller in the narrower buttons ("Mute Group" filled stock's at 12pt)
+        "sleep: the pad editor's Sleep mode, the names' size",
+        'border:2,font:Font.font(600,"12pt"),text:wrapText(e,12,10)',
+        'border:2,font:Font.font(600,"11pt"),text:wrapText(e,12,10)',
+    ),
+    (
+        "sleep: the pad editor's Sleep mode, its icon",
+        'iconFont:1==a?Font.fa("54px"):0==a?Font.svg("42px"):getIconFont(s[a],"46px"),iconX:46,',
+        'iconFont:6==a?Font.fa("40px"):1==a?Font.fa("54px"):0==a?Font.svg("42px"):getIconFont(s[a],"46px"),'
+        "iconX:DLZMOD_padModeW()/2|0,",
+    ),
+    (
+        "sleep: a sleep pad's name on the pads page",
+        'i=["censor","mute","locals","intercom","fade","ducking"].indexOf(e)||0;'
+        "this.type=[lang.CENSOR,lang.MUTE_GROUP,lang.LOCALS_ONLY,lang.INTERCOM,lang.FADE,lang.DUCKING][i]||\"\"",
+        'i=["censor","mute","locals","intercom","fade","ducking","sleep"].indexOf(e)||0;'
+        "this.type=[lang.CENSOR,lang.MUTE_GROUP,lang.LOCALS_ONLY,lang.INTERCOM,lang.FADE,lang.DUCKING,DLZMOD_sleepLabel()][i]||\"\"",
+    ),
+    (
+        # Toggle / Hold means nothing for Sleep: the pad editor's Pad Behavior row hidden for it
+        # (DLZMOD_sleepBehavior), when the editor shows a Control pad and when its mode is picked
+        "sleep: no Pad Behavior for a sleep pad, the editor",
+        'case E_PAD_MODE.CONTROL:this.bBehavior.forEach((t=>{t.show(),t.setKey(e+"ctrl.hold")})),'
+        "this.bAssign.forEach((t=>t.hide()));break;",
+        'case E_PAD_MODE.CONTROL:this.bBehavior.forEach((t=>{t.show(),t.setKey(e+"ctrl.hold")})),'
+        "this.bAssign.forEach((t=>t.hide())),DLZMOD_sleepBehavior(this);break;",
+    ),
+    (
+        "sleep: no Pad Behavior for a sleep pad, the mode buttons",
+        "groupIndex:i[a],triggerOnUp:!1,onToggle:()=>{this.sync(!0),t.update()}",
+        "groupIndex:i[a],triggerOnUp:!1,onToggle:()=>{this.sync(!0),DLZMOD_sleepBehavior(t),t.update()}",
+    ),
+    (
+        # #20: the brightness panel's three sliders closer together (stock: from 65, 125 apart), so
+        # Sleep After fits under them (DLZMOD_brightRow)
+        "sleep: the brightness sliders closer together, the first",
+        "let t=65;this.sl0=new E1HSlider(this,{anchors:[h,t,h,null]",
+        "let t=DLZMOD_brightRow(0);this.sl0=new E1HSlider(this,{anchors:[h,t,h,null]",
+    ),
+    (
+        "sleep: the brightness sliders closer together, the others",
+        "anchors:[h,t+=125,h,null],color:Color.knobs[",
+        "anchors:[h,t+=DLZMOD_brightRow(1)-DLZMOD_brightRow(0),h,null],color:Color.knobs[",
+        2,
+    ),
+    (
+        # #20: Settings, System, the brightness panel: Sleep After and Sleep Now under the sliders
+        # (DLZMOD_sleepRow), with the mod's mark
+        "sleep: Sleep After and Sleep Now on the brightness panel",
+        'label:lang.DIM_BRIGHTNESS,key:"settings.brightness.dim"});',
+        'label:lang.DIM_BRIGHTNESS,key:"settings.brightness.dim"}),DLZMOD_sleepRow(this,h);',
+    ),
+    (
+        "sleep: the mod's mark on the brightness panel",
+        "this.widgets.forEach((e=>{e.label&&t.drawText(e.label,27,e.y-12)}))}}),this.bt=new Widget",
+        "this.widgets.forEach((e=>{e.label&&t.drawText(e.label,27,e.y-12)})),DLZMOD_sleepMark(t,this)}}),this.bt=new Widget",
+    ),
+    (
         "full redraw: a strip's background",
         "paint(t){t.fRect(this.bgColor,0,0,this.w,this.h),t.strokeStyle=Color.stripBorder,",
         "paint(t){DLZMOD_bgNeeded(this)&&t.fRect(this.bgColor,0,0,this.w,this.h),t.strokeStyle=Color.stripBorder,",
@@ -697,6 +780,13 @@ APP_PATCHES = [
         "case E_PAD_CONTROL_MODE.DUCKING:e.drawText(wrapText(lang.DUCKING_TEXT,52,24),i,s+80,{...n})}",
         "case E_PAD_CONTROL_MODE.DUCKING:DLZMOD_duckPaint(this,e)}",
     ),
+    (
+        # #20: what the Sleep mode does, where stock writes each mode's text (i, s, n: its place, style)
+        "sleep: the pad editor's Sleep mode, its text",
+        "case E_PAD_CONTROL_MODE.DUCKING:DLZMOD_duckPaint(this,e)}",
+        "case E_PAD_CONTROL_MODE.DUCKING:DLZMOD_duckPaint(this,e);break;"
+        'case"sleep":e.drawText(wrapText(DLZMOD_sleepPadText(),52,24),i,s+80,{...n})}',
+    ),
     # #24 any source on any stereo strip (DLZMOD_src*): the key in the app's state, one source button
     # in place of the 2-3 of each layout (Pro's Setup page and Standard's: the player panel, input2), the
     # mix-minus switch on every stereo strip and greyed out on a local source, and a virtual
@@ -879,10 +969,11 @@ SERVER_PATCHES = [
         # #47: Mackie's file commands take paths and names from any client unchecked (notes/system.md,
         # "Access and security"; notes/mod.md). Every command passes DLZMOD_cmdAllowed first: file
         # commands only from the mixer's own screen, preset folders and names checked for everyone;
-        # a refused one answers false
-        "files: commands checked (DLZMOD_cmdAllowed)",
+        # a refused one answers false. #20: before it, a button or pad from the control surface that
+        # wakes the mixer, or a sleep pad, is dropped there (DLZMOD_sleepCmd)
+        "files: commands checked (DLZMOD_cmdAllowed); sleep (DLZMOD_sleepCmd)",
         'let a=e.cmd;if("function"!=typeof pa[a])',
-        'let a=e.cmd;{let r=DLZMOD_cmdAllowed(pa,a,e.args,t.send,[ce("sd"),ce("usb")]);'
+        'let a=e.cmd;if(DLZMOD_sleepCmd(e,t))return;{let r=DLZMOD_cmdAllowed(pa,a,e.args,t.send,[ce("sd"),ce("usb")]);'
         'if(r)return console.error("dlzmod: refused",a,r),void t.send({cmd:a,id:e.id,data:!1})}'
         'if("function"!=typeof pa[a])',
     ),
@@ -891,10 +982,12 @@ SERVER_PATCHES = [
         # A refused key is also taken out of the message: after this loop stock passes the whole
         # message on to every socket.io client, dspserver included (entries() is a copy, so deleting
         # while looping is safe). The same for a knob's stand-in key caught for a mod page (#238).
-        # Before it, a level from a channel knob or fader goes to the channel chosen for it (#23)
+        # Before it, a level from a channel knob or fader goes to the channel chosen for it (#23), and
+        # before that a control-surface key wakes a sleeping mixer (#20, DLZMOD_sleepKeys: a mute, solo
+        # or lock that wakes it is taken out)
         "files: data keys checked (DLZMOD_keyAllowed)",
         "for(const[a,i]of Object.entries(e))if(null!=a){",
-        "DLZMOD_ctlRemap(e,t);for(const[a,i]of Object.entries(e))if(null!=a&&(DLZMOD_keyAllowed(a,i,t.send)||(delete e[a],!1))&&(!DLZMOD_knobCatch(a,i,t)||(delete e[a],!1))){",
+        "DLZMOD_sleepKeys(e,t);DLZMOD_ctlRemap(e,t);for(const[a,i]of Object.entries(e))if(null!=a&&(DLZMOD_keyAllowed(a,i,t.send)||(delete e[a],!1))&&(!DLZMOD_knobCatch(a,i,t)||(delete e[a],!1))){",
     ),
     (
         # #276: the pads' mute on the screen. Stock refuses s.mute from a client (the pads had no mute
@@ -1002,7 +1095,7 @@ SERVER_PATCHES = [
         # #220: the USB stick From USB Stick... copies from
         'a=e();a.use(DLZMOD_noOrig);a.use(DLZMOD_remoteHttp);'
         'a.use(DLZMOD_recHttp((()=>[ce("sd"),ce("usb")])));a.use(DLZMOD_updateUpload((()=>ce("sd"))));'
-        'DLZMOD_bootlogCopy((()=>ce("sd")));DLZMOD_releaseWatch((()=>ce("sd")),6e4,(()=>ce("usb")));'
+        'DLZMOD_bootlogCopy((()=>ce("sd")));DLZMOD_releaseWatch((()=>ce("sd")),6e4,(()=>ce("usb")));DLZMOD_sleepStart();'
         'return a.get("/app.js",',
     ),
     (
@@ -1041,6 +1134,8 @@ SERVER_PATCHES = [
         # #55: Check for Updates / Download Update on the Mod page, from the screen and paired
         # devices (DLZMOD_release); not awaited, a download takes a while
         "DLZMOD_RELEASE(e,t,a,i){DLZMOD_release(e,i)},"
+        # #20: Sleep Now and the screen's touches for the idle timer, from the mixer's own screen (i)
+        "DLZMOD_SLEEP(e,t,a,i){DLZMOD_sleepCommand(e,i)},"
         "async FIRMWARE_UPDATE_SUCCESS_OK(){",
     ),
     # #25 the fourth EQ band: its keys, with their conversions, in the two copies of Mackie's state

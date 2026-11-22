@@ -492,6 +492,56 @@ on both graphs [static, `tests/graph-check.js`]; tried on the XS only, the full-
   limiter's settings survive it [static: server.js `FACTORY_RESET`].
 - Open: the DSP cost of the gate and the limiter [measure on the mixer, `dev/dsp-headroom.sh`].
 
+## Sleep mode (#20)
+
+The screen and every LED off, everything else running (sound, USB, Bluetooth, recording). Both
+models: one code path, the same brightness keys and backlight driver [static]; tried on the XS.
+
+- **Into sleep**: Sleep Now (Settings → System, the brightness panel; only on the mixer's own
+  screen), a pad in Control mode set to **Sleep** (`ctrl.mode` "sleep", a seventh mode in the pad
+  editor), or Sleep After (`dlzmod.sleepAfter`, minutes: Off / 10 / 15 / 30 / 60, Off by default:
+  asleep, the mute lights are dark too); any other value (a device, a backup) counts as Off. The
+  timer counts hands on the mixer (control-surface input, touches reported by the screen at most
+  every 10 s, a change from the screen or a paired device), not audio, and never runs out while
+  `DLZMOD_recBusy` (recording, the sample recorder) [static, tests]. No sleep while faderlink is not
+  connected (`DLZMOD_ctlFader`): only the control surface wakes it.
+- **Screen**: `bl_power` 4 / 0 written by the server (`DLZMOD_sleepBacklight`); fully black on the
+  XS [device]. The server writes 0 at its start, so a crash while asleep cannot leave it dark.
+- **LEDs**: sent to faderlink alone (`DLZMOD_ctlFaderSend`), never into the state, so a switch-off
+  while asleep saves nothing dark: `lit`, `button`, `k` -2 and `dim` 0 (the GD32's 0 is a 60 %
+  floor, -2 is off: faderlink.md), the pads -2, or 0 (their lowest) when the bank shown has a sleep
+  pad, which then keeps its own idle colour (stock's dimmed one for an inactive Control pad; `DLZMOD_SLEEP_GLOW`, `DLZMOD_sleepDim`) while the others go black, the
+  channel LEDs (mute, solo, colour under the controls' stock keys: the colour strips under the
+  knobs too) off, the knob rings (`K.N.color`) black and every `*.blink` 0 (`DLZMOD_sleepLeds`; a
+  colour or blink key only when the state has it, so waking can give it back).
+  `settings.brightness.strip` (both GD32 firmwares read it) is left alone: stock never sends it, so
+  there is no value to give back, and black colours already turn its LEDs off. While asleep, whatever stock sends that would light one of those
+  goes dark again after it (`DLZMOD_sleepOut`, from `DLZMOD_ctlLeds`, which sends no LED keys of its
+  own then); faderlink reconnecting, or a bank change, gets all of it again. faderlink keeps what it
+  is sent, so waking sends the state's values back for every bank sent dark, the channel LEDs as the
+  controls show them (#23).
+- **Waking**: any button, pad, knob or fader. `DLZMOD_sleepCmd` (before `DLZMOD_cmdAllowed`) drops a
+  `PADPRSD` / `HWREC` / `ALT` / `BMSG` from faderlink that wakes the mixer, and its release (a
+  release never seen is forgotten at that control's next press); `DLZMOD_sleepKeys` (before
+  `DLZMOD_ctlRemap`, faderlink's connection only: dspserver, also local, writes keys a knob may
+  point at) drops a mute, solo, lock or `pad.*` key (the GD32 firmwares of both models build
+  `{"pad.` messages [static]) that wakes it, while a level or a side knob's key wakes it and still
+  moves (dropping it would leave faderlink's own copy out of step). Bluetooth's state from
+  faderlink is no input. Touch does not wake it: the
+  screen drops touches while `dlzmod.sleep` is 1 (`DLZMOD_sleepTouch` in glesgui's touch path; a
+  release still goes through, so nothing stays held). `dlzmod.sleep` is set by the server alone
+  (`DLZMOD_keyAllowed` refuses it from every client); a 1 left in `srv_data.json` by a switch-off
+  while asleep is put back to 0 within 10 s of the start (`DLZMOD_sleepTick`).
+- **The sleep pad**: its press while awake sleeps (the release is dropped); stock's `PADPRSD` does
+  nothing for a mode it does not know. Under the System Lock it does nothing, like every pad.
+- Both models: the channel LEDs come from the model's own controls table (`DLZMOD_ctlStock`: 5
+  knobs on the XS, 9 faders on the full-size); the full-size path is covered by the unit tests
+  (lite 0), tried on the XS only.
+- Tried by hand on the XS through the hub, with the screen dark (faderlink.md): these keys turn
+  every LED off, except a faint red glow in Home, REC and AUTOMIX that no key reaches [guess: LED
+  hardware leakage]. `hw_rec`/`hw_amix` are left alone (a recording's REC keeps blinking red).
+- Open: the full sleep on the dev card (the LED-only keys, how the sleep pad's glow looks) [device].
+
 ## Mod settings (Settings → DLZ Creator Modded)
 
 Sub-tabs Display / Colors / Time / Network / Remote / Mod (a browser: Display / Colors / Time / Mod); layout and how to add a setting:

@@ -485,6 +485,8 @@ function DLZMOD_cmdAllowed(handlers, cmd, args, send, roots) {
 // from other devices plain
 function DLZMOD_keyAllowed(key, value, send) {
   if (key === "__proto__" || key === "constructor" || key === "prototype") return false;
+  // #20: whether the mixer sleeps is the server's to say (DLZMOD_sleepSet), from no client
+  if (key === "dlzmod.sleep") return false;
   const local = !!(send && send.dlzmodLocal === true);
   if (!local && /(^|\.)(file|recFile|currentFileName)$/i.test(key)) return false;
   if (!local && (key === "lock" || /^dlzmod\.(theme|bgColor|faderColor|rta)$/.test(key))) return false;
@@ -650,9 +652,13 @@ function DLZMOD_ctlLeds(msg, conn, get = globalThis.getDataKey, lite = globalThi
         if (all || fader || own(s) || own(map[n])) out[s + "." + what] = DLZMOD_ctlLedOf(map[n], what, get);
       }
     });
-    DLZMOD_ctlFaderSend(out);
+    // #20: asleep, the LEDs stay dark (waking sends them all, as the controls show them)
+    if (!DLZMOD_sleepState().on) DLZMOD_ctlFaderSend(out);
   } catch (e) {
     console.error("dlzmod: controls:", e.message);
+  } finally {
+    // #20: asleep, what lights an LED goes dark again after it
+    DLZMOD_sleepOut(msg, get, lite);
   }
 }
 
@@ -700,6 +706,261 @@ function DLZMOD_knobCatch(key, value, hub, get = globalThis.getDataKey, set = gl
     set(key, 0.5);
   }
   return true;
+}
+
+// #20 Sleep mode: the screen and the LEDs off, the sound and everything else running. The screen's
+// backlight off at the driver (bl_power 4: fully dark, notes/hardware.md; the brightness slider's
+// lowest level is not); the LEDs off with keys sent to faderlink alone (DLZMOD_ctlFaderSend), never
+// into the state: a switch-off while asleep saves nothing dark. The GD32 turns lit, button, k and pad
+// 0..1 into 60..100 % and anything below -1.5 into off, dim 0 into off (notes/components/faderlink.md):
+// those get -2 and 0, and the states and colours go off or black too. A pad set to Sleep (a pad's
+// Control mode, ctrl.mode "sleep") stays lit, dimly (its idle colour, the pads at their lowest), to show where to press.
+// Home, REC and AUTOMIX keep a faint red glow no key turns off (the LED hardware, faderlink.md).
+// Asleep: touch does nothing (the screen drops it, dlzmod.js), any button, pad, knob or fader wakes
+// the mixer; a button or pad press that wakes does nothing else, a knob or fader keeps working.
+// dlzmod.sleep (0/1) says it to the screens; only this server sets it. dlzmod.sleepAfter: minutes
+// without a hand on the mixer before it sleeps by itself (0: never), not while it records.
+var DLZMOD_SLEEP_BL = "/sys/class/backlight/backlight/bl_power";
+var DLZMOD_SLEEP_OFF = -2;    // lit, button, k, pad: off (at 0 the GD32 still lights them at 60 %)
+var DLZMOD_SLEEP_GLOW = 1;    // the sleep pad keeps its idle colour (stock's already dimmed one), at the pads' lowest brightness (0)
+var DLZMOD_SLEEP_CMDS = ["PADPRSD", "HWREC", "ALT", "BMSG"];
+var DLZMOD_SLEEP_TOUCH_MS = 10000;   // the screen reports touches at most this often (dlzmod.js)
+
+// on: asleep; last: the last hand on the mixer (monotonic ms); eat: presses whose release is dropped
+// too; banks: the pad banks sent dark (a bank changed while asleep: each gets its colours back)
+function DLZMOD_sleepState() {
+  return (DLZMOD_sleepState.s = DLZMOD_sleepState.s || { on: false, last: DLZMOD_monoNow(), eat: {}, banks: [], timer: null });
+}
+
+// the pads of a bank (the bank shown: the ones with LEDs): B.<bank>.<n>. as long as the state has them
+function DLZMOD_sleepPads(get, bank = get("bank")) {
+  const out = [];
+  for (let n = 0; n < 16 && get(`B.${bank}.${n}.mode`) !== undefined; n++) out.push(`B.${bank}.${n}.`);
+  return out;
+}
+
+function DLZMOD_sleepPadIs(prefix, get) {
+  return get(prefix + "mode") === 1 && get(prefix + "ctrl.mode") === "sleep";
+}
+
+// a #rrggbb colour times f (the sleep pad's glow, DLZMOD_SLEEP_GLOW); anything else: black
+function DLZMOD_sleepDim(hex, f) {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(hex || ""));
+  if (!m) return "#000000";
+  const n = parseInt(m[1], 16);
+  return "#" + [16, 8, 0].map((s) => Math.round(((n >> s) & 255) * f).toString(16).padStart(2, "0")).join("");
+}
+
+// what faderlink gets to go dark: lit, button, k and pad off (-2), dim 0, the pads black (a sleep
+// pad its idle colour, with the pads at their lowest brightness), the channel LEDs (mute, solo,
+// colour, under the controls' stock keys) off, the knob rings black, nothing blinking. Colour and
+// blink keys only when the state has them, so waking can give each back (settings.brightness.strip:
+// stock never sends it, so it has no value to go back to; the channels' colour strips go dark black)
+function DLZMOD_sleepLeds(get, lite) {
+  const pads = DLZMOD_sleepPads(get), glow = pads.some((p) => DLZMOD_sleepPadIs(p, get));
+  const off = DLZMOD_SLEEP_OFF;
+  const out = { "settings.brightness.lit": off, "settings.brightness.dim": 0, "settings.brightness.k": off,
+    "settings.brightness.button": off, "settings.brightness.pad": glow ? 0 : off };
+  const known = (key, v) => {
+    if (get(key) !== undefined) out[key] = v;
+  };
+  for (const p of pads) {
+    out[p + "colorhex"] = DLZMOD_sleepPadIs(p, get) ? DLZMOD_sleepDim(get(p + "colorhex"), DLZMOD_SLEEP_GLOW) : "#000000";
+    known(p + "blink", 0);
+  }
+  for (const s of DLZMOD_ctlStock(!!lite).slice(0, DLZMOD_ctlKnobs(!!lite))) {
+    out[s + ".mute"] = 0;
+    out[s + ".solo"] = 0;
+    out[s + ".colorhex"] = "#000000";
+    known(s + ".blink", 0);
+  }
+  for (let n = 0; n < 5; n++) {
+    known("K." + n + ".color", "#000000");
+    known("K." + n + ".blink", 0);
+  }
+  return out;
+}
+
+// the same keys back as the state has them (the channel LEDs as the controls show them, #23), and
+// the pads of every other bank sent dark while asleep
+function DLZMOD_sleepWakeLeds(get, lite, banks = []) {
+  const out = DLZMOD_sleepLeds(get, lite), { stock, map } = DLZMOD_ctlMapOf(get("dlzmod.controls"), !!lite);
+  for (const bank of banks) {
+    for (const p of DLZMOD_sleepPads(get, bank)) for (const k of ["colorhex", "blink"]) out[p + k] = 0;
+  }
+  for (const key of Object.keys(out)) {
+    const m = /^(.+)\.(mute|solo|colorhex)$/.exec(key), n = m ? stock.indexOf(m[1]) : -1;
+    if (n >= 0 && n < DLZMOD_ctlKnobs(!!lite)) out[key] = DLZMOD_ctlLedOf(map[n], m[2], get);
+    else if (get(key) !== undefined) out[key] = get(key);
+    else delete out[key];
+  }
+  return out;
+}
+
+function DLZMOD_sleepBacklight(off, write = require("fs").writeFileSync) {
+  try {
+    write(DLZMOD_SLEEP_BL, off ? "4" : "0");
+  } catch (e) {
+    console.error("dlzmod: sleep: backlight:", e.message);
+  }
+}
+
+// on: true to sleep, false to wake. Nothing when it already is so. No sleep without faderlink
+// connected: only the control surface wakes the mixer (touch does not), so it would stay dark
+function DLZMOD_sleepSet(on, get = globalThis.getDataKey, set = globalThis.setDataKey, lite = globalThis.isDLZLite,
+  write) {
+  const s = DLZMOD_sleepState();
+  s.last = DLZMOD_monoNow();
+  if (s.on === !!on) return;
+  if (on && !DLZMOD_ctlFader) return console.error("dlzmod: sleep: no control surface connected, staying awake");
+  s.on = !!on;
+  console.log("dlzmod: sleep:", s.on ? "asleep" : "awake");
+  DLZMOD_sleepBacklight(s.on, write);
+  if (s.on) {
+    s.banks = [get("bank")];
+    DLZMOD_ctlFaderSend(DLZMOD_sleepLeds(get, lite));
+  } else {
+    DLZMOD_ctlFaderSend(DLZMOD_sleepWakeLeds(get, lite, s.banks));
+    s.banks = [];
+  }
+  set("dlzmod.sleep", s.on ? 1 : 0);
+}
+
+// Asleep, whatever stock sends faderlink that would light an LED is sent dark again after it (called
+// at the end of DLZMOD_ctlLeds, which sees every message stock sends out); faderlink (re)connected:
+// all of it
+function DLZMOD_sleepOut(msg, get = globalThis.getDataKey, lite = globalThis.isDLZLite) {
+  try {
+    const s = DLZMOD_sleepState();
+    if (!msg || typeof msg !== "object" || !s.on || !DLZMOD_ctlFader) return;
+    const dark = DLZMOD_sleepLeds(get, lite);
+    if ("bank" in msg && !s.banks.includes(get("bank"))) s.banks.push(get("bank"));
+    if ("btStatus" in msg || "bank" in msg) return DLZMOD_ctlFaderSend(dark);
+    const out = {};
+    for (const key of Object.keys(msg)) if (key in dark) out[key] = dark[key];
+    DLZMOD_ctlFaderSend(out);
+  } catch (e) {
+    console.error("dlzmod: sleep:", e.message);
+  }
+}
+
+// A command from the control surface (faderlink: the local socket.io connection): true = drop it.
+// Awake: a press of a sleep pad puts the mixer to sleep, anything else counts as a hand on the mixer.
+// Asleep: a press wakes it and is dropped. A press's release goes the same way as the press.
+function DLZMOD_sleepCmd(m, conn, get = globalThis.getDataKey, set = globalThis.setDataKey, lite = globalThis.isDLZLite) {
+  try {
+    if (!m || !DLZMOD_SLEEP_CMDS.includes(m.cmd) || !DLZMOD_ctlLocalSio(conn)) return false;
+    const s = DLZMOD_sleepState(), a = m.args && typeof m.args === "object" ? m.args : {};
+    const id = m.cmd + ":" + (a.idx !== undefined ? a.idx : "");
+    const press = a.val === undefined || a.val === 1;
+    if (!press) {
+      if (!s.eat[id]) return false;
+      delete s.eat[id];
+      return true;
+    }
+    if (s.on) {
+      if (a.val === 1) s.eat[id] = true;
+      DLZMOD_sleepSet(false, get, set, lite);
+      return true;
+    }
+    // awake, a press of its own: a release still waited for was lost (faderlink restarted)
+    delete s.eat[id];
+    s.last = DLZMOD_monoNow();
+    if (m.cmd === "PADPRSD" && !get("lock") && DLZMOD_sleepPadIs("B." + get("bank") + "." + a.idx + ".", get)) {
+      s.eat[id] = true;
+      DLZMOD_sleepSet(true, get, set, lite);
+      return true;
+    }
+  } catch (e) {
+    console.error("dlzmod: sleep:", e.message);
+  }
+  return false;
+}
+
+// Keys from the control surface: a level or a knob's key counts as a hand on the mixer and wakes it,
+// and goes on; a button (mute, solo, lock) that wakes it is taken out (its LED comes back with the
+// rest on waking). Only those keys, and only from faderlink (DLZMOD_ctlFader): it also sends
+// Bluetooth's state, and dspserver, also local, writes keys a knob may point at (a gain after Auto
+// Gain); neither is a hand on the mixer. A pad sends pad.<n>.pressed next to its PADPRSD (both
+// models' GD32 firmware): the command wakes and sleeps (DLZMOD_sleepCmd), so the key never does (a
+// sleep pad's own key would wake the mixer it just put to sleep [device, XS]); asleep it is dropped
+function DLZMOD_sleepButtonKey(key) {
+  return key === "lock" || /\.(mute|solo)$/.test(key);
+}
+
+function DLZMOD_sleepPadKey(key) {
+  return /^pad\./.test(key);
+}
+
+function DLZMOD_sleepInputKey(key, get) {
+  if (DLZMOD_sleepButtonKey(key) || /\.mix$/.test(key)) return true;
+  for (let n = 0; n < 5; n++) if (get("K." + n + ".key") === key) return true;
+  return false;
+}
+
+function DLZMOD_sleepKeys(msg, conn, get = globalThis.getDataKey, set = globalThis.setDataKey, lite = globalThis.isDLZLite) {
+  try {
+    if (!msg || typeof msg !== "object" || !conn) return;
+    const s = DLZMOD_sleepState();
+    // a change from the screen or another device (a paired browser) is someone using the mixer too:
+    // the idle timer starts again (it does not wake it: Sleep Now is the screen's, waking the hardware's)
+    if (conn !== DLZMOD_ctlFader) {
+      if (!s.on && !DLZMOD_ctlLocalSio(conn) && Object.keys(msg).length) s.last = DLZMOD_monoNow();
+      return;
+    }
+    if (s.on) for (const key of Object.keys(msg)) if (DLZMOD_sleepPadKey(key)) delete msg[key];
+    const keys = Object.keys(msg).filter((k) => DLZMOD_sleepInputKey(k, get));
+    if (!keys.length) return;
+    if (!s.on) {
+      s.last = DLZMOD_monoNow();
+      return;
+    }
+    for (const key of keys) if (DLZMOD_sleepButtonKey(key)) delete msg[key];
+    DLZMOD_sleepSet(false, get, set, lite);
+  } catch (e) {
+    console.error("dlzmod: sleep:", e.message);
+  }
+}
+
+// DLZMOD_SLEEP from a screen: {sleep: 1} (Sleep Now) from the mixer's own screen; {touch: 1}: a hand
+// on its screen (the screen sends it at most every DLZMOD_SLEEP_TOUCH_MS while awake)
+function DLZMOD_sleepCommand(args, send, get = globalThis.getDataKey, set = globalThis.setDataKey) {
+  if (!(send && send.dlzmodLocal === true) || !args || typeof args !== "object") return;
+  if (args.sleep === 1) DLZMOD_sleepSet(true, get, set);
+  else if (args.touch === 1 && !DLZMOD_sleepState().on) DLZMOD_sleepState().last = DLZMOD_monoNow();
+}
+
+// the idle timer's check: due to sleep (dlzmod.sleepAfter minutes without a hand on the mixer, not
+// while it records). Only the screen's choices count (dlzmod.js, DLZMOD_sleepAfterItems): a device or
+// a backup with 0.1 must not put the mixer back to sleep 10 s after every wake
+var DLZMOD_SLEEP_AFTER = [10, 15, 30, 60];
+function DLZMOD_sleepDue(get, now = DLZMOD_monoNow()) {
+  const s = DLZMOD_sleepState(), min = get("dlzmod.sleepAfter");
+  return !s.on && DLZMOD_SLEEP_AFTER.includes(min) && now - s.last >= min * 60000 && !DLZMOD_recBusy(get);
+}
+
+// the idle timer's tick: a dlzmod.sleep left at 1 while awake (saved by a switch-off while asleep,
+// srv_data.json) back to 0, or the screen would drop every touch; then sleep when due
+function DLZMOD_sleepTick(get = globalThis.getDataKey, set = globalThis.setDataKey) {
+  if (!DLZMOD_sleepState().on && get("dlzmod.sleep")) set("dlzmod.sleep", 0);
+  if (DLZMOD_sleepDue(get)) DLZMOD_sleepSet(true, get, set);
+}
+
+// once, when the server starts: the backlight on (a server that ended while asleep left it off),
+// the tick at once and every 10 s
+function DLZMOD_sleepStart(every = 10000) {
+  const s = DLZMOD_sleepState();
+  DLZMOD_sleepBacklight(false);
+  const tick = () => {
+    try {
+      DLZMOD_sleepTick();
+    } catch (e) {
+      console.error("dlzmod: sleep:", e.message);
+    }
+  };
+  tick();
+  clearInterval(s.timer);
+  s.timer = setInterval(tick, every);
 }
 
 // #25: a snapshot saved with three bands has no band 4 keys, and loading sets only the keys it has:

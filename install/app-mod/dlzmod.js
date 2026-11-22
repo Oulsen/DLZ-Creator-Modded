@@ -92,7 +92,7 @@ function DLZMOD_keys() {
     "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0, "dlzmod.recDate": 0,
     "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "",
     "dlzmod.controls": "", "dlzmod.lim.bypass": 1, "dlzmod.lim.thresh": -1, "dlzmod.lim.release": 50, "dlzmod.lim.attack": 1,
-    "dlzmod.lim.ratio": 20, "dlzmod.lim.knee": 0 };
+    "dlzmod.lim.ratio": 20, "dlzmod.lim.knee": 0, "dlzmod.sleepAfter": 0, "dlzmod.sleep": 0 };
 }
 
 // The owner's own colours on top of the theme (#21): the background, and an accent colour for the
@@ -3874,6 +3874,95 @@ function DLZMOD_recDateRow() {
 // last ending 14 px above the panel's bottom (392)
 function DLZMOD_recRowY(i) {
   return 178 + 52 * i;
+}
+
+// #20 Sleep mode (dlzmod-server.js, DLZMOD_sleepSet): the screen and the LEDs off, the sound running.
+// dlzmod.sleep is the server's word on it. Asleep, the screen drops touches: its backlight is off,
+// and a touch would press what nobody sees. A release still goes through, so nothing stays held when
+// the mixer falls asleep under a finger. Awake, the server hears of a touch at most every 10 s, for
+// the idle timer (DLZMOD_SLEEP_TOUCH_MS there)
+function DLZMOD_sleepTouch(msg) {
+  const kind = String(msg).split("_")[0];
+  if (Data.get("dlzmod.sleep")) return kind !== "UP";
+  if (kind === "DOWN") {
+    const s = DLZMOD_sleepTouch, now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    if (s.sent === undefined || Math.abs(now - s.sent) >= 10000) {
+      s.sent = now;
+      $NET.cmd("DLZMOD_SLEEP", { touch: 1 });
+    }
+  }
+  return false;
+}
+
+// the pad editor's seventh Control mode (patch.py): its name, icon (Font Awesome's moon, in the
+// mixer's fa-solid font) and text, and the seven buttons' places: stock's six are 96 wide, 98 apart,
+// centred; seven of those would not fit the 590 px page
+function DLZMOD_sleepLabel() {
+  return "Sleep";
+}
+
+function DLZMOD_sleepIcon() {
+  return "";
+}
+
+function DLZMOD_padModeW() {
+  return 80;
+}
+
+function DLZMOD_padModeX(n) {
+  return 82 * (n - 3) | 0;
+}
+
+// the pad editor (Mackie's PagePadEdit): its Pad Behavior row (Toggle / Hold) hidden for a Control pad
+// set to Sleep, shown again for the other Control modes. The row's label follows its first button
+function DLZMOD_sleepBehavior(page) {
+  try {
+    const p = page.getPrefix();
+    if (Data.get(p + "mode") !== E_PAD_MODE.CONTROL) return;
+    const sleep = Data.get(p + "ctrl.mode") === "sleep";
+    page.bBehavior.forEach((b) => (sleep ? b.hide() : b.show()));
+    page.update();
+  } catch (e) {
+    console.error("dlzmod: sleep:", e.message);
+  }
+}
+
+function DLZMOD_sleepPadText() {
+  return "Press to put the mixer to sleep: the screen and the lights go off, the sound keeps running. " +
+    "This pad glows dimly while it sleeps. Any button, pad, knob or fader wakes it; the screen does not.";
+}
+
+// the brightness panel's rows (stock: three sliders from 65, 125 apart, in a panel ~370 high): the
+// sliders 88 apart from 55, then the Sleep After row (n = 3: its control's top)
+function DLZMOD_brightRow(n) {
+  return n < 3 ? 55 + 88 * n : 55 + 88 * 2 + 72;
+}
+
+// Settings, System, the brightness panel (patch.py): Sleep After (dlzmod.sleepAfter, minutes, Off by
+// default: asleep, the mute lights are dark too) and Sleep Now, under the three sliders. x: the
+// sliders' margin. Sleep Now only on the mixer's own screen (the server takes it from there alone)
+function DLZMOD_sleepRow(page, x) {
+  DLZMOD_initKeys();
+  const items = DLZMOD_sleepAfterItems(), y = DLZMOD_brightRow(3);
+  page.dlzmodSleep = DLZMOD_switchBox(page, x, y, 46, "dlzmod.sleepAfter", items.map((i) => i[0]), 44, "13pt");
+  page.dlzmodSleep.label = "Sleep After (minutes)";
+  // the key holds the minutes, not the choice's place (SwitchBox's values)
+  page.dlzmodSleep.values = items.map((i) => i[1]);
+  page.dlzmodSleepNow = new E1Button(page, {
+    anchors: [null, y, x, null], w: 108, h: 46, text: "Sleep Now", textColor: Color.white, visible: !DLZMOD_external(),
+    colors: [Color.buttonBg, DLZMOD_accent()], textColorON: "#000000",
+    textStyle: { font: Font.font(500, "13pt") },
+    onPress: () => $NET.cmd("DLZMOD_SLEEP", { sleep: 1 }),
+  });
+}
+
+// the choices: label, minutes
+function DLZMOD_sleepAfterItems() {
+  return [["Off", 0], ["10", 10], ["15", 15], ["30", 30], ["60", 60]];
+}
+
+function DLZMOD_sleepMark(t, page) {
+  if (page.dlzmodSleep) DLZMOD_stockMark(t, { geomCenterY: () => page.dlzmodSleep.y - 12 });
 }
 
 // #193: the player's title line (dspserver's "artist - title", the file name when there is no title)
