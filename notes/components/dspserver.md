@@ -389,8 +389,26 @@ The codec script names hint at the parts on the board: AKM ADC/DAC, Everest, ESS
   cold as starts 3-6 (28-31 °C). One codec setup (PH0 → PH1 76 ms, DAC answered, no I2C retry),
   `Audio initialisation is done.` at 30.47 s, glesgui `Client connected` at ~31 s, `Done.` at ~34 s,
   **no PH2 drop** (no PH pin change after the setup), sound on the first start [user]. So a cold
-  board is not enough on its own; the PH2 drop still marks every silent start with the pin log (6 of
-  6) and none of the starts known to have sound. What makes PH2 drop in some cold starts and not in others is open.
+  board is not enough on its own; the PH2 drop marked 6 of the 7 silent starts with the pin log (not
+  the seventh, next point) and none of the starts known to have sound. What makes PH2 drop in some cold starts and not in others is open.
+- **A seventh silent start, the fifth cold one: no PH2 drop, and a lone dspserver stop of ~15 s
+  brought the sound back** (#257) [device, XS dev card, 2026-11-22, a cold start]: CPU 28.4 °C when
+  the pin log started, 29.6 °C at the setup. One codec setup (PH2 → PH0 132 ms, PH0 → PH1 87 ms, no
+  I2C error or retry, audio PLL locked), `Audio initialisation is done.` at 30.73 s, glesgui `Client
+  connected` at 31.34 s, `Done.` at 34.44 s; **no PH pin change after the setup** (pin log running,
+  no failures). The USB tone came back on the main-mix return at -29 dBFS (after mix-minus on the
+  computer channel was switched off): only the analog outputs were silent, as in starts 3-6.
+  - The step from the sixth start: `systemctl stop dspserver` at 256.1 s (PH0 low), `systemctl start
+    dspserver` at 271.0 s, so PH0 was low ~15.7 s. A clean setup at 271.65-271.85 s (PH0 high +120
+    ms, PH1 +84 ms, CPU 39.6 °C), no PH2 drop; faderlink, glesgui and evolve-node not touched. After a
+    **USB replug, sound back** [user].
+  - So a dspserver stop alone is enough when it is long (~15 s here, ~6 s in the sixth start's A); the
+    fourth start's lone restart that failed was down 1.8 s and had a PH2 drop inside its setup. The
+    PH2 drop is not needed for a silent start, so it cannot be the mod's only trigger for a repair.
+    Which of the two (stop length, no drop in the new setup) matters is still open; the FPGA reload is
+    not needed for this.
+  - **Next silent start**: the same steps (USB check, one login, dspserver stop ~6 s / start, replug),
+    to see whether ~6 s is enough on its own.
 - **A DAC that does not answer: a second cause, not #257** [device, an owner's XS, v0.6.0 and
   v0.6.1 with Diagnostics on, 9 starts]:
   - In 8 of 9 starts the first DAC write got no acknowledgement: `i2c: retrying address 22` ~100

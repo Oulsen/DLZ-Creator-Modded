@@ -74,7 +74,8 @@ Outputs silent, meters moving. Do not let the user switch off or reboot first. I
    #88): the user replugs USB and `list` shows the pairs again before the sound is judged, or the
    user listens to Bluetooth, which does not go over USB. Then ask whether the sound is back. A
    restart of every service with dspserver down ~6 s, then a replug, brought it back on 2026-11-20
-   (`notes/components/dspserver.md`, "A sixth silent start").
+   (`notes/components/dspserver.md`, "A sixth silent start"), and this step alone (down ~15 s) on
+   2026-11-22 ("A seventh silent start").
 4. Still silent: the FPGA reload (`mixer-ssh`, "The #257 FPGA reload", with its read-only checks),
    with the user's yes, judged the same way; it brought the sound back on 2026-11-19 ("A fifth
    silent start"). On another mixer: no restart or reload, ask the maintainer. More silent starts
