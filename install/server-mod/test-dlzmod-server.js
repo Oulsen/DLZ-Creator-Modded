@@ -824,7 +824,7 @@ test("files: data keys: no prototype keys, file paths only from the screen, trac
 });
 test("files: a refused key is taken out of the message stock passes on to dspserver (patch.py's loop)", () => {
   const src = fs.readFileSync(path.join(__dirname, "..", "patch.py"), "utf8");
-  const m = /"(?:DLZMOD_ctlRemap\(e,t\);)?(for\(const\[a,i\]of Object\.entries\(e\)\)if\(null!=a&&\(DLZMOD_keyAllowed[^"]*)"/.exec(src);
+  const m = /"(?:DLZMOD_sleepKeys\(e,t\);)?(?:DLZMOD_ctlRemap\(e,t\);)?(for\(const\[a,i\]of Object\.entries\(e\)\)if\(null!=a&&\(DLZMOD_keyAllowed[^"]*)"/.exec(src);
   assert.ok(m, "key loop patch found in patch.py");
   const loop = new vm.Script(m[1] + "stored.push(a)}");
   const run = (e, send) => {
@@ -3400,7 +3400,7 @@ test("knob stand-in: a jump no turn makes moves nothing", () => {
 // #23: a level from faderlink goes to the channel its knob (XS) or fader (full-size) is set to
 test("controls: patch.py remaps a message before stock's key loop, on socket.io connections only", () => {
   const src = fs.readFileSync(path.join(__dirname, "..", "patch.py"), "utf8");
-  assert.ok(/"DLZMOD_ctlRemap\(e,t\);for\(const\[a,i\]of Object\.entries\(e\)\)/.test(src), "before the loop");
+  assert.ok(/"DLZMOD_sleepKeys\(e,t\);DLZMOD_ctlRemap\(e,t\);for\(const\[a,i\]of Object\.entries\(e\)\)/.test(src), "before the loop");
   assert.ok(src.includes("t.send.dlzmodSio=!0;"), "socket.io connections stamped");
 });
 test("controls: a knob or fader moves its level to the chosen channel, both models", () => {
@@ -3880,6 +3880,215 @@ test("logs download: a large file goes in 64 KB pieces, whole; a recording that 
 test("logs download: other paths go on as before", async () => {
   assert.strictEqual(recCall({}, ["-", "-"], "/dlzmod-logs.tarx"), "next");
   assert.strictEqual(recCall({}, ["-", "-"], "/dlzmod-logs"), "next");
+});
+
+// #20 sleep mode: a mixer's state (XS: 6 pads in bank 0, pad 2 a sleep pad when asked), faderlink
+// catching what it gets, the backlight written to a list
+const sleepRig = (o = {}) => {
+  const state = { bank: 0, "dlzmod.controls": "", "dlzmod.sleep": 0, "settings.brightness.lit": 0.8,
+    "settings.brightness.dim": 0.25, "settings.brightness.k": 0.8, "settings.brightness.pad": 0.8,
+    "settings.brightness.button": 0.7, "i.0.mute": 1, "i.0.colorhex": "#ea1a5b", ...o };
+  for (let n = 0; n < 6; n++) {
+    state[`B.0.${n}.mode`] = 0;
+    state[`B.0.${n}.colorhex`] = "#123456";
+  }
+  if (o.sleepPad !== false) {
+    state["B.0.2.mode"] = 1;
+    state["B.0.2.ctrl.mode"] = "sleep";
+  }
+  const r = { state, sent: [], bl: [], get: (k) => state[k], set: (k, v) => (state[k] = v) };
+  // faderlink's connection: what the hub sends it lands in r.sent too
+  const sio = (m) => r.sent.push(plain(m));
+  sio.dlzmodLocal = true;
+  sio.dlzmodSio = true;
+  r.conn = { send: sio };
+  ctx.DLZMOD_sleepState.s = null;
+  ctx.DLZMOD_ctlMapOf.last = null;
+  ctx.DLZMOD_ctlFader = { send: (m) => r.sent.push(plain(m)) };
+  ctx.DLZMOD_sleepBacklight = (off) => r.bl.push(off ? 4 : 0);
+  r.cmd = (cmd, args) => ctx.DLZMOD_sleepCmd({ cmd, args }, r.conn, r.get, r.set, 1);
+  r.flush = () => new Promise((res) => setImmediate(res));
+  return r;
+};
+const sleepBacklight0 = ctx.DLZMOD_sleepBacklight;
+const sleepDone = () => {
+  ctx.DLZMOD_ctlFader = null;
+  ctx.DLZMOD_sleepState.s = null;
+  ctx.DLZMOD_sleepBacklight = sleepBacklight0;
+};
+
+test("sleep: the LEDs dark, the sleep pad keeps its colour and glows, the backlight off", async () => {
+  const r = sleepRig();
+  try {
+    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    await r.flush();
+    assert.deepStrictEqual(r.bl, [4]);
+    assert.strictEqual(r.state["dlzmod.sleep"], 1);
+    const d = r.sent[0];
+    for (const k of ["lit", "dim", "k", "button"]) assert.strictEqual(d["settings.brightness." + k], 0, k);
+    assert.strictEqual(d["settings.brightness.pad"], 0.2, "the pads low: the sleep pad's glow");
+    assert.strictEqual(d["B.0.0.colorhex"], "#000000");
+    assert.ok(!("B.0.2.colorhex" in d), "the sleep pad keeps its colour");
+    assert.strictEqual(d["i.0.mute"], 0, "a lit mute LED off");
+    assert.strictEqual(d["i.0.colorhex"], "#000000");
+    assert.ok(!("settings.brightness.screen" in d), "the screen's brightness is not touched");
+    assert.strictEqual(r.state["settings.brightness.lit"], 0.8, "nothing dark in the state");
+  } finally {
+    sleepDone();
+  }
+});
+test("sleep: no sleep pad, all pads dark", async () => {
+  const r = sleepRig({ sleepPad: false });
+  try {
+    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    await r.flush();
+    assert.strictEqual(r.sent[0]["settings.brightness.pad"], 0);
+    assert.strictEqual(r.sent[0]["B.0.2.colorhex"], "#000000");
+  } finally {
+    sleepDone();
+  }
+});
+test("sleep: waking sends the state's values back, as the controls show them", async () => {
+  const r = sleepRig({ "dlzmod.controls": "i.0=v.0,v.0=i.0", "v.0.mute": 0, "v.0.color": 3 });
+  try {
+    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    ctx.DLZMOD_sleepSet(false, r.get, r.set, 1);
+    await r.flush();
+    assert.deepStrictEqual(r.bl, [4, 0]);
+    assert.strictEqual(r.state["dlzmod.sleep"], 0);
+    const w = r.sent[1];
+    assert.strictEqual(w["settings.brightness.lit"], 0.8);
+    assert.strictEqual(w["settings.brightness.pad"], 0.8);
+    assert.strictEqual(w["B.0.0.colorhex"], "#123456");
+    assert.strictEqual(w["i.0.mute"], 0, "knob 1 shows 9/10's mute");
+    assert.strictEqual(w["i.0.colorhex"], "#f0582a", "and its colour");
+    assert.ok(!("B.0.0.blink" in w), "a key the state does not have is not sent");
+  } finally {
+    sleepDone();
+  }
+});
+test("sleep: a sleep pad's press sleeps, its release is dropped; any press then wakes and is dropped", async () => {
+  const r = sleepRig();
+  try {
+    assert.strictEqual(r.cmd("PADPRSD", { idx: 0, val: 1 }), false, "an ordinary pad plays");
+    assert.strictEqual(r.cmd("PADPRSD", { idx: 0, val: 0 }), false);
+    assert.strictEqual(r.cmd("PADPRSD", { idx: 2, val: 1 }), true, "the sleep pad");
+    assert.strictEqual(r.state["dlzmod.sleep"], 1);
+    assert.strictEqual(r.cmd("PADPRSD", { idx: 2, val: 0 }), true, "its release");
+    assert.strictEqual(r.state["dlzmod.sleep"], 1, "still asleep");
+    assert.strictEqual(r.cmd("HWREC", { val: 1 }), true, "Record wakes, does not record");
+    assert.strictEqual(r.state["dlzmod.sleep"], 0);
+    assert.strictEqual(r.cmd("HWREC", { val: 0 }), true, "its release too");
+    assert.strictEqual(r.cmd("HWREC", { val: 1 }), false, "awake: Record records");
+    assert.strictEqual(r.cmd("VU", {}), false, "not a hand on the mixer");
+  } finally {
+    sleepDone();
+  }
+});
+test("sleep: the sleep pad does nothing while the System Lock is on, and only from faderlink", async () => {
+  const r = sleepRig({ lock: "1234" });
+  try {
+    assert.strictEqual(r.cmd("PADPRSD", { idx: 2, val: 1 }), false);
+    assert.strictEqual(r.state["dlzmod.sleep"], 0);
+    delete r.state.lock;
+    const screen = () => {};
+    screen.dlzmodLocal = true;
+    assert.strictEqual(ctx.DLZMOD_sleepCmd({ cmd: "PADPRSD", args: { idx: 2, val: 1 } }, { send: screen }, r.get, r.set, 1), false,
+      "the screen's TCP connection is no control surface");
+  } finally {
+    sleepDone();
+  }
+});
+test("sleep: a fader wakes and still moves; a mute that wakes is dropped; Bluetooth's state does nothing", async () => {
+  const r = sleepRig();
+  try {
+    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    const bt = { btStatus: 1, btPairedName: "phone" };
+    ctx.DLZMOD_sleepKeys(bt, r.conn, r.get, r.set, 1);
+    assert.strictEqual(r.state["dlzmod.sleep"], 1, "Bluetooth does not wake it");
+    const mute = { "i.1.mute": 1 };
+    ctx.DLZMOD_sleepKeys(mute, r.conn, r.get, r.set, 1);
+    assert.deepStrictEqual(plain(mute), {}, "the mute that woke it is dropped");
+    assert.strictEqual(r.state["dlzmod.sleep"], 0);
+    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    const fader = { "i.1.mix": 0.5 };
+    ctx.DLZMOD_sleepKeys(fader, r.conn, r.get, r.set, 1);
+    assert.deepStrictEqual(plain(fader), { "i.1.mix": 0.5 }, "the fader still moves");
+    assert.strictEqual(r.state["dlzmod.sleep"], 0);
+    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    r.state["K.0.key"] = "a.0.pan";
+    ctx.DLZMOD_sleepKeys({ "a.0.pan": 0.6 }, r.conn, r.get, r.set, 1);
+    assert.strictEqual(r.state["dlzmod.sleep"], 0, "a side knob's key wakes it");
+  } finally {
+    sleepDone();
+  }
+});
+test("sleep: while asleep, what stock sends that would light an LED goes dark again", async () => {
+  const r = sleepRig();
+  try {
+    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    await r.flush();
+    r.sent.length = 0;
+    ctx.DLZMOD_ctlLeds({ "B.0.1.colorhex": "#ff0000", "i.0.mute": 1, "settings.brightness.lit": 0.5, "x.y": 1 },
+      undefined, r.get, 1);
+    await r.flush();
+    assert.deepStrictEqual(r.sent, [{ "B.0.1.colorhex": "#000000", "i.0.mute": 0, "settings.brightness.lit": 0 }]);
+    r.sent.length = 0;
+    ctx.DLZMOD_ctlLeds({ "B.0.2.colorhex": "#00ff00" }, undefined, r.get, 1);
+    await r.flush();
+    assert.deepStrictEqual(r.sent, [], "the sleep pad's own colour goes through");
+    ctx.DLZMOD_ctlLeds({ btStatus: 1 }, r.conn, r.get, 1);
+    await r.flush();
+    assert.strictEqual(r.sent[r.sent.length - 1]["B.0.0.colorhex"], "#000000", "faderlink back: all dark again");
+    ctx.DLZMOD_sleepSet(false, r.get, r.set, 1);
+    await r.flush();
+    r.sent.length = 0;
+    ctx.DLZMOD_ctlLeds({ "B.0.1.colorhex": "#ff0000" }, undefined, r.get, 1);
+    await r.flush();
+    assert.deepStrictEqual(r.sent, [], "awake: nothing of ours");
+  } finally {
+    sleepDone();
+  }
+});
+test("sleep: the idle timer, not while recording; a stale dlzmod.sleep cleared", async () => {
+  const r = sleepRig({ "dlzmod.sleepAfter": 5 });
+  try {
+    const s = ctx.DLZMOD_sleepState();
+    const now = s.last;
+    assert.strictEqual(ctx.DLZMOD_sleepDue(r.get, now + 4 * 60000), false);
+    assert.strictEqual(ctx.DLZMOD_sleepDue(r.get, now + 5 * 60000), true);
+    r.state.hw_rec = 1;
+    assert.strictEqual(ctx.DLZMOD_sleepDue(r.get, now + 60 * 60000), false, "recording");
+    r.state.hw_rec = 0;
+    r.state["dlzmod.sleepAfter"] = 0;
+    assert.strictEqual(ctx.DLZMOD_sleepDue(r.get, now + 600 * 60000), false, "Off");
+    r.state["dlzmod.sleep"] = 1;
+    ctx.DLZMOD_sleepTick(r.get, r.set);
+    assert.strictEqual(r.state["dlzmod.sleep"], 0, "left at 1 by a switch-off while asleep");
+  } finally {
+    sleepDone();
+  }
+});
+test("sleep: Sleep Now and touches only from the mixer's own screen; dlzmod.sleep from no client", async () => {
+  const r = sleepRig();
+  try {
+    const screen = () => {};
+    screen.dlzmodLocal = true;
+    ctx.DLZMOD_sleepCommand({ sleep: 1 }, () => {}, r.get, r.set);
+    assert.strictEqual(r.state["dlzmod.sleep"], 0, "another device");
+    ctx.DLZMOD_sleepState().last = 0;
+    ctx.DLZMOD_sleepCommand({ touch: 1 }, screen, r.get, r.set);
+    assert.ok(ctx.DLZMOD_sleepState().last > 0, "a touch counts");
+    ctx.DLZMOD_sleepCommand({ sleep: 1 }, screen, r.get, r.set);
+    assert.strictEqual(r.state["dlzmod.sleep"], 1);
+    assert.strictEqual(ctx.DLZMOD_keyAllowed("dlzmod.sleep", 0, screen), false);
+    const src = fs.readFileSync(path.join(__dirname, "..", "patch.py"), "utf8");
+    for (const hook of ["DLZMOD_sleepCmd(e,t)", "DLZMOD_sleepKeys(e,t)", "DLZMOD_sleepStart()", "DLZMOD_sleepCommand(e,i)"]) {
+      assert.ok(src.includes(hook), hook + " hooked in");
+    }
+  } finally {
+    sleepDone();
+  }
 });
 
 (async () => {

@@ -542,7 +542,7 @@ test("header: hidden or shown at once, but not on full-screen pages; saved setti
     "dlzmod.preLevel": 0, "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0,
     "dlzmod.recDate": 0, "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "",
     "dlzmod.controls": "", "dlzmod.lim.bypass": 1, "dlzmod.lim.thresh": -1, "dlzmod.lim.release": 50, "dlzmod.lim.attack": 1,
-    "dlzmod.lim.ratio": 20, "dlzmod.lim.knee": 0, ...plain(ctx.DLZMOD_duckKeys()) });
+    "dlzmod.lim.ratio": 20, "dlzmod.lim.knee": 0, "dlzmod.sleepAfter": 0, "dlzmod.sleep": 0, ...plain(ctx.DLZMOD_duckKeys()) });
   // install/apply-mod.sh reads DLZMOD_keys as JSON (set_mod_defaults): the same regex, the same parse
   const src = fs.readFileSync(path.join(__dirname, "dlzmod.js"), "utf8");
   const m = /function DLZMOD_keys\(\) \{\s*return (\{[^}]*\});/.exec(src);
@@ -4230,6 +4230,43 @@ test("limiter: its meters from the VU group dlzmod.lim, only while its page show
     ctx.app = undefined;
     limUnstage();
   }
+});
+
+test("sleep: asleep, touches are dropped but a release goes through; awake, the server hears of a touch every 10 s", () => {
+  let mono = 1000;
+  ctx.performance = { now: () => mono };
+  const keep = ctx.Data.data["dlzmod.sleep"];
+  ui.cmds.length = 0;
+  ctx.DLZMOD_sleepTouch.sent = undefined;
+  try {
+    ctx.Data.data["dlzmod.sleep"] = 1;
+    assert.strictEqual(ctx.DLZMOD_sleepTouch("DOWN_10_10"), true);
+    assert.strictEqual(ctx.DLZMOD_sleepTouch("MOVE_12_10"), true);
+    assert.strictEqual(ctx.DLZMOD_sleepTouch("UP_12_10"), false, "nothing stays held");
+    assert.deepStrictEqual(ui.cmds, [], "asleep: no touch reported");
+    ctx.Data.data["dlzmod.sleep"] = 0;
+    assert.strictEqual(ctx.DLZMOD_sleepTouch("DOWN_10_10"), false);
+    mono += 4000;
+    ctx.DLZMOD_sleepTouch("DOWN_10_10");
+    ctx.DLZMOD_sleepTouch("MOVE_10_10");
+    mono += 6000;
+    ctx.DLZMOD_sleepTouch("DOWN_10_10");
+    assert.deepStrictEqual(ui.cmds, [["DLZMOD_SLEEP", { touch: 1 }], ["DLZMOD_SLEEP", { touch: 1 }]]);
+  } finally {
+    ctx.Data.data["dlzmod.sleep"] = keep;
+    delete ctx.performance;
+    ui.cmds.length = 0;
+  }
+});
+test("sleep: the pad editor's seven Control modes fit its page; Sleep After stores minutes", () => {
+  const w = ctx.DLZMOD_padModeW(), xs = [0, 1, 2, 3, 4, 5, 6].map(ctx.DLZMOD_padModeX);
+  // centred anchors: each button from x - w/2 to x + w/2 around the page's middle (590 px wide)
+  assert.ok(xs[6] - xs[0] + w <= 586, "seven in the page");
+  for (let n = 1; n < 7; n++) assert.ok(xs[n] - xs[n - 1] > w, "a gap between buttons");
+  assert.deepStrictEqual(plain(ctx.DLZMOD_sleepAfterItems().map((i) => i[1])), [0, 10, 15, 30, 60]);
+  const src = fs.readFileSync(path.join(__dirname, "..", "patch.py"), "utf8");
+  assert.ok(src.includes('E_PAD_CONTROL_MODE.DUCKING,\\"sleep\\"]'), "the mode's key is the server's (DLZMOD_sleepPadIs)");
+  assert.ok(src.includes("if(DLZMOD_sleepTouch(e))return;"), "touches go through DLZMOD_sleepTouch");
 });
 
 (async () => {

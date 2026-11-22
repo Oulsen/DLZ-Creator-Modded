@@ -55,7 +55,9 @@ journalctl -b -u dspserver | grep -i i2c    # Q6: does it look for the i2c scrip
 20. Intercom: confirm on the device what `ctrl.intercom.X.X.enable` does from the UI (see
     components/mixergraph.md).
 24. Do `settings.brightness.screen/k/pad/button = 0` make the screen and LEDs fully dark? (For a
-    sleep mode.)
+    sleep mode.) Partly answered [device, XS, #20]: Dim at 0 turns off-state button LEDs fully off;
+    Lit at 0 leaves on-state LEDs on, only dimmer (a floor); the screen goes dark only through
+    `bl_power` (hardware.md). Open: `.button`, `.strip`, pad and knob colours at 0.
 25. Bluetooth module (Actions ATS2853, `components/faderlink.md`): which profiles does Mackie's
     module firmware offer? On a phone, the mixer's Bluetooth settings show it (media audio / calls).
     Software and chip both say sink only, no connect-out to speakers or headsets. If it ever

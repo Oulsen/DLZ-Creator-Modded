@@ -34,6 +34,10 @@ The board, Mackie's device tree, the boot chain, the eMMC layout and the SD slot
   The pixels are not square (0.1506 x 0.1432 mm), so the UI shows 5.2 % wider than 1024:600 [device:
   photo measurement]
 - Backlight: `pwm-backlight`, PWM0 on PB2 (polarity inverted), enable GPIO PB3 (active high)
+- **Screen fully dark through `bl_power`** [device, XS dev card, #20]: `echo 4 >
+  /sys/class/backlight/backlight/bl_power` makes the screen fully black (no glow), `echo 0` brings it
+  back at the same `brightness`; touch keeps working while it is dark (the UI still reacts to it).
+  The brightness slider cannot do this: its lowest backlight level is still ~34 % duty.
 - UARTs enabled: UART0 = ttyS0 (PB22/PB23: the kernel console, `console=ttyS0,115200` in `armbianEnv.txt`
   [static]; likely on the DEBUG header [guess]),
   UART3 = ttyS1 (Bluetooth module, an Actions ATS2853: [components/faderlink.md](components/faderlink.md)),

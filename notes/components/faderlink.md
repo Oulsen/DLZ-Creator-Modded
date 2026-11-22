@@ -117,7 +117,8 @@ Owned by package `faderlink` 521 (binary, flash scripts, firmware, bitstreams). 
   `settings.brightness.*`, `hw_rec`, `hw_amix`, `amix`, `lock`, `(K|P).#.(blink|color)`;
   `B.*.*.(colorhex|blink)` has its own branch. `K.N.key` and pan keys are not among them.
 - **Brightness**: `settings.brightness.screen` (PWM backlight; app.js default 1), `.dim` (0.25),
-  `.lit` (0.8), `.k`, `.pad`, `.button` [static]. Whether 0 means fully dark is untested.
+  `.lit` (0.8), `.k`, `.pad`, `.button` [static]. **Dim 0: off-state LEDs fully off; Lit 0: on-state
+  LEDs still on, only dimmer** [device, XS, #20]; `.button` and `.strip` at 0 untested.
 - **Pad LEDs**: `B.%d.%d.colorhex` / `.blink` → `P.%d.color` / `P.%d.blink` to the GD32.
 - `ctrl.fade.in/out`, per-pad `B.x.y.ctrl.fade.*`, `B.temp.N.fx.{del,rev}.mix`, `lock`, `K.*`.
 
