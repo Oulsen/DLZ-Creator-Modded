@@ -118,7 +118,10 @@ mounts, kills, changes a setting, installs, reboots), **ask first and wait**:
 1. show the exact command, what it changes, how to undo it, and why it is needed;
 2. continue only on an explicit yes from the user **in the current turn**, for that command only
    (a yes does not carry over to the next command or to a changed command);
-3. run it with `DLZ_SSH_WRITE=1` in front of the `run`, nothing else in the same call.
+3. run it with `DLZ_SSH_WRITE=1` in front of the `run`, nothing else in the same call. From Git
+   Bash the variable must be set inside WSL (a Windows-side variable does not cross into `wsl`):
+   `MSYS_NO_PATHCONV=1 wsl -d Ubuntu -e env DLZ_SSH_WRITE=1 bash .claude/skills/mixer-ssh/dlz-ssh.sh run '<command>'`
+   (the same for `DLZ_SSH_EARLY=1`).
 
 Prefer the project's own paths over live edits: a change to the mod goes through the repo, the
 `device-review` skill and the drop-in update (`DLZDATA/dlzmod-update/`), not through SSH.
