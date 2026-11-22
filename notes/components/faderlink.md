@@ -118,7 +118,11 @@ Owned by package `faderlink` 521 (binary, flash scripts, firmware, bitstreams). 
   `B.*.*.(colorhex|blink)` has its own branch. `K.N.key` and pan keys are not among them.
 - **Brightness**: `settings.brightness.screen` (PWM backlight; app.js default 1), `.dim` (0.25),
   `.lit` (0.8), `.k`, `.pad`, `.button` [static]. **Dim 0: off-state LEDs fully off; Lit 0: on-state
-  LEDs still on, only dimmer** [device, XS, #20]; `.button` and `.strip` at 0 untested.
+  LEDs still on, only dimmer** [device, XS, #20]. Black `<ch>.colorhex`, `K.N.color` and
+  `B.x.y.colorhex` turn those LEDs off; a mute LED goes off with `<ch>.mute` 0; `.strip` (the GD32
+  reads it, stock never sends it) dims the channel buttons' (mute) LEDs, not off; Home, REC and
+  AUTOMIX stay lit with Lit, Dim, `.button` and `.strip` at 0 and `hw_rec`/`hw_amix`/`amix` 0
+  [device, XS, #20: keys sent through the hub over SSH].
 - **Pad LEDs**: `B.%d.%d.colorhex` / `.blink` → `P.%d.color` / `P.%d.blink` to the GD32.
 - `ctrl.fade.in/out`, per-pad `B.x.y.ctrl.fade.*`, `B.temp.N.fx.{del,rev}.mix`, `lock`, `K.*`.
 

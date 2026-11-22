@@ -794,12 +794,14 @@ function DLZMOD_sleepBacklight(off, write = require("fs").writeFileSync) {
   }
 }
 
-// on: true to sleep, false to wake. Nothing when it already is so
+// on: true to sleep, false to wake. Nothing when it already is so. No sleep without faderlink
+// connected: only the control surface wakes the mixer (touch does not), so it would stay dark
 function DLZMOD_sleepSet(on, get = globalThis.getDataKey, set = globalThis.setDataKey, lite = globalThis.isDLZLite,
   write) {
   const s = DLZMOD_sleepState();
   s.last = DLZMOD_monoNow();
   if (s.on === !!on) return;
+  if (on && !DLZMOD_ctlFader) return console.error("dlzmod: sleep: no control surface connected, staying awake");
   s.on = !!on;
   console.log("dlzmod: sleep:", s.on ? "asleep" : "awake");
   DLZMOD_sleepBacklight(s.on, write);
@@ -881,8 +883,15 @@ function DLZMOD_sleepInputKey(key, get) {
 
 function DLZMOD_sleepKeys(msg, conn, get = globalThis.getDataKey, set = globalThis.setDataKey, lite = globalThis.isDLZLite) {
   try {
-    if (!msg || typeof msg !== "object" || !conn || conn !== DLZMOD_ctlFader) return;
-    const s = DLZMOD_sleepState(), keys = Object.keys(msg).filter((k) => DLZMOD_sleepInputKey(k, get));
+    if (!msg || typeof msg !== "object" || !conn) return;
+    const s = DLZMOD_sleepState();
+    // a change from the screen or another device (a paired browser) is someone using the mixer too:
+    // the idle timer starts again (it does not wake it: Sleep Now is the screen's, waking the hardware's)
+    if (conn !== DLZMOD_ctlFader) {
+      if (!s.on && !DLZMOD_ctlLocalSio(conn) && Object.keys(msg).length) s.last = DLZMOD_monoNow();
+      return;
+    }
+    const keys = Object.keys(msg).filter((k) => DLZMOD_sleepInputKey(k, get));
     if (!keys.length) return;
     if (!s.on) {
       s.last = DLZMOD_monoNow();

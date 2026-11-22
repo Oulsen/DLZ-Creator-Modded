@@ -502,8 +502,9 @@ models: one code path, the same brightness keys and backlight driver [static]; t
   editor), or Sleep After (`dlzmod.sleepAfter`, minutes: Off / 10 / 15 / 30 / 60, Off by default:
   asleep, the mute lights are dark too); any other value (a device, a backup) counts as Off. The
   timer counts hands on the mixer (control-surface input, touches reported by the screen at most
-  every 10 s), not audio, and never runs out while `DLZMOD_recBusy` (recording, the sample
-  recorder) [static, tests].
+  every 10 s, a change from the screen or a paired device), not audio, and never runs out while
+  `DLZMOD_recBusy` (recording, the sample recorder) [static, tests]. No sleep while faderlink is not
+  connected (`DLZMOD_ctlFader`): only the control surface wakes it.
 - **Screen**: `bl_power` 4 / 0 written by the server (`DLZMOD_sleepBacklight`); fully black on the
   XS [device]. The server writes 0 at its start, so a crash while asleep cannot leave it dark.
 - **LEDs**: sent to faderlink alone (`DLZMOD_ctlFaderSend`), never into the state, so a switch-off
@@ -535,9 +536,11 @@ models: one code path, the same brightness keys and backlight driver [static]; t
 - Both models: the channel LEDs come from the model's own controls table (`DLZMOD_ctlStock`: 5
   knobs on the XS, 9 faders on the full-size); the full-size path is covered by the unit tests
   (lite 0), tried on the XS only.
-- Open: whether all of this turns off every LED (`.button` and `.strip` unknown; the record and ALT
-  buttons: `hw_rec`/`hw_amix` are left alone, so a recording's light stays on); how 0.2 looks on a
-  pad [device].
+- Tried by hand on the XS through the hub (faderlink.md): black colours and mute 0 turn those LEDs
+  off; Home, REC and AUTOMIX stay lit with every brightness key at 0, so asleep they stay on until
+  what drives them is known. `hw_rec`/`hw_amix` are left alone (a recording's light stays on).
+- Open: Home, REC and AUTOMIX; the full sleep on the dev card (the LED-only keys, how 0.2 looks on
+  a pad) [device].
 
 ## Mod settings (Settings → DLZ Creator Modded)
 

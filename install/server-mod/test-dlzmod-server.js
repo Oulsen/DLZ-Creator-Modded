@@ -4162,6 +4162,39 @@ test("sleep: a lost release is forgotten at the next press; Sleep After takes on
     sleepDone();
   }
 });
+test("sleep: none without the control surface; a browser's or the screen's change restarts the idle timer", async () => {
+  const r = sleepRig();
+  try {
+    ctx.DLZMOD_ctlFader = null;
+    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    assert.strictEqual(r.state["dlzmod.sleep"], 0, "nothing could wake it");
+    assert.deepStrictEqual(r.bl, []);
+    ctx.DLZMOD_ctlFader = r.conn;
+    const s = ctx.DLZMOD_sleepState();
+    const browser = () => {};
+    browser.dlzmodPaired = true;
+    browser.dlzmodSio = true;
+    s.last = 0;
+    ctx.DLZMOD_sleepKeys({ "i.0.mix": 0.3 }, { send: browser }, r.get, r.set, 1);
+    assert.ok(s.last > 0, "a paired browser");
+    const screen = () => {};
+    screen.dlzmodLocal = true;
+    s.last = 0;
+    ctx.DLZMOD_sleepKeys({ "i.0.eq.b1.gain": 2 }, { send: screen }, r.get, r.set, 1);
+    assert.ok(s.last > 0, "the screen (TCP)");
+    const dsp = () => {};
+    dsp.dlzmodLocal = true;
+    dsp.dlzmodSio = true;
+    s.last = 0;
+    ctx.DLZMOD_sleepKeys({ recState: 0 }, { send: dsp }, r.get, r.set, 1);
+    assert.strictEqual(s.last, 0, "dspserver is nobody's hand");
+    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    ctx.DLZMOD_sleepKeys({ "i.0.mix": 0.3 }, { send: browser }, r.get, r.set, 1);
+    assert.strictEqual(r.state["dlzmod.sleep"], 1, "a browser does not wake it");
+  } finally {
+    sleepDone();
+  }
+});
 test("sleep: the full-size's nine channel controls go dark (the model's own table, #23)", async () => {
   const r = sleepRig({ "m.mute": 1, "i.3.mute": 1 });
   try {
