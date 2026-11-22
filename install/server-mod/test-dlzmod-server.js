@@ -3904,7 +3904,7 @@ const sleepRig = (o = {}) => {
   r.conn = { send: sio };
   ctx.DLZMOD_sleepState.s = null;
   ctx.DLZMOD_ctlMapOf.last = null;
-  ctx.DLZMOD_ctlFader = { send: (m) => r.sent.push(plain(m)) };
+  ctx.DLZMOD_ctlFader = r.conn;
   ctx.DLZMOD_sleepBacklight = (off) => r.bl.push(off ? 4 : 0);
   r.cmd = (cmd, args) => ctx.DLZMOD_sleepCmd({ cmd, args }, r.conn, r.get, r.set, 1);
   r.flush = () => new Promise((res) => setImmediate(res));
@@ -4051,12 +4051,12 @@ test("sleep: while asleep, what stock sends that would light an LED goes dark ag
   }
 });
 test("sleep: the idle timer, not while recording; a stale dlzmod.sleep cleared", async () => {
-  const r = sleepRig({ "dlzmod.sleepAfter": 5 });
+  const r = sleepRig({ "dlzmod.sleepAfter": 10 });
   try {
     const s = ctx.DLZMOD_sleepState();
     const now = s.last;
-    assert.strictEqual(ctx.DLZMOD_sleepDue(r.get, now + 4 * 60000), false);
-    assert.strictEqual(ctx.DLZMOD_sleepDue(r.get, now + 5 * 60000), true);
+    assert.strictEqual(ctx.DLZMOD_sleepDue(r.get, now + 9 * 60000), false);
+    assert.strictEqual(ctx.DLZMOD_sleepDue(r.get, now + 10 * 60000), true);
     r.state.hw_rec = 1;
     assert.strictEqual(ctx.DLZMOD_sleepDue(r.get, now + 60 * 60000), false, "recording");
     r.state.hw_rec = 0;
@@ -4065,6 +4065,112 @@ test("sleep: the idle timer, not while recording; a stale dlzmod.sleep cleared",
     r.state["dlzmod.sleep"] = 1;
     ctx.DLZMOD_sleepTick(r.get, r.set);
     assert.strictEqual(r.state["dlzmod.sleep"], 0, "left at 1 by a switch-off while asleep");
+  } finally {
+    sleepDone();
+  }
+});
+test("sleep: a knob set to another channel keeps its LED dark while asleep (#23)", async () => {
+  const r = sleepRig({ "dlzmod.controls": "i.0=v.0,v.0=i.0", "v.0.mute": 0 });
+  try {
+    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    await r.flush();
+    r.sent.length = 0;
+    r.state["v.0.mute"] = 1;
+    ctx.DLZMOD_ctlLeds({ "v.0.mute": 1 }, undefined, r.get, 1);
+    await r.flush();
+    assert.ok(!r.sent.some((m) => m["i.0.mute"] === 1), "knob 1's mute LED stays dark: " + JSON.stringify(r.sent));
+    ctx.DLZMOD_sleepSet(false, r.get, r.set, 1);
+    await r.flush();
+    assert.strictEqual(r.sent[r.sent.length - 1]["i.0.mute"], 1, "and shows 9/10's mute on waking");
+  } finally {
+    sleepDone();
+  }
+});
+test("sleep: a bank changed while asleep, every bank sent dark gets its pad colours back", async () => {
+  const r = sleepRig();
+  for (let n = 0; n < 6; n++) {
+    r.state[`B.1.${n}.mode`] = 0;
+    r.state[`B.1.${n}.colorhex`] = "#654321";
+  }
+  try {
+    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    r.state.bank = 1;
+    ctx.DLZMOD_ctlLeds({ bank: 1 }, undefined, r.get, 1);
+    await r.flush();
+    assert.strictEqual(r.sent[r.sent.length - 1]["B.1.0.colorhex"], "#000000", "the new bank dark too");
+    ctx.DLZMOD_sleepSet(false, r.get, r.set, 1);
+    await r.flush();
+    const w = r.sent[r.sent.length - 1];
+    assert.strictEqual(w["B.0.0.colorhex"], "#123456");
+    assert.strictEqual(w["B.0.2.colorhex"], "#123456", "the other bank's sleep pad too (it was never dark: harmless)");
+    assert.strictEqual(w["B.1.0.colorhex"], "#654321");
+  } finally {
+    sleepDone();
+  }
+});
+test("sleep: knob rings and blinking LEDs dark, back on waking; keys the state lacks not touched", async () => {
+  const r = sleepRig({ "K.0.color": "#ee3524", "K.0.blink": 1, "i.1.blink": 1, "B.0.0.blink": 1 });
+  try {
+    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    await r.flush();
+    const d = r.sent[0];
+    assert.strictEqual(d["K.0.color"], "#000000");
+    assert.strictEqual(d["K.0.blink"], 0);
+    assert.strictEqual(d["i.1.blink"], 0);
+    assert.strictEqual(d["B.0.0.blink"], 0);
+    assert.ok(!("K.1.color" in d) && !("B.0.1.blink" in d), "not in the state: nothing to give back");
+    ctx.DLZMOD_sleepSet(false, r.get, r.set, 1);
+    await r.flush();
+    const w = r.sent[1];
+    assert.strictEqual(w["K.0.color"], "#ee3524");
+    assert.strictEqual(w["K.0.blink"], 1);
+    assert.strictEqual(w["i.1.blink"], 1);
+  } finally {
+    sleepDone();
+  }
+});
+test("sleep: the GD32's pad.* keys are buttons; only faderlink wakes it, not dspserver", async () => {
+  const r = sleepRig();
+  try {
+    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    const dsp = () => {};
+    dsp.dlzmodLocal = true;
+    dsp.dlzmodSio = true;
+    r.state["K.0.key"] = "i.0.gain";
+    ctx.DLZMOD_sleepKeys({ "i.0.gain": 0.4 }, { send: dsp }, r.get, r.set, 1);
+    assert.strictEqual(r.state["dlzmod.sleep"], 1, "dspserver's gain after Auto Gain does not wake it");
+    const pad = { "pad.ducking": 1 };
+    ctx.DLZMOD_sleepKeys(pad, r.conn, r.get, r.set, 1);
+    assert.deepStrictEqual(plain(pad), {}, "dropped");
+    assert.strictEqual(r.state["dlzmod.sleep"], 0, "and woke it");
+  } finally {
+    sleepDone();
+  }
+});
+test("sleep: a lost release is forgotten at the next press; Sleep After takes only the screen's choices", async () => {
+  const r = sleepRig({ "dlzmod.sleepAfter": 0.1 });
+  try {
+    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    assert.strictEqual(r.cmd("PADPRSD", { idx: 3, val: 1 }), true, "wakes");
+    assert.strictEqual(r.cmd("PADPRSD", { idx: 3, val: 1 }), false, "its release was lost: the next press plays");
+    assert.strictEqual(r.cmd("PADPRSD", { idx: 3, val: 0 }), false, "and its release goes through");
+    const now = ctx.DLZMOD_sleepState().last;
+    assert.strictEqual(ctx.DLZMOD_sleepDue(r.get, now + 60 * 60000), false, "0.1 is no choice");
+    r.state["dlzmod.sleepAfter"] = 10;
+    assert.strictEqual(ctx.DLZMOD_sleepDue(r.get, now + 10 * 60000), true);
+  } finally {
+    sleepDone();
+  }
+});
+test("sleep: the full-size's nine channel controls go dark (the model's own table, #23)", async () => {
+  const r = sleepRig({ "m.mute": 1, "i.3.mute": 1 });
+  try {
+    const d = ctx.DLZMOD_sleepLeds(r.get, 0);
+    for (const k of ["i.3.mute", "p.2.mute", "s.mute", "m.mute"]) assert.strictEqual(d[k], 0, k);
+    assert.ok(!("a.0.mute" in d), "the phones have no LED under a fader");
+    const w = ctx.DLZMOD_sleepWakeLeds(r.get, 0);
+    assert.strictEqual(w["m.mute"], 1);
+    assert.strictEqual(w["i.3.mute"], 1);
   } finally {
     sleepDone();
   }
