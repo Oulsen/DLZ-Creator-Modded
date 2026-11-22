@@ -50,11 +50,12 @@ below. Most start as stock: turn on what you want; the few that are on from the 
 - A fourth EQ band on every channel, moved by touch and the knobs like the other three *(Channel, EQ)*
 - A high-contrast look, your own background and your own color for the faders, meters and what is
   selected *(Colors)*
-- Sleep mode: the screen and all lights off while the sound keeps running, from a button, a pad or
-  after a set time without a hand on the mixer (Off unless you choose one; never while recording);
-  any button, pad, knob or fader wakes it, the screen does not, and a pad set to Sleep glows dimly
-  to show where to press *(Settings → System, Sleep After / Sleep Now; Pads, a pad in Control mode,
-  Sleep)*
+- Sleep mode: the screen and the lights off while the sound keeps running (Home, REC and AUTOMIX
+  keep a faint glow the mixer's hardware gives them; REC still blinks while recording), from a
+  button, a pad or after a set time without a hand on the mixer (Off unless you choose one; never
+  while recording); any button, pad, knob or fader wakes it, the screen does not, and a pad set to
+  Sleep glows dimly to show where to press *(Settings → System, Sleep After / Sleep Now; Pads, a pad
+  in Control mode, Sleep)*
 - The mod's own startup screens
 
 ### Channels

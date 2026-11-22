@@ -117,12 +117,19 @@ Owned by package `faderlink` 521 (binary, flash scripts, firmware, bitstreams). 
   `settings.brightness.*`, `hw_rec`, `hw_amix`, `amix`, `lock`, `(K|P).#.(blink|color)`;
   `B.*.*.(colorhex|blink)` has its own branch. `K.N.key` and pan keys are not among them.
 - **Brightness**: `settings.brightness.screen` (PWM backlight; app.js default 1), `.dim` (0.25),
-  `.lit` (0.8), `.k`, `.pad`, `.button` [static]. **Dim 0: off-state LEDs fully off; Lit 0: on-state
-  LEDs still on, only dimmer** [device, XS, #20]. Black `<ch>.colorhex`, `K.N.color` and
-  `B.x.y.colorhex` turn those LEDs off; a mute LED goes off with `<ch>.mute` 0; `.strip` (the GD32
-  reads it, stock never sends it) dims the channel buttons' (mute) LEDs, not off; Home, REC and
-  AUTOMIX stay lit with Lit, Dim, `.button` and `.strip` at 0 and `hw_rec`/`hw_amix`/`amix` 0
-  [device, XS, #20: keys sent through the hub over SSH].
+  `.lit` (0.8), `.k`, `.pad`, `.button` [static]. The GD32 (XS firmware `firmware-dlzlite-154.bin`,
+  its key handler next to the strings `settings.brightness.*`) turns each into a level [static]:
+  `lit`, `button`, `k`, `pad`: 0..1 → 60..100 %, below -1.5 → off; `dim`: 0.4 × value (0 = off);
+  `strip` (read, never sent by stock): 0..1 → 10..100 %, below -0.11 → off; `hw_rec`, `amix`, `lock`
+  become flags (REC and AUTOMIX: a fixed idle colour, or blinking when the flag is set; `lock` turns
+  the side knobs' rings off). The colour-and-brightness step clamps every LED value to 0..1, with no
+  floor of its own [static]. So the stock sliders' 0 still lights lit LEDs at 60 % [device, XS,
+  #20: Lit 0 dims, does not turn off]. **Every LED off** [device, XS, #20, keys sent through the hub
+  over SSH]: `lit`, `button`, `k`, `pad` -2, `dim` 0, black `<ch>.colorhex` (also the colour strips
+  under the knobs), `K.N.color` and `B.x.y.colorhex`, `<ch>.mute` 0. Left: a faint red glow in Home,
+  REC and AUTOMIX, the same in all three, with the screen dark too and every key at off, `strip`
+  included; no key sets their colour (white idle, REC red while recording). Likely leakage in the LED
+  hardware (red has the lowest forward voltage) [guess].
 - **Pad LEDs**: `B.%d.%d.colorhex` / `.blink` → `P.%d.color` / `P.%d.blink` to the GD32.
 - `ctrl.fade.in/out`, per-pad `B.x.y.ctrl.fade.*`, `B.temp.N.fx.{del,rev}.mix`, `lock`, `K.*`.
 

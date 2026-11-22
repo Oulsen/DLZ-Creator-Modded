@@ -508,13 +508,14 @@ models: one code path, the same brightness keys and backlight driver [static]; t
 - **Screen**: `bl_power` 4 / 0 written by the server (`DLZMOD_sleepBacklight`); fully black on the
   XS [device]. The server writes 0 at its start, so a crash while asleep cannot leave it dark.
 - **LEDs**: sent to faderlink alone (`DLZMOD_ctlFaderSend`), never into the state, so a switch-off
-  while asleep saves nothing dark: every `settings.brightness.*` (lit, dim, k, button) 0, the
-  pads' brightness 0.2 when the bank shown has a sleep pad (else 0), the other pads black, the
-  channel LEDs (mute, solo, colour under the controls' stock keys) off, the knob rings (`K.N.color`)
-  black and every `*.blink` 0 (`DLZMOD_sleepLeds`; a colour or blink key only when the state has
-  it, so waking can give it back). Lit 0 alone leaves on-state LEDs on, dimmer (faderlink.md).
+  while asleep saves nothing dark: `lit`, `button`, `k` -2 and `dim` 0 (the GD32's 0 is a 60 %
+  floor, -2 is off: faderlink.md), the pads -2, or 0 (their lowest) when the bank shown has a sleep
+  pad, which then shows its own colour at 0.3 (`DLZMOD_sleepDim`) while the others go black, the
+  channel LEDs (mute, solo, colour under the controls' stock keys: the colour strips under the
+  knobs too) off, the knob rings (`K.N.color`) black and every `*.blink` 0 (`DLZMOD_sleepLeds`; a
+  colour or blink key only when the state has it, so waking can give it back).
   `settings.brightness.strip` (both GD32 firmwares read it) is left alone: stock never sends it, so
-  there is no value to give back. While asleep, whatever stock sends that would light one of those
+  there is no value to give back, and black colours already turn its LEDs off. While asleep, whatever stock sends that would light one of those
   goes dark again after it (`DLZMOD_sleepOut`, from `DLZMOD_ctlLeds`, which sends no LED keys of its
   own then); faderlink reconnecting, or a bank change, gets all of it again. faderlink keeps what it
   is sent, so waking sends the state's values back for every bank sent dark, the channel LEDs as the
@@ -536,11 +537,10 @@ models: one code path, the same brightness keys and backlight driver [static]; t
 - Both models: the channel LEDs come from the model's own controls table (`DLZMOD_ctlStock`: 5
   knobs on the XS, 9 faders on the full-size); the full-size path is covered by the unit tests
   (lite 0), tried on the XS only.
-- Tried by hand on the XS through the hub (faderlink.md): black colours and mute 0 turn those LEDs
-  off; Home, REC and AUTOMIX stay lit with every brightness key at 0, so asleep they stay on until
-  what drives them is known. `hw_rec`/`hw_amix` are left alone (a recording's light stays on).
-- Open: Home, REC and AUTOMIX; the full sleep on the dev card (the LED-only keys, how 0.2 looks on
-  a pad) [device].
+- Tried by hand on the XS through the hub, with the screen dark (faderlink.md): these keys turn
+  every LED off, except a faint red glow in Home, REC and AUTOMIX that no key reaches [guess: LED
+  hardware leakage]. `hw_rec`/`hw_amix` are left alone (a recording's REC keeps blinking red).
+- Open: the full sleep on the dev card (the LED-only keys, how the sleep pad's glow looks) [device].
 
 ## Mod settings (Settings → DLZ Creator Modded)
 

@@ -711,15 +711,18 @@ function DLZMOD_knobCatch(key, value, hub, get = globalThis.getDataKey, set = gl
 // #20 Sleep mode: the screen and the LEDs off, the sound and everything else running. The screen's
 // backlight off at the driver (bl_power 4: fully dark, notes/hardware.md; the brightness slider's
 // lowest level is not); the LEDs off with keys sent to faderlink alone (DLZMOD_ctlFaderSend), never
-// into the state: a switch-off while asleep saves nothing dark. Brightness 0 turns the off-state LEDs
-// off, not the lit ones (notes/components/faderlink.md), so those get "off" or black too. A pad set
-// to Sleep (a pad's Control mode, ctrl.mode "sleep") stays lit, dimly, to show where to press.
+// into the state: a switch-off while asleep saves nothing dark. The GD32 turns lit, button, k and pad
+// 0..1 into 60..100 % and anything below -1.5 into off, dim 0 into off (notes/components/faderlink.md):
+// those get -2 and 0, and the states and colours go off or black too. A pad set to Sleep (a pad's
+// Control mode, ctrl.mode "sleep") stays lit, dimly (its own colour darker), to show where to press.
+// Home, REC and AUTOMIX keep a faint red glow no key turns off (the LED hardware, faderlink.md).
 // Asleep: touch does nothing (the screen drops it, dlzmod.js), any button, pad, knob or fader wakes
 // the mixer; a button or pad press that wakes does nothing else, a knob or fader keeps working.
 // dlzmod.sleep (0/1) says it to the screens; only this server sets it. dlzmod.sleepAfter: minutes
 // without a hand on the mixer before it sleeps by itself (0: never), not while it records.
 var DLZMOD_SLEEP_BL = "/sys/class/backlight/backlight/bl_power";
-var DLZMOD_SLEEP_PAD = 0.2;   // the pads' brightness while asleep: the sleep pad's glow
+var DLZMOD_SLEEP_OFF = -2;    // lit, button, k, pad: off (at 0 the GD32 still lights them at 60 %)
+var DLZMOD_SLEEP_GLOW = 0.3;  // the sleep pad's own colour times this, at the pads' lowest brightness (0)
 var DLZMOD_SLEEP_CMDS = ["PADPRSD", "HWREC", "ALT", "BMSG"];
 var DLZMOD_SLEEP_TOUCH_MS = 10000;   // the screen reports touches at most this often (dlzmod.js)
 
@@ -740,21 +743,29 @@ function DLZMOD_sleepPadIs(prefix, get) {
   return get(prefix + "mode") === 1 && get(prefix + "ctrl.mode") === "sleep";
 }
 
-// what faderlink gets to go dark: every LED brightness 0 (the pads low when a sleep pad shows), the
-// other pads black, the channel LEDs (mute, solo, colour, under the controls' stock keys) off, the
-// knob rings black, nothing blinking. Lit 0 leaves lit LEDs on, dimmer (faderlink.md), so the colours
-// and states go too. Colour and blink keys only when the state has them, so waking can give each back
-// (settings.brightness.strip: stock never sends it, so it has no value to go back to)
+// a #rrggbb colour times f (the sleep pad's glow); anything else: black
+function DLZMOD_sleepDim(hex, f) {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(hex || ""));
+  if (!m) return "#000000";
+  const n = parseInt(m[1], 16);
+  return "#" + [16, 8, 0].map((s) => Math.round(((n >> s) & 255) * f).toString(16).padStart(2, "0")).join("");
+}
+
+// what faderlink gets to go dark: lit, button, k and pad off (-2), dim 0, the pads black (a sleep
+// pad its own colour darker, with the pads at their lowest brightness), the channel LEDs (mute, solo,
+// colour, under the controls' stock keys) off, the knob rings black, nothing blinking. Colour and
+// blink keys only when the state has them, so waking can give each back (settings.brightness.strip:
+// stock never sends it, so it has no value to go back to; the channels' colour strips go dark black)
 function DLZMOD_sleepLeds(get, lite) {
   const pads = DLZMOD_sleepPads(get), glow = pads.some((p) => DLZMOD_sleepPadIs(p, get));
-  const out = { "settings.brightness.lit": 0, "settings.brightness.dim": 0, "settings.brightness.k": 0,
-    "settings.brightness.button": 0, "settings.brightness.pad": glow ? DLZMOD_SLEEP_PAD : 0 };
+  const off = DLZMOD_SLEEP_OFF;
+  const out = { "settings.brightness.lit": off, "settings.brightness.dim": 0, "settings.brightness.k": off,
+    "settings.brightness.button": off, "settings.brightness.pad": glow ? 0 : off };
   const known = (key, v) => {
     if (get(key) !== undefined) out[key] = v;
   };
   for (const p of pads) {
-    if (DLZMOD_sleepPadIs(p, get)) continue;
-    out[p + "colorhex"] = "#000000";
+    out[p + "colorhex"] = DLZMOD_sleepPadIs(p, get) ? DLZMOD_sleepDim(get(p + "colorhex"), DLZMOD_SLEEP_GLOW) : "#000000";
     known(p + "blink", 0);
   }
   for (const s of DLZMOD_ctlStock(!!lite).slice(0, DLZMOD_ctlKnobs(!!lite))) {
