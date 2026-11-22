@@ -722,7 +722,7 @@ function DLZMOD_knobCatch(key, value, hub, get = globalThis.getDataKey, set = gl
 // without a hand on the mixer before it sleeps by itself (0: never), not while it records.
 var DLZMOD_SLEEP_BL = "/sys/class/backlight/backlight/bl_power";
 var DLZMOD_SLEEP_OFF = -2;    // lit, button, k, pad: off (at 0 the GD32 still lights them at 60 %)
-var DLZMOD_SLEEP_GLOW = 0.3;  // the sleep pad's own colour times this, at the pads' lowest brightness (0)
+var DLZMOD_SLEEP_GLOW = 0.4;  // the sleep pad's own colour times this, at the pads' lowest brightness (0)
 var DLZMOD_SLEEP_CMDS = ["PADPRSD", "HWREC", "ALT", "BMSG"];
 var DLZMOD_SLEEP_TOUCH_MS = 10000;   // the screen reports touches at most this often (dlzmod.js)
 
@@ -878,12 +878,18 @@ function DLZMOD_sleepCmd(m, conn, get = globalThis.getDataKey, set = globalThis.
 }
 
 // Keys from the control surface: a level or a knob's key counts as a hand on the mixer and wakes it,
-// and goes on; a button (mute, solo, lock, the GD32's pad.* keys, both models' firmware) that wakes it
-// is taken out (its LED comes back with the rest on waking). Only those keys, and only from faderlink
-// (DLZMOD_ctlFader): it also sends Bluetooth's state, and dspserver, also local, writes keys a knob
-// may point at (a gain after Auto Gain); neither is a hand on the mixer
+// and goes on; a button (mute, solo, lock) that wakes it is taken out (its LED comes back with the
+// rest on waking). Only those keys, and only from faderlink (DLZMOD_ctlFader): it also sends
+// Bluetooth's state, and dspserver, also local, writes keys a knob may point at (a gain after Auto
+// Gain); neither is a hand on the mixer. A pad sends pad.<n>.pressed next to its PADPRSD (both
+// models' GD32 firmware): the command wakes and sleeps (DLZMOD_sleepCmd), so the key never does (a
+// sleep pad's own key would wake the mixer it just put to sleep [device, XS]); asleep it is dropped
 function DLZMOD_sleepButtonKey(key) {
-  return key === "lock" || /\.(mute|solo)$/.test(key) || /^pad\./.test(key);
+  return key === "lock" || /\.(mute|solo)$/.test(key);
+}
+
+function DLZMOD_sleepPadKey(key) {
+  return /^pad\./.test(key);
 }
 
 function DLZMOD_sleepInputKey(key, get) {
@@ -902,6 +908,7 @@ function DLZMOD_sleepKeys(msg, conn, get = globalThis.getDataKey, set = globalTh
       if (!s.on && !DLZMOD_ctlLocalSio(conn) && Object.keys(msg).length) s.last = DLZMOD_monoNow();
       return;
     }
+    if (s.on) for (const key of Object.keys(msg)) if (DLZMOD_sleepPadKey(key)) delete msg[key];
     const keys = Object.keys(msg).filter((k) => DLZMOD_sleepInputKey(k, get));
     if (!keys.length) return;
     if (!s.on) {

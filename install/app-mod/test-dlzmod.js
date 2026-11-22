@@ -4258,6 +4258,29 @@ test("sleep: asleep, touches are dropped but a release goes through; awake, the 
     ui.cmds.length = 0;
   }
 });
+test("sleep: the pad editor hides Pad Behavior for a sleep pad, shows it for the other Control modes", () => {
+  const keep = ctx.E_PAD_MODE, d = ctx.Data.data;
+  ctx.E_PAD_MODE = { SAMPLE: 0, CONTROL: 1, FX: 2 };
+  const b = () => ({ shown: true, hide() { this.shown = false; }, show() { this.shown = true; } });
+  const page = { bBehavior: [b(), b()], getPrefix: () => "B.0.1.", update() {} };
+  try {
+    d["B.0.1.mode"] = 1;
+    d["B.0.1.ctrl.mode"] = "sleep";
+    ctx.DLZMOD_sleepBehavior(page);
+    assert.deepStrictEqual(page.bBehavior.map((x) => x.shown), [false, false]);
+    d["B.0.1.ctrl.mode"] = "mute";
+    ctx.DLZMOD_sleepBehavior(page);
+    assert.deepStrictEqual(page.bBehavior.map((x) => x.shown), [true, true]);
+    d["B.0.1.mode"] = 0;
+    page.bBehavior.forEach((x) => x.hide());
+    ctx.DLZMOD_sleepBehavior(page);
+    assert.deepStrictEqual(page.bBehavior.map((x) => x.shown), [false, false], "a Sample pad: stock's own choice");
+  } finally {
+    ctx.E_PAD_MODE = keep;
+    delete d["B.0.1.mode"];
+    delete d["B.0.1.ctrl.mode"];
+  }
+});
 test("sleep: the pad editor's seven Control modes fit its page; Sleep After stores minutes", () => {
   const w = ctx.DLZMOD_padModeW(), xs = [0, 1, 2, 3, 4, 5, 6].map(ctx.DLZMOD_padModeX);
   // centred anchors: each button from x - w/2 to x + w/2 around the page's middle (590 px wide)

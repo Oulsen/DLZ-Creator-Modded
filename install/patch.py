@@ -192,6 +192,20 @@ APP_PATCHES = [
         "this.type=[lang.CENSOR,lang.MUTE_GROUP,lang.LOCALS_ONLY,lang.INTERCOM,lang.FADE,lang.DUCKING,DLZMOD_sleepLabel()][i]||\"\"",
     ),
     (
+        # Toggle / Hold means nothing for Sleep: the pad editor's Pad Behavior row hidden for it
+        # (DLZMOD_sleepBehavior), when the editor shows a Control pad and when its mode is picked
+        "sleep: no Pad Behavior for a sleep pad, the editor",
+        'case E_PAD_MODE.CONTROL:this.bBehavior.forEach((t=>{t.show(),t.setKey(e+"ctrl.hold")})),'
+        "this.bAssign.forEach((t=>t.hide()));break;",
+        'case E_PAD_MODE.CONTROL:this.bBehavior.forEach((t=>{t.show(),t.setKey(e+"ctrl.hold")})),'
+        "this.bAssign.forEach((t=>t.hide())),DLZMOD_sleepBehavior(this);break;",
+    ),
+    (
+        "sleep: no Pad Behavior for a sleep pad, the mode buttons",
+        "groupIndex:i[a],triggerOnUp:!1,onToggle:()=>{this.sync(!0),t.update()}",
+        "groupIndex:i[a],triggerOnUp:!1,onToggle:()=>{this.sync(!0),DLZMOD_sleepBehavior(t),t.update()}",
+    ),
+    (
         # #20: the brightness panel's three sliders closer together (stock: from 65, 125 apart), so
         # Sleep After fits under them (DLZMOD_brightRow)
         "sleep: the brightness sliders closer together, the first",

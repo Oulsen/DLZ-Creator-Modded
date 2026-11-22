@@ -3913,6 +3913,20 @@ function DLZMOD_padModeX(n) {
   return 82 * (n - 3) | 0;
 }
 
+// the pad editor (Mackie's PagePadEdit): its Pad Behavior row (Toggle / Hold) hidden for a Control pad
+// set to Sleep, shown again for the other Control modes. The row's label follows its first button
+function DLZMOD_sleepBehavior(page) {
+  try {
+    const p = page.getPrefix();
+    if (Data.get(p + "mode") !== E_PAD_MODE.CONTROL) return;
+    const sleep = Data.get(p + "ctrl.mode") === "sleep";
+    page.bBehavior.forEach((b) => (sleep ? b.hide() : b.show()));
+    page.update();
+  } catch (e) {
+    console.error("dlzmod: sleep:", e.message);
+  }
+}
+
 function DLZMOD_sleepPadText() {
   return "Press to put the mixer to sleep: the screen and the lights go off, the sound keeps running. " +
     "This pad glows dimly while it sleeps. Any button, pad, knob or fader wakes it; the screen does not.";

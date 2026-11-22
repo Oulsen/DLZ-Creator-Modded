@@ -3929,7 +3929,7 @@ test("sleep: the LEDs dark, the sleep pad keeps its colour and glows, the backli
     assert.strictEqual(d["settings.brightness.dim"], 0);
     assert.strictEqual(d["settings.brightness.pad"], 0, "the pads at their lowest: the sleep pad's glow");
     assert.strictEqual(d["B.0.0.colorhex"], "#000000");
-    assert.strictEqual(d["B.0.2.colorhex"], "#05101a", "the sleep pad: its own colour (#123456) at 0.3");
+    assert.strictEqual(d["B.0.2.colorhex"], "#071522", "the sleep pad: its own colour (#123456) at 0.4");
     assert.strictEqual(d["i.0.mute"], 0, "a lit mute LED off");
     assert.strictEqual(d["i.0.colorhex"], "#000000");
     assert.ok(!("settings.brightness.screen" in d), "the screen's brightness is not touched");
@@ -4038,7 +4038,7 @@ test("sleep: while asleep, what stock sends that would light an LED goes dark ag
     r.sent.length = 0;
     ctx.DLZMOD_ctlLeds({ "B.0.2.colorhex": "#00ff00" }, undefined, r.get, 1);
     await r.flush();
-    assert.deepStrictEqual(r.sent, [{ "B.0.2.colorhex": "#05101a" }], "the sleep pad's colour stays the dim one");
+    assert.deepStrictEqual(r.sent, [{ "B.0.2.colorhex": "#071522" }], "the sleep pad's colour stays the dim one");
     ctx.DLZMOD_ctlLeds({ btStatus: 1 }, r.conn, r.get, 1);
     await r.flush();
     assert.strictEqual(r.sent[r.sent.length - 1]["B.0.0.colorhex"], "#000000", "faderlink back: all dark again");
@@ -4131,20 +4131,26 @@ test("sleep: knob rings and blinking LEDs dark, back on waking; keys the state l
     sleepDone();
   }
 });
-test("sleep: the GD32's pad.* keys are buttons; only faderlink wakes it, not dspserver", async () => {
+test("sleep: a sleep pad's own pad.N.pressed does not wake it again; only faderlink wakes it, not dspserver", async () => {
   const r = sleepRig();
   try {
-    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    // the GD32 sends a pad press as PADPRSD and pad.<n>.pressed [device, XS]
+    assert.strictEqual(r.cmd("PADPRSD", { idx: 2, val: 1 }), true);
+    const echo = { "pad.2.pressed": 1 };
+    ctx.DLZMOD_sleepKeys(echo, r.conn, r.get, r.set, 1);
+    assert.strictEqual(r.state["dlzmod.sleep"], 1, "still asleep");
+    assert.deepStrictEqual(plain(echo), {}, "dropped while asleep");
     const dsp = () => {};
     dsp.dlzmodLocal = true;
     dsp.dlzmodSio = true;
     r.state["K.0.key"] = "i.0.gain";
     ctx.DLZMOD_sleepKeys({ "i.0.gain": 0.4 }, { send: dsp }, r.get, r.set, 1);
     assert.strictEqual(r.state["dlzmod.sleep"], 1, "dspserver's gain after Auto Gain does not wake it");
-    const pad = { "pad.ducking": 1 };
-    ctx.DLZMOD_sleepKeys(pad, r.conn, r.get, r.set, 1);
-    assert.deepStrictEqual(plain(pad), {}, "dropped");
-    assert.strictEqual(r.state["dlzmod.sleep"], 0, "and woke it");
+    assert.strictEqual(r.cmd("PADPRSD", { idx: 0, val: 1 }), true, "another pad's press wakes it");
+    assert.strictEqual(r.state["dlzmod.sleep"], 0);
+    const awake = { "pad.0.pressed": 1 };
+    ctx.DLZMOD_sleepKeys(awake, r.conn, r.get, r.set, 1);
+    assert.deepStrictEqual(plain(awake), { "pad.0.pressed": 1 }, "awake: passed on as stock");
   } finally {
     sleepDone();
   }
