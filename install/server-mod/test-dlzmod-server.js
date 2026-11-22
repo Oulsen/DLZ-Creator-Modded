@@ -3929,7 +3929,7 @@ test("sleep: the LEDs dark, the sleep pad keeps its colour and glows, the backli
     assert.strictEqual(d["settings.brightness.dim"], 0);
     assert.strictEqual(d["settings.brightness.pad"], 0, "the pads at their lowest: the sleep pad's glow");
     assert.strictEqual(d["B.0.0.colorhex"], "#000000");
-    assert.strictEqual(d["B.0.2.colorhex"], "#071522", "the sleep pad: its own colour (#123456) at 0.4");
+    assert.strictEqual(d["B.0.2.colorhex"], "#123456", "the sleep pad: its own idle colour");
     assert.strictEqual(d["i.0.mute"], 0, "a lit mute LED off");
     assert.strictEqual(d["i.0.colorhex"], "#000000");
     assert.ok(!("settings.brightness.screen" in d), "the screen's brightness is not touched");
@@ -3946,6 +3946,7 @@ test("sleep: no sleep pad, all pads dark", async () => {
     assert.strictEqual(r.sent[0]["settings.brightness.pad"], -2);
     assert.strictEqual(r.sent[0]["B.0.2.colorhex"], "#000000");
     assert.strictEqual(ctx.DLZMOD_sleepDim("red", 0.3), "#000000", "no colour: black");
+    assert.strictEqual(ctx.DLZMOD_sleepDim("#204060", 0.5), "#102030", "a colour scaled");
   } finally {
     sleepDone();
   }
@@ -4038,7 +4039,7 @@ test("sleep: while asleep, what stock sends that would light an LED goes dark ag
     r.sent.length = 0;
     ctx.DLZMOD_ctlLeds({ "B.0.2.colorhex": "#00ff00" }, undefined, r.get, 1);
     await r.flush();
-    assert.deepStrictEqual(r.sent, [{ "B.0.2.colorhex": "#071522" }], "the sleep pad's colour stays the dim one");
+    assert.deepStrictEqual(r.sent, [{ "B.0.2.colorhex": "#123456" }], "the sleep pad's colour stays the dim one");
     ctx.DLZMOD_ctlLeds({ btStatus: 1 }, r.conn, r.get, 1);
     await r.flush();
     assert.strictEqual(r.sent[r.sent.length - 1]["B.0.0.colorhex"], "#000000", "faderlink back: all dark again");

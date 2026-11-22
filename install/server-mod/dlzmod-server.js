@@ -714,7 +714,7 @@ function DLZMOD_knobCatch(key, value, hub, get = globalThis.getDataKey, set = gl
 // into the state: a switch-off while asleep saves nothing dark. The GD32 turns lit, button, k and pad
 // 0..1 into 60..100 % and anything below -1.5 into off, dim 0 into off (notes/components/faderlink.md):
 // those get -2 and 0, and the states and colours go off or black too. A pad set to Sleep (a pad's
-// Control mode, ctrl.mode "sleep") stays lit, dimly (its own colour darker), to show where to press.
+// Control mode, ctrl.mode "sleep") stays lit, dimly (its idle colour, the pads at their lowest), to show where to press.
 // Home, REC and AUTOMIX keep a faint red glow no key turns off (the LED hardware, faderlink.md).
 // Asleep: touch does nothing (the screen drops it, dlzmod.js), any button, pad, knob or fader wakes
 // the mixer; a button or pad press that wakes does nothing else, a knob or fader keeps working.
@@ -722,7 +722,7 @@ function DLZMOD_knobCatch(key, value, hub, get = globalThis.getDataKey, set = gl
 // without a hand on the mixer before it sleeps by itself (0: never), not while it records.
 var DLZMOD_SLEEP_BL = "/sys/class/backlight/backlight/bl_power";
 var DLZMOD_SLEEP_OFF = -2;    // lit, button, k, pad: off (at 0 the GD32 still lights them at 60 %)
-var DLZMOD_SLEEP_GLOW = 0.4;  // the sleep pad's own colour times this, at the pads' lowest brightness (0)
+var DLZMOD_SLEEP_GLOW = 1;    // the sleep pad keeps its idle colour (stock's already dimmed one), at the pads' lowest brightness (0)
 var DLZMOD_SLEEP_CMDS = ["PADPRSD", "HWREC", "ALT", "BMSG"];
 var DLZMOD_SLEEP_TOUCH_MS = 10000;   // the screen reports touches at most this often (dlzmod.js)
 
@@ -743,7 +743,7 @@ function DLZMOD_sleepPadIs(prefix, get) {
   return get(prefix + "mode") === 1 && get(prefix + "ctrl.mode") === "sleep";
 }
 
-// a #rrggbb colour times f (the sleep pad's glow); anything else: black
+// a #rrggbb colour times f (the sleep pad's glow, DLZMOD_SLEEP_GLOW); anything else: black
 function DLZMOD_sleepDim(hex, f) {
   const m = /^#([0-9a-f]{6})$/i.exec(String(hex || ""));
   if (!m) return "#000000";
@@ -752,7 +752,7 @@ function DLZMOD_sleepDim(hex, f) {
 }
 
 // what faderlink gets to go dark: lit, button, k and pad off (-2), dim 0, the pads black (a sleep
-// pad its own colour darker, with the pads at their lowest brightness), the channel LEDs (mute, solo,
+// pad its idle colour, with the pads at their lowest brightness), the channel LEDs (mute, solo,
 // colour, under the controls' stock keys) off, the knob rings black, nothing blinking. Colour and
 // blink keys only when the state has them, so waking can give each back (settings.brightness.strip:
 // stock never sends it, so it has no value to go back to; the channels' colour strips go dark black)

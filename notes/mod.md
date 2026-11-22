@@ -510,7 +510,7 @@ models: one code path, the same brightness keys and backlight driver [static]; t
 - **LEDs**: sent to faderlink alone (`DLZMOD_ctlFaderSend`), never into the state, so a switch-off
   while asleep saves nothing dark: `lit`, `button`, `k` -2 and `dim` 0 (the GD32's 0 is a 60 %
   floor, -2 is off: faderlink.md), the pads -2, or 0 (their lowest) when the bank shown has a sleep
-  pad, which then shows its own colour at 0.4 (`DLZMOD_sleepDim`) while the others go black, the
+  pad, which then keeps its own idle colour (stock's dimmed one for an inactive Control pad; `DLZMOD_SLEEP_GLOW`, `DLZMOD_sleepDim`) while the others go black, the
   channel LEDs (mute, solo, colour under the controls' stock keys: the colour strips under the
   knobs too) off, the knob rings (`K.N.color`) black and every `*.blink` 0 (`DLZMOD_sleepLeds`; a
   colour or blink key only when the state has it, so waking can give it back).
