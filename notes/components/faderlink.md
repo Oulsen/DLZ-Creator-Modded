@@ -128,7 +128,7 @@ Owned by package `faderlink` 521 (binary, flash scripts, firmware, bitstreams). 
   over SSH]: `lit`, `button`, `k`, `pad` -2, `dim` 0, black `<ch>.colorhex` (also the colour strips
   under the knobs), `K.N.color` and `B.x.y.colorhex`, `<ch>.mute` 0. Left: a faint red glow in Home,
   REC and AUTOMIX, the same in all three, with the screen dark too and every key at off, `strip`
-  included; no key sets their colour (white idle, REC red while recording). Likely leakage in the LED
+  included; no key sets their colour (white idle, REC red while recording). Their white's level is `button`, which the mod's Home, REC, AUTOMIX Brightness slider sets (#331, mod.md). Likely leakage in the LED
   hardware (red has the lowest forward voltage) [guess].
 - **Pad LEDs**: `B.%d.%d.colorhex` / `.blink` → `P.%d.color` / `P.%d.blink` to the GD32.
 - `ctrl.fade.in/out`, per-pad `B.x.y.ctrl.fade.*`, `B.temp.N.fx.{del,rev}.mix`, `lock`, `K.*`.

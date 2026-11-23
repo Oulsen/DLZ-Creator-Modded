@@ -219,11 +219,19 @@ APP_PATCHES = [
         2,
     ),
     (
-        # #20: Settings, System, the brightness panel: Sleep After and Sleep Now under the sliders
-        # (DLZMOD_sleepRow), with the mod's mark
-        "sleep: Sleep After and Sleep Now on the brightness panel",
+        # #20, #331: Settings, System, the brightness panel: Button Brightness (DLZMOD_buttonRow), then
+        # Sleep After and Sleep Now (DLZMOD_sleepRow) under the sliders, with the mod's mark
+        "sleep: Button Brightness, Sleep After and Sleep Now on the brightness panel",
         'label:lang.DIM_BRIGHTNESS,key:"settings.brightness.dim"});',
-        'label:lang.DIM_BRIGHTNESS,key:"settings.brightness.dim"}),DLZMOD_sleepRow(this,h);',
+        'label:lang.DIM_BRIGHTNESS,key:"settings.brightness.dim"}),DLZMOD_buttonRow(this,h),DLZMOD_sleepRow(this,h);',
+    ),
+    (
+        # #331: Settings' knob panel (Mackie's three brightness knobs): the fourth knob, unused there,
+        # on Button Brightness (DLZMOD_brightKnobs, through the stand-in: faderlink's table has no
+        # dlzmod.button)
+        "button brightness: the fourth knob on Settings",
+        "SET_KNOBS(t)}setPage(t){switch(this.page=t",
+        "SET_KNOBS(DLZMOD_brightKnobs(t))}setPage(t){switch(this.page=t",
     ),
     (
         "sleep: the mod's mark on the brightness panel",

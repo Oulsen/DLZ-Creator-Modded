@@ -657,8 +657,49 @@ function DLZMOD_ctlLeds(msg, conn, get = globalThis.getDataKey, lite = globalThi
   } catch (e) {
     console.error("dlzmod: controls:", e.message);
   } finally {
+    DLZMOD_buttonOut(msg, conn, get);
     // #20: asleep, what lights an LED goes dark again after it
     DLZMOD_sleepOut(msg, get, lite);
+  }
+}
+
+// #331 Button Brightness: Home, REC and AUTOMIX follow settings.brightness.button, which stock never
+// changes (0.7: 88 %) and has no slider for. The GD32 turns it into 0.6 + 0.4 × value, clamped to
+// 0..1, and below -1.5 into off (notes/components/faderlink.md), so -1.5 + 2.5 × v gives v × 100 %:
+// dlzmod.button (0..1, the screen's slider) is the LEDs' own level, 0 off. Sent to faderlink alone,
+// never into the state's settings.brightness.button: an older mod or stock, with no slider to undo
+// it, finds stock's 0.7 there. Sent when faderlink (re)connects (after the hub's own value), when
+// dlzmod.button changes and when anything sets the stock key; asleep, waking sends it.
+// The one key sets all three, REC's red and AUTOMIX's colour too [device, XS]: while recording or
+// AUTOMIX is on (DLZMOD_BUTTON_ACTIVE), at least stock's level, asleep as well, so a dark slider or
+// sleep never hides them; Home rises with them (no key tells it apart). AUTOMIX on is amix (the
+// window's toggle); hw_amix is only its window being open [device, XS]: not counted.
+var DLZMOD_BUTTON_DEFAULT = 0.88;
+var DLZMOD_BUTTON_ACTIVE = ["hw_rec", "amix"];
+
+function DLZMOD_buttonLevel(v) {
+  const x = typeof v === "number" && isFinite(v) ? Math.min(1, Math.max(0, v)) : DLZMOD_BUTTON_DEFAULT;
+  return x <= 0 ? DLZMOD_SLEEP_OFF : Math.round((2.5 * x - 1.5) * 1000) / 1000;
+}
+
+// what faderlink gets now: the owner's level (asleep: off), at least stock's while REC or AUTOMIX is on
+function DLZMOD_buttonNow(get, asleep) {
+  const level = asleep ? DLZMOD_SLEEP_OFF : DLZMOD_buttonLevel(get("dlzmod.button"));
+  return DLZMOD_BUTTON_ACTIVE.some((k) => get(k)) ? Math.max(level, DLZMOD_buttonLevel(DLZMOD_BUTTON_DEFAULT)) : level;
+}
+
+function DLZMOD_buttonOut(msg, conn, get = globalThis.getDataKey) {
+  try {
+    if (!msg || typeof msg !== "object") return;
+    // faderlink's own connect counts even when DLZMOD_ctlLeds stopped before taking the connection
+    const fader = "btStatus" in msg && DLZMOD_ctlLocalSio(conn) ? conn : null;
+    const to = fader || DLZMOD_ctlFader;
+    const keys = ["dlzmod.button", "settings.brightness.button"].concat(DLZMOD_BUTTON_ACTIVE);
+    if (to && (fader || keys.some((k) => k in msg))) {
+      DLZMOD_ctlFaderSend({ "settings.brightness.button": DLZMOD_buttonNow(get, DLZMOD_sleepState().on) }, to);
+    }
+  } catch (e) {
+    console.error("dlzmod: button brightness:", e.message);
   }
 }
 
@@ -760,7 +801,7 @@ function DLZMOD_sleepLeds(get, lite) {
   const pads = DLZMOD_sleepPads(get), glow = pads.some((p) => DLZMOD_sleepPadIs(p, get));
   const off = DLZMOD_SLEEP_OFF;
   const out = { "settings.brightness.lit": off, "settings.brightness.dim": 0, "settings.brightness.k": off,
-    "settings.brightness.button": off, "settings.brightness.pad": glow ? 0 : off };
+    "settings.brightness.button": DLZMOD_buttonNow(get, true), "settings.brightness.pad": glow ? 0 : off };
   const known = (key, v) => {
     if (get(key) !== undefined) out[key] = v;
   };
@@ -794,6 +835,8 @@ function DLZMOD_sleepWakeLeds(get, lite, banks = []) {
     else if (get(key) !== undefined) out[key] = get(key);
     else delete out[key];
   }
+  // #331: the buttons at the owner's level, not the state's stock one
+  out["settings.brightness.button"] = DLZMOD_buttonNow(get, false);
   return out;
 }
 

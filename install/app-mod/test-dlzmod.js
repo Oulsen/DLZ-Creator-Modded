@@ -542,7 +542,7 @@ test("header: hidden or shown at once, but not on full-screen pages; saved setti
     "dlzmod.preLevel": 0, "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0,
     "dlzmod.recDate": 0, "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "",
     "dlzmod.controls": "", "dlzmod.lim.bypass": 1, "dlzmod.lim.thresh": -1, "dlzmod.lim.release": 50, "dlzmod.lim.attack": 1,
-    "dlzmod.lim.ratio": 20, "dlzmod.lim.knee": 0, "dlzmod.sleepAfter": 0, "dlzmod.sleep": 0, ...plain(ctx.DLZMOD_duckKeys()) });
+    "dlzmod.lim.ratio": 20, "dlzmod.lim.knee": 0, "dlzmod.sleepAfter": 0, "dlzmod.sleep": 0, "dlzmod.button": 0.88, ...plain(ctx.DLZMOD_duckKeys()) });
   // install/apply-mod.sh reads DLZMOD_keys as JSON (set_mod_defaults): the same regex, the same parse
   const src = fs.readFileSync(path.join(__dirname, "dlzmod.js"), "utf8");
   const m = /function DLZMOD_keys\(\) \{\s*return (\{[^}]*\});/.exec(src);
@@ -4256,6 +4256,22 @@ test("sleep: asleep, touches are dropped but a release goes through; awake, the 
     ctx.Data.data["dlzmod.sleep"] = keep;
     delete ctx.performance;
     ui.cmds.length = 0;
+  }
+});
+test("button brightness: Settings' fourth knob on dlzmod.button, through the stand-in (#331)", () => {
+  const knobs0 = ctx.Color.knobs;
+  ctx.Color.knobs = knobs0 || ["#a", "#b", "#c", "#d"];
+  try {
+    const list = ["screen", "lit", "dim"].map((k) => ({ control: { key: "settings.brightness." + k } }));
+    const knobs = ctx.DLZMOD_brightKnobs(list);
+    assert.strictEqual(knobs.length, 4);
+    assert.deepStrictEqual(knobs.slice(0, 3).map((e) => e.control.key), list.map((e) => e.control.key), "Mackie's three as they were");
+    assert.strictEqual(knobs[3].control.key, "f.1.pan", "knob 4 on its stand-in");
+    assert.strictEqual(ctx.DLZMOD_knobs.steps[3], "dlzmod.button", "which moves Button Brightness");
+    const other = [{ control: { key: "x" } }];
+    assert.strictEqual(ctx.DLZMOD_brightKnobs(other), other, "another list untouched");
+  } finally {
+    ctx.Color.knobs = knobs0;
   }
 });
 test("sleep: the pad editor hides Pad Behavior for a sleep pad, shows it for the other Control modes", () => {
