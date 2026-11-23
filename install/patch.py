@@ -87,6 +87,22 @@ def version_notes(version, path=CHANGELOG_FILE):
         notes = notes[:notes.rfind("\n", 0, NOTES_MAX)].rstrip()
     return notes
 
+# #333 the pads' colours past Mackie's 10: (swatch on the screen, pad lit, pad at rest), added to the
+# end of Mackie's lists (a pad saves its index, B.x.n.color 0-9 in stock, so only ever add to the end).
+# At rest about half the lit colour, as Mackie's own pairs. Stock or an older mod finds no entry for
+# 10 and up: the screen draws the pad grey, the server sends no colour (notes/mod.md, "Pad Colours")
+PAD_COLORS = [
+    ("#f9f9f9", "#ffffff", "#7f7f7f"),   # white (the screen: Mackie's own white)
+    ("#2e70b7", "#2e70b7", "#17385b"),   # deep blue
+    ("#854d9e", "#854d9e", "#42264f"),   # deep purple
+]
+# Mackie's lists: the swatches and the lit pads (one list), the pads at rest
+PAD_COLOR_LISTS = (
+    'sample:["#ea1a5b","#ee3524","#f0582a","#f9a42b","#ffc909","#9ccc56","#85cca9","#21baac","#1ba9d5","#a276b3"]',
+    '["#ea1a5b","#ee3524","#f0582a","#f9a42b","#ffc909","#9ccc56","#85cca9","#21baac","#1ba9d5","#a276b3"]',
+    '["#750d2e","#771a12","#782c15","#7c5215","#7F6404","#4e662b","#426654","#105d56","#0d546a","#513b59"]',
+)
+
 # (what, anchor in Mackie's code, replacement)
 APP_PATCHES = [
     (
@@ -911,6 +927,29 @@ APP_PATCHES = [
         'this.basic.icon.regKey(i+"src"),',
         'this.basic.icon.regKey(i+"src"),this.basic.icon.regKey(i+"dlzmodSrc"),this.player.mixMinus.regKey(i+"dlzmodSrc"),',
     ),
+    (
+        # #333: the pad editor's swatches and the pads on the screen (B.x.n.color indexes this list)
+        "pad colours: more swatches",
+        PAD_COLOR_LISTS[0],
+        PAD_COLOR_LISTS[0][:-1] + "".join(f',"{c[0]}"' for c in PAD_COLORS) + "]",
+    ),
+    (
+        # stock's colour popup is 670 wide, room for 10; the channels' popup keeps its 10 and its width
+        "pad colours: the colour popup as wide as its swatches",
+        "void 0!==arguments[1].shift&&(this.shift=arguments[1].shift),this.initWidgets(),",
+        "void 0!==arguments[1].shift&&(this.shift=arguments[1].shift),"
+        "this.w=Math.max(this.w,60*this.clrs.length+70),this.initWidgets(),",
+    ),
+    (
+        "pad colours: a dark check on a light swatch (the colour popup)",
+        "onToggle:()=>this.onSelect()}))}))}close(){this.destroy()}",
+        "onToggle:()=>this.onSelect()}))})),DLZMOD_padSwatches(this.bclrs)}close(){this.destroy()}",
+    ),
+    (
+        "pad colours: a dark check on a light swatch (PopupSampleEdit)",
+        "this.text=this.state?$FA.check:null}}))})),this.types=[];",
+        "this.text=this.state?$FA.check:null}}))})),DLZMOD_padSwatches(this.bclrs),this.types=[];",
+    ),
 ]
 
 SERVER_PATCHES = [
@@ -1224,6 +1263,20 @@ SERVER_PATCHES = [
         "sources: the state's keys, the pads, second copy",
         '{let t="s.";ae(t),',
         '{let t="s.";e[t+"dlzmodSrc"]=-1,e[t+"dlzmodPads"]=1,e[t+"mixminus"]=0,ne(t),ae(t),',
+    ),
+    (
+        # #333: the lit pads' colours (E_SAMPLE_COLORS, in both copies of the state's code); the
+        # channels index it 1-10 and keep their 10
+        "pad colours: lit",
+        PAD_COLOR_LISTS[1],
+        PAD_COLOR_LISTS[1][:-1] + "".join(f',"{c[1]}"' for c in PAD_COLORS) + "]",
+        2,
+    ),
+    (
+        "pad colours: at rest",
+        PAD_COLOR_LISTS[2],
+        PAD_COLOR_LISTS[2][:-1] + "".join(f',"{c[2]}"' for c in PAD_COLORS) + "]",
+        2,
     ),
 ]
 
