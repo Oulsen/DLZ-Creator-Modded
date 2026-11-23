@@ -4232,6 +4232,36 @@ test("button brightness: the slider's level is the LEDs' own (0.6 + 0.4 × the G
   assert.strictEqual(Number((/"dlzmod\.button": ([\d.]+)/.exec(app) || [])[1]), ctx.DLZMOD_BUTTON_DEFAULT,
     "the screen's default (DLZMOD_keys) is the server's");
 });
+test("button brightness: while recording or AUTOMIX is on, at least stock's level, asleep too; back after", async () => {
+  const r = sleepRig({ "dlzmod.button": 0 });
+  const button = () => r.sent.filter((m) => "settings.brightness.button" in m).map((m) => m["settings.brightness.button"]);
+  try {
+    for (const k of ["hw_rec", "amix", "hw_amix"]) {
+      r.sent.length = 0;
+      r.state[k] = 1;
+      ctx.DLZMOD_ctlLeds({ [k]: 1 }, undefined, r.get, 1);
+      r.state[k] = 0;
+      ctx.DLZMOD_ctlLeds({ [k]: 0 }, undefined, r.get, 1);
+      await r.flush();
+      assert.deepStrictEqual(button(), [0.7, -2], k + ": stock's level while on, the owner's 0 after");
+    }
+    r.state["dlzmod.button"] = 1;
+    r.state.hw_rec = 1;
+    assert.strictEqual(ctx.DLZMOD_buttonNow(r.get, false), 1, "a higher own level stays");
+    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    await r.flush();
+    assert.strictEqual(button().pop(), 0.7, "asleep while recording: REC still shows");
+    r.state.hw_rec = 0;
+    ctx.DLZMOD_ctlLeds({ hw_rec: 0 }, undefined, r.get, 1);
+    await r.flush();
+    assert.strictEqual(button().pop(), -2, "asleep, the recording over: off");
+    ctx.DLZMOD_sleepSet(false, r.get, r.set, 1);
+    await r.flush();
+    assert.strictEqual(button().pop(), 1, "awake: the owner's level");
+  } finally {
+    sleepDone();
+  }
+});
 test("button brightness: faderlink's connect gets the level even when the controls' code stopped early", async () => {
   const r = sleepRig({ "dlzmod.button": 1 });
   const had = ctx.DLZMOD_CTL_LED;
@@ -4268,7 +4298,7 @@ test("button brightness: to faderlink alone, on its connect, a change and the st
     ctx.DLZMOD_ctlLeds({ "dlzmod.button": 1 }, undefined, r.get, 1);
     ctx.DLZMOD_ctlLeds({ btStatus: 1 }, r.conn, r.get, 1);
     await r.flush();
-    assert.deepStrictEqual(button(), [-2], "asleep: no level of ours; faderlink back gets sleep's off");
+    assert.deepStrictEqual(button(), [-2, -2, -2], "asleep: a change and faderlink back get off, never the owner's 1");
     r.sent.length = 0;
     ctx.DLZMOD_sleepSet(false, r.get, r.set, 1);
     await r.flush();

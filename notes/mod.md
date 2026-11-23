@@ -539,7 +539,9 @@ models: one code path, the same brightness keys and backlight driver [static]; t
   (lite 0), tried on the XS only.
 - Tried by hand on the XS through the hub, with the screen dark (faderlink.md): these keys turn
   every LED off, except a faint red glow in Home, REC and AUTOMIX that no key reaches [guess: LED
-  hardware leakage]. `hw_rec`/`hw_amix` are left alone (a recording's REC keeps blinking red).
+  hardware leakage]. `hw_rec`/`hw_amix` are left alone, but `button` -2 darkens REC and AUTOMIX too
+  [device, XS, #331]: while recording or AUTOMIX is on, sleep sends `button` at stock's level instead
+  (`DLZMOD_buttonNow`, Button Brightness below).
 - Open: the full sleep on the dev card (the LED-only keys, how the sleep pad's glow looks) [device].
 
 ## Button Brightness (#331)
@@ -559,9 +561,11 @@ Home, REC and AUTOMIX shine white at `settings.brightness.button`, which stock n
   (after the hub's own 0.7), when `dlzmod.button` changes and when anything sets the stock key; not
   while asleep (sleep's -2 stays), and waking sends the owner's level, not the state's [static, tests].
 - At power-on the GD32 lights them at its own default until faderlink connects (~20-30 s).
-- Open: on the mixer, both ends of the slider; whether `button` drives any LED besides these three;
-  and whether REC still blinks red while recording, and AUTOMIX still shows its state, at 0 (-2):
-  if not, 0 needs a floor or the stock level while `hw_rec` / `amix` is set [device].
+- REC's red and AUTOMIX's colour follow the same key: at 0 (-2) they do not show [device, XS]. So
+  while `hw_rec`, `amix` or `hw_amix` is set the server sends at least stock's level (88 %), asleep
+  too, and the owner's again after (`DLZMOD_buttonNow`, `DLZMOD_BUTTON_ACTIVE`); Home rises with
+  them, no key tells it apart [static, tests].
+- On the mixer (XS, dev card): the slider and the fourth knob dim the three; 0 off, 100 % full [device].
 
 ## Mod settings (Settings → DLZ Creator Modded)
 
