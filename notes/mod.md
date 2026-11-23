@@ -581,7 +581,9 @@ their 10 [static].
 - **Added** (patch.py `PAD_COLORS`, to the end of all three lists, so the saved indexes 0-9 keep
   their colours): white (index 10: screen `#f9f9f9`, Mackie's white; lit `#ffffff`, at rest
   `#7f7f7f`), deep blue (11, `#2e70b7`) and deep purple (12, `#854d9e`), both from Mackie's own
-  palette (`Color.loud`). Only ever add to the end [static, sandbox].
+  palette (`Color.loud`). Only ever add to the end [static, sandbox]. On the pads (XS, dev card): all
+  three show, lit and at rest; deep purple is close to Mackie's lavender (`#a276b3`) on the screen but
+  tells apart on the pad [device].
 - **Screen**: Mackie's colour popup is 670 wide (10 swatches of 60); the patch makes it as wide as
   its swatches (13: 850), the channels' popup keeps its 10. A check on a light swatch the mod added is
   black (`DLZMOD_padSwatches`), Mackie's own ten keep their white check [sandbox, tests].
