@@ -638,7 +638,8 @@ go_back() {
   ( umask 077 && tar -xOf "$STATE/previous.tar" srv/srv_data.json > "$STATE/previous-settings.json.dlzmod-new" ) \
     && sync "$STATE/previous-settings.json.dlzmod-new" \
     && mv -f "$STATE/previous-settings.json.dlzmod-new" "$STATE/previous-settings.json" \
-    || { rm -f "$STATE/previous-settings.json.dlzmod-new"; log "(the settings from before the update could not be kept aside)"; }
+    || { rm -f "$STATE/previous-settings.json.dlzmod-new" "$STATE/previous-settings.json"   # no older Go Back's copy for pads_unmute
+         log "(the settings from before the update could not be kept aside)"; }
   # all put back means this script's own files too: the older copy runs from the next start, which
   # knows nothing of these markers, so they go now, also when the guard check below finds something
   # (no retry could change it: the files are the snapshot's, byte for byte)

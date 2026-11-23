@@ -910,8 +910,12 @@ function DLZMOD_sleepCmd(m, conn, get = globalThis.getDataKey, set = globalThis.
     delete s.eat[id];
     s.last = DLZMOD_monoNow();
     if (m.cmd === "PADPRSD" && !get("lock") && DLZMOD_sleepPadIs("B." + get("bank") + "." + a.idx + ".", get)) {
-      s.eat[id] = true;
+      // a pad press comes from faderlink alone: after a restart of this server it is known from here on,
+      // before faderlink's next btStatus
+      if (!DLZMOD_ctlFader) DLZMOD_ctlFader = conn;
       DLZMOD_sleepSet(true, get, set, lite);
+      if (!s.on) return false;   // stayed awake: the press goes on as stock's
+      s.eat[id] = true;
       return true;
     }
   } catch (e) {

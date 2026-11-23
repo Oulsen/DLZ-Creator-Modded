@@ -1124,6 +1124,16 @@ cut -d' ' -f1 $ST/revertable > $ST/revert; run
 said "GONE BACK to $INST0" && ! said "the pads" && [ "$(sha $R/srv/srv_data.json)" = "$DATA1" ] \
   && ok "without the button, not muted: the settings file untouched" || bad "not muted: the settings file changed or a line about the pads"
 rm -f $ST/previous-settings.json
+mute 0; goback; rm -f $ST/confirm
+# an older Go Back's copy says muted, and this one's cannot be kept aside (a folder in the new file's way)
+printf '{"s.mute": 1}\n' > $ST/previous-settings.json; mkdir $ST/previous-settings.json.dlzmod-new
+mute 1
+cut -d' ' -f1 $ST/revertable > $ST/revert; run
+said "could not be kept aside" && said "the pads were muted: unmuted" && [ "$(mute '?')" = "0 é1" ] \
+  && [ ! -e $ST/previous-settings.json ] \
+  && ok "the settings not kept aside: an older Go Back's copy is not read, the pads unmuted" \
+  || bad "not kept aside: s.mute '$(mute '?')', older copy $( [ -e $ST/previous-settings.json ] && echo left || echo gone)"
+rmdir $ST/previous-settings.json.dlzmod-new; rm -f $ST/previous-settings.json
 cp -p $W/app.js.kept $R/srv/app.js   # the version before the update has the button (v0.6.0 on)
 goback; rm -f $ST/confirm
 mute 1; DATA1=$(sha $R/srv/srv_data.json)

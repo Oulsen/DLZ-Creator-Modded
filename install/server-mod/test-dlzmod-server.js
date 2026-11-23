@@ -4207,6 +4207,22 @@ test("sleep: none without the control surface; a browser's or the screen's chang
     sleepDone();
   }
 });
+test("sleep: after a restart of the server, before faderlink's btStatus, the sleep pad still sleeps", async () => {
+  const r = sleepRig();
+  try {
+    ctx.DLZMOD_ctlFader = null;
+    assert.strictEqual(r.cmd("PADPRSD", { idx: 2, val: 1 }), true, "the sleep pad's press");
+    assert.strictEqual(r.state["dlzmod.sleep"], 1, "asleep");
+    assert.strictEqual(ctx.DLZMOD_ctlFader, r.conn, "faderlink known from its pad press");
+    assert.strictEqual(r.cmd("PADPRSD", { idx: 2, val: 0 }), true, "its release dropped");
+    ctx.DLZMOD_sleepSet(false, r.get, r.set, 1);
+    ctx.DLZMOD_ctlFader = null;
+    ctx.DLZMOD_sleepSet(true, r.get, r.set, 1);
+    assert.strictEqual(r.state["dlzmod.sleep"], 0, "Sleep Now or the timer still need faderlink known");
+  } finally {
+    sleepDone();
+  }
+});
 test("sleep: the full-size's nine channel controls go dark (the model's own table, #23)", async () => {
   const r = sleepRig({ "m.mute": 1, "i.3.mute": 1 });
   try {

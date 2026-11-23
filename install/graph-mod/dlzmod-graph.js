@@ -417,7 +417,7 @@ function DLZMOD_padSrc(ch) {
 // own buffers (masterOuts, right after Mackie copies the mix into them), so the speakers' out is
 // limited and nothing else (headphones, USB, NDI, recordings take the mix before that). Stereo
 // linked (one detector for both sides). Its settings are hub keys of the mod's own (dlzmod.lim.*, in
-// dB and ms like Mackie's; DLZMOD_keys in app-mod/dlzmod.js has their defaults: on, ceiling -1 dB).
+// dB and ms like Mackie's; DLZMOD_keys in app-mod/dlzmod.js has their defaults: off (bypass 1), ceiling -1 dB).
 // A binding applies only once all of its keys have a value, until then the block keeps its own
 // default (thresh -20 dB, ratio 1): the ratio needs both keys, so with any of them missing the
 // block keeps ratio 1 and does nothing, never limiting at -20 dB (a threshold above 0 dB, which the

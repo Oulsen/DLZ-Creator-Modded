@@ -4238,14 +4238,22 @@ test("sleep: asleep, touches are dropped but a release goes through; awake, the 
   const keep = ctx.Data.data["dlzmod.sleep"];
   ui.cmds.length = 0;
   ctx.DLZMOD_sleepTouch.sent = undefined;
+  ctx.DLZMOD_sleepTouch.down = false;
   try {
     ctx.Data.data["dlzmod.sleep"] = 1;
     assert.strictEqual(ctx.DLZMOD_sleepTouch("DOWN_10_10"), true);
     assert.strictEqual(ctx.DLZMOD_sleepTouch("MOVE_12_10"), true);
-    assert.strictEqual(ctx.DLZMOD_sleepTouch("UP_12_10"), false, "nothing stays held");
+    assert.strictEqual(ctx.DLZMOD_sleepTouch("UP_12_10"), true, "a release without its press is dropped");
     assert.deepStrictEqual(ui.cmds, [], "asleep: no touch reported");
     ctx.Data.data["dlzmod.sleep"] = 0;
     assert.strictEqual(ctx.DLZMOD_sleepTouch("DOWN_10_10"), false);
+    // held when the mixer falls asleep: its release still goes on, nothing stays held
+    ctx.Data.data["dlzmod.sleep"] = 1;
+    assert.strictEqual(ctx.DLZMOD_sleepTouch("UP_10_10"), false, "nothing stays held");
+    // begun asleep, ended awake: the release is dropped too
+    assert.strictEqual(ctx.DLZMOD_sleepTouch("DOWN_10_10"), true);
+    ctx.Data.data["dlzmod.sleep"] = 0;
+    assert.strictEqual(ctx.DLZMOD_sleepTouch("UP_10_10"), true);
     mono += 4000;
     ctx.DLZMOD_sleepTouch("DOWN_10_10");
     ctx.DLZMOD_sleepTouch("MOVE_10_10");
