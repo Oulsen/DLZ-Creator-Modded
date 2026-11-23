@@ -562,9 +562,11 @@ Home, REC and AUTOMIX shine white at `settings.brightness.button`, which stock n
   while asleep (sleep's -2 stays), and waking sends the owner's level, not the state's [static, tests].
 - At power-on the GD32 lights them at its own default until faderlink connects (~20-30 s).
 - REC's red and AUTOMIX's colour follow the same key: at 0 (-2) they do not show [device, XS]. So
-  while `hw_rec`, `amix` or `hw_amix` is set the server sends at least stock's level (88 %), asleep
-  too, and the owner's again after (`DLZMOD_buttonNow`, `DLZMOD_BUTTON_ACTIVE`); Home rises with
-  them, no key tells it apart [static, tests].
+  while `hw_rec` (recording) or `amix` (AUTOMIX switched on, the toggle in its window) is set the
+  server sends at least stock's level (88 %), asleep too, and the owner's again after
+  (`DLZMOD_buttonNow`, `DLZMOD_BUTTON_ACTIVE`); Home rises with them, no key tells it apart
+  [static, tests]. `hw_amix` is only the AUTOMIX window being open (the AUTOMIX key toggles it):
+  not counted [device, XS].
 - On the mixer (XS, dev card): the slider and the fourth knob dim the three; 0 off, 100 % full [device].
 
 ## Mod settings (Settings → DLZ Creator Modded)

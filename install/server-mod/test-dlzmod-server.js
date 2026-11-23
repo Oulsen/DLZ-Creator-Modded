@@ -4236,7 +4236,10 @@ test("button brightness: while recording or AUTOMIX is on, at least stock's leve
   const r = sleepRig({ "dlzmod.button": 0 });
   const button = () => r.sent.filter((m) => "settings.brightness.button" in m).map((m) => m["settings.brightness.button"]);
   try {
-    for (const k of ["hw_rec", "amix", "hw_amix"]) {
+    r.state.hw_amix = 1;
+    assert.strictEqual(ctx.DLZMOD_buttonNow(r.get, false), -2, "the AUTOMIX window open, auto mix off: the owner's 0");
+    r.state.hw_amix = 0;
+    for (const k of ["hw_rec", "amix"]) {
       r.sent.length = 0;
       r.state[k] = 1;
       ctx.DLZMOD_ctlLeds({ [k]: 1 }, undefined, r.get, 1);

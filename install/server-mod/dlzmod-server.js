@@ -672,9 +672,10 @@ function DLZMOD_ctlLeds(msg, conn, get = globalThis.getDataKey, lite = globalThi
 // dlzmod.button changes and when anything sets the stock key; asleep, waking sends it.
 // The one key sets all three, REC's red and AUTOMIX's colour too [device, XS]: while recording or
 // AUTOMIX is on (DLZMOD_BUTTON_ACTIVE), at least stock's level, asleep as well, so a dark slider or
-// sleep never hides them; Home rises with them (no key tells it apart).
+// sleep never hides them; Home rises with them (no key tells it apart). AUTOMIX on is amix (the
+// window's toggle); hw_amix is only its window being open [device, XS]: not counted.
 var DLZMOD_BUTTON_DEFAULT = 0.88;
-var DLZMOD_BUTTON_ACTIVE = ["hw_rec", "amix", "hw_amix"];
+var DLZMOD_BUTTON_ACTIVE = ["hw_rec", "amix"];
 
 function DLZMOD_buttonLevel(v) {
   const x = typeof v === "number" && isFinite(v) ? Math.min(1, Math.max(0, v)) : DLZMOD_BUTTON_DEFAULT;
