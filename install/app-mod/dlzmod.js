@@ -2472,6 +2472,16 @@ function DLZMOD_light(c) {
   return 0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2] > 150;
 }
 
+// #333 the pad colour swatches (the colour popup, PopupSampleEdit): the check on a light one the mod
+// added (white, index 10 and up; patch.py PAD_COLORS) dark, Mackie's own ten as they are
+function DLZMOD_padSwatches(list) {
+  try {
+    (list || []).forEach((b, i) => {
+      if (i >= 10 && b && DLZMOD_light((b.colors || [])[1])) b.textColorON = "#000000";
+    });
+  } catch (e) { console.error("dlzmod: pad swatches:", e.message); }
+}
+
 function DLZMOD_meterModeNow() {
   return Data.data["dlzmod.meterMode"] ?? 0;
 }

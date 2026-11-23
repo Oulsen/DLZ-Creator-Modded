@@ -4308,6 +4308,16 @@ test("sleep: the pad editor's seven Control modes fit its page; Sleep After stor
   assert.ok(src.includes("if(DLZMOD_sleepTouch(e))return;"), "touches go through DLZMOD_sleepTouch");
 });
 
+test("pad colours: a dark check only on a light swatch the mod added", () => {
+  const sw = ["#ea1a5b", "#ee3524", "#f0582a", "#f9a42b", "#ffc909", "#9ccc56", "#85cca9", "#21baac", "#1ba9d5",
+    "#a276b3", "#f9f9f9", "#2e70b7", "#854d9e"].map((c) => ({ colors: [c, c], textColorON: "#f9f9f9" }));
+  ctx.DLZMOD_padSwatches(sw);
+  assert.deepStrictEqual(sw.map((b) => b.textColorON === "#000000" ? 1 : 0), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+    "white only; Mackie's yellow keeps its own");
+  ctx.DLZMOD_padSwatches(undefined);
+  ctx.DLZMOD_padSwatches([null, {}]);
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {

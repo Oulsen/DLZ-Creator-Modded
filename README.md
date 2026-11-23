@@ -94,6 +94,7 @@ below. Most start as stock: turn on what you want; the few that are on from the 
 - Ducking always on, without a pad *(the same page, Always on)*
 - The knobs next to the screen set a Fade pad's fade-out and fade-in times *(Pads, a pad in Control
   mode, Fade)*
+- Three more pad colours: white, deep blue and deep purple *(Pads, a pad, Color)*
 
 ### Network and remote control
 

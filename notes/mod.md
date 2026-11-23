@@ -569,6 +569,27 @@ Home, REC and AUTOMIX shine white at `settings.brightness.button`, which stock n
   not counted [device, XS].
 - On the mixer (XS, dev card): the slider and the fourth knob dim the three; 0 off, 100 % full [device].
 
+## Pad Colours (#333)
+
+A pad saves its colour as an index (`B.<bank>.<n>.color`, 0-9 in stock). Three lists hold the colours
+by that index: the screen's `Color.sample` (the pad editor's swatches, the pads on the screen) in
+app.js, and in server.js `E_SAMPLE_COLORS` (lit) and `E_SAMPLE_COLORS_DIM` (at rest, about half),
+from which the server sets `B.x.n.colorhex` for the GD32 (faderlink.md, "Pad LEDs"). The server's
+lists sit in both copies of the state's code. The channels index the lit list too, as 1-10, and keep
+their 10 [static].
+
+- **Added** (patch.py `PAD_COLORS`, to the end of all three lists, so the saved indexes 0-9 keep
+  their colours): white (index 10: screen `#f9f9f9`, Mackie's white; lit `#ffffff`, at rest
+  `#7f7f7f`), deep blue (11, `#2e70b7`) and deep purple (12, `#854d9e`), both from Mackie's own
+  palette (`Color.loud`). Only ever add to the end [static, sandbox].
+- **Screen**: Mackie's colour popup is 670 wide (10 swatches of 60); the patch makes it as wide as
+  its swatches (13: 850), the channels' popup keeps its 10. A check on a light swatch the mod added is
+  black (`DLZMOD_padSwatches`), Mackie's own ten keep their white check [sandbox, tests].
+- **Older mod or stock** (going back, or a backup or snapshot restored there): index 10 and up has no
+  entry. The screen draws the pad grey (`#333`, `Color.gray69` in the editor); the server sets
+  `colorhex` to undefined, which the hub's JSON leaves out, so the pad's LED keeps the colour it had.
+  Nothing throws; picking a colour again fixes it [static].
+
 ## Mod settings (Settings → DLZ Creator Modded)
 
 Sub-tabs Display / Colors / Time / Network / Remote / Mod (a browser: Display / Colors / Time / Mod); layout and how to add a setting:
