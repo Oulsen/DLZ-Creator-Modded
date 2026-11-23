@@ -3947,6 +3947,17 @@ function DLZMOD_buttonRow(page, x) {
     marks: Util.range(0, 1, 0.25), label: "Home, REC, AUTOMIX Brightness", key: "dlzmod.button" });
 }
 
+// Settings' knob panel (patch.py): Mackie's three brightness knobs, and the fourth, unused there, on
+// Button Brightness in their style, through the stand-in (DLZMOD_knobs)
+function DLZMOD_brightKnobs(list) {
+  if (!Array.isArray(list) || list.length !== 3) return list;
+  DLZMOD_initKeys();
+  const key = "dlzmod.button";
+  return DLZMOD_knobs(list.concat([{ title: () => lang.BRIGHTNESS, subTitle: () => "Home, REC",
+    valueText: (v) => $F.toText($F.VtoPERCENT(v), 0, "%"), value: () => Data.get(key), keys: [key],
+    color: () => Color.knobs[3], control: { key, color: Color.knobs[3] }, stepKey: key }]));
+}
+
 // Settings, System, the brightness panel (patch.py): Sleep After (dlzmod.sleepAfter, minutes, Off by
 // default: asleep, the mute lights are dark too) and Sleep Now, under the sliders. x: the sliders'
 // margin. Sleep Now only on the mixer's own screen (the server takes it from there alone)

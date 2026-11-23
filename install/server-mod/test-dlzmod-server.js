@@ -4228,6 +4228,23 @@ test("button brightness: the slider's level is the LEDs' own (0.6 + 0.4 × the G
   for (const bad of [undefined, null, "1", NaN, Infinity]) assert.strictEqual(ctx.DLZMOD_buttonLevel(bad), 0.7, String(bad));
   assert.strictEqual(ctx.DLZMOD_buttonLevel(-3), -2);
   assert.strictEqual(ctx.DLZMOD_buttonLevel(7), 1);
+  const app = fs.readFileSync(path.join(__dirname, "..", "app-mod", "dlzmod.js"), "utf8");
+  assert.strictEqual(Number((/"dlzmod\.button": ([\d.]+)/.exec(app) || [])[1]), ctx.DLZMOD_BUTTON_DEFAULT,
+    "the screen's default (DLZMOD_keys) is the server's");
+});
+test("button brightness: faderlink's connect gets the level even when the controls' code stopped early", async () => {
+  const r = sleepRig({ "dlzmod.button": 1 });
+  const had = ctx.DLZMOD_CTL_LED;
+  try {
+    ctx.DLZMOD_ctlFader = null;
+    ctx.DLZMOD_CTL_LED = undefined;
+    ctx.DLZMOD_ctlLeds({ btStatus: 1 }, r.conn, r.get, 1);
+    await r.flush();
+    assert.deepStrictEqual(r.sent, [{ "settings.brightness.button": 1 }]);
+  } finally {
+    ctx.DLZMOD_CTL_LED = had;
+    sleepDone();
+  }
 });
 test("button brightness: to faderlink alone, on its connect, a change and the stock key; never into the state", async () => {
   const r = sleepRig({ "dlzmod.button": 0.5 });
@@ -4251,7 +4268,7 @@ test("button brightness: to faderlink alone, on its connect, a change and the st
     ctx.DLZMOD_ctlLeds({ "dlzmod.button": 1 }, undefined, r.get, 1);
     ctx.DLZMOD_ctlLeds({ btStatus: 1 }, r.conn, r.get, 1);
     await r.flush();
-    assert.ok(button().every((v) => v === -2), "asleep: the buttons stay off");
+    assert.deepStrictEqual(button(), [-2], "asleep: no level of ours; faderlink back gets sleep's off");
     r.sent.length = 0;
     ctx.DLZMOD_sleepSet(false, r.get, r.set, 1);
     await r.flush();

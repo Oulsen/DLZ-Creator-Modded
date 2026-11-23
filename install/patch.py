@@ -226,6 +226,14 @@ APP_PATCHES = [
         'label:lang.DIM_BRIGHTNESS,key:"settings.brightness.dim"}),DLZMOD_buttonRow(this,h),DLZMOD_sleepRow(this,h);',
     ),
     (
+        # #331: Settings' knob panel (Mackie's three brightness knobs): the fourth knob, unused there,
+        # on Button Brightness (DLZMOD_brightKnobs, through the stand-in: faderlink's table has no
+        # dlzmod.button)
+        "button brightness: the fourth knob on Settings",
+        "SET_KNOBS(t)}setPage(t){switch(this.page=t",
+        "SET_KNOBS(DLZMOD_brightKnobs(t))}setPage(t){switch(this.page=t",
+    ),
+    (
         "sleep: the mod's mark on the brightness panel",
         "this.widgets.forEach((e=>{e.label&&t.drawText(e.label,27,e.y-12)}))}}),this.bt=new Widget",
         "this.widgets.forEach((e=>{e.label&&t.drawText(e.label,27,e.y-12)})),DLZMOD_sleepMark(t,this)}}),this.bt=new Widget",

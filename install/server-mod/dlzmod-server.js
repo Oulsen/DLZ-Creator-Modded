@@ -679,10 +679,12 @@ function DLZMOD_buttonLevel(v) {
 
 function DLZMOD_buttonOut(msg, conn, get = globalThis.getDataKey) {
   try {
-    if (!msg || typeof msg !== "object" || !DLZMOD_ctlFader || DLZMOD_sleepState().on) return;
-    const fader = "btStatus" in msg && conn === DLZMOD_ctlFader;
-    if (fader || "dlzmod.button" in msg || "settings.brightness.button" in msg) {
-      DLZMOD_ctlFaderSend({ "settings.brightness.button": DLZMOD_buttonLevel(get("dlzmod.button")) });
+    if (!msg || typeof msg !== "object" || DLZMOD_sleepState().on) return;
+    // faderlink's own connect counts even when DLZMOD_ctlLeds stopped before taking the connection
+    const fader = "btStatus" in msg && DLZMOD_ctlLocalSio(conn) ? conn : null;
+    const to = fader || DLZMOD_ctlFader;
+    if (to && (fader || "dlzmod.button" in msg || "settings.brightness.button" in msg)) {
+      DLZMOD_ctlFaderSend({ "settings.brightness.button": DLZMOD_buttonLevel(get("dlzmod.button")) }, to);
     }
   } catch (e) {
     console.error("dlzmod: button brightness:", e.message);

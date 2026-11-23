@@ -4258,6 +4258,22 @@ test("sleep: asleep, touches are dropped but a release goes through; awake, the 
     ui.cmds.length = 0;
   }
 });
+test("button brightness: Settings' fourth knob on dlzmod.button, through the stand-in (#331)", () => {
+  const knobs0 = ctx.Color.knobs;
+  ctx.Color.knobs = knobs0 || ["#a", "#b", "#c", "#d"];
+  try {
+    const list = ["screen", "lit", "dim"].map((k) => ({ control: { key: "settings.brightness." + k } }));
+    const knobs = ctx.DLZMOD_brightKnobs(list);
+    assert.strictEqual(knobs.length, 4);
+    assert.deepStrictEqual(knobs.slice(0, 3).map((e) => e.control.key), list.map((e) => e.control.key), "Mackie's three as they were");
+    assert.strictEqual(knobs[3].control.key, "f.1.pan", "knob 4 on its stand-in");
+    assert.strictEqual(ctx.DLZMOD_knobs.steps[3], "dlzmod.button", "which moves Button Brightness");
+    const other = [{ control: { key: "x" } }];
+    assert.strictEqual(ctx.DLZMOD_brightKnobs(other), other, "another list untouched");
+  } finally {
+    ctx.Color.knobs = knobs0;
+  }
+});
 test("sleep: the pad editor hides Pad Behavior for a sleep pad, shows it for the other Control modes", () => {
   const keep = ctx.E_PAD_MODE, d = ctx.Data.data;
   ctx.E_PAD_MODE = { SAMPLE: 0, CONTROL: 1, FX: 2 };
