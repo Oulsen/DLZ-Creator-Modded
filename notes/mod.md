@@ -542,6 +542,24 @@ models: one code path, the same brightness keys and backlight driver [static]; t
   hardware leakage]. `hw_rec`/`hw_amix` are left alone (a recording's REC keeps blinking red).
 - Open: the full sleep on the dev card (the LED-only keys, how the sleep pad's glow looks) [device].
 
+## Button Brightness (#331)
+
+Home, REC and AUTOMIX shine white at `settings.brightness.button`, which stock never changes (0.7:
+88 %) and has no slider for. Both models: the same key in both GD32 firmwares [static].
+
+- **Screen**: a fourth slider, "Home, REC, AUTOMIX Brightness" (`dlzmod.button`, 0..1, default
+  0.88 = stock's look), under Mackie's three on Settings → System's brightness panel, with the mod's
+  mark (`DLZMOD_buttonRow`; `DLZMOD_brightRow` puts the four sliders 66 apart, then Sleep After).
+- **Server** (`DLZMOD_buttonLevel`, `DLZMOD_buttonOut` from `DLZMOD_ctlLeds`): the GD32 makes
+  0.6 + 0.4 × value of it, below -1.5 off (faderlink.md), so it sends -1.5 + 2.5 × v: the slider's %
+  is the LEDs' own, 0 sends -2 (off). To faderlink alone, never into the state: an older mod or
+  stock has no slider to undo a dark value, and finds stock's 0.7. Sent when faderlink (re)connects
+  (after the hub's own 0.7), when `dlzmod.button` changes and when anything sets the stock key; not
+  while asleep (sleep's -2 stays), and waking sends the owner's level, not the state's [tests].
+- At power-on the GD32 lights them at its own default until faderlink connects (~20-30 s).
+- Open: on the mixer, both ends of the slider, and whether `button` drives any LED besides these
+  three [device].
+
 ## Mod settings (Settings → DLZ Creator Modded)
 
 Sub-tabs Display / Colors / Time / Network / Remote / Mod (a browser: Display / Colors / Time / Mod); layout and how to add a setting:

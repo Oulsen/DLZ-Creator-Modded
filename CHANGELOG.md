@@ -4,6 +4,7 @@
 
 - (DLZ FEATURE) Limiter and noise gate on the main output
 - (DLZ FEATURE) Sleep mode
+- (DLZ FEATURE) Dim the Home, REC and AUTOMIX buttons, or turn them off
 - (DLZ BUG) The pad editor takes a while to show another mode
 - (MOD BUG) After going back to an older version, the pads can stay muted
 - (MOD BUG) The installer's first screen can show 'build ?' when the mixer was switched off during a stock start

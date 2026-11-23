@@ -56,6 +56,8 @@ below. Most start as stock: turn on what you want; the few that are on from the 
   while recording); any button, pad, knob or fader wakes it, the screen does not, and a pad set to
   Sleep glows dimly to show where to press *(Settings → System, Sleep After / Sleep Now; Pads, a pad
   in Control mode, Sleep)*
+- The Home, REC and AUTOMIX buttons dimmer, or off *(Settings → System, Home, REC, AUTOMIX
+  Brightness)*
 - The mod's own startup screens
 
 ### Channels

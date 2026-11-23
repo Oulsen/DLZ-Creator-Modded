@@ -92,7 +92,7 @@ function DLZMOD_keys() {
     "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0, "dlzmod.recDate": 0,
     "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "",
     "dlzmod.controls": "", "dlzmod.lim.bypass": 1, "dlzmod.lim.thresh": -1, "dlzmod.lim.release": 50, "dlzmod.lim.attack": 1,
-    "dlzmod.lim.ratio": 20, "dlzmod.lim.knee": 0, "dlzmod.sleepAfter": 0, "dlzmod.sleep": 0 };
+    "dlzmod.lim.ratio": 20, "dlzmod.lim.knee": 0, "dlzmod.sleepAfter": 0, "dlzmod.sleep": 0, "dlzmod.button": 0.88 };
 }
 
 // The owner's own colours on top of the theme (#21): the background, and an accent colour for the
@@ -3933,17 +3933,26 @@ function DLZMOD_sleepPadText() {
 }
 
 // the brightness panel's rows (stock: three sliders from 65, 125 apart, in a panel ~370 high): the
-// sliders 88 apart from 55, then the Sleep After row (n = 3: its control's top)
+// three stock sliders and Button Brightness (n = 3) 66 apart from 52, then the Sleep After row (n = 4:
+// its control's top)
 function DLZMOD_brightRow(n) {
-  return n < 3 ? 55 + 88 * n : 55 + 88 * 2 + 72;
+  return n < 4 ? 52 + 66 * n : 52 + 66 * 3 + 70;
+}
+
+// #331 Button Brightness (dlzmod.button, 0..1: the LEDs' own level, 0 off; the server sends it,
+// DLZMOD_buttonLevel there) under Mackie's three sliders, in their style. x: the sliders' margin
+function DLZMOD_buttonRow(page, x) {
+  DLZMOD_initKeys();
+  page.dlzmodButton = new E1HSlider(page, { anchors: [x, DLZMOD_brightRow(3), x, null], color: Color.knobs[3],
+    marks: Util.range(0, 1, 0.25), label: "Home, REC, AUTOMIX Brightness", key: "dlzmod.button" });
 }
 
 // Settings, System, the brightness panel (patch.py): Sleep After (dlzmod.sleepAfter, minutes, Off by
-// default: asleep, the mute lights are dark too) and Sleep Now, under the three sliders. x: the
-// sliders' margin. Sleep Now only on the mixer's own screen (the server takes it from there alone)
+// default: asleep, the mute lights are dark too) and Sleep Now, under the sliders. x: the sliders'
+// margin. Sleep Now only on the mixer's own screen (the server takes it from there alone)
 function DLZMOD_sleepRow(page, x) {
   DLZMOD_initKeys();
-  const items = DLZMOD_sleepAfterItems(), y = DLZMOD_brightRow(3);
+  const items = DLZMOD_sleepAfterItems(), y = DLZMOD_brightRow(4);
   page.dlzmodSleep = DLZMOD_switchBox(page, x, y, 46, "dlzmod.sleepAfter", items.map((i) => i[0]), 44, "13pt");
   page.dlzmodSleep.label = "Sleep After (minutes)";
   // the key holds the minutes, not the choice's place (SwitchBox's values)
@@ -3961,8 +3970,9 @@ function DLZMOD_sleepAfterItems() {
   return [["Off", 0], ["10", 10], ["15", 15], ["30", 30], ["60", 60]];
 }
 
+// the mod's mark at the labels of Button Brightness and Sleep After
 function DLZMOD_sleepMark(t, page) {
-  if (page.dlzmodSleep) DLZMOD_stockMark(t, { geomCenterY: () => page.dlzmodSleep.y - 12 });
+  for (const w of [page.dlzmodButton, page.dlzmodSleep]) if (w) DLZMOD_stockMark(t, { geomCenterY: () => w.y - 12 });
 }
 
 // #193: the player's title line (dspserver's "artist - title", the file name when there is no title)

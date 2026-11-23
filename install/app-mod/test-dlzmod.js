@@ -542,7 +542,7 @@ test("header: hidden or shown at once, but not on full-screen pages; saved setti
     "dlzmod.preLevel": 0, "dlzmod.meterMarks": 0, "dlzmod.theme": 0, "dlzmod.bgColor": 0, "dlzmod.faderColor": 0,
     "dlzmod.recDate": 0, "dlzmod.spectrum": 0, "dlzmod.rta": 0, "dlzmod.updateAuto": 1, "dlzmod.updateSeen": "",
     "dlzmod.controls": "", "dlzmod.lim.bypass": 1, "dlzmod.lim.thresh": -1, "dlzmod.lim.release": 50, "dlzmod.lim.attack": 1,
-    "dlzmod.lim.ratio": 20, "dlzmod.lim.knee": 0, "dlzmod.sleepAfter": 0, "dlzmod.sleep": 0, ...plain(ctx.DLZMOD_duckKeys()) });
+    "dlzmod.lim.ratio": 20, "dlzmod.lim.knee": 0, "dlzmod.sleepAfter": 0, "dlzmod.sleep": 0, "dlzmod.button": 0.88, ...plain(ctx.DLZMOD_duckKeys()) });
   // install/apply-mod.sh reads DLZMOD_keys as JSON (set_mod_defaults): the same regex, the same parse
   const src = fs.readFileSync(path.join(__dirname, "dlzmod.js"), "utf8");
   const m = /function DLZMOD_keys\(\) \{\s*return (\{[^}]*\});/.exec(src);

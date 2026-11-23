@@ -219,11 +219,11 @@ APP_PATCHES = [
         2,
     ),
     (
-        # #20: Settings, System, the brightness panel: Sleep After and Sleep Now under the sliders
-        # (DLZMOD_sleepRow), with the mod's mark
-        "sleep: Sleep After and Sleep Now on the brightness panel",
+        # #20, #331: Settings, System, the brightness panel: Button Brightness (DLZMOD_buttonRow), then
+        # Sleep After and Sleep Now (DLZMOD_sleepRow) under the sliders, with the mod's mark
+        "sleep: Button Brightness, Sleep After and Sleep Now on the brightness panel",
         'label:lang.DIM_BRIGHTNESS,key:"settings.brightness.dim"});',
-        'label:lang.DIM_BRIGHTNESS,key:"settings.brightness.dim"}),DLZMOD_sleepRow(this,h);',
+        'label:lang.DIM_BRIGHTNESS,key:"settings.brightness.dim"}),DLZMOD_buttonRow(this,h),DLZMOD_sleepRow(this,h);',
     ),
     (
         "sleep: the mod's mark on the brightness panel",
