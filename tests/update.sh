@@ -1124,6 +1124,28 @@ cut -d' ' -f1 $ST/revertable > $ST/revert; run
 said "GONE BACK to $INST0" && ! said "the pads" && [ "$(sha $R/srv/srv_data.json)" = "$DATA1" ] \
   && ok "without the button, not muted: the settings file untouched" || bad "not muted: the settings file changed or a line about the pads"
 rm -f $ST/previous-settings.json
+mute 0; goback; rm -f $ST/confirm
+# an older Go Back's copy (older than this snapshot) says muted, and this one's cannot be kept aside (a
+# folder in the new file's way): the older copy is not read, and stays
+printf '{"s.mute": 1}\n' > $ST/previous-settings.json; touch -d 2001-01-01 $ST/previous-settings.json
+OLD1=$(sha $ST/previous-settings.json); mkdir $ST/previous-settings.json.dlzmod-new
+mute 1
+cut -d' ' -f1 $ST/revertable > $ST/revert; run
+said "could not be kept aside" && said "the pads were muted: unmuted" && [ "$(mute '?')" = "0 é1" ] \
+  && [ "$(sha $ST/previous-settings.json)" = "$OLD1" ] && ! said "(var/lib/dlzmod-update/previous-settings.json)" \
+  && ok "the settings not kept aside: an older Go Back's copy not read and left as it was, the pads unmuted, no 'kept aside' line" \
+  || bad "not kept aside: s.mute '$(mute '?')', older copy $( [ "$(sha $ST/previous-settings.json 2>/dev/null)" = "$OLD1" ] && echo kept || echo changed)"
+rmdir $ST/previous-settings.json.dlzmod-new; rm -f $ST/previous-settings.json
+mute 1; goback; rm -f $ST/confirm
+# a try of this Go Back that did not finish kept them aside (newer than the snapshot, muted before);
+# the retry cannot: that copy is still read, the pads stay muted
+printf '{"s.mute": 1}\n' > $ST/previous-settings.json; touch -d '+1 minute' $ST/previous-settings.json
+mkdir $ST/previous-settings.json.dlzmod-new; DATA1=$(sha $R/srv/srv_data.json)
+cut -d' ' -f1 $ST/revertable > $ST/revert; run
+said "GONE BACK to $INST0" && ! said "could not be kept aside" && ! said "the pads" && [ "$(sha $R/srv/srv_data.json)" = "$DATA1" ] \
+  && ok "an earlier try's copy (newer than the snapshot) still read: muted before, left muted" \
+  || bad "earlier try's copy: the settings file changed, or a line about the pads or the copy"
+rmdir $ST/previous-settings.json.dlzmod-new; rm -f $ST/previous-settings.json
 cp -p $W/app.js.kept $R/srv/app.js   # the version before the update has the button (v0.6.0 on)
 goback; rm -f $ST/confirm
 mute 1; DATA1=$(sha $R/srv/srv_data.json)

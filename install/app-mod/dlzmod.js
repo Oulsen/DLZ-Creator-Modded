@@ -3892,10 +3892,20 @@ function DLZMOD_recRowY(i) {
 // the mixer falls asleep under a finger. Awake, the server hears of a touch at most every 10 s, for
 // the idle timer (DLZMOD_SLEEP_TOUCH_MS there)
 function DLZMOD_sleepTouch(msg) {
-  const kind = String(msg).split("_")[0];
-  if (Data.get("dlzmod.sleep")) return kind !== "UP";
+  const kind = String(msg).split("_")[0], s = DLZMOD_sleepTouch;
+  // a move or release goes on only after a press that went on (a touch held when the mixer fell asleep
+  // ends); one whose press was dropped (asleep, or a touch that began asleep and goes on awake) is
+  // dropped too
+  if (kind === "UP") {
+    const held = !!s.down;
+    s.down = false;
+    return !held;
+  }
+  if (Data.get("dlzmod.sleep")) return true;
+  if (kind === "MOVE") return !s.down;
   if (kind === "DOWN") {
-    const s = DLZMOD_sleepTouch, now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    s.down = true;
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
     if (s.sent === undefined || Math.abs(now - s.sent) >= 10000) {
       s.sent = now;
       $NET.cmd("DLZMOD_SLEEP", { touch: 1 });

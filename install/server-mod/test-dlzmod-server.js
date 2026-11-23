@@ -4207,6 +4207,18 @@ test("sleep: none without the control surface; a browser's or the screen's chang
     sleepDone();
   }
 });
+test("sleep: a sleep pad pressed before faderlink is known stays awake and its press goes on", async () => {
+  const r = sleepRig();
+  try {
+    ctx.DLZMOD_ctlFader = null;
+    assert.strictEqual(r.cmd("PADPRSD", { idx: 2, val: 1 }), false, "the press goes on as stock's");
+    assert.strictEqual(r.state["dlzmod.sleep"], 0, "awake");
+    assert.strictEqual(ctx.DLZMOD_ctlFader, null, "a pad press does not make its connection faderlink's");
+    assert.strictEqual(r.cmd("PADPRSD", { idx: 2, val: 0 }), false, "its release goes on too");
+  } finally {
+    sleepDone();
+  }
+});
 test("sleep: the full-size's nine channel controls go dark (the model's own table, #23)", async () => {
   const r = sleepRig({ "m.mute": 1, "i.3.mute": 1 });
   try {

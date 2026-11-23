@@ -910,8 +910,11 @@ function DLZMOD_sleepCmd(m, conn, get = globalThis.getDataKey, set = globalThis.
     delete s.eat[id];
     s.last = DLZMOD_monoNow();
     if (m.cmd === "PADPRSD" && !get("lock") && DLZMOD_sleepPadIs("B." + get("bank") + "." + a.idx + ".", get)) {
-      s.eat[id] = true;
       DLZMOD_sleepSet(true, get, set, lite);
+      // stayed awake (faderlink not known yet: the moment between its connect and its btStatus): the
+      // press goes on as stock's instead of vanishing
+      if (!s.on) return false;
+      s.eat[id] = true;
       return true;
     }
   } catch (e) {
