@@ -4409,6 +4409,46 @@ test("phones: the fit only in a browser's layout, not on the mixer's screen or i
   }
 });
 
+test("knob panel in a browser: shows the page's knobs and follows their keys, never sets the mixer's knobs (#51)", () => {
+  const saved = { app: ctx.app, LITE_MODE: ctx.LITE_MODE, IS_DEMO: ctx.IS_DEMO, E_PAGE: ctx.E_PAGE, EXTERNAL: ctx.EXTERNAL };
+  const sets = ui.sets.length;
+  const p = { regs: [], updates: 0, tour: { v: null, setVisible(v) { this.v = v; } },
+    unRegAllKeys() { this.regs = []; }, regKey(k) { this.regs.push(k); }, update() { this.updates++; } };
+  const knob = (key) => ({ title: () => key, keys: [key], control: { key, color: "c" } });
+  Object.assign(ctx, { app: { curPage: 0, panel: p }, IS_DEMO: () => false, E_PAGE: { OVERVIEW: 0 }, EXTERNAL: true });
+  try {
+    ctx.LITE_MODE = 0;
+    const list = [knob("a.0.mix"), null, knob("a.1.mix"), knob("v.0.mix"), knob("v.1.mix")];
+    ctx.DLZMOD_panelShow(p, list);
+    assert.strictEqual(p.data, list, "the page's own list");
+    assert.deepStrictEqual(p.regs, ["a.0.mix", "a.1.mix", "v.0.mix", "v.1.mix"], "a level that changes on the mixer redraws it");
+    assert.deepStrictEqual([p.updates, p.tour.v], [1, false], "drawn; the tour button as stock leaves it");
+    ctx.DLZMOD_panelShow(p, null);
+    assert.deepStrictEqual([plain(p.data), p.regs], [[], []], "no knobs: an empty panel, nothing followed");
+    ctx.LITE_MODE = 1;
+    const five = [knob("a"), knob("b"), knob("c"), knob("d"), knob("e")];
+    ctx.DLZMOD_panelShow(p, five);
+    assert.strictEqual(p.data.length, 4, "the XS: four boxes, as stock");
+    assert.strictEqual(ui.sets.length, sets, "no K.0-4.* or anything else set on the hub");
+    // the pad editor's knobs (#18) go to the panel in a browser too
+    const delay = ctx.DLZMOD_padKnobs.delay, set = ctx.SET_KNOBS;
+    let got;
+    ctx.SET_KNOBS = (l) => (got = l);
+    ctx.E_PAD_CONTROL_MODE = { MUTE: 1, FADE: 4, DUCKING: 5 };
+    try {
+      ctx.DLZMOD_padKnobsNow(4, "B.1.0.");
+      assert.strictEqual(got && got[0].control.key, "B.1.0.ctrl.fade.out", "the Fade page's knobs in a browser");
+    } finally {
+      Object.assign(ctx, { SET_KNOBS: set });
+      ctx.DLZMOD_padKnobs.delay = delay;
+      ctx.DLZMOD_padKnobs.list = null;
+      ctx.DLZMOD_padKnobs.sig = null;
+    }
+  } finally {
+    Object.assign(ctx, saved);
+  }
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {

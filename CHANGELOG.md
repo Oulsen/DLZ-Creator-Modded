@@ -2,6 +2,7 @@
 
 ## v0.8.0
 
+- (DLZ FEATURE) See the mixer's knob levels on every page when controlling it from a phone or laptop, like on the mixer's own screen
 - (DLZ BUG) Controlling the mixer from a phone does not work: touch does nothing and the screen does not fit
 
 ## v0.7.0

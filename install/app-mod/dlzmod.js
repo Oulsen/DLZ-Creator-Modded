@@ -3775,8 +3775,9 @@ function DLZMOD_padKnobs(mode, prefix) {
 }
 DLZMOD_padKnobs.delay = 150;
 
+// (in a browser the panel only shows them, #51)
 function DLZMOD_padKnobsNow(mode, prefix) {
-  if (typeof app === "undefined" || !app || !app.panel || DLZMOD_external()) return;
+  if (typeof app === "undefined" || !app || !app.panel) return;
   const M = typeof E_PAD_CONTROL_MODE === "undefined" ? {} : E_PAD_CONTROL_MODE;
   const want = mode === undefined || mode === null ? null
     : mode === M.DUCKING ? "ducking" : mode === M.FADE && prefix ? "fade " + prefix : null;
@@ -4709,4 +4710,16 @@ function DLZMOD_fitInit() {
   } catch (e) {
     console.log("dlzmod: fit to the window: " + e);
   }
+}
+
+// #51: the knob panel in a browser (patch.py): what stock's setData does there, without its K.0-4.*
+// writes, which would point the mixer's knobs at the browser's page. Names and levels come from the
+// page's own list and follow the mixer live through the keys registered here
+function DLZMOD_panelShow(p, list) {
+  if (typeof LITE_MODE !== "undefined" && LITE_MODE && list && list.length > 4) list.splice(4, list.length - 4);
+  p.data = list || [];
+  p.unRegAllKeys();
+  p.data.forEach((e) => e && e.keys && e.keys.forEach((k) => p.regKey(k)));
+  if (p.tour) p.tour.setVisible(IS_DEMO() && !LITE_MODE && app.curPage === E_PAGE.OVERVIEW);
+  p.update();
 }
