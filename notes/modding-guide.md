@@ -292,7 +292,7 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
   stretch) with Chrome's DevTools protocol: `Emulation.setTouchEmulationEnabled`, a mobile viewport,
   `Input.dispatchTouchEvent` vs `Input.dispatchMouseEvent` at the same spot, and a wrapper around
   `Events.eventPointerDown` that logs the coordinates app.js receives.
-  The mod's fix [sandbox: emulated 915x412 and 412x915 touch, 800x500 and 1280x720 mouse]: a touch
+  The mod's fix [static, sandbox: emulated 915x412 and 412x915 touch, 800x500 and 1280x720 mouse]: a touch
   is placed by the canvas's `getBoundingClientRect()` (patch "phones: a touch lands where the finger
   is", `DLZMOD_touchXY`; the mixer's own screen keeps stock's sum), and in the browser's layout (not
   `#INT`, not glesgui) a `canvas.app` rule scales the box by `--dlzmod-fit` = min(1, window/1024x600),

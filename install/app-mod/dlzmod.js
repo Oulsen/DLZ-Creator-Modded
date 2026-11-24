@@ -4675,8 +4675,9 @@ function DLZMOD_touchXY(touch, el) {
     (touch.clientY - r.top) * (r.height ? el.offsetHeight / r.height : 1)];
 }
 
-// the browser's layout scaled down to the window, so a phone shows the whole screen (landscape fits
-// best); never up, so a laptop sees it as before
+// the browser's layout scaled down to a window smaller than 1024x600, so a phone (landscape fits
+// best) or a small laptop window shows the whole screen instead of cutting it off; never up, so a
+// big enough window sees it as before
 function DLZMOD_fitScale(w, h) {
   return w > 0 && h > 0 ? Math.min(1, w / 1024, h / 600) : 1;
 }
