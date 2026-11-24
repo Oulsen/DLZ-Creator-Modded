@@ -4381,7 +4381,9 @@ test("phones: the fit only in a browser's layout, not on the mixer's screen or i
   try {
     const r = run("", false);
     assert.strictEqual(r.added.length, 1);
-    assert.match(r.added[0].textContent, /^canvas\.app\{transform:translate\(-50%,-50%\) scale\(var\(--dlzmod-fit,1\)\)\}$/);
+    assert.match(r.added[0].textContent, /^canvas\.app\{transform:translate\(-50%,-50%\) scale\(var\(--dlzmod-fit,1\)\)\}/);
+    assert.match(r.added[0].textContent, /canvas\.app\.ca-overlay\{left:50%!important;top:50%!important\}$/,
+      "the popups' layer centred like the screen, also after the phone is turned");
     assert.strictEqual(r.props["--dlzmod-fit"], String(412 / 600));
     assert.deepStrictEqual(r.listeners.map((l) => l[0]), ["resize"]);
     ctx.window.innerWidth = 1920;

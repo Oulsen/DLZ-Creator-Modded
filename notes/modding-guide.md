@@ -296,9 +296,16 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
   is placed by the canvas's `getBoundingClientRect()` (patch "phones: a touch lands where the finger
   is", `DLZMOD_touchXY`; the mixer's own screen keeps stock's sum), and in the browser's layout (not
   `#INT`, not glesgui) a `canvas.app` rule scales the box by `--dlzmod-fit` = min(1, window/1024x600),
-  set on load and on every resize (`DLZMOD_fitInit`). Mouse needs nothing: `offsetX/Y` follows the
-  scale. Taps land within 1 UI px at every size; the device layout is untouched (1077 px wide with
-  the sandbox's stretch). A real Android phone and an iPhone: not yet.
+  set from `startGUI` and on every resize (`DLZMOD_fitInit`). Mouse needs nothing: `offsetX/Y`
+  follows the scale. Taps land within 1 UI px at every size; the device layout is untouched (1077 px
+  wide with the sandbox's stretch). [device: Android phone, Chrome] works upright and sideways.
+- **The popups' layer stays behind after a turn or resize** (stock; seen with #52 on a real phone:
+  pad colour popup turned sideways, only the lower left dimmed) [static, sandbox: loaded 412x915,
+  turned to 915x412]. Popups draw on a second canvas (`<id>_`, class `ca-overlay`) that app.js puts
+  at the canvas's `offsetLeft/Top` in px once, when it is made (FIXED mode); the main canvas follows
+  `left/top: 50%`, the overlay keeps the old centre (206,458 after the turn: box at -146,252 instead of
+  106,0). The mod's fit rule also centres it: `canvas.app.ca-overlay{left:50%!important;top:50%!important}`,
+  browser layout only.
 - Fonts match: the browser registers the same three Proxima Nova weights glesgui has
   (300/400/600). Stick to weights 300-600.
 - The panel has non-square pixels (7" 1024x600, 0.1506 x 0.1432 mm): the device shows everything

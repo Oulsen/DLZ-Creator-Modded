@@ -4686,7 +4686,10 @@ function DLZMOD_fitScale(w, h) {
 // UI sandbox) as before. From startGUI (patch.py), not at load: $ENV.isNode is only known after
 // CAGUI_INIT's $ENV.check(), and at load it is false on the mixer too. Once, however often startGUI
 // runs; never in the way of the start. app.js reads the hash once at start, as here. `canvas.app`:
-// more specific than index.html's own .app rule, wherever this one lands
+// more specific than index.html's own .app rule, wherever this one lands. The popups' layer (the
+// overlay canvas, `ca-overlay`) gets the window's centre in pixels once, when it is made: after a
+// phone is turned or a window resized it stayed there, off the screen (stock too), so it is centred
+// like the screen itself (`!important`: over that inline left/top)
 let DLZMOD_fitDone = !1;
 function DLZMOD_fitInit() {
   if (DLZMOD_fitDone) return;
@@ -4696,7 +4699,8 @@ function DLZMOD_fitInit() {
     if (typeof $ENV === "undefined" || !$ENV || $ENV.isNode) return;
     if (String(window.location && window.location.hash || "").toUpperCase() === "#INT") return;
     const style = document.createElement("style");
-    style.textContent = "canvas.app{transform:translate(-50%,-50%) scale(var(--dlzmod-fit,1))}";
+    style.textContent = "canvas.app{transform:translate(-50%,-50%) scale(var(--dlzmod-fit,1))}"
+      + "canvas.app.ca-overlay{left:50%!important;top:50%!important}";
     document.head.appendChild(style);
     const fit = () => document.documentElement.style.setProperty("--dlzmod-fit",
       String(DLZMOD_fitScale(window.innerWidth, window.innerHeight)));
