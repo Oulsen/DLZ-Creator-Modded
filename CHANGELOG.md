@@ -1,5 +1,7 @@
 # Changelog
 
+## v0.8.0
+
 ## v0.7.0
 
 - (DLZ FEATURE) Limiter and noise gate on the main output
