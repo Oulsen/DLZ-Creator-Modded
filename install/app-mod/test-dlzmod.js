@@ -4331,6 +4331,84 @@ test("pad colours: a dark check only on a light swatch the mod added", () => {
   ctx.DLZMOD_padSwatches([null, {}]);
 });
 
+// #52: phones. The numbers of the sandbox's repro: a 915x412 phone, the canvas centred by its transform
+test("phones: a touch lands where the finger is, also on a canvas scaled to the window", () => {
+  const canvas = (left, top, scale) => ({ offsetLeft: 457, offsetTop: 206, offsetWidth: 1024, offsetHeight: 600,
+    getBoundingClientRect: () => ({ left, top, width: 1024 * scale, height: 600 * scale }) });
+  // unscaled and centred: the box starts 55 px left of and 94 px above the window
+  assert.deepStrictEqual([...ctx.DLZMOD_touchXY({ clientX: 0, clientY: 0, pageX: 0, pageY: 0 }, canvas(-55, -94, 1))],
+    [55, 94], "the window's corner is 55,94 into the canvas, not -457,-206 as stock had it");
+  // scaled to 412/600 of its size: a finger in the middle of the window is the middle of the canvas
+  const s = 412 / 600, el = canvas((915 - 1024 * s) / 2, 0, s);
+  const [x, y] = ctx.DLZMOD_touchXY({ clientX: 457.5, clientY: 206 }, el);
+  assert.ok(Math.abs(x - 512) < 1e-9 && Math.abs(y - 300) < 1e-9, `the middle: ${x},${y}`);
+  const [x2, y2] = ctx.DLZMOD_touchXY({ clientX: el.getBoundingClientRect().left + 10 * s, clientY: 474 * s }, el);
+  assert.ok(Math.abs(x2 - 10) < 1e-9 && Math.abs(y2 - 474) < 1e-9, `near the left edge: ${x2},${y2}`);
+  assert.deepStrictEqual([...ctx.DLZMOD_touchXY({ pageX: 30, pageY: 40 }, { offsetLeft: 10, offsetTop: 5 })], [20, 35],
+    "no box to measure: stock's own sum");
+  const e0 = ctx.$ENV;
+  try {
+    ctx.$ENV = { isNode: true };
+    assert.deepStrictEqual([...ctx.DLZMOD_touchXY({ clientX: 0, clientY: 0, pageX: 600, pageY: 400 }, canvas(-55, -94, 1))],
+      [143, 194], "the mixer's own screen: stock's sum, whatever the box says");
+  } finally {
+    ctx.$ENV = e0;
+  }
+  assert.deepStrictEqual([...ctx.DLZMOD_touchXY({ pageX: 600, pageY: 400 }, canvas(-55, -94, 1))], [143, 194],
+    "a touch without clientX/Y: stock's sum");
+});
+test("phones: the screen scaled down to the window, never up", () => {
+  assert.strictEqual(ctx.DLZMOD_fitScale(915, 412), 412 / 600, "a phone in landscape: its height decides");
+  assert.strictEqual(ctx.DLZMOD_fitScale(412, 915), 412 / 1024, "upright: its width");
+  assert.strictEqual(ctx.DLZMOD_fitScale(1920, 1080), 1, "a laptop: as before");
+  assert.strictEqual(ctx.DLZMOD_fitScale(1024, 600), 1);
+  assert.strictEqual(ctx.DLZMOD_fitScale(0, 0), 1, "a window not laid out yet: left alone");
+});
+test("phones: the fit only in a browser's layout, not on the mixer's screen or in the device layout (#INT)", () => {
+  const { window: w0, document: d0, $ENV: e0 } = ctx;
+  // a fresh page each time (the once-flag down), unless `again`: startGUI running once more
+  const run = (hash, isNode, again) => {
+    const added = [], props = {}, listeners = [];
+    ctx.$ENV = { isNode };
+    ctx.window = { innerWidth: 915, innerHeight: 412, location: { hash },
+      addEventListener: (ev, fn) => listeners.push([ev, fn]) };
+    ctx.document = { createElement: () => ({}), head: { appendChild: (el) => added.push(el) },
+      documentElement: { style: { setProperty: (k, v) => { props[k] = v; } } } };
+    if (!again) vm.runInContext("DLZMOD_fitDone = !1", ctx);
+    ctx.DLZMOD_fitInit();
+    return { added, props, listeners };
+  };
+  try {
+    const r = run("", false);
+    assert.strictEqual(r.added.length, 1);
+    assert.match(r.added[0].textContent, /^canvas\.app\{transform:translate\(-50%,-50%\) scale\(var\(--dlzmod-fit,1\)\)\}/);
+    assert.match(r.added[0].textContent, /canvas\.app\.ca-overlay\{left:50%!important;top:50%!important\}$/,
+      "the popups' layer centred like the screen, also after the phone is turned");
+    assert.strictEqual(r.props["--dlzmod-fit"], String(412 / 600));
+    assert.deepStrictEqual(r.listeners.map((l) => l[0]), ["resize"]);
+    ctx.window.innerWidth = 1920;
+    ctx.window.innerHeight = 1080;
+    r.listeners[0][1]();
+    assert.strictEqual(r.props["--dlzmod-fit"], "1", "a turned or resized window fits again");
+    assert.strictEqual(run("#ext", false).added.length, 1, "#EXT: the browser's layout too");
+    for (const [hash, isNode] of [["#INT", false], ["#int", false], ["", true]]) {
+      const n = run(hash, isNode);
+      assert.deepStrictEqual([n.added, n.props, n.listeners], [[], {}, []], `${hash} ${isNode}: untouched`);
+    }
+    run("", false);
+    const twice = run("", false, true);
+    assert.deepStrictEqual([twice.added, twice.listeners], [[], []], "startGUI again: no second rule or listener");
+    // a screen whose document has no documentElement.style: logged, the start goes on
+    vm.runInContext("DLZMOD_fitDone = !1", ctx);
+    ctx.document = { createElement: () => ({}), head: { appendChild() {} }, documentElement: {} };
+    ctx.window = { innerWidth: 915, innerHeight: 412, location: { hash: "" }, addEventListener() {} };
+    ctx.$ENV = { isNode: false };
+    assert.doesNotThrow(() => ctx.DLZMOD_fitInit());
+  } finally {
+    Object.assign(ctx, { window: w0, document: d0, $ENV: e0 });
+  }
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {
