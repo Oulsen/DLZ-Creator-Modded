@@ -4683,18 +4683,26 @@ function DLZMOD_fitScale(w, h) {
 }
 
 // only in the browser's layout: the mixer's own screen (glesgui) and the device layout (#INT, the
-// UI sandbox) as before. app.js reads the hash once at start, as here. `canvas.app`: index.html's
-// own .app rule comes after this one, so it needs the higher specificity
+// UI sandbox) as before. From startGUI (patch.py), not at load: $ENV.isNode is only known after
+// CAGUI_INIT's $ENV.check(), and at load it is false on the mixer too. Once, however often startGUI
+// runs; never in the way of the start. app.js reads the hash once at start, as here. `canvas.app`:
+// more specific than index.html's own .app rule, wherever this one lands
+let DLZMOD_fitDone = !1;
 function DLZMOD_fitInit() {
-  if (typeof window === "undefined" || typeof document === "undefined" || !document.head) return;
-  if (typeof $ENV !== "undefined" && $ENV && $ENV.isNode) return;
-  if (String(window.location && window.location.hash || "").toUpperCase() === "#INT") return;
-  const style = document.createElement("style");
-  style.textContent = "canvas.app{transform:translate(-50%,-50%) scale(var(--dlzmod-fit,1))}";
-  document.head.appendChild(style);
-  const fit = () => document.documentElement.style.setProperty("--dlzmod-fit",
-    String(DLZMOD_fitScale(window.innerWidth, window.innerHeight)));
-  fit();
-  window.addEventListener("resize", fit);
+  if (DLZMOD_fitDone) return;
+  DLZMOD_fitDone = !0;
+  try {
+    if (typeof window === "undefined" || typeof document === "undefined" || !document.head) return;
+    if (typeof $ENV === "undefined" || !$ENV || $ENV.isNode) return;
+    if (String(window.location && window.location.hash || "").toUpperCase() === "#INT") return;
+    const style = document.createElement("style");
+    style.textContent = "canvas.app{transform:translate(-50%,-50%) scale(var(--dlzmod-fit,1))}";
+    document.head.appendChild(style);
+    const fit = () => document.documentElement.style.setProperty("--dlzmod-fit",
+      String(DLZMOD_fitScale(window.innerWidth, window.innerHeight)));
+    fit();
+    window.addEventListener("resize", fit);
+  } catch (e) {
+    console.log("dlzmod: fit to the window: " + e);
+  }
 }
-DLZMOD_fitInit();

@@ -4366,13 +4366,15 @@ test("phones: the screen scaled down to the window, never up", () => {
 });
 test("phones: the fit only in a browser's layout, not on the mixer's screen or in the device layout (#INT)", () => {
   const { window: w0, document: d0, $ENV: e0 } = ctx;
-  const run = (hash, isNode) => {
+  // a fresh page each time (the once-flag down), unless `again`: startGUI running once more
+  const run = (hash, isNode, again) => {
     const added = [], props = {}, listeners = [];
     ctx.$ENV = { isNode };
     ctx.window = { innerWidth: 915, innerHeight: 412, location: { hash },
       addEventListener: (ev, fn) => listeners.push([ev, fn]) };
     ctx.document = { createElement: () => ({}), head: { appendChild: (el) => added.push(el) },
       documentElement: { style: { setProperty: (k, v) => { props[k] = v; } } } };
+    if (!again) vm.runInContext("DLZMOD_fitDone = !1", ctx);
     ctx.DLZMOD_fitInit();
     return { added, props, listeners };
   };
@@ -4391,6 +4393,15 @@ test("phones: the fit only in a browser's layout, not on the mixer's screen or i
       const n = run(hash, isNode);
       assert.deepStrictEqual([n.added, n.props, n.listeners], [[], {}, []], `${hash} ${isNode}: untouched`);
     }
+    run("", false);
+    const twice = run("", false, true);
+    assert.deepStrictEqual([twice.added, twice.listeners], [[], []], "startGUI again: no second rule or listener");
+    // a screen whose document has no documentElement.style: logged, the start goes on
+    vm.runInContext("DLZMOD_fitDone = !1", ctx);
+    ctx.document = { createElement: () => ({}), head: { appendChild() {} }, documentElement: {} };
+    ctx.window = { innerWidth: 915, innerHeight: 412, location: { hash: "" }, addEventListener() {} };
+    ctx.$ENV = { isNode: false };
+    assert.doesNotThrow(() => ctx.DLZMOD_fitInit());
   } finally {
     Object.assign(ctx, { window: w0, document: d0, $ENV: e0 });
   }
