@@ -4659,3 +4659,41 @@ function DLZMOD_limClass() {
   };
   return DLZMOD_limClass.cls;
 }
+
+// #52: a phone or laptop (not the mixer's screen). Stock centres the 1024x600 canvas with a CSS
+// transform and read a touch as pageX - offsetLeft, which ignores it: every touch landed half a
+// canvas up and left of the finger. The touch's place in the canvas's box on the screen, in the
+// canvas's own pixels, as a mouse click already gets it (offsetX/Y), also with the fit below. The
+// mixer's own screen (glesgui), or a touch without the browser's measures: stock's sum, exactly
+function DLZMOD_touchXY(touch, el) {
+  if ((typeof $ENV !== "undefined" && $ENV && $ENV.isNode) || !el || typeof el.getBoundingClientRect !== "function"
+    || typeof touch.clientX !== "number" || typeof touch.clientY !== "number") {
+    return [touch.pageX - el.offsetLeft, touch.pageY - el.offsetTop];
+  }
+  const r = el.getBoundingClientRect();
+  return [(touch.clientX - r.left) * (r.width ? el.offsetWidth / r.width : 1),
+    (touch.clientY - r.top) * (r.height ? el.offsetHeight / r.height : 1)];
+}
+
+// the browser's layout scaled down to the window, so a phone shows the whole screen (landscape fits
+// best); never up, so a laptop sees it as before
+function DLZMOD_fitScale(w, h) {
+  return w > 0 && h > 0 ? Math.min(1, w / 1024, h / 600) : 1;
+}
+
+// only in the browser's layout: the mixer's own screen (glesgui) and the device layout (#INT, the
+// UI sandbox) as before. app.js reads the hash once at start, as here. `canvas.app`: index.html's
+// own .app rule comes after this one, so it needs the higher specificity
+function DLZMOD_fitInit() {
+  if (typeof window === "undefined" || typeof document === "undefined" || !document.head) return;
+  if (typeof $ENV !== "undefined" && $ENV && $ENV.isNode) return;
+  if (String(window.location && window.location.hash || "").toUpperCase() === "#INT") return;
+  const style = document.createElement("style");
+  style.textContent = "canvas.app{transform:translate(-50%,-50%) scale(var(--dlzmod-fit,1))}";
+  document.head.appendChild(style);
+  const fit = () => document.documentElement.style.setProperty("--dlzmod-fit",
+    String(DLZMOD_fitScale(window.innerWidth, window.innerHeight)));
+  fit();
+  window.addEventListener("resize", fit);
+}
+DLZMOD_fitInit();

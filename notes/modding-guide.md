@@ -292,6 +292,13 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
   stretch) with Chrome's DevTools protocol: `Emulation.setTouchEmulationEnabled`, a mobile viewport,
   `Input.dispatchTouchEvent` vs `Input.dispatchMouseEvent` at the same spot, and a wrapper around
   `Events.eventPointerDown` that logs the coordinates app.js receives.
+  The mod's fix [sandbox: emulated 915x412 and 412x915 touch, 800x500 and 1280x720 mouse]: a touch
+  is placed by the canvas's `getBoundingClientRect()` (patch "phones: a touch lands where the finger
+  is", `DLZMOD_touchXY`; the mixer's own screen keeps stock's sum), and in the browser's layout (not
+  `#INT`, not glesgui) a `canvas.app` rule scales the box by `--dlzmod-fit` = min(1, window/1024x600),
+  set on load and on every resize (`DLZMOD_fitInit`). Mouse needs nothing: `offsetX/Y` follows the
+  scale. Taps land within 1 UI px at every size; the device layout is untouched (1077 px wide with
+  the sandbox's stretch). A real Android phone and an iPhone: not yet.
 - Fonts match: the browser registers the same three Proxima Nova weights glesgui has
   (300/400/600). Stick to weights 300-600.
 - The panel has non-square pixels (7" 1024x600, 0.1506 x 0.1432 mm): the device shows everything

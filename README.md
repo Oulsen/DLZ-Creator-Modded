@@ -99,8 +99,8 @@ below. Most start as stock: turn on what you want; the few that are on from the 
 ### Network and remote control
 
 - Wi-Fi from the mixer's screen, with a USB Wi-Fi stick *(Network)*
-- Control the mixer from a computer's web browser, after pairing with a PIN *(Remote)*; phones and
-  tablets not yet
+- Control the mixer from a web browser on a computer, phone or tablet, after pairing with a PIN; on
+  a phone the whole screen fits (best held sideways) and touch lands where you tap *(Remote)*
 - Remote login (SSH), for support and tinkering *(Network)*
 
 ### Updates and safety

@@ -2,6 +2,8 @@
 
 ## v0.8.0
 
+- (DLZ BUG) Controlling the mixer from a phone does not work: touch does nothing and the screen does not fit
+
 ## v0.7.0
 
 - (DLZ FEATURE) Limiter and noise gate on the main output

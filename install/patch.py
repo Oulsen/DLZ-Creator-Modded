@@ -950,6 +950,13 @@ APP_PATCHES = [
         "this.text=this.state?$FA.check:null}}))})),this.types=[];",
         "this.text=this.state?$FA.check:null}}))})),DLZMOD_padSwatches(this.bclrs),this.types=[];",
     ),
+    (
+        # #52: stock reads a touch as pageX - offsetLeft, which ignores the canvas's centring
+        # transform (and the mod's fit to a phone): from the canvas's box on the screen instead
+        "phones: a touch lands where the finger is",
+        "let l=n.pageX-e.offsetLeft,h=n.pageY-e.offsetTop;",
+        "let[l,h]=DLZMOD_touchXY(n,e);",
+    ),
 ]
 
 SERVER_PATCHES = [
