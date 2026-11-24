@@ -4410,7 +4410,8 @@ test("phones: the fit only in a browser's layout, not on the mixer's screen or i
 });
 
 test("knob panel in a browser: shows the page's knobs and follows their keys, never sets the mixer's knobs (#51)", () => {
-  const saved = { app: ctx.app, LITE_MODE: ctx.LITE_MODE, IS_DEMO: ctx.IS_DEMO, E_PAGE: ctx.E_PAGE, EXTERNAL: ctx.EXTERNAL };
+  const saved = { app: ctx.app, LITE_MODE: ctx.LITE_MODE, IS_DEMO: ctx.IS_DEMO, E_PAGE: ctx.E_PAGE, EXTERNAL: ctx.EXTERNAL,
+    E_PAD_CONTROL_MODE: ctx.E_PAD_CONTROL_MODE };
   const sets = ui.sets.length;
   const p = { regs: [], updates: 0, tour: { v: null, setVisible(v) { this.v = v; } },
     unRegAllKeys() { this.regs = []; }, regKey(k) { this.regs.push(k); }, update() { this.updates++; } };
@@ -4422,6 +4423,12 @@ test("knob panel in a browser: shows the page's knobs and follows their keys, ne
     ctx.DLZMOD_panelShow(p, list);
     assert.strictEqual(p.data, list, "the page's own list");
     assert.deepStrictEqual(p.regs, ["a.0.mix", "a.1.mix", "v.0.mix", "v.1.mix"], "a level that changes on the mixer redraws it");
+    p.user = { keys: ["u.key"] };
+    ctx.DLZMOD_panelShow(p, [knob("a.0.mix")]);
+    assert.deepStrictEqual(p.regs, ["a.0.mix", "u.key"], "four or fewer: the user knob's keys followed too");
+    p.updates = 0;
+    p.user = {};
+    ctx.DLZMOD_panelShow(p, list);
     assert.deepStrictEqual([p.updates, p.tour.v], [1, false], "drawn; the tour button as stock leaves it");
     ctx.DLZMOD_panelShow(p, null);
     assert.deepStrictEqual([plain(p.data), p.regs], [[], []], "no knobs: an empty panel, nothing followed");

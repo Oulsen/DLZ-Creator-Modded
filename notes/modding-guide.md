@@ -276,7 +276,7 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
   A knob only drives keys in faderlink's own table, so a mod page's knobs go through a stand-in key
   (same note, "Knob stand-ins").
   These are shared hub keys: a panel in a browser would point the mixer's knobs at whatever page the
-  browser shows. So `SET_KNOBS`, `setData` and `setUser` all do nothing when `EXTERNAL`, and app.js
+  browser shows. So in stock `SET_KNOBS`, `setData` and `setUser` all do nothing when `EXTERNAL`, and app.js
   puts a 0-wide `Widget` where `RightPanel` would go (search `debugAlias:"panel"`). `#EXT` / `#INT`
   in the URL override the choice.
   The mod's browser panel (#51) [static; sandbox, XS and full-size: the browser's FX page shows

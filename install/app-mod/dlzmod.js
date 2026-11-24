@@ -4720,6 +4720,8 @@ function DLZMOD_panelShow(p, list) {
   p.data = list || [];
   p.unRegAllKeys();
   p.data.forEach((e) => e && e.keys && e.keys.forEach((k) => p.regKey(k)));
+  // the fifth box (the user knob), followed as stock's recallUser does, without its K.4 write
+  if (p.data.length < 5 && p.user && p.user.keys) p.user.keys.forEach((k) => p.regKey(k));
   if (p.tour) p.tour.setVisible(IS_DEMO() && !LITE_MODE && app.curPage === E_PAGE.OVERVIEW);
   p.update();
 }
