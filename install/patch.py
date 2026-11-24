@@ -958,6 +958,24 @@ APP_PATCHES = [
         "let l=n.pageX-e.offsetLeft,h=n.pageY-e.offsetTop;",
         "let[l,h]=DLZMOD_touchXY(n,e);",
     ),
+    (
+        # #51: a browser gets the knob panel too, of the page it shows. Stock leaves it out (a 0-wide
+        # Widget) because the panel also points the mixer's knobs (K.0-4.*) at its page; in a
+        # browser the panel only shows (DLZMOD_panelShow), so its K.* writes never happen there
+        "knob panel in the browser: the panel itself",
+        't.panel=EXTERNAL?new Widget(t,{anchors:[null,t.topBar,0,0],w:0,debugAlias:"panel"}):new RightPanel(',
+        "t.panel=new RightPanel(",
+    ),
+    (
+        "knob panel in the browser: the pages hand it their knobs",
+        "SET_KNOBS=t=>{EXTERNAL||app.panel&&app.panel.setData(t)}",
+        "SET_KNOBS=t=>{app.panel&&app.panel.setData&&app.panel.setData(t)}",
+    ),
+    (
+        "knob panel in the browser: it shows them, never sets the mixer's knobs",
+        "setData(t){if(!EXTERNAL){LITE_MODE&&",
+        "setData(t){if(EXTERNAL)return DLZMOD_panelShow(this,t);if(!EXTERNAL){LITE_MODE&&",
+    ),
 ]
 
 SERVER_PATCHES = [

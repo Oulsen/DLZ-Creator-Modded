@@ -264,8 +264,9 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
   switch is refused from http://localhost (the pretend phone's page).
 
 - **Device layout by default.** In a browser app.js runs as a remote control
-  (`EXTERNAL = !$ENV.isNode`): no knob panel on the right, so tabs and pages get 86 px more width
-  and the nav bar shows an empty slot. The shim makes `/index.html` always open with `#INT`
+  (`EXTERNAL = !$ENV.isNode`): stock has no knob panel on the right there, so tabs and pages get
+  86 px more width and the nav bar shows an empty slot; the mod gives the browser the panel back
+  (#51, below), so its layout is the device's. The shim makes `/index.html` always open with `#INT`
   (on-device layout). A design that fits in remote mode can overflow on the device (Settings is
   938 px wide there). On a real mixer, phone/laptop browsers stay in remote mode; check mods there too.
 - **Why remote mode has no knob panel** [static, app.js]: the panel (`RightPanel`) is not only a
@@ -275,10 +276,16 @@ Fallback, the whole rootfs: on Linux, mount partition 1 read-only and read `/var
   A knob only drives keys in faderlink's own table, so a mod page's knobs go through a stand-in key
   (same note, "Knob stand-ins").
   These are shared hub keys: a panel in a browser would point the mixer's knobs at whatever page the
-  browser shows. So `SET_KNOBS`, `setData` and `setUser` all do nothing when `EXTERNAL`, and app.js
+  browser shows. So in stock `SET_KNOBS`, `setData` and `setUser` all do nothing when `EXTERNAL`, and app.js
   puts a 0-wide `Widget` where `RightPanel` would go (search `debugAlias:"panel"`). `#EXT` / `#INT`
-  in the URL override the choice. A browser panel would have to be display-only (read `K.N.key`,
-  never write it).
+  in the URL override the choice.
+  The mod's browser panel (#51) [static; sandbox, XS and full-size: the browser's FX page shows
+  Reverb's four knobs while the mixer's `K.0-4.key` stay on the Overview's]: `startGUI` builds the
+  real `RightPanel` in a browser too, `SET_KNOBS` hands it every page's list, and its `setData` in a
+  browser goes to `DLZMOD_panelShow`: the list and its keys only (names, levels, live through
+  `regKey`), none of stock's `K.*` writes; `setUser` already skips them when `EXTERNAL`. It shows the
+  browser's own page, not the mixer's (the maintainer's choice: the mixer's page would need a name
+  for every key a knob can get). A tap on a box opens that phones mix's page in the browser only.
 - **Phones: touch misses and the screen does not fit** (#52) [static, reproduced in the sandbox with
   headless Chrome, Android UA, 915x412 touch emulation; Chrome on Android: "touch does nothing"].
   `index.html` centres the canvas with `left/top: 50%` + `transform: translate(-50%,-50%)`.

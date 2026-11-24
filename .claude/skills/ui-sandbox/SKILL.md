@@ -63,7 +63,7 @@ All from the repo root in Git Bash; `S=.claude/skills/ui-sandbox/sandbox.sh`.
   after the last tap
 - The paired browser (started with `DLZ_SANDBOX_REMOTE=1`): `T=$(node dev/ui-sandbox/pair.js)`, then
   `DLZ_SHOT_URL=http://localhost/ DLZ_SHOT_COOKIE=$T node dev/ui-sandbox/shot.js ...` (browser
-  layout, no knob panel: Media tab `505,60`). `DLZ_SHOT_DOWNLOADS=<folder>` keeps its downloads
+  layout: Media tab `505,60`). `DLZ_SHOT_DOWNLOADS=<folder>` keeps its downloads
 - Look at the PNG with the Read tool before saying a change looks right; `build/` is git-ignored
 
 ## Stop
